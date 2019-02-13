@@ -25,31 +25,15 @@ import numpy as np
 from tqdm import tqdm
 from tqdm._utils import _term_move_up
 
-from megalodon import decode
+from megalodon import decode, backends, megalodon_helper as mh
 
 
-ALPHABET = 'ACGT'
-MOD_ALPHABET = 'ACGTZ'
-COLL_5MC_ALPHABET = 'ACGTC'
-DEFAULT_ALPHABET = ALPHABET
 COMP_BASES = dict(zip(map(ord, 'ACGT'), map(ord, 'TGCA')))
 DEFAULT_CONTEXT_BASES = 10
 DEFAULT_EDGE_BUFFER = 5
 
 MAP_POS = namedtuple('MAP_POS', (
     'chrm', 'strand', 'start', 'end', 'q_trim_start', 'q_trim_end'))
-
-# model type specific information
-TAI_NAME = 'taiyaki'
-TAI_MODEL = namedtuple('TAI_MODEL', (
-    'fn', 'is_cat_mod', 'alphabet', 'collapse_alphabet', 'output_size',
-    'device', 'model', 'model_type'))
-TAI_MODEL.__new__.__defaults__ = (None, TAI_NAME)
-FLP_NAME = 'flappie'
-FLP_MODEL = namedtuple('FLP_MODEL', (
-    'name', 'is_cat_mod', 'alphabet', 'collapse_alphabet', 'output_size',
-    'model_type'))
-FLP_MODEL.__new__.__defaults__ = (FLP_NAME, )
 
 SINGLE_LETTER_CODE = {
     'A':'A', 'C':'C', 'G':'G', 'T':'T', 'B':'[CGT]',
@@ -83,110 +67,6 @@ class alignerPlus(mappy.Aligner):
     out_fmt = None
     ref_fn = None
     pass
-
-class MegaError(Exception):
-    """ Custom megalodon error for more graceful error handling
-    """
-    pass
-
-
-##############################
-###### Argument Parsing ######
-##############################
-
-def get_parser():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        'fast5s_dir',
-        help='Directory containing raw fast5 (will be searched recursively).')
-
-    mdl_grp = parser.add_argument_group('Model Arguments')
-    mdl_grp.add_argument(
-        '--taiyaki-model-filename',
-        help='Taiyaki model checkpoint file.')
-    mdl_grp.add_argument(
-        '--flappie-model-name',
-        help='Flappie model name.')
-
-    out_grp = parser.add_argument_group('Output Arguments')
-    out_grp.add_argument(
-        '--outputs', nargs='+',
-        default=['basecalls',], choices=tuple(OUTPUT_FNS.keys()),
-        help='Output type(s) to produce. Default: %(default)s')
-    out_grp.add_argument(
-        '--output-directory',
-        default='megalodon_results',
-        help='Directory to store output results. Default: %(default)s')
-    out_grp.add_argument(
-        '--overwrite', action='store_true',
-        help='Overwrite output directory if it exists.')
-    out_grp.add_argument(
-        '--num-reads', type=int,
-        help='Number of reads to process. Default: All reads')
-
-    bc_grp = parser.add_argument_group('Basecall Arguments')
-    bc_grp.add_argument(
-        '--basecalls-format', choices=BC_OUT_FMTS, default=BC_OUT_FMTS[0],
-        help='Basecalls output format. Choices: {}'.format(
-            ', '.join(BC_OUT_FMTS)))
-
-    map_grp = parser.add_argument_group('Mapping Arguments')
-    map_grp.add_argument(
-        '--reference',
-        help='Reference FASTA file used for mapping called reads.')
-    bc_grp.add_argument(
-        '--mappings-format', choices=MAP_OUT_FMTS, default=MAP_OUT_FMTS[0],
-        help='Mappings output format. Choices: {}'.format(
-            ', '.join(MAP_OUT_FMTS)))
-
-    snp_grp = parser.add_argument_group('SNP Arguments')
-    snp_grp.add_argument(
-        '--snp-filename',
-        help='SNPs to call for each read in VCF format (required for output).')
-    snp_grp.add_argument(
-        '--prepend-chr-vcf', action='store_true',
-        help='Prepend "chr" to chromosome names from VCF to match ' +
-        'reference names.')
-    snp_grp.add_argument(
-        '--max-snp-size', type=int, default=5,
-        help='Maximum difference in number of reference and alternate bases. ' +
-        'Default: %(default)d')
-    snp_grp.add_argument(
-        '--snp-all-paths', action='store_true',
-        help='Compute forwards algorithm all paths score. (Default: Viterbi ' +
-        'best-path score)')
-
-    mod_grp = parser.add_argument_group('Modified Base Arguments')
-    mod_grp.add_argument(
-        '--mod-motifs', nargs='+',
-        help='Restrict modified base calls to specified motifs. Format as ' +
-        '"[mod_base]:[motif]-[relative_pos]". For CpG, dcm and dam calling ' +
-        'use "Z:CG-0 Z:CCWGG-1 Y:GATC-1". Default call all valid positions.')
-    mod_grp.add_argument(
-        '--mod-all-paths', action='store_true',
-        help='Compute forwards algorithm all paths score for modified base ' +
-        'calls. (Default: Viterbi best-path score)')
-
-    misc_grp = parser.add_argument_group('Miscellaneous Arguments')
-    misc_grp.add_argument(
-        '--override-alphabet', nargs=2,
-        help='Override alphabet and collapse alphabet from model.')
-    misc_grp.add_argument(
-        '--prepend-chr-ref', action='store_true',
-        help='Prepend "chr" to chromosome names from reference to match ' +
-        'VCF names.')
-    misc_grp.add_argument(
-        '--num-errors', type=int, default=3,
-        help='Number of most common failed read types to include. ' +
-        'Default: %(default)d')
-    misc_grp.add_argument(
-        '--processes', type=int, default=1,
-        help='Number of parallel processes. Default: %(default)d')
-    misc_grp.add_argument(
-        '--device', default=None, type=int,
-        help='CUDA device to use (only valid for taiyaki), or None to use CPU')
-
-    return parser
 
 
 #############################
@@ -226,17 +106,17 @@ def extract_read_data(fast5_fn, scale=True):
     try:
         fast5_data = h5py.File(fast5_fn, 'r')
     except:
-        raise MegaError('Error opening read file')
+        raise mh.MegaError('Error opening read file')
     try:
         raw_slot = next(iter(fast5_data['/Raw/Reads'].values()))
     except:
         fast5_data.close()
-        raise MegaError('Raw signal not found in /Raw/Reads slot')
+        raise mh.MegaError('Raw signal not found in /Raw/Reads slot')
     try:
         raw_sig = raw_slot['Signal'][:].astype(np.float32)
     except:
         fast5_data.close()
-        raise MegaError('Raw signal not found in Signal dataset')
+        raise mh.MegaError('Raw signal not found in Signal dataset')
     read_id = None
     try:
         read_id = raw_slot.attrs.get('read_id')
@@ -337,7 +217,7 @@ def map_read(r_seq, read_id, caller_conn):
     caller_conn.send((r_seq, read_id))
     r_ref_seq, r_algn = caller_conn.recv()
     if r_ref_seq is None:
-        raise MegaError('No alignment')
+        raise mh.MegaError('No alignment')
     chrm, strand, r_st, r_en, q_st, q_en, r_cigar = r_algn
 
     r_to_q_poss = parse_cigar(r_cigar, strand)
@@ -359,7 +239,7 @@ def encode_snp_seq(seq):
     """
     if seq == '':
         return 0
-    return sum((ALPHABET.find(b) + 1) * (5 ** i)
+    return sum((mh.ALPHABET.find(b) + 1) * (5 ** i)
                for i, b in enumerate(seq[::-1]))
 
 def decode_snp_seq(val):
@@ -370,8 +250,8 @@ def decode_snp_seq(val):
     seq = ''
     for bi in np.base_repr(val, 5):
         if bi == '0':
-            raise MegaError('Invalid SNP seq encoding')
-        seq += ALPHABET[int(bi) - 1]
+            raise mh.MegaError('Invalid SNP seq encoding')
+        seq += mh.ALPHABET[int(bi) - 1]
     return seq
 
 def simplify_and_encode_snp(snp_ref_seq, snp_alt_seq, ref_pos, max_snp_size):
@@ -381,15 +261,15 @@ def simplify_and_encode_snp(snp_ref_seq, snp_alt_seq, ref_pos, max_snp_size):
     snp_alt_seq = snp_alt_seq.upper()
     # handle cases containing non-canonical base values (e.g. dash for deletion;
     # assume this means full ref or alt deletion)
-    if not all(rb in ALPHABET for rb in snp_ref_seq):
-        if not all(ab in ALPHABET for ab in snp_alt_seq):
-            raise MegaError('Invalid SNP')
+    if not all(rb in mh.ALPHABET for rb in snp_ref_seq):
+        if not all(ab in mh.ALPHABET for ab in snp_alt_seq):
+            raise mh.MegaError('Invalid SNP')
         if len(snp_alt_seq) > max_snp_size:
-            raise MegaError('SNP too long')
+            raise mh.MegaError('SNP too long')
         return 0, encode_snp_seq(snp_alt_seq), ref_pos
-    elif not all(ab in ALPHABET for ab in snp_alt_seq):
+    elif not all(ab in mh.ALPHABET for ab in snp_alt_seq):
         if len(snp_ref_seq) > max_snp_size:
-            raise MegaError('SNP too long')
+            raise mh.MegaError('SNP too long')
         return encode_snp_seq(snp_ref_seq), 0, ref_pos
 
     # trim base positions that are equal
@@ -403,10 +283,10 @@ def simplify_and_encode_snp(snp_ref_seq, snp_alt_seq, ref_pos, max_snp_size):
         snp_ref_seq = snp_ref_seq[:-1]
         snp_alt_seq = snp_alt_seq[:-1]
     if len(snp_ref_seq) == 0 and len(snp_alt_seq) == 0:
-        raise MegaError('Invalid SNP')
+        raise mh.MegaError('Invalid SNP')
 
     if np.abs(len(snp_ref_seq) - len(snp_alt_seq)) > max_snp_size:
-        raise MegaError('SNP too long')
+        raise mh.MegaError('SNP too long')
     return encode_snp_seq(snp_ref_seq), encode_snp_seq(snp_alt_seq), ref_pos
 
 def get_overlapping_snps(r_ref_pos, snps_to_test, edge_buffer):
@@ -418,12 +298,12 @@ def get_overlapping_snps(r_ref_pos, snps_to_test, edge_buffer):
     try:
         chrm_poss, chrm_ref_es, chrm_alt_es = snps_to_test[r_ref_pos.chrm]
     except KeyError:
-        raise MegaError(
+        raise mh.MegaError(
             'No SNPs on mapped chromosome/record (see --prepend-chr-*)')
     start_idx, end_idx = np.searchsorted(
         chrm_poss, (r_ref_pos.start + edge_buffer, r_ref_pos.end - edge_buffer))
     if start_idx >= end_idx:
-        raise MegaError('No overlapping SNPs')
+        raise mh.MegaError('No overlapping SNPs')
 
     for pos, ref_es, alt_es, snp_id in zip(chrm_poss[start_idx:end_idx],
                                            chrm_ref_es[start_idx:end_idx],
@@ -506,7 +386,7 @@ def call_read_mods(
             post_mapped_start + blk_start, post_mapped_start + blk_end,
             alphabet_info.mod_all_paths)
         if loc_ref_score is None or loc_alt_score is None:
-            raise MegaError('Score computation error (memory error)')
+            raise mh.MegaError('Score computation error (memory error)')
 
         m_ref_pos = (pos + r_ref_pos.start if r_ref_pos.strand == 1 else
                      r_ref_pos.end - pos - 1)
@@ -543,12 +423,12 @@ def call_read_snps(
         pos_ref_seq = r_ref_seq[r_snp_pos - pos_bb:
                                 r_snp_pos + pos_ab + len(snp_ref_seq)]
         if any(pos_ref_seq[pos_bb:pos_bb + len(snp_ref_seq)] !=
-               np.array([ALPHABET.find(b) for b in snp_ref_seq])):
-            raise MegaError(
+               np.array([mh.ALPHABET.find(b) for b in snp_ref_seq])):
+            raise mh.MegaError(
                 'Reference SNP sequence does not match reference FASTA.')
         pos_alt_seq = np.concatenate([
             pos_ref_seq[:pos_bb],
-            np.array([ALPHABET.find(b) for b in snp_alt_seq], dtype=np.uintp),
+            np.array([mh.ALPHABET.find(b) for b in snp_alt_seq], dtype=np.uintp),
             pos_ref_seq[pos_bb + len(snp_ref_seq):]])
         blk_start, blk_end = (rl_cumsum[r_to_q_poss[r_snp_pos - pos_bb]],
                               rl_cumsum[r_to_q_poss[r_snp_pos + pos_ab]])
@@ -563,7 +443,7 @@ def call_read_snps(
             r_post, pos_alt_seq, post_mapped_start + blk_start,
             post_mapped_start + blk_end, all_paths)
         if loc_ref_score is None or loc_alt_score is None:
-            raise MegaError('Score computation error (memory error)')
+            raise mh.MegaError('Score computation error (memory error)')
 
         snp_ref_pos = (r_snp_pos + r_ref_pos.start if r_ref_pos.strand == 1 else
                        r_ref_pos.end - r_snp_pos - len(snp_ref_seq))
@@ -573,8 +453,8 @@ def call_read_snps(
                               revcomp(snp_alt_seq))
         if len(fwd_strand_ref_seq) == 0 or len(fwd_strand_alt_seq) == 0:
             fwd_ref_base = (
-                ALPHABET[r_ref_seq[pos_bb - 1]] if r_ref_pos.strand == 1 else
-                revcomp(ALPHABET[r_ref_seq[pos_bb + len(snp_ref_seq)]]))
+                mh.ALPHABET[r_ref_seq[pos_bb - 1]] if r_ref_pos.strand == 1 else
+                revcomp(mh.ALPHABET[r_ref_seq[pos_bb + len(snp_ref_seq)]]))
             fwd_strand_ref_seq = fwd_ref_base + fwd_strand_ref_seq
             fwd_strand_alt_seq = fwd_ref_base + fwd_strand_alt_seq
         r_snp_calls.append((
@@ -603,7 +483,7 @@ def rle(x, tol=0):
 
     return x[starts], runlength
 
-def decode_post(r_post, collapse_alphabet=DEFAULT_ALPHABET):
+def decode_post(r_post, collapse_alphabet=mh.ALPHABET):
     """Decode a posterior using Viterbi algorithm for transducer.
     :param r_post: numpy array containing transducer posteriors.
     :param collapse_alphabet: alphabet corresponding to flip-flop labels.
@@ -612,7 +492,7 @@ def decode_post(r_post, collapse_alphabet=DEFAULT_ALPHABET):
     nblock, nstate = r_post.shape[:2]
     nbase = len(set(collapse_alphabet))
     if nbase != nstate_to_nbase(nstate):
-        raise MegaError(
+        raise mh.MegaError(
             'Incompatible decoding alphabet and posterior states.')
 
     path = np.zeros(nblock + 1, dtype=np.uintp)
@@ -625,49 +505,15 @@ def decode_post(r_post, collapse_alphabet=DEFAULT_ALPHABET):
 
     return basecall, score, runlen
 
-def run_model(raw_sig, model_info, n_can_state=None):
-    if model_info.model_type == TAI_NAME:
-        with torch.no_grad():
-            raw_sig_t = torch.from_numpy(
-                raw_sig[:,np.newaxis,np.newaxis]).to(model_info.device)
-            try:
-                trans_weights = model_info.model(
-                    raw_sig_t).squeeze().cpu().numpy()
-            except AttributeError:
-                raise MegaError('Out of date or incompatible model')
-            except RuntimeError:
-                raise MegaError('Likely out of memory error.')
-        if model_info.device != torch.device('cpu'):
-            torch.cuda.empty_cache()
-        if n_can_state is not None:
-            trans_weights = (
-                np.ascontiguousarray(trans_weights[:,:n_can_state]),
-                np.ascontiguousarray(trans_weights[:,n_can_state:]))
-    elif model_info.model_type == FLP_NAME:
-        rt = flappy.RawTable(raw_sig).trim().scale()
-        # flappy will return split bc and mods based on model
-        trans_weights = flappy.calc_post(rt, model_info.name)
-        # convert base call weights from FlappieMatrix to numpy
-        if model_info.is_cat_mod:
-            trans_weights = (
-                trans_weights[0].data(as_numpy=True), trans_weights[1])
-        else:
-            trans_weights = trans_weights.data(as_numpy=True)
-    else:
-        sys.stderr.write('Invalid model type.\n')
-        sys.exit()
-
-    return trans_weights
-
 def process_read(
         raw_sig, read_id, model_info, bc_q, caller_conn, snps_to_test,
         snp_all_paths, snps_q, mods_q, alphabet_info,
         context_bases=DEFAULT_CONTEXT_BASES, edge_buffer=DEFAULT_EDGE_BUFFER):
     if model_info.is_cat_mod:
-        bc_weights, mod_weights = run_model(
-            raw_sig, model_info, alphabet_info.n_can_state)
+        bc_weights, mod_weights = model_info.run_model(
+            raw_sig, alphabet_info.n_can_state)
     else:
-        bc_weights = run_model(raw_sig, model_info)
+        bc_weights = model_info.run_model(raw_sig)
 
     r_post = decode.crf_flipflop_trans_post(bc_weights, log=True)
     r_seq, score, runlen = decode_post(r_post, alphabet_info.collapse_alphabet)
@@ -679,7 +525,8 @@ def process_read(
 
     # map read and record mapping from reference to query positions
     r_ref_seq, r_to_q_poss, r_ref_pos = map_read(r_seq, read_id, caller_conn)
-    np_ref_seq = np.array([ALPHABET.find(b) for b in r_ref_seq], dtype=np.uintp)
+    np_ref_seq = np.array([
+        mh.ALPHABET.find(b) for b in r_ref_seq], dtype=np.uintp)
 
     # get mapped start in post and run len to mapped bit of output
     post_mapped_start = sum(runlen[:r_ref_pos.q_trim_start])
@@ -694,7 +541,7 @@ def process_read(
                     np_ref_seq, rl_cumsum, r_to_q_poss, r_post,
                     post_mapped_start, snp_all_paths),
                 (read_id, r_ref_pos.chrm, r_ref_pos.strand)))
-        except MegaError:
+        except mh.MegaError:
             pass
     if mods_q is not None:
         r_post_w_mods = np.concatenate([r_post, mod_weights], axis=1)
@@ -705,7 +552,7 @@ def process_read(
                     np_ref_seq, rl_cumsum, r_to_q_poss, r_post_w_mods,
                     post_mapped_start, alphabet_info),
                 (read_id, r_ref_pos.chrm, r_ref_pos.strand)))
-        except MegaError:
+        except mh.MegaError:
             pass
 
     return
@@ -826,7 +673,7 @@ def _get_map_queue(
     elif map_fmt == 'cram': w_mode = 'wc'
     elif map_fmt == 'sam': w_mode = 'w'
     else:
-        raise MegaError('Invalid mapping output format\n')
+        raise mh.MegaError('Invalid mapping output format\n')
     map_fp = pysam.AlignmentFile(
         map_fn, w_mode, reference_names=ref_names_and_lens[0],
         reference_lengths=ref_names_and_lens[1], reference_filename=ref_fn)
@@ -895,17 +742,7 @@ def _fill_files_queue(fast5_q, fast5_fns, num_ts):
 def _process_reads_worker(
         fast5_q, bc_q, mo_q, snps_q, failed_reads_q, model_info, caller_conn,
         snps_to_test, snp_all_paths, alphabet_info, mods_q):
-    if model_info.model_type == TAI_NAME:
-        # setup for taiyaki model
-        model = load_taiyaki_model(model_info.fn)
-        if model_info.device is not None:
-            device = torch.device(model_info.device)
-            torch.cuda.set_device(device)
-            model = model.cuda()
-        else:
-            device = torch.device('cpu')
-        model = model.eval()
-        model_info = model_info._replace(device=device, model=model)
+    model_info.prep_model_worker()
 
     while True:
         try:
@@ -928,7 +765,7 @@ def _process_reads_worker(
         except KeyboardInterrupt:
             failed_reads_q.put((True, 'Keyboard interrupt', fast5_fn, None))
             return
-        except MegaError as e:
+        except mh.MegaError as e:
             failed_reads_q.put((True, str(e), fast5_fn, None))
         except:
             failed_reads_q.put((
@@ -962,12 +799,16 @@ def format_fail_summ(header, fail_summ=[], num_reads=0, num_errs=None):
         '     -----' for n_fns, err in summ_errs)
     return '\n'.join((header, errs_str))
 
-def prep_errors_bar(num_update_errors, tot_reads):
+def prep_errors_bar(num_update_errors, tot_reads, suppress_progress):
     if num_update_errors > 0:
         # add lines for dynamic error messages
         sys.stderr.write(
             '\n'.join(['' for _ in range(num_update_errors + 2)]))
-    bar = tqdm(total=tot_reads, smoothing=0)
+    bar, prog_prefix, bar_header = None, None, None
+    if suppress_progress:
+        num_update_errors = 0
+    else:
+        bar = tqdm(total=tot_reads, smoothing=0)
     if num_update_errors > 0:
         prog_prefix = ''.join(
             [_term_move_up(),] * (num_update_errors + 1)) + '\r'
@@ -979,12 +820,13 @@ def prep_errors_bar(num_update_errors, tot_reads):
 
     return bar, prog_prefix, bar_header
 
-def _get_fail_queue(failed_reads_q, f_conn, tot_reads, num_update_errors=0):
+def _get_fail_queue(
+        failed_reads_q, f_conn, tot_reads, num_update_errors,
+        suppress_progress):
     reads_called = 0
     failed_reads = defaultdict(list)
-    if num_update_errors > 0:
-        bar, prog_prefix, bar_header = prep_errors_bar(
-            num_update_errors, tot_reads)
+    bar, prog_prefix, bar_header = prep_errors_bar(
+        num_update_errors, tot_reads, suppress_progress)
     while True:
         try:
             is_err, err_type, fast5_fn, err_tb = failed_reads_q.get(block=False)
@@ -1001,7 +843,7 @@ def _get_fail_queue(failed_reads_q, f_conn, tot_reads, num_update_errors=0):
                             fast5_fn + '\n:::\n' + err_tb + '\n\n\n')
                         unexp_err_fp.flush()
 
-            if num_update_errors > 0: bar.update(1)
+            if not suppress_progress: bar.update(1)
             reads_called += 1
             if num_update_errors > 0:
                 bar.write(prog_prefix + format_fail_summ(
@@ -1019,7 +861,7 @@ def _get_fail_queue(failed_reads_q, f_conn, tot_reads, num_update_errors=0):
                 return
             continue
 
-    if num_update_errors > 0: bar.close()
+    if not suppress_progress: bar.close()
     if len(failed_reads[_UNEXPECTED_ERROR_CODE]) >= 1:
         sys.stderr.write((
             '******* WARNING *******\n\tUnexpected errors occured. See full ' +
@@ -1035,7 +877,8 @@ def _get_fail_queue(failed_reads_q, f_conn, tot_reads, num_update_errors=0):
 
 def process_all_reads(
         fast5s_dir, num_reads, model_info, outputs, out_dir, bc_fmt, aligner,
-        add_chr_ref, snps_data, num_ts, num_update_errors, alphabet_info):
+        add_chr_ref, snps_data, num_ts, num_update_errors, suppress_progress,
+        alphabet_info):
     def create_getter_q(getter_func, args):
         q = mp.Queue(maxsize=_MAX_QUEUE_SIZE)
         main_conn, conn = mp.Pipe()
@@ -1058,7 +901,8 @@ def process_all_reads(
     files_p.start()
     # progress and failed reads getter
     failed_reads_q, f_p, main_f_conn = create_getter_q(
-            _get_fail_queue, (len(fast5_fns), num_update_errors))
+            _get_fail_queue, (len(fast5_fns), num_update_errors,
+                              suppress_progress))
 
     # start output type getters/writers
     (bc_q, bc_p, main_bc_conn, mo_q, mo_p, main_mo_conn, snps_q, snps_p,
@@ -1165,7 +1009,7 @@ class Snps(object):
                 try:
                     ref_es, alt_es, pos = simplify_and_encode_snp(
                         ref_seq, alt_seq, int(pos), max_snp_size)
-                except MegaError:
+                except mh.MegaError:
                     n_skipped_snps += 1
                     continue
                 raw_snps_to_test[chrm][(pos, ref_es, alt_es)].append(snp_id)
@@ -1277,53 +1121,6 @@ class AlphabetInfo(object):
 
         return
 
-def parse_model_info(args):
-    if args.taiyaki_model_filename is not None:
-        global load_taiyaki_model, GlobalNormFlipFlopCatMod, torch
-        from taiyaki.helpers import load_model as load_taiyaki_model
-        from taiyaki.layers import GlobalNormFlipFlopCatMod
-        import torch
-        model = load_taiyaki_model(args.taiyaki_model_filename)
-        is_cat_mod = isinstance(model.sublayers[-1], GlobalNormFlipFlopCatMod)
-        output_size = model.sublayers[-1].size
-        try:
-            alphabet = model.alphabet
-            collapse_alphabet = model.collapse_alphabet
-        except AttributeError:
-            alphabet = DEFAULT_ALPHABET
-            collapse_alphabet = DEFAULT_ALPHABET
-        model_info = TAI_MODEL(
-            fn=args.taiyaki_model_filename, is_cat_mod=is_cat_mod,
-            alphabet=alphabet, collapse_alphabet=collapse_alphabet,
-            output_size=output_size, device=args.device)
-    elif args.flappie_model_name is not None:
-        global flappy
-        import flappy
-        # compiled flappie models require hardcoding or running fake model
-        if args.flappie_model_name in ('r941_cat_mod_5mC', 'r941_5mC'):
-            alphabet = MOD_ALPHABET
-            collapse_alphabet = COLL_5MC_ALPHABET
-            if args.flappie_model_name == 'r941_cat_mod_5mC':
-                is_cat_mod = True
-                output_size = 42
-            else:
-                is_cat_mod = False
-                output_size = 60
-        else:
-            is_cat_mod = False
-            alphabet = ALPHABET
-            collapse_alphabet = ALPHABET
-            output_size = 40
-        model_info = FLP_MODEL(
-            name=args.flappie_model_name, is_cat_mod=is_cat_mod,
-            alphabet=alphabet, collapse_alphabet=collapse_alphabet,
-            output_size=output_size)
-    else:
-        sys.stderr.write('ERROR: Invalid model specification.\n')
-        sys.exit(1)
-
-    return model_info
-
 def mkdir(out_dir, overwrite):
     if os.path.exists(out_dir):
         if not overwrite:
@@ -1344,6 +1141,109 @@ def mkdir(out_dir, overwrite):
 ########## Main ##########
 ##########################
 
+##############################
+###### Argument Parsing ######
+##############################
+
+def get_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        'fast5s_dir',
+        help='Directory containing raw fast5 (will be searched recursively).')
+
+    mdl_grp = parser.add_argument_group('Model Arguments')
+    mdl_grp.add_argument(
+        '--taiyaki-model-filename',
+        help='Taiyaki model checkpoint file.')
+    mdl_grp.add_argument(
+        '--flappie-model-name',
+        help='Flappie model name.')
+
+    out_grp = parser.add_argument_group('Output Arguments')
+    out_grp.add_argument(
+        '--outputs', nargs='+',
+        default=['basecalls',], choices=tuple(OUTPUT_FNS.keys()),
+        help='Output type(s) to produce. Default: %(default)s')
+    out_grp.add_argument(
+        '--output-directory',
+        default='megalodon_results',
+        help='Directory to store output results. Default: %(default)s')
+    out_grp.add_argument(
+        '--overwrite', action='store_true',
+        help='Overwrite output directory if it exists.')
+    out_grp.add_argument(
+        '--num-reads', type=int,
+        help='Number of reads to process. Default: All reads')
+
+    bc_grp = parser.add_argument_group('Basecall Arguments')
+    bc_grp.add_argument(
+        '--basecalls-format', choices=BC_OUT_FMTS, default=BC_OUT_FMTS[0],
+        help='Basecalls output format. Choices: {}'.format(
+            ', '.join(BC_OUT_FMTS)))
+
+    map_grp = parser.add_argument_group('Mapping Arguments')
+    map_grp.add_argument(
+        '--reference',
+        help='Reference FASTA file used for mapping called reads.')
+    bc_grp.add_argument(
+        '--mappings-format', choices=MAP_OUT_FMTS, default=MAP_OUT_FMTS[0],
+        help='Mappings output format. Choices: {}'.format(
+            ', '.join(MAP_OUT_FMTS)))
+
+    snp_grp = parser.add_argument_group('SNP Arguments')
+    snp_grp.add_argument(
+        '--snp-filename',
+        help='SNPs to call for each read in VCF format (required for output).')
+    snp_grp.add_argument(
+        '--prepend-chr-vcf', action='store_true',
+        help='Prepend "chr" to chromosome names from VCF to match ' +
+        'reference names.')
+    snp_grp.add_argument(
+        '--max-snp-size', type=int, default=5,
+        help='Maximum difference in number of reference and alternate bases. ' +
+        'Default: %(default)d')
+    snp_grp.add_argument(
+        '--snp-all-paths', action='store_true',
+        help='Compute forwards algorithm all paths score. (Default: Viterbi ' +
+        'best-path score)')
+
+    mod_grp = parser.add_argument_group('Modified Base Arguments')
+    mod_grp.add_argument(
+        '--mod-motifs', nargs='+',
+        help='Restrict modified base calls to specified motifs. Format as ' +
+        '"[mod_base]:[motif]-[relative_pos]". For CpG, dcm and dam calling ' +
+        'use "Z:CG-0 Z:CCWGG-1 Y:GATC-1". Default call all valid positions.')
+    mod_grp.add_argument(
+        '--mod-all-paths', action='store_true',
+        help='Compute forwards algorithm all paths score for modified base ' +
+        'calls. (Default: Viterbi best-path score)')
+
+    misc_grp = parser.add_argument_group('Miscellaneous Arguments')
+    misc_grp.add_argument(
+        '--override-alphabet', nargs=2,
+        help='Override alphabet and collapse alphabet from model.')
+    misc_grp.add_argument(
+        '--prepend-chr-ref', action='store_true',
+        help='Prepend "chr" to chromosome names from reference to match ' +
+        'VCF names.')
+    misc_grp.add_argument(
+        '--suppress-progress', action='store_true',
+        help='Suppress progress bar output.')
+    misc_grp.add_argument(
+        '--verbose-read-progress', type=int, default=0,
+        help='Output verbose output on read progress. Outputs N most ' +
+        'common points where reads could not be processed further. ' +
+        'Default: %(default)d')
+    misc_grp.add_argument(
+        '--processes', type=int, default=1,
+        help='Number of parallel processes. Default: %(default)d')
+    misc_grp.add_argument(
+        '--device', default=None, type=int,
+        help='CUDA device to use (only valid for taiyaki), or None to use CPU')
+
+    return parser
+
+
 def _main():
     args = get_parser().parse_args()
     if _DO_PROFILE:
@@ -1357,7 +1257,8 @@ def _main():
             '*' * 100 + '\nWARNING: ' + msg + '\n' + '*' * 100 + '\n')
 
     mkdir(args.output_directory, args.overwrite)
-    model_info = parse_model_info(args)
+    model_info = backends.ModelInfo(
+        args.flappie_model_name, args.taiyaki_model_filename, args.device)
 
     alphabet_info = AlphabetInfo(
         model_info, args.mod_motifs, args.mod_all_paths, args.override_alphabet)
@@ -1424,7 +1325,8 @@ def _main():
     process_all_reads(
         args.fast5s_dir, args.num_reads, model_info, args.outputs,
         args.output_directory, args.basecalls_format, aligner,
-        args.prepend_chr_ref, snps_data, args.processes, args.num_errors,
+        args.prepend_chr_ref, snps_data, args.processes,
+        args.verbose_read_progress, args.suppress_progress,
         alphabet_info)
 
     return
