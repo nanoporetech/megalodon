@@ -1185,7 +1185,7 @@ def get_parser():
     map_grp.add_argument(
         '--reference',
         help='Reference FASTA file used for mapping called reads.')
-    bc_grp.add_argument(
+    map_grp.add_argument(
         '--mappings-format', choices=MAP_OUT_FMTS, default=MAP_OUT_FMTS[0],
         help='Mappings output format. Choices: {}'.format(
             ', '.join(MAP_OUT_FMTS)))
