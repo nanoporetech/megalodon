@@ -4,6 +4,9 @@ import numpy as np
 cimport numpy as np
 
 
+ALPHABET = 'ACGT'
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def nstate_to_nbase(size_t nstate):
@@ -94,3 +97,47 @@ def score_mod_seq(
     return _libdecode.score_best_path_mod(
         &tpost[0,0], &seq[0], &mod_cats[0], &can_mods_offsets[0],
         tpost_start, tpost_end, nseq, nstate)
+
+
+
+def rle(x, tol=0):
+    """  Run length encoding of array x
+
+    Note: where matching is done with some tolerance, the first element
+    of the run is chosen as representative.
+
+    :param x: array
+    :param tol: tolerance of match (for continuous arrays)
+
+    :returns: tuple of array containing elements of x and array containing
+    length of run
+    """
+
+    delta_x = np.ediff1d(x, to_begin=1)
+    starts = np.where(np.absolute(delta_x) > tol)[0]
+    last_runlength = len(x) - starts[-1]
+    runlength = np.ediff1d(starts, to_end=last_runlength)
+
+    return x[starts], runlength
+
+def decode_post(r_post, collapse_alphabet=ALPHABET):
+    """Decode a posterior using Viterbi algorithm for transducer.
+    :param r_post: numpy array containing transducer posteriors.
+    :param collapse_alphabet: alphabet corresponding to flip-flop labels.
+    :returns: tuple containing (base calls, score and raw block positions).
+    """
+    nblock, nstate = r_post.shape[:2]
+    nbase = len(set(collapse_alphabet))
+    if nbase != nstate_to_nbase(nstate):
+        raise NotImplementedError(
+            'Incompatible decoding alphabet and posterior states.')
+
+    path = np.zeros(nblock + 1, dtype=np.uintp)
+    qpath = np.zeros(nblock + 1, dtype=np.float32)
+
+    score = crf_flipflop_viterbi(r_post, path, qpath)
+
+    runval, runlen = rle(path)
+    basecall = ''.join(collapse_alphabet[int(b) % nbase] for b in runval)
+
+    return basecall, score, runlen

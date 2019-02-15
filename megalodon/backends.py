@@ -107,3 +107,8 @@ class ModelInfo(object):
             raise MegaError('Invalid model type.')
 
         return trans_weights
+
+
+if __name__ == '__main__':
+    sys.stderr.write('This is a module. See commands with `megalodon -h`')
+    sys.exit(1)
