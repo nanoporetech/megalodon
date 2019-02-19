@@ -17,7 +17,6 @@ from time import sleep
 import multiprocessing as mp
 from collections import defaultdict
 
-import h5py
 import numpy as np
 from tqdm import tqdm
 from tqdm._utils import _term_move_up
@@ -41,68 +40,6 @@ _UNEXPECTED_ERROR_FN = 'unexpected_snp_calling_errors.{}.err'
 _MAX_NUM_UNEXP_ERRORS = 50
 _MAX_QUEUE_SIZE = 1000
 
-
-#############################
-##### Signal Extraction #####
-#############################
-
-def med_mad(data, factor=None, axis=None, keepdims=False):
-    """Compute the Median Absolute Deviation, i.e., the median
-    of the absolute deviations from the median, and the median
-
-    :param data: A :class:`ndarray` object
-    :param factor: Factor to scale MAD by. Default (None) is to be consistent
-    with the standard deviation of a normal distribution
-    (i.e. mad( N(0,\sigma^2) ) = \sigma).
-    :param axis: For multidimensional arrays, which axis to calculate over
-    :param keepdims: If True, axis is kept as dimension of length 1
-
-    :returns: a tuple containing the median and MAD of the data
-    """
-    if factor is None:
-        factor = 1.4826
-    dmed = np.median(data, axis=axis, keepdims=True)
-    dmad = factor * np.median(abs(data - dmed), axis=axis, keepdims=True)
-    if axis is None:
-        dmed = dmed.flatten()[0]
-        dmad = dmad.flatten()[0]
-    elif not keepdims:
-        dmed = dmed.squeeze(axis)
-        dmad = dmad.squeeze(axis)
-    return dmed, dmad
-
-def extract_read_data(fast5_fn, scale=True):
-    """Extract raw signal and read id from single fast5 file.
-    :returns: tuple containing numpy array with raw signal  and read unique identifier
-    """
-    # TODO support mutli-fast5
-    try:
-        fast5_data = h5py.File(fast5_fn, 'r')
-    except:
-        raise mh.MegaError('Error opening read file')
-    try:
-        raw_slot = next(iter(fast5_data['/Raw/Reads'].values()))
-    except:
-        fast5_data.close()
-        raise mh.MegaError('Raw signal not found in /Raw/Reads slot')
-    try:
-        raw_sig = raw_slot['Signal'][:].astype(np.float32)
-    except:
-        fast5_data.close()
-        raise mh.MegaError('Raw signal not found in Signal dataset')
-    read_id = None
-    try:
-        read_id = raw_slot.attrs.get('read_id')
-        read_id = read_id.decode()
-    except:
-        pass
-    fast5_data.close()
-
-    if scale:
-        med, mad = med_mad(raw_sig)
-        raw_sig = (raw_sig - med) / mad
-
-    return raw_sig, read_id
 
 ###########################
 ##### Read Processing #####
@@ -229,7 +166,7 @@ def _process_reads_worker(
             break
 
         try:
-            raw_sig, read_id = extract_read_data(fast5_fn)
+            raw_sig, read_id = mh.extract_read_data(fast5_fn)
             process_read(
                 raw_sig, read_id, model_info, bc_q, caller_conn, snps_to_test,
                 snp_all_paths, snps_q, mods_q, alphabet_info)
@@ -396,7 +333,7 @@ def process_all_reads(
             mods._get_mods_queue, (os.path.join(
                 out_dir, mh.OUTPUT_FNS[mh.PR_MOD_NAME]),))
 
-    call_snp_ps, map_conns = [], []
+    proc_reads_ps, map_conns = [], []
     for _ in range(num_ts):
         if aligner is None:
             map_conn, caller_conn = None, None
@@ -410,7 +347,7 @@ def process_all_reads(
                 alphabet_info, mods_q))
         p.daemon = True
         p.start()
-        call_snp_ps.append(p)
+        proc_reads_ps.append(p)
     sleep(0.1)
 
     # perform mapping in threads for mappy shared memory interface
@@ -431,8 +368,8 @@ def process_all_reads(
     except KeyboardInterrupt:
         sys.stderr.write('Exiting due to keyboard interrupt.\n')
         sys.exit(1)
-    for call_snp_p in call_snp_ps:
-        call_snp_p.join()
+    for proc_reads_p in proc_reads_ps:
+        proc_reads_p.join()
     if map_read_ts is not None:
         for map_t in map_read_ts:
             map_t.join()
