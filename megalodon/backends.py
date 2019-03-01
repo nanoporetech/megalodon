@@ -1,6 +1,9 @@
+import numpy as np
 from collections import namedtuple
 
 from megalodon import megalodon_helper as mh
+
+
 # model type specific information
 TAI_NAME = 'taiyaki'
 FLP_NAME = 'flappie'
@@ -48,11 +51,11 @@ class ModelInfo(object):
 
             tmp_model = load_taiyaki_model(taiyaki_model_fn)
             self.is_cat_mod = isinstance(
-                tmp_modl.sublayers[-1], GlobalNormFlipFlopCatMod)
-            self.output_size = tmp_modl.sublayers[-1].size
+                tmp_model.sublayers[-1], GlobalNormFlipFlopCatMod)
+            self.output_size = tmp_model.sublayers[-1].size
             try:
-                self.alphabet = tmp_modl.alphabet
-                self.collapse_alphabet = tmp_modl.collapse_alphabet
+                self.alphabet = tmp_model.alphabet
+                self.collapse_alphabet = tmp_model.collapse_alphabet
             except AttributeError:
                 self.alphabet = mh.ALPHABET
                 self.collapse_alphabet = mh.ALPHABET
@@ -64,7 +67,7 @@ class ModelInfo(object):
     def prep_model_worker(self):
         if self.model_type == TAI_NAME:
             # setup for taiyaki model
-            self.model = load_taiyaki_model(self.model_fn)
+            self.model = load_taiyaki_model(self.fn)
             if self.device is not None:
                 self.device = torch.device(self.device)
                 torch.cuda.set_device(self.device)
