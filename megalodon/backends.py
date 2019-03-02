@@ -80,7 +80,7 @@ class ModelInfo(object):
 
     def run_model(self, raw_sig, n_can_state=None):
         if self.model_type == FLP_NAME:
-            rt = flappy.RawTable(raw_sig).trim().scale()
+            rt = flappy.RawTable(raw_sig)
             # flappy will return split bc and mods based on model
             trans_weights = flappy.calc_post(rt, self.name)
             # convert base call weights from FlappieMatrix to numpy

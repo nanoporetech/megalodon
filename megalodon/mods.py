@@ -58,13 +58,6 @@ def call_read_mods(
             # i.e. need as many "events/strides" as bases for valid mapping
             continue
 
-        #print(pos)
-        #print(post_mapped_start + blk_start,
-        #      post_mapped_start + blk_end)
-        #print('\n'.join('{:.6f}\t{:.6f}'.format(*x) for x in
-        #                r_post[post_mapped_start + blk_start:
-        #                       post_mapped_start + blk_end, 41:43]))
-        #print('-' * 100)
         loc_ref_score = score_mod_seq(
             r_post, pos_ref_seq, pos_ref_mods, alphabet_info.can_mods_offsets,
             post_mapped_start + blk_start, post_mapped_start + blk_end,
