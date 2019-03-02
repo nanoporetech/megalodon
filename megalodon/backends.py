@@ -82,13 +82,7 @@ class ModelInfo(object):
         if self.model_type == FLP_NAME:
             rt = flappy.RawTable(raw_sig)
             # flappy will return split bc and mods based on model
-            trans_weights = flappy.calc_post(rt, self.name)
-            # convert base call weights from FlappieMatrix to numpy
-            if self.is_cat_mod:
-                trans_weights = (
-                    trans_weights[0].data(as_numpy=True), trans_weights[1])
-            else:
-                trans_weights = trans_weights.data(as_numpy=True)
+            trans_weights = flappy.run_network(rt, self.name)
         elif self.model_type == TAI_NAME:
             with torch.no_grad():
                 raw_sig_t = torch.from_numpy(
