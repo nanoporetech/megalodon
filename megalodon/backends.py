@@ -1,3 +1,4 @@
+import string
 import numpy as np
 from collections import namedtuple
 
@@ -8,8 +9,9 @@ from megalodon import megalodon_helper as mh
 TAI_NAME = 'taiyaki'
 FLP_NAME = 'flappie'
 
-MOD_ALPHABET = 'ACGTZ'
-COLL_5MC_ALPHABET = 'ACGTC'
+CAN_ALPHABET = 'ACGT'
+MOD_ALPHABET = CAN_ALPHABET + ''.join(
+    b for b in string.ascii_uppercase[::-1] if b not in CAN_ALPHABET)
 
 
 class ModelInfo(object):
@@ -23,15 +25,22 @@ class ModelInfo(object):
             import flappy
 
             # compiled flappie models require hardcoding or running fake model
-            if flappie_model_name in ('r941_cat_mod_5mC', 'r941_5mC'):
-                self.alphabet = MOD_ALPHABET
-                self.collapse_alphabet = COLL_5MC_ALPHABET
-                if flappie_model_name == 'r941_cat_mod_5mC':
+            if flappie_model_name in ('r941_cat_mod', 'r941_5mC'):
+                if flappie_model_name == 'r941_cat_mod':
+                    self.cat_mods = flappy.get_cat_mods()
+                    self.n_mods = self.cat_mods.sum()
                     self.is_cat_mod = True
-                    self.output_size = 42
+                    self.output_size = 41 + self.n_mods
+                    self.alphabet = MOD_ALPHABET[:4 + self.n_mods]
+                    self.collapse_alphabet = CAN_ALPHABET + ''.join(
+                        b for b_i, c in enumerate(self.cat_mods)
+                        for b in [CAN_ALPHABET[b_i]] * c)
                 else:
                     self.is_cat_mod = False
+                    self.n_mods = 1
                     self.output_size = 60
+                    self.alphabet = MOD_ALPHABET[:5]
+                    self.collapse_alphabet = CAN_ALPHABET + 'C'
             else:
                 self.is_cat_mod = False
                 self.alphabet = mh.ALPHABET

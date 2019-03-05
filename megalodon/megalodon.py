@@ -428,16 +428,26 @@ class AlphabetInfo(object):
         else:
             # parse detection motifs
             for mod_motifs_raw in all_mod_motifs_raw:
-                mod_base, motifs_raw = mod_motifs_raw.split(':')
+                mod_base, motif_raw = mod_motifs_raw.split(':')
                 assert mod_base in self.alphabet[self.ncan_base:], (
                     'Modified base label ({}) not found in model ' +
                     'alphabet ({}).').format(mod_base, self.alphabet)
-                for mod_motifs_raw in motifs_raw.split(','):
-                    raw_motif, pos = mod_motifs_raw.split('-')
-                    motif = re.compile(''.join(
-                        SINGLE_LETTER_CODE[letter] for letter in raw_motif))
-                    self.all_mod_motifs.append(
-                        (motif, int(pos), mod_base, raw_motif))
+                raw_motif, pos = motif_raw.split('-')
+                pos = int(pos)
+                mod_base_idx = self.alphabet.find(mod_base)
+                assert mod_base_idx != -1, (
+                    'Invalid modified base motif. Mod base ({}) not found ' +
+                    'in alphabet ({}).').format(mod_base, self.alphabet)
+                assert (self.collapse_alphabet[mod_base_idx] ==
+                        raw_motif[pos]), (
+                            'Invalid modified base motif. Raw motif modified ' +
+                            'position ({}) base ({}) does not match ' +
+                            'collapsed alphabet value ({}).').format(
+                                pos, raw_motif[pos],
+                                self.collapse_alphabet[mod_base_idx])
+                motif = re.compile(''.join(
+                    SINGLE_LETTER_CODE[letter] for letter in raw_motif))
+                self.all_mod_motifs.append((motif, pos, mod_base, raw_motif))
 
         return
 
@@ -559,10 +569,10 @@ def get_parser():
 
     mod_grp = parser.add_argument_group('Modified Base Arguments')
     mod_grp.add_argument(
-        '--mod-motifs', nargs='+',
+        '--mod-motifs', nargs='+', default=["Y:CG-0", "Y:CCWGG-1", "Z:GATC-1"],
         help='Restrict modified base calls to specified motifs. Format as ' +
         '"[mod_base]:[motif]-[relative_pos]". For CpG, dcm and dam calling ' +
-        'use "Z:CG-0 Z:CCWGG-1 Y:GATC-1". Default call all valid positions.')
+        '(default) use "Y:CG-0 Y:CCWGG-1 Z:GATC-1".')
     mod_grp.add_argument(
         '--mod-all-paths', action='store_true',
         help='Compute forwards algorithm all paths score for modified base ' +
