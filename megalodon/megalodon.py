@@ -133,7 +133,7 @@ def get_read_files(fast5s_dir):
     """
     fast5_fns = []
     # walk through directory structure searching for fast5 files
-    for root, _, fns in os.walk(fast5s_dir):
+    for root, _, fns in os.walk(fast5s_dir, followlinks=True):
         for fn in fns:
             if not fn.endswith('.fast5'): continue
             fast5_fns.append(os.path.join(root, fn))
