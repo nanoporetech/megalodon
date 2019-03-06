@@ -1,4 +1,5 @@
 import os
+import sys
 import argparse
 import numpy as np
 import pandas as pd
@@ -18,22 +19,40 @@ VERBOSE = False
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    'bisulfite_data',
-    help='Bisulfite csv with (chrm, pos, is_mod) values.')
-parser.add_argument(
     'megalodon_results_dir',
     help='Output directory from basecall_and_more.py script ' +
     '(run with mappings and per_read_mods outputs).')
 parser.add_argument(
+    '--ground-truth-data',
+    help='Ground truth csv with (chrm, pos, is_mod) values.')
+parser.add_argument(
+    '--mod-chrms-startswith',
+    help='String prefix for all mapped chromosomes with ground ' +
+    'truth modifications. All other sites will be assumed unmodified.')
+parser.add_argument(
     '--out-pdf', default='mod_base_refactor_validation.pdf',
     help='Output pdf filename.')
+parser.add_argument(
+    '--verbose', action='store_true',
+    help='Output progress information on top of performance metrics.')
 
 
 def main():
     args = parser.parse_args()
-    if VERBOSE: print('Reading bisulfite data')
-    bs_dat = pd.read_csv(
-        args.bisulfite_data, header=None, names=['chrm', 'pos', 'is_mod'])
+    global VERBOSE
+    VERBOSE = args.verbose
+
+    if VERBOSE: print('Reading ground truth data')
+    gt_dat, mod_chrm_sw = None, None
+    if args.ground_truth_data is not None:
+        gt_dat = pd.read_csv(
+            args.ground_truth_data, header=None,
+            names=['chrm', 'pos', 'is_mod'])
+    elif args.mod_chrms_startswith is not None:
+        mod_chrm_sw = args.mod_chrms_startswith
+    else:
+        sys.stderr.write('ERROR: Must provide grounf truth.\n')
+        sys.exit(1)
 
     if VERBOSE: print('Reading megalodon data')
     mega_dat = pd.read_csv(
@@ -50,10 +69,17 @@ def main():
         mean_bc_acc, med_bc_acc = 0, 0
         if VERBOSE: print('Basecalls not found')
 
-    if VERBOSE: print('Merging')
+    if VERBOSE: print('Merging ground truth information')
     # merge scores with known mod sites
-    m_dat = pd.merge(mega_dat, bs_dat, on=['chrm', 'pos'], sort=False)
+    if gt_dat is not None:
+        m_dat = pd.merge(mega_dat, gt_dat, on=['chrm', 'pos'], sort=False)
+    else:
+        m_dat = mega_dat
+        m_dat['is_mod'] = np.array([
+            chrm.startswith(mod_chrm_sw) for chrm in m_dat['chrm']])
 
+    if VERBOSE: print('Modified base class distribution:\n' +
+                      str(m_dat['is_mod'].value_counts()))
     if VERBOSE: print('Computing PR/ROC')
     # compute roc and presicion recall
     precision, recall, _ = precision_recall_curve(
@@ -64,7 +90,7 @@ def main():
     roc_auc = auc(fpr, tpr)
 
     if VERBOSE: print('Metrics (bc_mean_acc, bc_med_acc, pr_auc, roc_auc)')
-    print('{}\t{:.2f}\t{:.2f}\t{:.2f}\t{:.2f}'.format(
+    print('{}\t{:.4f}\t{:.4f}\t{:.6f}\t{:.6f}'.format(
         args.megalodon_results_dir, mean_bc_acc, med_bc_acc, avg_prcn, roc_auc))
 
     if VERBOSE: print('Plotting')
