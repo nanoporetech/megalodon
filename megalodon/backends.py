@@ -27,14 +27,23 @@ class ModelInfo(object):
             # compiled flappie models require hardcoding or running fake model
             if flappie_model_name in ('r941_cat_mod', 'r941_5mC'):
                 if flappie_model_name == 'r941_cat_mod':
-                    self.cat_mods = flappy.get_cat_mods()
-                    self.n_mods = self.cat_mods.sum()
                     self.is_cat_mod = True
+                    can_nmods, output_alphabet = flappy.get_cat_mods()
+                    self.can_nmods = can_nmods
+                    self.n_mods = self.can_nmods.sum()
                     self.output_size = 41 + self.n_mods
-                    self.alphabet = MOD_ALPHABET[:4 + self.n_mods]
-                    self.collapse_alphabet = CAN_ALPHABET + ''.join(
-                        b for b_i, c in enumerate(self.cat_mods)
-                        for b in [CAN_ALPHABET[b_i]] * c)
+                    self.can_offsets = np.cumsum(np.concatenate(
+                        [[0], self.can_nmods[:-1] + 1]))
+                    can_bases = ''.join(
+                        output_alphabet[b_i] for b_i in self.can_offsets)
+                    mod_bases = ''.join(
+                        output_alphabet[b_i + 1:b_i + 1 + b_nmods]
+                        for b_i, b_nmods in
+                        zip(self.can_offsets, self.can_nmods))
+                    self.alphabet = can_bases + mod_bases
+                    self.collapse_alphabet = can_bases + ''.join(
+                        b for can_b, b_nmods in zip(can_bases, self.can_nmods)
+                        for b in can_b * b_nmods)
                 else:
                     self.is_cat_mod = False
                     self.n_mods = 1

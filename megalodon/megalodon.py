@@ -569,10 +569,10 @@ def get_parser():
 
     mod_grp = parser.add_argument_group('Modified Base Arguments')
     mod_grp.add_argument(
-        '--mod-motifs', nargs='+', default=["Y:CG-0", "Y:CCWGG-1", "Z:GATC-1"],
+        '--mod-motifs', nargs='+', default=["Z:CG-0", "Z:CCWGG-1", "Y:GATC-1"],
         help='Restrict modified base calls to specified motifs. Format as ' +
         '"[mod_base]:[motif]-[relative_pos]". For CpG, dcm and dam calling ' +
-        '(default) use "Y:CG-0 Y:CCWGG-1 Z:GATC-1".')
+        '(default) use "Z:CG-0 Z:CCWGG-1 Y:GATC-1".')
     mod_grp.add_argument(
         '--mod-all-paths', action='store_true',
         help='Compute forwards algorithm all paths score for modified base ' +
