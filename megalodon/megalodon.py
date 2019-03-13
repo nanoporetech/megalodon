@@ -41,6 +41,38 @@ _MAX_NUM_UNEXP_ERRORS = 50
 _MAX_QUEUE_SIZE = 1000
 
 
+#######################################
+##### Aggregate SNP and Mod Stats #####
+#######################################
+
+def aggregate_stats(out_dir, outputs, num_ps):
+    if mh.SNP_NAME in outputs and mh.MOD_NAME in outputs:
+        num_ps = num_ps // 2
+
+    agg_snps_ps, agg_mods_ps = [], []
+    num_snps, num_mods = 0, 0
+    if mh.SNP_NAME in outputs:
+        snp_db_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.PR_SNP_NAME][0])
+        main_p_agg_snps = snps.AggSnps(snps_db_fn)
+        # create process to fill snp loc queue
+        # create worker processes to aggregate snps
+
+    if mh.MOD_NAME in outputs:
+        # copy logic from snps
+        pass
+
+    # create progress process
+
+    # join filler processes first
+    for agg_snps_p in agg_snps_ps:
+        agg_snps_p.join()
+    for agg_mods_p in agg_mods_ps:
+        agg_mods_p.join()
+    # join progress process
+
+    return
+
+
 ###########################
 ##### Read Processing #####
 ###########################
@@ -706,6 +738,8 @@ def _main():
         args.prepend_chr_ref, snps_data, args.processes,
         args.verbose_read_progress, args.suppress_progress,
         alphabet_info)
+
+    aggregate_stats(args.outputs)
 
     return
 

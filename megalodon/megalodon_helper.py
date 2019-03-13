@@ -7,15 +7,18 @@ BC_OUT_FMTS = ('fasta',)
 MAP_NAME = 'mappings'
 MAP_OUT_FMTS = ('bam', 'cram', 'sam')
 PR_SNP_NAME = 'per_read_snps'
-PR_MOD_NAME = 'per_read_mods'
-ALIGN_OUTPUTS = set((MAP_NAME, PR_SNP_NAME, PR_MOD_NAME))
+SNP_NAME = 'snps'
+MOD_NAME = 'mods'
+ALIGN_OUTPUTS = set((MAP_NAME, PR_SNP_NAME, SNP_NAME, PR_MOD_NAME, MOD_NAME))
 OUTPUT_FNS = {
     BC_NAME:'basecalls',
     MAP_NAME:['mappings', 'mappings.summary.txt'],
     PR_SNP_NAME:['per_read_snp_calls.db',
                  'per_read_snp_calls.txt'],
+    SNP_NAME:'snps.vcf',
     PR_MOD_NAME:['per_read_modified_base_calls.db',
                  'per_read_modified_base_calls.txt'],
+    MOD_NAME:'mods.bed'
 }
 COMP_BASES = dict(zip(map(ord, 'ACGT'), map(ord, 'TGCA')))
 

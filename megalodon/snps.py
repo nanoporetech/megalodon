@@ -4,24 +4,33 @@ import sqlite3
 import numpy as np
 from time import sleep
 import multiprocessing as mp
-from collections import defaultdict
+from collections import defaultdict, namedtuple
 
 from megalodon import decode, megalodon_helper as mh
 
 
+FIELD_NAMES = ('read_id', 'chrm', 'strand', 'pos', 'score',
+               'ref_seq', 'alt_seq', 'snp_id')
+SNP_DATA = namedtuple('SNP_DATA', FIELD_NAMES)
 CREATE_snps_TBLS = """
 CREATE TABLE snps (
-    read_id TEXT,
-    chrm TEXT,
-    strand INTEGER,
-    pos INTEGER,
-    score FLOAT,
-    ref_seq TEXT,
-    alt_seq TEXT,
-    snp_id TEXT
-)"""
+    {} TEXT,
+    {} TEXT,
+    {} INTEGER,
+    {} INTEGER,
+    {} FLOAT,
+    {} TEXT,
+    {} TEXT,
+    {} TEXT
+)""".format(*FIELD_NAMES)
 ADDMANY_SNPS = "INSERT INTO snps VALUES (?,?,?,?,?,?,?,?)"
 CREATE_SNPS_IDX = "CREATE INDEX snp_pos ON snps (chrm, strand, pos)"
+
+COUNT_UNIQ_POS = """
+SELECT COUNT(*) FROM (
+SELECT DISTINCT chrm, strand, pos FROM snps)"""
+SEL_UNIQ_POS = 'SELECT DISTINCT chrm, strand, pos FROM snps'
+SEL_POS_STATS = 'SELECT * FROM snps WHERE chrm=? AND strand=? AND pos=?'
 
 
 def encode_snp_seq(seq):
@@ -191,7 +200,7 @@ def _get_snps_queue(snps_q, snps_conn, snp_id_tbl, snps_db_fn, snps_txt_fn):
         try:
             # note strand is +1 for fwd or -1 for rev
             r_snp_calls, (read_id, chrm, strand) = snps_q.get(block=False)
-            snps_db_c.executemany(ADDMANY_MODS, [
+            snps_db_c.executemany(ADDMANY_SNPS, [
                 (read_id, chrm, strand, pos, score, ref_seq, alt_seq,
                  snp_id_tbl[chrm][snp_i])
                 for pos, score, ref_seq, alt_seq, snp_i in r_snp_calls])
@@ -213,7 +222,7 @@ def _get_snps_queue(snps_q, snps_conn, snp_id_tbl, snps_db_fn, snps_txt_fn):
 
     while not snps_q.empty():
         r_snp_calls, (read_id, chrm, strand) = snps_q.get(block=False)
-        snps_db_c.executemany(ADDMANY_MODS, [
+        snps_db_c.executemany(ADDMANY_SNPS, [
             (read_id, chrm, strand, pos, score, ref_seq, alt_seq,
              snp_id_tbl[chrm][snp_i])
             for pos, score, ref_seq, alt_seq, snp_i in r_snp_calls])
@@ -291,6 +300,25 @@ class Snps(object):
              'SNP type)\n')).format(n_uniq_snps, n_skipped_snps))
 
         return
+
+
+class AggSnps(object):
+    def __init__(self, snps_db_fn):
+        # open as read only database
+        self.snps_db = sqlite3.connect(snps_db_fn, uri=True)
+        self.snps_db_c = snps_db.cursor()
+        self.n_uniq_pos = self.snps_db_c.execute(COUNT_UNIQ_POS).fetchone()[0]
+
+    def iter_uniq_pos(self):
+        for q_val in self.snps_db_c.execute(SEL_UNIQ_POS):
+            yield q_val
+
+    def get_pos_stats(self, chrm, strand, pos):
+        return [SNP_DATA(snp_stats) for snp_stats in self.snps_db_c.execute(
+            SEL_POS_STATS, (chrm, strand, pos))]
+
+    def close(self):
+        self.snps_db.close()
 
 
 if __name__ == '__main__':
