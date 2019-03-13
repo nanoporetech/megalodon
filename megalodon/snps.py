@@ -1,11 +1,27 @@
 import sys
 import queue
+import sqlite3
 import numpy as np
 from time import sleep
 import multiprocessing as mp
 from collections import defaultdict
 
 from megalodon import decode, megalodon_helper as mh
+
+
+CREATE_snps_TBLS = """
+CREATE TABLE snps (
+    read_id TEXT,
+    chrm TEXT,
+    strand INTEGER,
+    pos INTEGER,
+    score FLOAT,
+    ref_seq TEXT,
+    alt_seq TEXT,
+    snp_id TEXT
+)"""
+ADDMANY_SNPS = "INSERT INTO snps VALUES (?,?,?,?,?,?,?,?)"
+CREATE_SNPS_IDX = "CREATE INDEX snp_pos ON snps (chrm, strand, pos)"
 
 
 def encode_snp_seq(seq):
@@ -165,23 +181,30 @@ def call_read_snps(
 
     return r_snp_calls
 
-def _get_snps_queue(snps_q, snps_conn, snp_id_tbl, snps_fn):
-    snps_fp = open(snps_fn, 'w')
+def _get_snps_queue(snps_q, snps_conn, snp_id_tbl, snps_db_fn, snps_txt_fn):
+    snps_db = sqlite3.connect(snps_db_fn)
+    snps_db_c = snps_db.cursor()
+    snps_db_c.execute(CREATE_SNPS_TBLS)
+    snps_txt_fp = None if snps_txt_fn is None else open(snps_txt_fn, 'w')
 
     while True:
         try:
             # note strand is +1 for fwd or -1 for rev
             r_snp_calls, (read_id, chrm, strand) = snps_q.get(block=False)
-            # TODO record stats for VFC output
-            # TODO write sqlite output
-            # would involve batching and creating several conversion tables
-            # for var strings (read_if and chrms).
-            snps_fp.write('\n'.join((
-                '{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
-                    read_id, chrm, strand, pos, score, ref_seq, alt_seq,
-                    snp_id_tbl[chrm][snp_i])
-                for pos, score, ref_seq, alt_seq, snp_i in r_snp_calls)) + '\n')
-            snps_fp.flush()
+            snps_db_c.executemany(ADDMANY_MODS, [
+                (read_id, chrm, strand, pos, score, ref_seq, alt_seq,
+                 snp_id_tbl[chrm][snp_i])
+                for pos, score, ref_seq, alt_seq, snp_i in r_snp_calls])
+            if snps_txt_fp is not None:
+                # would involve batching and creating several conversion tables
+                # for var strings (read_if and chrms).
+                snps_txt_fp.write('\n'.join((
+                    '{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
+                        read_id, chrm, strand, pos, score, ref_seq, alt_seq,
+                        snp_id_tbl[chrm][snp_i])
+                    for pos, score, ref_seq, alt_seq, snp_i in r_snp_calls)) +
+                              '\n')
+                snps_txt_fp.flush()
         except queue.Empty:
             if snps_conn.poll():
                 break
@@ -190,19 +213,30 @@ def _get_snps_queue(snps_q, snps_conn, snp_id_tbl, snps_fn):
 
     while not snps_q.empty():
         r_snp_calls, (read_id, chrm, strand) = snps_q.get(block=False)
-        snps_fp.write('\n'.join((
-            '{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
-                read_id, chrm, strand, pos, score, ref_seq, alt_seq,
-                snp_id_tbl[chrm][snp_i])
-            for pos, score, ref_seq, alt_seq, snp_i in r_snp_calls)) + '\n')
-        snps_fp.flush()
-    snps_fp.close()
+        snps_db_c.executemany(ADDMANY_MODS, [
+            (read_id, chrm, strand, pos, score, ref_seq, alt_seq,
+             snp_id_tbl[chrm][snp_i])
+            for pos, score, ref_seq, alt_seq, snp_i in r_snp_calls])
+        if snps_txt_fp is not None:
+            snps_txt_fp.write('\n'.join((
+                '{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
+                    read_id, chrm, strand, pos, score, ref_seq, alt_seq,
+                    snp_id_tbl[chrm][snp_i])
+                for pos, score, ref_seq, alt_seq, snp_i in r_snp_calls)) + '\n')
+            snps_txt_fp.flush()
+    if snps_txt_fp is not None: snps_txt_fp.close()
+    snps_db_c.execute(CREATE_SNPS_IDX)
+    snps_db.commit()
+    snps_db.close()
 
     return
 
 class Snps(object):
-    def __init__(self, snp_fn, do_prepend_chr_vcf, max_snp_size, all_paths):
+    def __init__(
+            self, snp_fn, do_prepend_chr_vcf, max_snp_size, all_paths,
+            write_snps_txt):
         self.all_paths = all_paths
+        self.write_snps_txt = write_snps_txt
         if snp_fn is None:
             self.snps_to_test = None
             self.snp_id_tbl = None

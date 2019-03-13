@@ -12,8 +12,10 @@ ALIGN_OUTPUTS = set((MAP_NAME, PR_SNP_NAME, PR_MOD_NAME))
 OUTPUT_FNS = {
     BC_NAME:'basecalls',
     MAP_NAME:['mappings', 'mappings.summary.txt'],
-    PR_SNP_NAME:'per_read_snp_calls.txt',
-    PR_MOD_NAME:'per_read_modified_base_calls.txt',
+    PR_SNP_NAME:['per_read_snp_calls.db',
+                 'per_read_snp_calls.txt'],
+    PR_MOD_NAME:['per_read_modified_base_calls.db',
+                 'per_read_modified_base_calls.txt'],
 }
 COMP_BASES = dict(zip(map(ord, 'ACGT'), map(ord, 'TGCA')))
 

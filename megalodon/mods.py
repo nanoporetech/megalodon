@@ -1,9 +1,24 @@
 import queue
+import sqlite3
 from time import sleep
 
 import numpy as np
 
 from megalodon import decode, megalodon_helper as mh
+
+
+CREATE_MODS_TBLS = """
+CREATE TABLE mods (
+    read_id TEXT,
+    chrm TEXT,
+    strand INTEGER,
+    pos INTEGER,
+    score FLOAT,
+    mod_base TEXT,
+    motif TEXT
+)"""
+ADDMANY_MODS = "INSERT INTO mods VALUES (?,?,?,?,?,?,?)"
+CREATE_MODS_IDX = "CREATE INDEX mod_pos ON mods (chrm, strand, pos)"
 
 
 def score_mod_seq(
@@ -76,22 +91,27 @@ def call_read_mods(
 
     return r_mod_calls
 
-def _get_mods_queue(mods_q, mods_conn, mods_fn):
-    mods_fp = open(mods_fn, 'w')
+def _get_mods_queue(mods_q, mods_conn, mods_db_fn, mods_txt_fn):
+    mods_db = sqlite3.connect(mods_db_fn)
+    mods_db_c = mods_db.cursor()
+    mods_db_c.execute(CREATE_MODS_TBLS)
+    mods_txt_fp = None if mods_txt_fn is None else open(mods_txt_fn, 'w')
 
     while True:
         try:
             # note strand is +1 for fwd or -1 for rev
             r_mod_calls, (read_id, chrm, strand) = mods_q.get(block=False)
-            # TODO record stats for VFC output
-            # TODO write sqlite output
-            # would involve batching and creating several conversion tables
-            # for var strings (read_if and chrms).
-            mods_fp.write('\n'.join((
-                '{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
-                    read_id, chrm, strand, pos, score, raw_motif, mod_base)
-                for pos, score, raw_motif, mod_base in r_mod_calls)) + '\n')
-            mods_fp.flush()
+            mods_db_c.executemany(ADDMANY_MODS, [
+                (read_id, chrm, strand, pos, score, mod_base, raw_motif)
+                for pos, score, raw_motif, mod_base in r_mod_calls])
+            if mods_txt_fp is not None:
+                # would involve batching and creating several conversion tables
+                # for var strings (read_if and chrms).
+                mods_txt_fp.write('\n'.join((
+                    '{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
+                        read_id, chrm, strand, pos, score, raw_motif, mod_base)
+                    for pos, score, raw_motif, mod_base in r_mod_calls)) + '\n')
+                mods_txt_fp.flush()
         except queue.Empty:
             if mods_conn.poll():
                 break
@@ -100,12 +120,19 @@ def _get_mods_queue(mods_q, mods_conn, mods_fn):
 
     while not mods_q.empty():
         r_mod_calls, (read_id, chrm, strand) = mods_q.get(block=False)
-        mods_fp.write('\n'.join((
-            '{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
-                read_id, chrm, strand, pos, score, raw_motif, mod_base)
-            for pos, score, raw_motif, mod_base in r_mod_calls)) + '\n')
-        mods_fp.flush()
-    mods_fp.close()
+        mods_db_c.execute(ADDMANY_MODS, [
+            (read_id, chrm, strand, pos, score, mod_base, raw_motif)
+            for pos, score, raw_motif, mod_base in r_mod_calls])
+        if mods_txt_fp is not None:
+            mods_txt_fp.write('\n'.join((
+                '{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
+                    read_id, chrm, strand, pos, score, raw_motif, mod_base)
+                for pos, score, raw_motif, mod_base in r_mod_calls)) + '\n')
+            mods_txt_fp.flush()
+    if mods_txt_fp is not None: mods_txt_fp.close()
+    mods_db_c.execute(CREATE_MODS_IDX)
+    mods_db.commit()
+    mods_db.close()
 
     return
 

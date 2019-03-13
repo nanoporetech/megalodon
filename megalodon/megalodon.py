@@ -324,14 +324,20 @@ def process_all_reads(
             mapping._get_map_queue, (out_dir, aligner.ref_names_and_lens,
                              aligner.out_fmt, aligner.ref_fn))
     if mh.PR_SNP_NAME in outputs:
+        snps_db_fn, snps_txt_fn = mh.OUTPUT_FNS[mh.PR_SNP_NAME]
+        snps_txt_fn = (os.path.join(out_dir, snps_db_fn)
+                       if snps_data.write_snps_txt else None)
         snps_q, snps_p, main_snps_conn = create_getter_q(
             snps._get_snps_queue, (
-                snps_data.snp_id_tbl,
-                os.path.join(out_dir, mh.OUTPUT_FNS[mh.PR_SNP_NAME])))
+                snps_data.snp_id_tbl, os.path.join(out_dir, snps_db_fn),
+                snps_txt_fn))
     if mh.PR_MOD_NAME in outputs:
+        mods_db_fn, mods_txt_fn = mh.OUTPUT_FNS[mh.PR_MOD_NAME]
+        mods_txt_fn = (os.path.join(out_dir, mods_db_fn)
+                       if alphabet_info.write_mods_txt else None)
         mods_q, mods_p, main_mods_conn = create_getter_q(
-            mods._get_mods_queue, (os.path.join(
-                out_dir, mh.OUTPUT_FNS[mh.PR_MOD_NAME]),))
+            mods._get_mods_queue, (
+                os.path.join(out_dir, mods_db_fn), mods_txt_fn))
 
     proc_reads_ps, map_conns = [], []
     for _ in range(num_ts):
@@ -384,6 +390,10 @@ def process_all_reads(
             (mh.PR_MOD_NAME, mods_p, main_mods_conn)):
         if on in outputs and p.is_alive():
             main_conn.send(True)
+            if on in (mh.PR_SNP_NAME, mh.PR_MOD_NAME):
+                sys.stderr.write(
+                    'Waiting for snps and/or mods process to complete ' +
+                    'database indexing.\n')
             p.join()
 
     return
@@ -453,7 +463,10 @@ class AlphabetInfo(object):
 
     def __init__(
             self, model_info, all_mod_motifs_raw, mod_all_paths,
-            override_alphabet):
+            override_alphabet, write_mods_txt):
+        self.mod_all_paths = mod_all_paths
+        self.write_mods_txt = write_mods_txt
+
         self.alphabet = model_info.alphabet
         self.collapse_alphabet = model_info.collapse_alphabet
         self.ncan_base = len(set(self.collapse_alphabet))
@@ -480,7 +493,6 @@ class AlphabetInfo(object):
 
         # parse mod motifs or use "swap" base if no motif provided
         self._parse_mod_motifs(all_mod_motifs_raw)
-        self.mod_all_paths = mod_all_paths
 
         return
 
@@ -566,6 +578,10 @@ def get_parser():
         '--snp-all-paths', action='store_true',
         help='Compute forwards algorithm all paths score. (Default: Viterbi ' +
         'best-path score)')
+    snp_grp.add_argument(
+        '--write-snps-text', action='store_true',
+        help='Write per-read SNP calls out to a text file. Default: ' +
+        'Only ouput to database.')
 
     mod_grp = parser.add_argument_group('Modified Base Arguments')
     mod_grp.add_argument(
@@ -577,6 +593,10 @@ def get_parser():
         '--mod-all-paths', action='store_true',
         help='Compute forwards algorithm all paths score for modified base ' +
         'calls. (Default: Viterbi best-path score)')
+    mod_grp.add_argument(
+        '--write-mods-text', action='store_true',
+        help='Write per-read modified bases out to a text file. Default: ' +
+        'Only ouput to database.')
 
     misc_grp = parser.add_argument_group('Miscellaneous Arguments')
     misc_grp.add_argument(
@@ -621,7 +641,8 @@ def _main():
         args.flappie_model_name, args.taiyaki_model_filename, args.device)
 
     alphabet_info = AlphabetInfo(
-        model_info, args.mod_motifs, args.mod_all_paths, args.override_alphabet)
+        model_info, args.mod_motifs, args.mod_all_paths, args.override_alphabet,
+        args.write_mods_text)
     if model_info.is_cat_mod and mh.PR_MOD_NAME not in args.outputs:
         sys.stderr.write(
             '*' * 100 + '\nWARNING: Categorical modifications model ' +
@@ -649,7 +670,7 @@ def _main():
     # snps data object loads with None snp_fn for easier handling downstream
     snps_data = snps.Snps(
         args.snp_filename, args.prepend_chr_vcf, args.max_snp_size,
-        args.snp_all_paths)
+        args.snp_all_paths, args.write_snps_text)
     if args.snp_filename is not None and mh.PR_SNP_NAME not in args.outputs:
         sys.stderr.write(
             '*' * 100 + '\nWARNING: --snps-filename provided, but ' +
