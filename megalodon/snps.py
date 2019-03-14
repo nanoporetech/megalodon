@@ -23,6 +23,10 @@ CREATE TABLE snps (
     {} TEXT,
     {} TEXT
 )""".format(*FIELD_NAMES)
+
+SET_NO_ROLLBACK_MODE='PRAGMA journal_mode = OFF'
+SET_ASYNC_MODE='PRAGMA synchronous = OFF'
+
 ADDMANY_SNPS = "INSERT INTO snps VALUES (?,?,?,?,?,?,?,?)"
 CREATE_SNPS_IDX = "CREATE INDEX snp_pos ON snps (chrm, strand, pos)"
 
@@ -190,9 +194,14 @@ def call_read_snps(
 
     return r_snp_calls
 
-def _get_snps_queue(snps_q, snps_conn, snp_id_tbl, snps_db_fn, snps_txt_fn):
+def _get_snps_queue(
+        snps_q, snps_conn, snp_id_tbl, snps_db_fn, snps_txt_fn, db_safety):
     snps_db = sqlite3.connect(snps_db_fn)
     snps_db_c = snps_db.cursor()
+    if db_safety < 2:
+        snps_db_c.execute(SET_ASYNC_MODE)
+    if db_safety < 1:
+        snps_db_c.execute(SET_NO_ROLLBACK_MODE)
     snps_db_c.execute(CREATE_SNPS_TBLS)
     snps_txt_fp = None if snps_txt_fn is None else open(snps_txt_fn, 'w')
 

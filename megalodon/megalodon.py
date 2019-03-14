@@ -319,7 +319,7 @@ def _get_fail_queue(
 def process_all_reads(
         fast5s_dir, num_reads, model_info, outputs, out_dir, bc_fmt, aligner,
         add_chr_ref, snps_data, num_ts, num_update_errors, suppress_progress,
-        alphabet_info):
+        alphabet_info, db_safety):
     def create_getter_q(getter_func, args):
         q = mp.Queue(maxsize=_MAX_QUEUE_SIZE)
         main_conn, conn = mp.Pipe()
@@ -362,14 +362,14 @@ def process_all_reads(
         snps_q, snps_p, main_snps_conn = create_getter_q(
             snps._get_snps_queue, (
                 snps_data.snp_id_tbl, os.path.join(out_dir, snps_db_fn),
-                snps_txt_fn))
+                snps_txt_fn, db_safety))
     if mh.PR_MOD_NAME in outputs:
         mods_db_fn, mods_txt_fn = mh.OUTPUT_FNS[mh.PR_MOD_NAME]
         mods_txt_fn = (os.path.join(out_dir, mods_db_fn)
                        if alphabet_info.write_mods_txt else None)
         mods_q, mods_p, main_mods_conn = create_getter_q(
             mods._get_mods_queue, (
-                os.path.join(out_dir, mods_db_fn), mods_txt_fn))
+                os.path.join(out_dir, mods_db_fn), mods_txt_fn, db_safety))
 
     proc_reads_ps, map_conns = [], []
     for _ in range(num_ts):
@@ -652,6 +652,11 @@ def get_parser():
     misc_grp.add_argument(
         '--device', default=None, type=int,
         help='CUDA device to use (only valid for taiyaki), or None to use CPU')
+    misc_grp.add_argument(
+        '--database-safety', type=int, default=1,
+        help='Setting for database performance versus corruption protection. ' +
+        'Options: 0 (DB corruption on application crash), 1 (DB corruption ' +
+        'on system crash), 2 (DB safe mode). Default: %(default)d')
 
     return parser
 
@@ -737,7 +742,7 @@ def _main():
         args.output_directory, args.basecalls_format, aligner,
         args.prepend_chr_ref, snps_data, args.processes,
         args.verbose_read_progress, args.suppress_progress,
-        alphabet_info)
+        alphabet_info, args.database_safety)
 
     aggregate_stats(args.outputs)
 

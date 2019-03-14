@@ -17,6 +17,10 @@ CREATE TABLE mods (
     mod_base TEXT,
     motif TEXT
 )"""
+
+SET_NO_ROLLBACK_MODE='PRAGMA journal_mode = OFF'
+SET_ASYNC_MODE='PRAGMA synchronous = OFF'
+
 ADDMANY_MODS = "INSERT INTO mods VALUES (?,?,?,?,?,?,?)"
 CREATE_MODS_IDX = "CREATE INDEX mod_pos ON mods (chrm, strand, pos)"
 
@@ -91,9 +95,13 @@ def call_read_mods(
 
     return r_mod_calls
 
-def _get_mods_queue(mods_q, mods_conn, mods_db_fn, mods_txt_fn):
+def _get_mods_queue(mods_q, mods_conn, mods_db_fn, mods_txt_fn, db_safety):
     mods_db = sqlite3.connect(mods_db_fn)
     mods_db_c = mods_db.cursor()
+    if db_safety < 2:
+        mods_db_c.execute(SET_ASYNC_MODE)
+    if db_safety < 1:
+        mods_db_c.execute(SET_NO_ROLLBACK_MODE)
     mods_db_c.execute(CREATE_MODS_TBLS)
     mods_txt_fp = None if mods_txt_fn is None else open(mods_txt_fn, 'w')
 
