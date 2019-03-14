@@ -34,6 +34,7 @@ def nstate_to_nbase(nstate):
 def revcomp(seq):
     return seq.translate(COMP_BASES)[::-1]
 
+
 #############################
 ##### Signal Extraction #####
 #############################

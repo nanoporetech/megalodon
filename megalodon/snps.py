@@ -1,12 +1,16 @@
 import sys
 import queue
 import sqlite3
-import numpy as np
+import datetime
 from time import sleep
 import multiprocessing as mp
 from collections import defaultdict, namedtuple
 
+import numpy as np
+from scipy import stats
+
 from megalodon import decode, megalodon_helper as mh
+from megalodon.version import __version__
 
 
 FIELD_NAMES = ('read_id', 'chrm', 'strand', 'pos', 'score',
@@ -28,14 +32,17 @@ SET_NO_ROLLBACK_MODE='PRAGMA journal_mode = OFF'
 SET_ASYNC_MODE='PRAGMA synchronous = OFF'
 
 ADDMANY_SNPS = "INSERT INTO snps VALUES (?,?,?,?,?,?,?,?)"
-CREATE_SNPS_IDX = "CREATE INDEX snp_pos ON snps (chrm, strand, pos)"
+CREATE_SNPS_IDX = "CREATE INDEX snp_pos ON snps snp_id"
 
-COUNT_UNIQ_POS = """
-SELECT COUNT(*) FROM (
-SELECT DISTINCT chrm, strand, pos FROM snps)"""
-SEL_UNIQ_POS = 'SELECT DISTINCT chrm, strand, pos FROM snps'
-SEL_POS_STATS = 'SELECT * FROM snps WHERE chrm=? AND strand=? AND pos=?'
+COUNT_UNIQ_SNP_ID = """
+SELECT COUNT(DISTINCT snp_id) FROM snps"""
+SEL_UNIQ_SNP_ID = 'SELECT DISTINCT snp_id FROM snps'
+SEL_SNP_ID_STATS = 'SELECT * FROM snps WHERE snp_id=?'
 
+
+########################
+##### SNP Encoding #####
+########################
 
 def encode_snp_seq(seq):
     """ Return sequence encoded as base 5 converted to integer
@@ -93,6 +100,11 @@ def simplify_and_encode_snp(snp_ref_seq, snp_alt_seq, ref_pos, max_snp_size):
     if np.abs(len(snp_ref_seq) - len(snp_alt_seq)) > max_snp_size:
         raise mh.MegaError('SNP too long')
     return encode_snp_seq(snp_ref_seq), encode_snp_seq(snp_alt_seq), ref_pos
+
+
+################################
+##### Per-read SNP Scoring #####
+################################
 
 def get_overlapping_snps(r_ref_pos, snps_to_test, edge_buffer):
     """Return SNPs overlapping the read mapped position.
@@ -194,6 +206,11 @@ def call_read_snps(
 
     return r_snp_calls
 
+
+###############################
+##### Per-read SNP Output #####
+###############################
+
 def _get_snps_queue(
         snps_q, snps_conn, snp_id_tbl, snps_db_fn, snps_txt_fn, db_safety):
     snps_db = sqlite3.connect(snps_db_fn)
@@ -249,7 +266,12 @@ def _get_snps_queue(
 
     return
 
-class Snps(object):
+
+######################
+##### VCF Reader #####
+######################
+
+class VcfReader(object):
     def __init__(
             self, snp_fn, do_prepend_chr_vcf, max_snp_size, all_paths,
             write_snps_txt):
@@ -311,23 +333,193 @@ class Snps(object):
         return
 
 
+######################
+##### VCF Writer #####
+######################
+
+class Variant(object):
+    """ Variant for entry into VcfWriter.
+    Currently only handles a single sample.
+    """
+    def __init__(
+            self, chrom, pos, ref, alt, id='.', qual='.', filter='.',
+            info={}, sample_dict=OrderedDict()):
+        self.chrom = chrom
+        self.pos = int(pos)
+        self.ref = ref.upper()
+        self.alt = alt.upper()
+        self.id = str(id)
+        self.qual = qual
+        self.filter = str(filter)
+        self.info_dict = info
+        self.sample_dict = sample_dict
+        return
+
+    @property
+    def _sorted_format_keys(self):
+        sorted_keys = sorted(self.sample_dict.keys())
+        if 'GT' in sorted_keys:
+            sorted_keys = ['GT'] + [k for k in sorted_keys if k != 'GT']
+        return sorted_keys
+    @property
+    def format(self):
+        return ':'.join(map(str, self._sorted_format_keys))
+    @property
+    def sample(self):
+        return ':'.join((str(self.sample_dict[k])
+                         for k in self._sorted_format_keys))
+    @property
+    def info(self):
+        str_tags = []
+        for key, value in self.info_dict.items():
+            # If key is of type 'Flag', print only key, else 'key=value'
+            if value is True:
+                str_tags.append(key)
+            else:
+                if isinstance(value, (tuple, list)):
+                    value = ','.join(map(str, value))
+                str_tags.append('{}={}'.format(key, value))
+        return ';'.join(str_tags)
+
+    def add_tag(self, tag, value=None):
+        self.info_dict[tag] = value
+
+    def add_sample_field(self, tag, value=None):
+        self.info_dict[tag] = value
+
+    def add_diploid_probs(self, probs):
+        assert len(probs) == 3, 'Diploid probabilities must be length 3.'
+        gt_call = np.argmax(probs)
+        # phred scaled likelihoods
+        raw_pl = -10 * np.log10(probs)
+        # "normalized" PL values stored as decsribed by VCF format
+        pl = raw_pl - raw_pl.min()
+        s_pl = np.sort(pl)
+
+        # add sample tags
+        self.qual = '{:.0f}'.format(np.around(raw_pl[0]))
+        self.add_sample_field('GQ', '{:.0f}'.format(np.around(s_pl[1])))
+        if gt_call == 0:
+            # homo-ref
+            self.add_sample_field('GT', '0/0')
+        elif gt_call == 1:
+            # het
+            self.add_sample_field('GT', '0/1')
+        else:
+            # homo-alt
+            self.add_sample_field('GT', '1/1')
+        return
+
+
+VCF_VERSION_MI = 'fileformat=VCFv{}'
+FILE_DATE_MI = 'fileDate={}'
+SOURCE_MI = 'source=ont-megalodon.v{}'
+REF_MI = "reference={}"
+FIXED_META_INFO = [
+    'phasing=none',
+    'INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
+    'FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
+    'FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype Quality">',
+    'FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read Depth">',
+]
+class VcfWriter(object):
+    """ VCF writer class
+    """
+    version_options = {'4.3', '4.1'}
+    def __init__(
+            self, filename, mode='w',
+            header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER',
+                    'INFO', 'FORMAT', 'SAMPLE'),
+            extra_meta_info=[], version='4.3', ref_fn=None):
+        self.filename = filename
+        self.mode = mode
+        self.header = header
+        if version not in self.version_options:
+            raise ValueError('version must be one of {}'.format(
+                self.version_options))
+        self.version = version
+        self.meta = [
+            VCF_VERSION_MI.format(self.version),
+            FILE_DATE_MI.format(datetime.date.today().strftime("%Y%m%d")),
+            SOURCE_MI.format(__version__),
+            REF_MI.format(ref_fn)] + extra_meta_info
+        return
+
+    def __enter__(self):
+        self.handle = open(self.filename, self.mode, encoding='utf-8')
+        self.handle.write('\n'.join('##' + line for line in self.meta) + '\n')
+        self.handle.write('#' + '\t'.join(self.header) + '\n')
+        return self
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.handle.close()
+        return
+
+    def write_variant(self, variant):
+        elements = [getattr(variant, field.lower()) for field in self.header]
+        # VCF POS field is 1-based
+        elements[self.header.index('POS')] += 1
+        self.handle.write('{}\n'.format('\t'.join(map(str, elements))))
+        self.handle.flush()
+
+        return
+
+
+#################################
+##### SNP Aggregation Class #####
+#################################
+
 class AggSnps(object):
+    """ Class to assist in database queries for per-site aggregation of
+    SNP calls over reads.
+    """
     def __init__(self, snps_db_fn):
         # open as read only database
         self.snps_db = sqlite3.connect(snps_db_fn, uri=True)
         self.snps_db_c = snps_db.cursor()
-        self.n_uniq_pos = self.snps_db_c.execute(COUNT_UNIQ_POS).fetchone()[0]
+        self.n_uniq_snps = None
+        return
 
-    def iter_uniq_pos(self):
-        for q_val in self.snps_db_c.execute(SEL_UNIQ_POS):
+    def num_uniq_snps(self):
+        if self.n_uniq_snps is None:
+            self.n_uniq_snps = self.snps_db_c.execute(
+                COUNT_UNIQ_SNP_ID).fetchone()[0]
+        return self.n_uniq_snps
+
+    def iter_uniq(self):
+        for q_val in self.snps_db_c.execute(SEL_UNIQ_SNP_ID):
             yield q_val
+        return
 
-    def get_pos_stats(self, chrm, strand, pos):
+    def get_per_read_snp_stats(self, snp_id):
         return [SNP_DATA(snp_stats) for snp_stats in self.snps_db_c.execute(
-            SEL_POS_STATS, (chrm, strand, pos))]
+            SEL_SNP_ID_STATS, (snp_id,))]
+
+    def compute_diploid_probs(self, llhrs):
+        prob_alt = np.sort(1 / (np.exp(llhrs) + 1))[::-1]
+        prob_homo_alt = np.prod(prob_alt)
+        prob_homo_ref = np.prod(1 - prob_alt)
+        rv = stats.binom(len(llhrs), 0.5)
+        prob_het = sum(
+            rv.pmf(i) * np.prod(prob_alt[:i]) * np.prod(1 - prob_alt[i:])
+            for i in range(len(llhrs) + 1))
+        snp_probs = np.array([prob_homo_ref, prob_het, prob_homo_alt])
+        post_snp_probs = snp_probs / snp_probs.sum()
+        return post_snp_probs
+
+    def compute_snp_stats(self, snp_id):
+        pr_snp_stats = self.get_per_read_snp_stats(snp_id)
+        diploid_probs = self.compute_diploid_probs([
+            r_stats.score for r_stats in pr_snp_stats])
+        r0_stats = pr_snp_stats[0]
+        snp_var = Variant(
+            chrm=r0_stats.chrm, pos=r0_stats.pos, ref=r0_stats.ref_seq,
+            alt=r0_stats.alt_seq, id=r0_stats.snp_id)
+        snp_var.add_diploid_probs(diploid_probs)
+        return snp_var
 
     def close(self):
         self.snps_db.close()
+        return
 
 
 if __name__ == '__main__':

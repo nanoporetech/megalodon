@@ -41,9 +41,79 @@ _MAX_NUM_UNEXP_ERRORS = 50
 _MAX_QUEUE_SIZE = 1000
 
 
+###################################
+##### Multi-processing Helper #####
+###################################
+
+def create_getter_q(getter_func, args):
+    q = mp.Queue(maxsize=_MAX_QUEUE_SIZE)
+    main_conn, conn = mp.Pipe()
+    p = mp.Process(target=getter_func, daemon=True, args=(q, conn, *args))
+    p.start()
+    return q, p, main_conn
+
+
 #######################################
 ##### Aggregate SNP and Mod Stats #####
 #######################################
+
+def _agg_snps_worker(locs_q, snp_stats_q, snp_db_fn):
+    agg_snps = AggSnps(snp_db_fn)
+
+    while True:
+        try:
+            snp_id = locs_q.get(block=False)
+        except queue.Empty:
+            sleep(0.1)
+            continue
+        if snp_id is None:
+            break
+
+        snp_var = agg_snps.compute_snp_stats(snp_id)
+        snp_stats_q.put(snp_var)
+
+    return
+
+def _get_snp_stats_queue(snp_stats_q, snp_conn, out_dir, do_sort=False):
+    agg_snp_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.SNP_NAME])
+    if not do_sort:
+        agg_snp_fp = snps.VcfWriter(agg_snp_fn, 'w')
+
+    while True:
+        try:
+            snp_var = snp_stats_q.get(block=False)
+            if do_sort:
+                all_snp_vars.append(snp_var)
+            else:
+                agg_snp_fp.write_variant(snp_var)
+        except queue.Empty:
+            if snp_conn.poll():
+                break
+            sleep(0.1)
+            continue
+
+    while not snp_stats_q.empty():
+        snp_var = snp_stats_q.get(block=False)
+        if do_sort:
+            all_snp_vars.append(snp_var)
+        else:
+            agg_snp_fp.write_variant(snp_var)
+    if do_sort:
+        # sort variants and write to file (requires adding __lt__, __gt__
+        # methods to variant class
+        pass
+    agg_snp_fp.close()
+
+    return
+
+def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps):
+    agg_db = agg_class(db_fn)
+    for loc in agg_db.iter_uniq():
+        locs_q.put(loc)
+    for _ in range(num_ps):
+        locs_q.put(None)
+
+    return
 
 def aggregate_stats(out_dir, outputs, num_ps):
     if mh.SNP_NAME in outputs and mh.MOD_NAME in outputs:
@@ -53,9 +123,25 @@ def aggregate_stats(out_dir, outputs, num_ps):
     num_snps, num_mods = 0, 0
     if mh.SNP_NAME in outputs:
         snp_db_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.PR_SNP_NAME][0])
-        main_p_agg_snps = snps.AggSnps(snps_db_fn)
-        # create process to fill snp loc queue
+        # create process to collect snp stats from workers
+        snp_stats_q, snp_stats_p, main_snp_stats_conn = create_getter_q(
+            _get_snp_stats_queue, (out_dir, bc_fmt))
+        # create process to fill snp locs queue
+        snp_q = mp.Queue(maxsize=_MAX_QUEUE_SIZE)
+        snp_p = mp.Process(
+            target=_fill_locs_queue,
+            args=(snp_q, snps_db_fn, snps.AggSnps, num_ps), daemon=True)
+        snp_p.start()
         # create worker processes to aggregate snps
+        for _ in range(num_ps):
+            p = mp.Process(
+                target=_agg_snps_worker, args=(snp_q), daemon=True)
+            p.start()
+            agg_snps_ps.append(p)
+
+
+
+
 
     if mh.MOD_NAME in outputs:
         # copy logic from snps
@@ -172,10 +258,10 @@ def get_read_files(fast5s_dir):
 
     return fast5_fns
 
-def _fill_files_queue(fast5_q, fast5_fns, num_ts):
+def _fill_files_queue(fast5_q, fast5_fns, num_ps):
     for fast5_fn in fast5_fns:
         fast5_q.put(fast5_fn)
-    for _ in range(num_ts):
+    for _ in range(num_ps):
         fast5_q.put(None)
 
     return
@@ -318,16 +404,8 @@ def _get_fail_queue(
 
 def process_all_reads(
         fast5s_dir, num_reads, model_info, outputs, out_dir, bc_fmt, aligner,
-        add_chr_ref, snps_data, num_ts, num_update_errors, suppress_progress,
+        add_chr_ref, snps_data, num_ps, num_update_errors, suppress_progress,
         alphabet_info, db_safety):
-    def create_getter_q(getter_func, args):
-        q = mp.Queue(maxsize=_MAX_QUEUE_SIZE)
-        main_conn, conn = mp.Pipe()
-        p = mp.Process(target=getter_func, daemon=True, args=(q, conn, *args))
-        p.start()
-        return q, p, main_conn
-
-
     sys.stderr.write('Searching for reads\n')
     fast5_fns = get_read_files(fast5s_dir)
     if num_reads is not None:
@@ -337,7 +415,7 @@ def process_all_reads(
     # read filename queue filler
     fast5_q = mp.Queue(maxsize=_MAX_QUEUE_SIZE)
     files_p = mp.Process(
-        target=_fill_files_queue, args=(fast5_q, fast5_fns, num_ts),
+        target=_fill_files_queue, args=(fast5_q, fast5_fns, num_ps),
         daemon=True)
     files_p.start()
     # progress and failed reads getter
@@ -372,7 +450,7 @@ def process_all_reads(
                 os.path.join(out_dir, mods_db_fn), mods_txt_fn, db_safety))
 
     proc_reads_ps, map_conns = [], []
-    for _ in range(num_ts):
+    for _ in range(num_ps):
         if aligner is None:
             map_conn, caller_conn = None, None
         else:
@@ -705,7 +783,7 @@ def _main():
             'flip-flop model is not supported.\n' + '*' * 100 + '\n')
         sys.exit(1)
     # snps data object loads with None snp_fn for easier handling downstream
-    snps_data = snps.Snps(
+    snps_data = snps.VcfReader(
         args.snp_filename, args.prepend_chr_vcf, args.max_snp_size,
         args.snp_all_paths, args.write_snps_text)
     if args.snp_filename is not None and mh.PR_SNP_NAME not in args.outputs:
