@@ -8,6 +8,7 @@ MAP_NAME = 'mappings'
 MAP_OUT_FMTS = ('bam', 'cram', 'sam')
 PR_SNP_NAME = 'per_read_snps'
 SNP_NAME = 'snps'
+PR_MOD_NAME = 'per_read_mods'
 MOD_NAME = 'mods'
 ALIGN_OUTPUTS = set((MAP_NAME, PR_SNP_NAME, SNP_NAME, PR_MOD_NAME, MOD_NAME))
 OUTPUT_FNS = {

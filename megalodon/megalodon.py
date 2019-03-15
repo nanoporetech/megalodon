@@ -57,8 +57,8 @@ def create_getter_q(getter_func, args):
 ##### Aggregate SNP and Mod Stats #####
 #######################################
 
-def _agg_snps_worker(locs_q, snp_stats_q, snp_db_fn):
-    agg_snps = AggSnps(snp_db_fn)
+def _agg_snps_worker(locs_q, snp_stats_q, snps_db_fn):
+    agg_snps = snps.AggSnps(snps_db_fn)
 
     while True:
         try:
@@ -69,7 +69,7 @@ def _agg_snps_worker(locs_q, snp_stats_q, snp_db_fn):
         if snp_id is None:
             break
 
-        snp_var = agg_snps.compute_snp_stats(snp_id)
+        snp_var = agg_snps.compute_snp_stats(snp_id[0])
         snp_stats_q.put(snp_var)
 
     return
@@ -115,46 +115,50 @@ def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps):
 
     return
 
-def aggregate_stats(out_dir, outputs, num_ps):
+def aggregate_stats(outputs, out_dir, num_ps):
+    sys.stderr.write('Aggregating SNPs/Mods at sites over reads.\n')
     if mh.SNP_NAME in outputs and mh.MOD_NAME in outputs:
         num_ps = num_ps // 2
 
     agg_snps_ps, agg_mods_ps = [], []
     num_snps, num_mods = 0, 0
     if mh.SNP_NAME in outputs:
-        snp_db_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.PR_SNP_NAME][0])
+        snps_db_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.PR_SNP_NAME][0])
         # create process to collect snp stats from workers
         snp_stats_q, snp_stats_p, main_snp_stats_conn = create_getter_q(
-            _get_snp_stats_queue, (out_dir, bc_fmt))
+            _get_snp_stats_queue, (out_dir,))
         # create process to fill snp locs queue
-        snp_q = mp.Queue(maxsize=_MAX_QUEUE_SIZE)
-        snp_p = mp.Process(
+        snp_filler_q = mp.Queue(maxsize=_MAX_QUEUE_SIZE)
+        snp_filler_p = mp.Process(
             target=_fill_locs_queue,
-            args=(snp_q, snps_db_fn, snps.AggSnps, num_ps), daemon=True)
-        snp_p.start()
+            args=(snp_filler_q, snps_db_fn, snps.AggSnps, num_ps), daemon=True)
+        snp_filler_p.start()
         # create worker processes to aggregate snps
         for _ in range(num_ps):
             p = mp.Process(
-                target=_agg_snps_worker, args=(snp_q), daemon=True)
+                target=_agg_snps_worker,
+                args=(snp_filler_q, snp_stats_q, snps_db_fn), daemon=True)
             p.start()
             agg_snps_ps.append(p)
-
-
-
-
 
     if mh.MOD_NAME in outputs:
         # copy logic from snps
         pass
 
-    # create progress process
+    # TODO create progress process
 
     # join filler processes first
-    for agg_snps_p in agg_snps_ps:
-        agg_snps_p.join()
-    for agg_mods_p in agg_mods_ps:
-        agg_mods_p.join()
-    # join progress process
+    if mh.SNP_NAME in outputs:
+        snp_filler_p.join()
+        for agg_snps_p in agg_snps_ps:
+            agg_snps_p.join()
+        # send to conn
+        if snp_stats_p.is_alive():
+            main_snp_stats_conn.send(True)
+        snp_stats_p.join()
+    if mh.MOD_NAME in outputs:
+        for agg_mods_p in agg_mods_ps:
+            agg_mods_p.join()
 
     return
 
@@ -280,7 +284,7 @@ def _process_reads_worker(
 
         if fast5_fn is None:
             if caller_conn is not None:
-                caller_conn.send(None)
+                caller_conn.send(True)
             break
 
         try:
@@ -327,7 +331,7 @@ def format_fail_summ(header, fail_summ=[], num_reads=0, num_errs=None):
     return '\n'.join((header, errs_str))
 
 def prep_errors_bar(num_update_errors, tot_reads, suppress_progress):
-    if num_update_errors > 0:
+    if num_update_errors > 0 and not suppress_progress:
         # add lines for dynamic error messages
         sys.stderr.write(
             '\n'.join(['' for _ in range(num_update_errors + 2)]))
@@ -406,12 +410,12 @@ def process_all_reads(
         fast5s_dir, num_reads, model_info, outputs, out_dir, bc_fmt, aligner,
         add_chr_ref, snps_data, num_ps, num_update_errors, suppress_progress,
         alphabet_info, db_safety):
-    sys.stderr.write('Searching for reads\n')
+    sys.stderr.write('Searching for reads.\n')
     fast5_fns = get_read_files(fast5s_dir)
     if num_reads is not None:
         fast5_fns = fast5_fns[:num_reads]
 
-    sys.stderr.write('Preparing workers and calling reads\n')
+    sys.stderr.write('Preparing workers and calling reads.\n')
     # read filename queue filler
     fast5_q = mp.Queue(maxsize=_MAX_QUEUE_SIZE)
     files_p = mp.Process(
@@ -435,7 +439,7 @@ def process_all_reads(
                              aligner.out_fmt, aligner.ref_fn))
     if mh.PR_SNP_NAME in outputs:
         snps_db_fn, snps_txt_fn = mh.OUTPUT_FNS[mh.PR_SNP_NAME]
-        snps_txt_fn = (os.path.join(out_dir, snps_db_fn)
+        snps_txt_fn = (os.path.join(out_dir, snps_txt_fn)
                        if snps_data.write_snps_txt else None)
         snps_q, snps_p, main_snps_conn = create_getter_q(
             snps._get_snps_queue, (
@@ -587,7 +591,7 @@ class AlphabetInfo(object):
             self.collapse_alphabet = self.collapse_alphabet.decode()
         except:
             pass
-        sys.stderr.write('Using alphabet {} collapsed to {}\n'.format(
+        sys.stderr.write('Using alphabet {} collapsed to {}.\n'.format(
             self.alphabet, self.collapse_alphabet))
 
         self.nbase = len(self.alphabet)
@@ -695,10 +699,10 @@ def get_parser():
 
     mod_grp = parser.add_argument_group('Modified Base Arguments')
     mod_grp.add_argument(
-        '--mod-motifs', nargs='+', default=["Z:CG-0", "Z:CCWGG-1", "Y:GATC-1"],
+        '--mod-motifs', nargs='+',
         help='Restrict modified base calls to specified motifs. Format as ' +
         '"[mod_base]:[motif]-[relative_pos]". For CpG, dcm and dam calling ' +
-        '(default) use "Z:CG-0 Z:CCWGG-1 Y:GATC-1".')
+        'use "Z:CG-0 Z:CCWGG-1 Y:GATC-1".')
     mod_grp.add_argument(
         '--mod-all-paths', action='store_true',
         help='Compute forwards algorithm all paths score for modified base ' +
@@ -758,6 +762,8 @@ def _main():
     alphabet_info = AlphabetInfo(
         model_info, args.mod_motifs, args.mod_all_paths, args.override_alphabet,
         args.write_mods_text)
+    if mh.PR_MOD_NAME in args.outputs and not mh.MOD_NAME in args.outputs:
+        args.output.append(mh.MOD_NAME)
     if model_info.is_cat_mod and mh.PR_MOD_NAME not in args.outputs:
         sys.stderr.write(
             '*' * 100 + '\nWARNING: Categorical modifications model ' +
@@ -770,6 +776,8 @@ def _main():
             '{} not requested '.format(mh.PR_MOD_NAME) +
             '(via --outputs). Argument will be ignored.\n' + '*' * 100 + '\n')
 
+    if mh.PR_SNP_NAME in args.outputs and not mh.SNP_NAME in args.outputs:
+        args.output.append(mh.SNP_NAME)
     if mh.PR_SNP_NAME in args.outputs and args.snp_filename is None:
         sys.stderr.write(
             '*' * 100 + '\nERROR: {} output requested, '.format(mh.PR_SNP_NAME) +
@@ -822,7 +830,8 @@ def _main():
         args.verbose_read_progress, args.suppress_progress,
         alphabet_info, args.database_safety)
 
-    aggregate_stats(args.outputs)
+    if mh.SNP_NAME in args.outputs or mh.MOD_NAME in args.outputs:
+        aggregate_stats(args.outputs, args.output_directory, args.processes)
 
     return
 

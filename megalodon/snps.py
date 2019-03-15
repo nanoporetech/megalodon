@@ -4,7 +4,7 @@ import sqlite3
 import datetime
 from time import sleep
 import multiprocessing as mp
-from collections import defaultdict, namedtuple
+from collections import defaultdict, namedtuple, OrderedDict
 
 import numpy as np
 from scipy import stats
@@ -13,10 +13,14 @@ from megalodon import decode, megalodon_helper as mh
 from megalodon.version import __version__
 
 
+MAX_PL_VALUE = 255
+# non-standard SAMPLE field to inspect per-read log likelihood ratios
+VCF_OUTPUT_LLHRS = False
+
 FIELD_NAMES = ('read_id', 'chrm', 'strand', 'pos', 'score',
                'ref_seq', 'alt_seq', 'snp_id')
 SNP_DATA = namedtuple('SNP_DATA', FIELD_NAMES)
-CREATE_snps_TBLS = """
+CREATE_SNPS_TBLS = """
 CREATE TABLE snps (
     {} TEXT,
     {} TEXT,
@@ -32,7 +36,7 @@ SET_NO_ROLLBACK_MODE='PRAGMA journal_mode = OFF'
 SET_ASYNC_MODE='PRAGMA synchronous = OFF'
 
 ADDMANY_SNPS = "INSERT INTO snps VALUES (?,?,?,?,?,?,?,?)"
-CREATE_SNPS_IDX = "CREATE INDEX snp_pos ON snps snp_id"
+CREATE_SNPS_IDX = "CREATE INDEX snp_pos ON snps (snp_id)"
 
 COUNT_UNIQ_SNP_ID = """
 SELECT COUNT(DISTINCT snp_id) FROM snps"""
@@ -214,19 +218,18 @@ def call_read_snps(
 def _get_snps_queue(
         snps_q, snps_conn, snp_id_tbl, snps_db_fn, snps_txt_fn, db_safety):
     snps_db = sqlite3.connect(snps_db_fn)
-    snps_db_c = snps_db.cursor()
     if db_safety < 2:
-        snps_db_c.execute(SET_ASYNC_MODE)
+        snps_db.execute(SET_ASYNC_MODE)
     if db_safety < 1:
-        snps_db_c.execute(SET_NO_ROLLBACK_MODE)
-    snps_db_c.execute(CREATE_SNPS_TBLS)
+        snps_db.execute(SET_NO_ROLLBACK_MODE)
+    snps_db.execute(CREATE_SNPS_TBLS)
     snps_txt_fp = None if snps_txt_fn is None else open(snps_txt_fn, 'w')
 
     while True:
         try:
             # note strand is +1 for fwd or -1 for rev
             r_snp_calls, (read_id, chrm, strand) = snps_q.get(block=False)
-            snps_db_c.executemany(ADDMANY_SNPS, [
+            snps_db.executemany(ADDMANY_SNPS, [
                 (read_id, chrm, strand, pos, score, ref_seq, alt_seq,
                  snp_id_tbl[chrm][snp_i])
                 for pos, score, ref_seq, alt_seq, snp_i in r_snp_calls])
@@ -248,7 +251,7 @@ def _get_snps_queue(
 
     while not snps_q.empty():
         r_snp_calls, (read_id, chrm, strand) = snps_q.get(block=False)
-        snps_db_c.executemany(ADDMANY_SNPS, [
+        snps_db.executemany(ADDMANY_SNPS, [
             (read_id, chrm, strand, pos, score, ref_seq, alt_seq,
              snp_id_tbl[chrm][snp_i])
             for pos, score, ref_seq, alt_seq, snp_i in r_snp_calls])
@@ -260,7 +263,7 @@ def _get_snps_queue(
                 for pos, score, ref_seq, alt_seq, snp_i in r_snp_calls)) + '\n')
             snps_txt_fp.flush()
     if snps_txt_fp is not None: snps_txt_fp.close()
-    snps_db_c.execute(CREATE_SNPS_IDX)
+    snps_db.execute(CREATE_SNPS_IDX)
     snps_db.commit()
     snps_db.close()
 
@@ -385,20 +388,24 @@ class Variant(object):
         self.info_dict[tag] = value
 
     def add_sample_field(self, tag, value=None):
-        self.info_dict[tag] = value
+        self.sample_dict[tag] = value
 
     def add_diploid_probs(self, probs):
         assert len(probs) == 3, 'Diploid probabilities must be length 3.'
         gt_call = np.argmax(probs)
         # phred scaled likelihoods
-        raw_pl = -10 * np.log10(probs)
+        with np.errstate(divide='ignore'):
+            raw_pl = -10 * np.log10(probs)
         # "normalized" PL values stored as decsribed by VCF format
-        pl = raw_pl - raw_pl.min()
+        pl = np.minimum(raw_pl - raw_pl.min(), MAX_PL_VALUE)
         s_pl = np.sort(pl)
 
         # add sample tags
-        self.qual = '{:.0f}'.format(np.around(raw_pl[0]))
+        self.qual = '{:.0f}'.format(
+            np.around(np.minimum(raw_pl[0], MAX_PL_VALUE)))
         self.add_sample_field('GQ', '{:.0f}'.format(np.around(s_pl[1])))
+        self.add_sample_field('PL', '{:.0f},{:.0f},{:.0f}'.format(
+            *np.around(pl)))
         if gt_call == 0:
             # homo-ref
             self.add_sample_field('GT', '0/0')
@@ -443,19 +450,19 @@ class VcfWriter(object):
             FILE_DATE_MI.format(datetime.date.today().strftime("%Y%m%d")),
             SOURCE_MI.format(__version__),
             REF_MI.format(ref_fn)] + extra_meta_info
-        return
 
-    def __enter__(self):
         self.handle = open(self.filename, self.mode, encoding='utf-8')
         self.handle.write('\n'.join('##' + line for line in self.meta) + '\n')
         self.handle.write('#' + '\t'.join(self.header) + '\n')
-        return self
-    def __exit__(self, exc_type, exc_val, exc_tb):
+        return
+
+    def close(self):
         self.handle.close()
         return
 
     def write_variant(self, variant):
         elements = [getattr(variant, field.lower()) for field in self.header]
+        elements = ['.' if e == '' else e for e in elements]
         # VCF POS field is 1-based
         elements[self.header.index('POS')] += 1
         self.handle.write('{}\n'.format('\t'.join(map(str, elements))))
@@ -475,23 +482,22 @@ class AggSnps(object):
     def __init__(self, snps_db_fn):
         # open as read only database
         self.snps_db = sqlite3.connect(snps_db_fn, uri=True)
-        self.snps_db_c = snps_db.cursor()
         self.n_uniq_snps = None
         return
 
     def num_uniq_snps(self):
         if self.n_uniq_snps is None:
-            self.n_uniq_snps = self.snps_db_c.execute(
+            self.n_uniq_snps = self.snps_db.execute(
                 COUNT_UNIQ_SNP_ID).fetchone()[0]
         return self.n_uniq_snps
 
     def iter_uniq(self):
-        for q_val in self.snps_db_c.execute(SEL_UNIQ_SNP_ID):
+        for q_val in self.snps_db.execute(SEL_UNIQ_SNP_ID):
             yield q_val
         return
 
     def get_per_read_snp_stats(self, snp_id):
-        return [SNP_DATA(snp_stats) for snp_stats in self.snps_db_c.execute(
+        return [SNP_DATA(*snp_stats) for snp_stats in self.snps_db.execute(
             SEL_SNP_ID_STATS, (snp_id,))]
 
     def compute_diploid_probs(self, llhrs):
@@ -512,8 +518,13 @@ class AggSnps(object):
             r_stats.score for r_stats in pr_snp_stats])
         r0_stats = pr_snp_stats[0]
         snp_var = Variant(
-            chrm=r0_stats.chrm, pos=r0_stats.pos, ref=r0_stats.ref_seq,
+            chrom=r0_stats.chrm, pos=r0_stats.pos, ref=r0_stats.ref_seq,
             alt=r0_stats.alt_seq, id=r0_stats.snp_id)
+        snp_var.add_tag('DP', '{}'.format(len(pr_snp_stats)))
+        snp_var.add_sample_field('DP', '{}'.format(len(pr_snp_stats)))
+        if VCF_OUTPUT_LLHRS:
+            snp_var.add_sample_field('LLHRS', ','.join(map(str, [
+                r_stats.score for r_stats in pr_snp_stats])))
         snp_var.add_diploid_probs(diploid_probs)
         return snp_var
 
