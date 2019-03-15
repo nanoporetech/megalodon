@@ -523,8 +523,9 @@ class AggSnps(object):
         snp_var.add_tag('DP', '{}'.format(len(pr_snp_stats)))
         snp_var.add_sample_field('DP', '{}'.format(len(pr_snp_stats)))
         if VCF_OUTPUT_LLHRS:
-            snp_var.add_sample_field('LLHRS', ','.join(map(str, [
-                r_stats.score for r_stats in pr_snp_stats])))
+            snp_var.add_sample_field('LLHRS', ','.join(
+                '{:.0f}'.format(llhr) for llhr in  sorted([
+                    r_stats.score for r_stats in pr_snp_stats])))
         snp_var.add_diploid_probs(diploid_probs)
         return snp_var
 
