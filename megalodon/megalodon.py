@@ -57,8 +57,8 @@ def create_getter_q(getter_func, args):
 ##### Aggregate SNP and Mod Stats #####
 #######################################
 
-def _agg_snps_worker(locs_q, snp_stats_q, snps_db_fn):
-    agg_snps = snps.AggSnps(snps_db_fn)
+def _agg_snps_worker(locs_q, snp_stats_q, snps_db_fn, snps_calib_fn):
+    agg_snps = snps.AggSnps(snps_db_fn, snps_calib_fn)
 
     while True:
         try:
@@ -115,7 +115,7 @@ def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps):
 
     return
 
-def aggregate_stats(outputs, out_dir, num_ps):
+def aggregate_stats(outputs, out_dir, num_ps, snps_calib_fn):
     sys.stderr.write('Aggregating SNPs/Mods at sites over reads.\n')
     if mh.SNP_NAME in outputs and mh.MOD_NAME in outputs:
         num_ps = num_ps // 2
@@ -137,7 +137,8 @@ def aggregate_stats(outputs, out_dir, num_ps):
         for _ in range(num_ps):
             p = mp.Process(
                 target=_agg_snps_worker,
-                args=(snp_filler_q, snp_stats_q, snps_db_fn), daemon=True)
+                args=(snp_filler_q, snp_stats_q, snps_db_fn, snps_calib_fn),
+                daemon=True)
             p.start()
             agg_snps_ps.append(p)
 
@@ -681,6 +682,10 @@ def get_parser():
         '--snp-filename',
         help='SNPs to call for each read in VCF format (required for output).')
     snp_grp.add_argument(
+        '--snp-calibration-filename',
+        help='File containing emperical calibration for SNP scores. As ' +
+        'created by megalodon/scripts/calibrate_snp_scores.py.')
+    snp_grp.add_argument(
         '--prepend-chr-vcf', action='store_true',
         help='Prepend "chr" to chromosome names from VCF to match ' +
         'reference names.')
@@ -776,11 +781,12 @@ def _main():
             '{} not requested '.format(mh.PR_MOD_NAME) +
             '(via --outputs). Argument will be ignored.\n' + '*' * 100 + '\n')
 
-    if mh.PR_SNP_NAME in args.outputs and not mh.SNP_NAME in args.outputs:
-        args.output.append(mh.SNP_NAME)
+    if mh.SNP_NAME in args.outputs and not mh.PR_SNP_NAME in args.outputs:
+        args.output.append(mh.PR_SNP_NAME)
     if mh.PR_SNP_NAME in args.outputs and args.snp_filename is None:
         sys.stderr.write(
-            '*' * 100 + '\nERROR: {} output requested, '.format(mh.PR_SNP_NAME) +
+            '*' * 100 + '\nERROR: {} output requested, '.format(
+                mh.PR_SNP_NAME) +
             'but --snp-filename provided.\n' + '*' * 100 + '\n')
         sys.exit(1)
     if mh.PR_SNP_NAME in args.outputs and not (
@@ -831,7 +837,8 @@ def _main():
         alphabet_info, args.database_safety)
 
     if mh.SNP_NAME in args.outputs or mh.MOD_NAME in args.outputs:
-        aggregate_stats(args.outputs, args.output_directory, args.processes)
+        aggregate_stats(args.outputs, args.output_directory, args.processes,
+                        args.snp_calibration_filename)
 
     return
 

@@ -479,10 +479,20 @@ class AggSnps(object):
     """ Class to assist in database queries for per-site aggregation of
     SNP calls over reads.
     """
-    def __init__(self, snps_db_fn):
+    def _load_calibration(self, snps_calib_fn):
+        snp_calib_data = np.load(snps_calib_fn)
+        self.stratify_type = str(snp_calib_data['stratify_type'])
+        self.max_input_llhr = np.int(snp_calib_data['smooth_max'])
+        self.num_calib_vals = np.int(snp_calib_data['smooth_nvals'])
+        self.discrete_step = 2 * self.max_input_llhr / (self.num_calib_vals - 1)
+        return snp_calib_data['global_calibration_table'].copy()
+
+    def __init__(self, snps_db_fn, snps_calib_fn=None):
         # open as read only database
         self.snps_db = sqlite3.connect(snps_db_fn, uri=True)
         self.n_uniq_snps = None
+        self.calib_table = (None if snps_calib_fn is None else
+                            self._load_calibration(snps_calib_fn))
         return
 
     def num_uniq_snps(self):
@@ -500,14 +510,21 @@ class AggSnps(object):
         return [SNP_DATA(*snp_stats) for snp_stats in self.snps_db.execute(
             SEL_SNP_ID_STATS, (snp_id,))]
 
+    def calibrate_llhrs(self, llhrs):
+        return self.calib_table[np.around((llhrs + self.max_input_llhr) /
+                                          self.discrete_step).astype(int)]
+
     def compute_diploid_probs(self, llhrs):
-        prob_alt = np.sort(1 / (np.exp(llhrs) + 1))[::-1]
+        np_llhrs = np.array(llhrs)
+        if self.calib_table is not None:
+            np_llhrs = calibrate_llhrs(np_llhrs)
+        prob_alt = np.sort(1 / (np.exp(np_llhrs) + 1))[::-1]
         prob_homo_alt = np.prod(prob_alt)
         prob_homo_ref = np.prod(1 - prob_alt)
-        rv = stats.binom(len(llhrs), 0.5)
+        rv = stats.binom(len(np_llhrs), 0.5)
         prob_het = sum(
             rv.pmf(i) * np.prod(prob_alt[:i]) * np.prod(1 - prob_alt[i:])
-            for i in range(len(llhrs) + 1))
+            for i in range(len(np_llhrs) + 1))
         snp_probs = np.array([prob_homo_ref, prob_het, prob_homo_alt])
         post_snp_probs = snp_probs / snp_probs.sum()
         return post_snp_probs
@@ -524,7 +541,7 @@ class AggSnps(object):
         snp_var.add_sample_field('DP', '{}'.format(len(pr_snp_stats)))
         if VCF_OUTPUT_LLHRS:
             snp_var.add_sample_field('LLHRS', ','.join(
-                '{:.0f}'.format(llhr) for llhr in  sorted([
+                '{:.2f}'.format(llhr) for llhr in  sorted([
                     r_stats.score for r_stats in pr_snp_stats])))
         snp_var.add_diploid_probs(diploid_probs)
         return snp_var
