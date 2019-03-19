@@ -1,3 +1,5 @@
+from abc import ABC, abstractmethod
+
 import h5py
 import numpy as np
 
@@ -34,6 +36,20 @@ def nstate_to_nbase(nstate):
 
 def revcomp(seq):
     return seq.translate(COMP_BASES)[::-1]
+
+
+################################
+##### Stat Aggregation ABC #####
+################################
+
+class AbstractAggregationClass(ABC):
+    @abstractmethod
+    def iter_uniq(self):
+        return
+
+    @abstractmethod
+    def num_uniq(self):
+        return
 
 
 #############################

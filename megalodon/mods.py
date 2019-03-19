@@ -1,28 +1,43 @@
 import queue
 import sqlite3
 from time import sleep
+from collections import namedtuple
 
 import numpy as np
 
 from megalodon import decode, megalodon_helper as mh
 
 
+FIELD_NAMES = ('read_id', 'chrm', 'strand', 'pos', 'score',
+               'mod_base', 'motif')
+MOD_DATA = namedtuple('MOD_DATA', FIELD_NAMES)
 CREATE_MODS_TBLS = """
 CREATE TABLE mods (
-    read_id TEXT,
-    chrm TEXT,
-    strand INTEGER,
-    pos INTEGER,
-    score FLOAT,
-    mod_base TEXT,
-    motif TEXT
-)"""
+    {} TEXT,
+    {} TEXT,
+    {} INTEGER,
+    {} INTEGER,
+    {} FLOAT,
+    {} TEXT,
+    {} TEXT
+)""".format(*FIELD_NAMES)
 
 SET_NO_ROLLBACK_MODE='PRAGMA journal_mode = OFF'
 SET_ASYNC_MODE='PRAGMA synchronous = OFF'
 
 ADDMANY_MODS = "INSERT INTO mods VALUES (?,?,?,?,?,?,?)"
 CREATE_MODS_IDX = "CREATE INDEX mod_pos ON mods (chrm, strand, pos)"
+
+COUNT_UNIQ_MODS = """
+SELECT COUNT(*) FROM (
+SELECT DISTINCT chrm, strand, pos, mod_base FROM mods)"""
+SEL_UNIQ_MODS = 'SELECT DISTINCT chrm, strand, pos, mod_base FROM mods'
+SEL_MOD_STATS = '''
+SELECT * FROM mods WHERE chrm=? AND strand=? AND pos=? and mod_base=?'''
+
+BIN_THRESH_NAME = 'binary_threshold'
+EM_NAME = 'em'
+PROP_METHOD_NAMES = set((BIN_THRESH_NAME, EM_NAME))
 
 
 def score_mod_seq(
@@ -143,6 +158,124 @@ def _get_mods_queue(mods_q, mods_conn, mods_db_fn, mods_txt_fn, db_safety):
     mods_db.close()
 
     return
+
+
+
+
+##################################
+##### Mods Aggregation Class #####
+##################################
+
+class AggMods(mh.AbstractAggregationClass):
+    """ Class to assist in database queries for per-site aggregation of
+    modified base calls over reads.
+    """
+    def _load_calibration(self, mods_calib_fn):
+        mod_calib_data = np.load(mods_calib_fn)
+        self.stratify_type = str(mod_calib_data['stratify_type'])
+        self.max_input_llhr = np.int(mod_calib_data['smooth_max'])
+        self.num_calib_vals = np.int(mod_calib_data['smooth_nvals'])
+        self.discrete_step = 2 * self.max_input_llhr / (self.num_calib_vals - 1)
+        return mod_calib_data['global_calibration_table'].copy()
+
+    def __init__(
+            self, mods_db_fn, mods_calib_fn=None,
+            prop_method=BIN_THRESH_NAME, binary_thresh=0):
+        # open as read only database
+        self.mods_db = sqlite3.connect(mods_db_fn, uri=True)
+        self.n_uniq_mods = None
+        self.calib_table = (None if mods_calib_fn is None else
+                            self._load_calibration(mods_calib_fn))
+        assert prop_method in PROP_METHOD_NAMES
+        self.prop_method = prop_method
+        self.binary_thresh = binary_thresh
+        if type(self.binary_thresh) in (float, int):
+            self.binary_thresh = [binary_thresh, binary_thresh]
+        return
+
+    def num_uniq(self):
+        if self.n_uniq_mods is None:
+            self.n_uniq_mods = self.mods_db.execute(
+                COUNT_UNIQ_MODS).fetchone()[0]
+        return self.n_uniq_mods
+
+    def iter_uniq(self):
+        for q_val in self.mods_db.execute(SEL_UNIQ_MODS):
+            yield q_val
+        return
+
+    def get_per_read_mod_stats(self, mod_loc):
+        return [MOD_DATA(*snp_stats) for mod_stats in self.mods_db.execute(
+            SEL_MOD_STATS, mod_loc)]
+
+    def calibrate_llhrs(self, llhrs):
+        return self.calib_table[np.around((
+            np.clip(llhrs, -self.max_input_llhr, self.max_input_llhr) +
+            self.max_input_llhr) / self.discrete_step).astype(int)]
+
+    def est_binary_thresh(pos_scores):
+        pos_mod = np.less(pos_scores, self.binary_thresh[0])
+        mod_cov = pos_mod.sum()
+        valid_cov = np.logical_or(
+            pos_mod, np.greater(pos_scores, binary_thresh[1])).sum()
+        if valid_cov == 0:
+            return 0, valid_cov
+        return mod_cov / float(valid_cov), valid_cov
+
+    def est_em_prop(
+            pos_scores, max_iters=5, conv_tol=0.005,
+            init_thresh=0, min_prop=0.01, max_prop=0.99):
+        curr_mix_prop = np.clip(np.mean(pos_scores < init_thresh),
+                                min_prop, max_prop)
+        for _ in range(max_iters):
+            prev_mix_prop = curr_mix_prop
+            if prev_mix_prop < min_prop:
+                return 0.0, pos_scores.shape[0]
+            if prev_mix_prop > max_prop:
+                return 1.0, pos_scores.shape[0]
+            curr_mix_prop = np.mean(1 / (1 + (
+                np.exp(pos_scores) * (1 - prev_mix_prop) / prev_mix_prop)))
+            if np.abs(curr_mix_prop - prev_mix_prop) < conv_tol:
+                break
+
+        return curr_mix_prop, pos_scores.shape[0]
+
+    def emp_em(pos_scores, max_iters):
+        """ Emperical EM estimation
+
+        This method does not actually work yet. Need to compute
+        emperical proportion array
+        """
+        # pre-computed array from ground truth
+        # rows are mixture rate, cols are per-read scores
+        mod_prob_tbl = np.array()
+
+        curr_mix_prop = np.mean(pos_scores < 0)
+        for _ in range(max_iters):
+            curr_mix_prop = np.mean(mod_prob_tbl[curr_mix_prop, pos_scores])
+
+        return curr_mix_prop, pos_scores.shape[0]
+
+    def compute_mod_stats(self, mod_loc, prop_method=None):
+        pr_mod_stats = self.get_per_read_mod_stats(mod_loc)
+        loc_llhrs = np.array([r_stats.score for r_stats in pr_snp_stats])
+        if self.calib_table is not None:
+            llhrs = self.calibrate_llhrs(llhrs)
+        if prop_method is None:
+            prop_method = self.prop_method
+        if prop_method == BIN_THRESH_NAME:
+            prop_est = self.est_binary_thresh(llhrs)
+        elif prop_method == EM_NAME:
+            prop_est = self.est_em_prop(llhrs)
+        else:
+            raise NotImplementedError(
+                'No modified base proportion estimation method: {}'.format(
+                    prop_method))
+        return prop_est
+
+    def close(self):
+        self.mods_db.close()
+        return
 
 
 if __name__ == '__main__':

@@ -57,7 +57,8 @@ def create_getter_q(getter_func, args):
 ##### Aggregate SNP and Mod Stats #####
 #######################################
 
-def _agg_snps_worker(locs_q, snp_stats_q, snps_db_fn, snps_calib_fn):
+def _agg_snps_worker(
+        locs_q, snp_stats_q, snp_prog_q, snps_db_fn, snps_calib_fn):
     agg_snps = snps.AggSnps(snps_db_fn, snps_calib_fn)
 
     while True:
@@ -71,12 +72,15 @@ def _agg_snps_worker(locs_q, snp_stats_q, snps_db_fn, snps_calib_fn):
 
         snp_var = agg_snps.compute_snp_stats(snp_id[0])
         snp_stats_q.put(snp_var)
+        snp_prog_q.put(1)
 
     return
 
 def _get_snp_stats_queue(snp_stats_q, snp_conn, out_dir, do_sort=False):
     agg_snp_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.SNP_NAME])
-    if not do_sort:
+    if do_sort:
+        all_snp_vars = []
+    else:
         agg_snp_fp = snps.VcfWriter(agg_snp_fn, 'w')
 
     while True:
@@ -98,11 +102,69 @@ def _get_snp_stats_queue(snp_stats_q, snp_conn, out_dir, do_sort=False):
             all_snp_vars.append(snp_var)
         else:
             agg_snp_fp.write_variant(snp_var)
+
     if do_sort:
         # sort variants and write to file (requires adding __lt__, __gt__
         # methods to variant class
-        pass
-    agg_snp_fp.close()
+        with snps.VcfWriter(agg_snp_fn, 'w') as agg_snp_fp:
+            for snp_var in sorted(all_snp_vars):
+                agg_snp_fp.write_variant(snp_var)
+    else:
+        agg_snp_fp.close()
+
+    return
+
+def _agg_mods_worker(
+        locs_q, mod_stats_q, mod_prog_q, mod_db_fn, mod_calib_fn):
+    agg_mods = snps.AggMods(mods_db_fn, mods_calib_fn)
+
+    while True:
+        try:
+            mod_loc = locs_q.get(block=False)
+        except queue.Empty:
+            sleep(0.1)
+            continue
+        if mod_loc is None:
+            break
+
+        mod_prop = agg_mods.compute_mod_stats(mod_loc)
+        mod_stats_q.put((mod_prop, mod_loc))
+        mod_prog_q.put(1)
+
+    return
+
+def _get_mod_stats_queue(mod_stats_q, mod_conn, out_dir, do_sort=False):
+    agg_mod_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.MOD_NAME])
+    if do_sort:
+        all_mods = []
+    else:
+        agg_mod_fp = mods.bedMethylWriter(agg_mod_fn, 'w')
+
+    while True:
+        try:
+            mod_prop, mod_loc = mod_stats_q.get(block=False)
+            if do_sort:
+                all_mods.append((mod_loc, mod_prop))
+            else:
+                agg_mod_fp.write_mod(mod_prop, mod_loc)
+        except queue.Empty:
+            if mod_conn.poll():
+                break
+            sleep(0.1)
+            continue
+
+    while not mod_stats_q.empty():
+        mod_prop, mod_loc = mod_stats_q.get(block=False)
+        if do_sort:
+            all_mods.append((mod_loc, mod_prop))
+        else:
+            agg_mod_fp.write_mod(mod_prop, mod_loc)
+    if do_sort:
+        with mods.bedMethylWriter(agg_mod_fn, 'w') as agg_mod_fp:
+            for mod_loc, mod_prop in sorted(all_mods):
+                agg_mod_fp.write_mod(mod_prop, mod_loc)
+    else:
+        agg_mod_fp.close()
 
     return
 
@@ -124,6 +186,7 @@ def aggregate_stats(outputs, out_dir, num_ps, snps_calib_fn):
     num_snps, num_mods = 0, 0
     if mh.SNP_NAME in outputs:
         snps_db_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.PR_SNP_NAME][0])
+        num_snps = snps.AggSnps(snps_db_fn).num_uniq()
         # create process to collect snp stats from workers
         snp_stats_q, snp_stats_p, main_snp_stats_conn = create_getter_q(
             _get_snp_stats_queue, (out_dir,))
@@ -134,17 +197,36 @@ def aggregate_stats(outputs, out_dir, num_ps, snps_calib_fn):
             args=(snp_filler_q, snps_db_fn, snps.AggSnps, num_ps), daemon=True)
         snp_filler_p.start()
         # create worker processes to aggregate snps
+        snp_prog_q = mp.Queue(maxsize=_MAX_QUEUE_SIZE)
         for _ in range(num_ps):
             p = mp.Process(
                 target=_agg_snps_worker,
-                args=(snp_filler_q, snp_stats_q, snps_db_fn, snps_calib_fn),
-                daemon=True)
+                args=(snp_filler_q, snp_stats_q, snp_prog_q, snps_db_fn,
+                      snps_calib_fn), daemon=True)
             p.start()
             agg_snps_ps.append(p)
 
     if mh.MOD_NAME in outputs:
-        # copy logic from snps
-        pass
+        mods_db_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.PR_MOD_NAME][0])
+        num_mods = mods.AggMods(mods_db_fn).num_uniq()
+        # create process to collect snp stats from workers
+        mod_stats_q, mod_stats_p, main_mod_stats_conn = create_getter_q(
+            _get_mod_stats_queue, (out_dir,))
+        # create process to fill snp locs queue
+        mod_filler_q = mp.Queue(maxsize=_MAX_QUEUE_SIZE)
+        mod_filler_p = mp.Process(
+            target=_fill_locs_queue,
+            args=(mod_filler_q, mods_db_fn, snps.AggMods, num_ps), daemon=True)
+        mod_filler_p.start()
+        # create worker processes to aggregate snps
+        snp_prog_q = mp.Queue(maxsize=_MAX_QUEUE_SIZE)
+        for _ in range(num_ps):
+            p = mp.Process(
+                target=_agg_snps_worker,
+                args=(snp_filler_q, snp_stats_q, snp_prog_q, snps_db_fn,
+                      snps_calib_fn), daemon=True)
+            p.start()
+            agg_snps_ps.append(p)
 
     # TODO create progress process
 

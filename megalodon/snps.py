@@ -417,6 +417,19 @@ class Variant(object):
             self.add_sample_field('GT', '1/1')
         return
 
+    def __eq__(self, var2):
+        return (self.chrm, self.pos, self.id) == (self.chrm, self.pos, self.id)
+    def __ne__(self, var2):
+        return (self.chrm, self.pos, self.id) != (self.chrm, self.pos, self.id)
+    def __lt__(self, var2):
+        return (self.chrm, self.pos, self.id) < (self.chrm, self.pos, self.id)
+    def __le__(self, var2):
+        return (self.chrm, self.pos, self.id) <= (self.chrm, self.pos, self.id)
+    def __gt__(self, var2):
+        return (self.chrm, self.pos, self.id) > (self.chrm, self.pos, self.id)
+    def __ge__(self, var2):
+        return (self.chrm, self.pos, self.id) >= (self.chrm, self.pos, self.id)
+
 
 VCF_VERSION_MI = 'fileformat=VCFv{}'
 FILE_DATE_MI = 'fileDate={}'
@@ -437,7 +450,7 @@ class VcfWriter(object):
             self, filename, mode='w',
             header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER',
                     'INFO', 'FORMAT', 'SAMPLE'),
-            extra_meta_info=[], version='4.3', ref_fn=None):
+            extra_meta_info=FIXED_META_INFO, version='4.3', ref_fn=None):
         self.filename = filename
         self.mode = mode
         self.header = header
@@ -475,7 +488,7 @@ class VcfWriter(object):
 ##### SNP Aggregation Class #####
 #################################
 
-class AggSnps(object):
+class AggSnps(mh.AbstractAggregationClass):
     """ Class to assist in database queries for per-site aggregation of
     SNP calls over reads.
     """
@@ -495,7 +508,7 @@ class AggSnps(object):
                             self._load_calibration(snps_calib_fn))
         return
 
-    def num_uniq_snps(self):
+    def num_uniq(self):
         if self.n_uniq_snps is None:
             self.n_uniq_snps = self.snps_db.execute(
                 COUNT_UNIQ_SNP_ID).fetchone()[0]
@@ -516,24 +529,23 @@ class AggSnps(object):
             self.max_input_llhr) / self.discrete_step).astype(int)]
 
     def compute_diploid_probs(self, llhrs):
-        np_llhrs = np.array(llhrs)
-        if self.calib_table is not None:
-            np_llhrs = self.calibrate_llhrs(np_llhrs)
-        prob_alt = np.sort(1 / (np.exp(np_llhrs) + 1))[::-1]
+        prob_alt = np.sort(1 / (np.exp(llhrs) + 1))[::-1]
         prob_homo_alt = np.prod(prob_alt)
         prob_homo_ref = np.prod(1 - prob_alt)
-        rv = stats.binom(len(np_llhrs), 0.5)
+        rv = stats.binom(len(llhrs), 0.5)
         prob_het = sum(
             rv.pmf(i) * np.prod(prob_alt[:i]) * np.prod(1 - prob_alt[i:])
-            for i in range(len(np_llhrs) + 1))
+            for i in range(len(llhrs) + 1))
         snp_probs = np.array([prob_homo_ref, prob_het, prob_homo_alt])
         post_snp_probs = snp_probs / snp_probs.sum()
         return post_snp_probs
 
     def compute_snp_stats(self, snp_id):
         pr_snp_stats = self.get_per_read_snp_stats(snp_id)
-        diploid_probs = self.compute_diploid_probs([
-            r_stats.score for r_stats in pr_snp_stats])
+        llhrs = np.array([r_stats.score for r_stats in pr_snp_stats])
+        if self.calib_table is not None:
+            llhrs = self.calibrate_llhrs(llhrs)
+        diploid_probs = self.compute_diploid_probs(llhrs)
         r0_stats = pr_snp_stats[0]
         snp_var = Variant(
             chrom=r0_stats.chrm, pos=r0_stats.pos, ref=r0_stats.ref_seq,
@@ -542,8 +554,7 @@ class AggSnps(object):
         snp_var.add_sample_field('DP', '{}'.format(len(pr_snp_stats)))
         if VCF_OUTPUT_LLHRS:
             snp_var.add_sample_field('LLHRS', ','.join(
-                '{:.2f}'.format(llhr) for llhr in  sorted([
-                    r_stats.score for r_stats in pr_snp_stats])))
+                '{:.2f}'.format(llhr) for llhr in  sorted(llhrs)))
         snp_var.add_diploid_probs(diploid_probs)
         return snp_var
 
