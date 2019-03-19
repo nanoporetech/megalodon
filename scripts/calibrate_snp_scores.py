@@ -54,7 +54,7 @@ def compute_calibration(filt_llhrs, args):
                             args.num_calibration_values, endpoint=True)
 
     smooth_vals = np.zeros(smooth_ls.shape[0])
-    for llhr in tqdm(filt_llhrs):
+    for llhr in tqdm(filt_llhrs, smoothing=0):
         smooth_vals += guassian(smooth_ls - llhr)
     smooth_vals /= filt_llhrs.shape[0]
 
