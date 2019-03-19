@@ -511,13 +511,14 @@ class AggSnps(object):
             SEL_SNP_ID_STATS, (snp_id,))]
 
     def calibrate_llhrs(self, llhrs):
-        return self.calib_table[np.around((llhrs + self.max_input_llhr) /
-                                          self.discrete_step).astype(int)]
+        return self.calib_table[np.around((
+            np.clip(llhrs, -self.max_input_llhr, self.max_input_llhr) +
+            self.max_input_llhr) / self.discrete_step).astype(int)]
 
     def compute_diploid_probs(self, llhrs):
         np_llhrs = np.array(llhrs)
         if self.calib_table is not None:
-            np_llhrs = calibrate_llhrs(np_llhrs)
+            np_llhrs = self.calibrate_llhrs(np_llhrs)
         prob_alt = np.sort(1 / (np.exp(np_llhrs) + 1))[::-1]
         prob_homo_alt = np.prod(prob_alt)
         prob_homo_ref = np.prod(1 - prob_alt)
