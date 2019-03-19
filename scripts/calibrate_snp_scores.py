@@ -4,10 +4,9 @@ from collections import defaultdict
 
 import numpy as np
 from tqdm import tqdm
-from scipy import stats
 
 DO_PLOT = False
-SMOOTH_BW = 0.01
+SMOOTH_BW = 0.8
 
 def extract_and_filter_llhrs(args):
     all_llhrs = defaultdict(dict)
@@ -45,11 +44,19 @@ def extract_and_filter_llhrs(args):
         if chrm_pos not in expand_homo_alt_filter])
 
 def compute_calibration(filt_llhrs, args):
+    def guassian(x):
+        return (np.exp(-x ** 2 / (2 * SMOOTH_BW ** 2)) /
+                (SMOOTH_BW * np.sqrt(2 * np.pi)))
+
+
     sys.stderr.write('Computing emperical density.\n')
-    kern = stats.gaussian_kde(filt_llhrs, bw_method=SMOOTH_BW)
     smooth_ls = np.linspace(-args.max_input_llhr, args.max_input_llhr,
                             args.num_calibration_values, endpoint=True)
-    smooth_vals = kern(smooth_ls)
+
+    smooth_vals = np.zeros(smooth_ls.shape[0])
+    for llhr in tqdm(filt_llhrs):
+        smooth_vals += guassian(smooth_ls - llhr)
+    smooth_vals /= filt_llhrs.shape[0]
 
     sys.stderr.write('Computing emperical likelihood.\n')
     peak_site = np.argmax(smooth_vals)
