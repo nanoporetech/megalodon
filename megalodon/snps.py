@@ -13,8 +13,6 @@ from megalodon import decode, megalodon_helper as mh
 from megalodon.version import __version__
 
 
-MAX_PL_VALUE = 255
-
 FIELD_NAMES = ('read_id', 'chrm', 'strand', 'pos', 'score',
                'ref_seq', 'alt_seq', 'snp_id')
 SNP_DATA = namedtuple('SNP_DATA', FIELD_NAMES)
@@ -40,6 +38,14 @@ COUNT_UNIQ_SNP_ID = """
 SELECT COUNT(DISTINCT snp_id) FROM snps"""
 SEL_UNIQ_SNP_ID = 'SELECT DISTINCT snp_id FROM snps'
 SEL_SNP_ID_STATS = 'SELECT * FROM snps WHERE snp_id=?'
+
+FIXED_VCF_MI = [
+    'phasing=none',
+    'INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
+    'FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
+    'FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype Quality">',
+    'FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read Depth">',
+]
 
 
 ########################
@@ -373,7 +379,7 @@ class Variant(object):
     """
     def __init__(
             self, chrom, pos, ref, alt, id='.', qual='.', filter='.',
-            info={}, sample_dict=OrderedDict()):
+            info=None, sample_dict=None):
         self.chrom = chrom
         self.pos = int(pos)
         self.ref = ref.upper()
@@ -381,7 +387,11 @@ class Variant(object):
         self.id = str(id)
         self.qual = qual
         self.filter = str(filter)
+        if info is None:
+            info = {}
         self.info_dict = info
+        if sample_dict is None:
+            sample_dict = OrderedDict()
         self.sample_dict = sample_dict
         return
 
@@ -424,12 +434,13 @@ class Variant(object):
         with np.errstate(divide='ignore'):
             raw_pl = -10 * np.log10(probs)
         # "normalized" PL values stored as decsribed by VCF format
-        pl = np.minimum(raw_pl - raw_pl.min(), MAX_PL_VALUE)
+        # abs to remove negative 0 from file
+        pl = np.abs(np.minimum(raw_pl - raw_pl.min(), mh.MAX_PL_VALUE))
         s_pl = np.sort(pl)
 
         # add sample tags
         self.qual = '{:.0f}'.format(
-            np.around(np.minimum(raw_pl[0], MAX_PL_VALUE)))
+            np.around(np.minimum(raw_pl[0], mh.MAX_PL_VALUE)))
         self.add_sample_field('GQ', '{:.0f}'.format(np.around(s_pl[1])))
         self.add_sample_field('PL', '{:.0f},{:.0f},{:.0f}'.format(
             *np.around(pl)))
@@ -445,30 +456,19 @@ class Variant(object):
         return
 
     def __eq__(self, var2):
-        return (self.chrm, self.pos, self.id) == (self.chrm, self.pos, self.id)
+        return (self.chrm, self.pos, self.id) == (var2.chrm, var2.pos, var2.id)
     def __ne__(self, var2):
-        return (self.chrm, self.pos, self.id) != (self.chrm, self.pos, self.id)
+        return (self.chrm, self.pos, self.id) != (var2.chrm, var2.pos, var2.id)
     def __lt__(self, var2):
-        return (self.chrm, self.pos, self.id) < (self.chrm, self.pos, self.id)
+        return (self.chrm, self.pos, self.id) < (var2.chrm, var2.pos, var2.id)
     def __le__(self, var2):
-        return (self.chrm, self.pos, self.id) <= (self.chrm, self.pos, self.id)
+        return (self.chrm, self.pos, self.id) <= (var2.chrm, var2.pos, var2.id)
     def __gt__(self, var2):
-        return (self.chrm, self.pos, self.id) > (self.chrm, self.pos, self.id)
+        return (self.chrm, self.pos, self.id) > (var2.chrm, var2.pos, var2.id)
     def __ge__(self, var2):
-        return (self.chrm, self.pos, self.id) >= (self.chrm, self.pos, self.id)
+        return (self.chrm, self.pos, self.id) >= (var2.chrm, var2.pos, var2.id)
 
 
-VCF_VERSION_MI = 'fileformat=VCFv{}'
-FILE_DATE_MI = 'fileDate={}'
-SOURCE_MI = 'source=ont-megalodon.v{}'
-REF_MI = "reference={}"
-FIXED_META_INFO = [
-    'phasing=none',
-    'INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
-    'FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
-    'FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype Quality">',
-    'FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read Depth">',
-]
 class VcfWriter(object):
     """ VCF writer class
     """
@@ -477,7 +477,7 @@ class VcfWriter(object):
             self, filename, mode='w',
             header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER',
                     'INFO', 'FORMAT', 'SAMPLE'),
-            extra_meta_info=FIXED_META_INFO, version='4.3', ref_fn=None):
+            extra_meta_info=FIXED_VCF_MI, version='4.3', ref_fn=None):
         self.filename = filename
         self.mode = mode
         self.header = header
@@ -486,10 +486,10 @@ class VcfWriter(object):
                 self.version_options))
         self.version = version
         self.meta = [
-            VCF_VERSION_MI.format(self.version),
-            FILE_DATE_MI.format(datetime.date.today().strftime("%Y%m%d")),
-            SOURCE_MI.format(__version__),
-            REF_MI.format(ref_fn)] + extra_meta_info
+            mh.VCF_VERSION_MI.format(self.version),
+            mh.FILE_DATE_MI.format(datetime.date.today().strftime("%Y%m%d")),
+            mh.SOURCE_MI.format(__version__),
+            mh.REF_MI.format(ref_fn)] + extra_meta_info
 
         self.handle = open(self.filename, self.mode, encoding='utf-8')
         self.handle.write('\n'.join('##' + line for line in self.meta) + '\n')

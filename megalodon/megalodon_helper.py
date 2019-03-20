@@ -3,6 +3,14 @@ from abc import ABC, abstractmethod
 import h5py
 import numpy as np
 
+
+# VCF spec text
+MAX_PL_VALUE = 255
+VCF_VERSION_MI = 'fileformat=VCFv{}'
+FILE_DATE_MI = 'fileDate={}'
+SOURCE_MI = 'source=ont-megalodon.v{}'
+REF_MI = "reference={}"
+
 ALPHABET = 'ACGT'
 BC_NAME = 'basecalls'
 BC_OUT_FMTS = ('fasta',)
@@ -21,7 +29,7 @@ OUTPUT_FNS = {
     SNP_NAME:'snps.vcf',
     PR_MOD_NAME:['per_read_modified_base_calls.db',
                  'per_read_modified_base_calls.txt'],
-    MOD_NAME:'mods.bed'
+    MOD_NAME:'mods.mvcf'
 }
 COMP_BASES = dict(zip(map(ord, 'ACGT'), map(ord, 'TGCA')))
 

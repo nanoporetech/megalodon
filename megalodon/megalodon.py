@@ -114,9 +114,8 @@ def _get_snp_stats_queue(snp_stats_q, snp_conn, out_dir, do_sort=False):
 
     return
 
-def _agg_mods_worker(
-        locs_q, mod_stats_q, mod_prog_q, mod_db_fn, mod_calib_fn):
-    agg_mods = snps.AggMods(mods_db_fn, mods_calib_fn)
+def _agg_mods_worker(locs_q, mod_stats_q, mod_prog_q, mods_db_fn):
+    agg_mods = mods.AggMods(mods_db_fn)
 
     while True:
         try:
@@ -127,26 +126,27 @@ def _agg_mods_worker(
         if mod_loc is None:
             break
 
-        mod_prop = agg_mods.compute_mod_stats(mod_loc)
-        mod_stats_q.put((mod_prop, mod_loc))
+        mod_site = agg_mods.compute_mod_stats(mod_loc)
+        mod_stats_q.put(mod_site)
         mod_prog_q.put(1)
 
     return
 
-def _get_mod_stats_queue(mod_stats_q, mod_conn, out_dir, do_sort=False):
+def _get_mod_stats_queue(
+        mod_stats_q, mod_conn, out_dir, mod_names, do_sort=False):
     agg_mod_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.MOD_NAME])
     if do_sort:
         all_mods = []
     else:
-        agg_mod_fp = mods.bedMethylWriter(agg_mod_fn, 'w')
+        agg_mod_fp = mods.ModVcfWriter(agg_mod_fn, mod_names, 'w')
 
     while True:
         try:
-            mod_prop, mod_loc = mod_stats_q.get(block=False)
+            mod_site = mod_stats_q.get(block=False)
             if do_sort:
-                all_mods.append((mod_loc, mod_prop))
+                all_mods.append(mod_site)
             else:
-                agg_mod_fp.write_mod(mod_prop, mod_loc)
+                agg_mod_fp.write_mod_site(mod_site)
         except queue.Empty:
             if mod_conn.poll():
                 break
@@ -154,29 +154,30 @@ def _get_mod_stats_queue(mod_stats_q, mod_conn, out_dir, do_sort=False):
             continue
 
     while not mod_stats_q.empty():
-        mod_prop, mod_loc = mod_stats_q.get(block=False)
+        mod_site = mod_stats_q.get(block=False)
         if do_sort:
-            all_mods.append((mod_loc, mod_prop))
+            all_mods.append(mod_site)
         else:
-            agg_mod_fp.write_mod(mod_prop, mod_loc)
+            agg_mod_fp.write_mod_site(mod_site)
     if do_sort:
-        with mods.bedMethylWriter(agg_mod_fn, 'w') as agg_mod_fp:
-            for mod_loc, mod_prop in sorted(all_mods):
-                agg_mod_fp.write_mod(mod_prop, mod_loc)
+        with mods.ModVcfWriter(agg_mod_fn, mod_names, 'w') as agg_mod_fp:
+            for mod_site in sorted(all_mods):
+                agg_mod_fp.write_mod_site(mod_site)
     else:
         agg_mod_fp.close()
 
     return
 
-def _agg_prog_worker(
-        snp_prog_q, mod_prog_q, num_snps, num_mods, prog_conn):
+def _agg_prog_worker(snp_prog_q, mod_prog_q, num_snps, num_mods, prog_conn):
     snp_bar, mod_bar = None, None
     if num_snps > 0:
-        snp_bar = tqdm(desc='SNPs', total=num_snps, position=0)
         if num_mods > 0:
-            mod_bar = tqdm(desc='Mods', total=num_snps, position=1)
+            mod_bar = tqdm(desc='Mods', total=num_mods, position=1)
+            snp_bar = tqdm(desc='SNPs', total=num_snps, position=0)
+        else:
+            snp_bar = tqdm(desc='SNPs', total=num_snps, position=0)
     elif num_mods > 0:
-        mod_bar = tqdm(desc='Mods', total=num_snps, position=0)
+        mod_bar = tqdm(desc='Mods', total=num_mods, position=0)
     else:
         return
 
@@ -200,10 +201,12 @@ def _agg_prog_worker(
     while not mod_prog_q.empty():
         mod_prog_q.get(block=False)
         mod_bar.update(1)
-    if snp_bar is not None:
-        snp_bar.close()
     if mod_bar is not None:
         mod_bar.close()
+    if snp_bar is not None:
+        snp_bar.close()
+    if num_mods > 0 and num_snps > 0:
+        sys.stderr.write('\n')
 
     return
 
@@ -216,7 +219,7 @@ def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps):
 
     return
 
-def aggregate_stats(outputs, out_dir, num_ps, write_vcf_llr):
+def aggregate_stats(outputs, out_dir, num_ps, write_vcf_llr, mod_names):
     sys.stderr.write('Aggregating SNPs/Mods at sites over reads.\n')
     if mh.SNP_NAME in outputs and mh.MOD_NAME in outputs:
         num_ps = num_ps // 2
@@ -251,7 +254,7 @@ def aggregate_stats(outputs, out_dir, num_ps, write_vcf_llr):
         num_mods = mods.AggMods(mods_db_fn).num_uniq()
         # create process to collect mods stats from workers
         mod_stats_q, mod_stats_p, main_mod_stats_conn = create_getter_q(
-            _get_mod_stats_queue, (out_dir,))
+            _get_mod_stats_queue, (out_dir, mod_names))
         # create process to fill mod locs queue
         mod_filler_q = mp.Queue(maxsize=_MAX_QUEUE_SIZE)
         mod_filler_p = mp.Process(
@@ -264,8 +267,8 @@ def aggregate_stats(outputs, out_dir, num_ps, write_vcf_llr):
         for _ in range(num_ps):
             p = mp.Process(
                 target=_agg_mods_worker,
-                args=(mod_filler_q, mod_stats_q, mod_prog_q, mods_db_fn,
-                      mods_calib_fn), daemon=True)
+                args=(mod_filler_q, mod_stats_q, mod_prog_q, mods_db_fn),
+                daemon=True)
             p.start()
             agg_mods_ps.append(p)
 
@@ -848,6 +851,10 @@ def get_parser():
         '"[mod_base]:[motif]-[relative_pos]". For CpG, dcm and dam calling ' +
         'use "Z:CG-0 Z:CCWGG-1 Y:GATC-1".')
     mod_grp.add_argument(
+        '--mod-calibration-filename',
+        help='File containing emperical calibration for modified base ' +
+        'scores. As created by megalodon/scripts/calibrate_mod_scores.py.')
+    mod_grp.add_argument(
         '--mod-all-paths', action='store_true',
         help='Compute forwards algorithm all paths score for modified base ' +
         'calls. (Default: Viterbi best-path score)')
@@ -906,8 +913,8 @@ def _main():
     alphabet_info = AlphabetInfo(
         model_info, args.mod_motifs, args.mod_all_paths, args.override_alphabet,
         args.write_mods_text)
-    if mh.PR_MOD_NAME in args.outputs and not mh.MOD_NAME in args.outputs:
-        args.output.append(mh.MOD_NAME)
+    if mh.PR_MOD_NAME not in args.outputs and mh.MOD_NAME in args.outputs:
+        args.output.append(mh.PR_MOD_NAME)
     if model_info.is_cat_mod and mh.PR_MOD_NAME not in args.outputs:
         sys.stderr.write(
             '*' * 100 + '\nWARNING: Categorical modifications model ' +
@@ -976,8 +983,12 @@ def _main():
         alphabet_info, args.database_safety)
 
     if mh.SNP_NAME in args.outputs or mh.MOD_NAME in args.outputs:
+        # TODO store comma separated list of modified base long names in
+        # models (starting with taiyaki) to load here for VCF output
+        mod_names = ([(mod_b, mod_b) for mod_b in alphabet_info.alphabet[4:]]
+                     if mh.MOD_NAME in args.outputs else [])
         aggregate_stats(args.outputs, args.output_directory, args.processes,
-                        args.write_vcf_llr)
+                        args.write_vcf_llr, mod_names)
 
     return
 

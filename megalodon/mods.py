@@ -1,11 +1,14 @@
+import sys
 import queue
 import sqlite3
+import datetime
 from time import sleep
-from collections import namedtuple
+from collections import defaultdict, namedtuple, OrderedDict
 
 import numpy as np
 
 from megalodon import decode, megalodon_helper as mh
+from megalodon.version import __version__
 
 
 FIELD_NAMES = ('read_id', 'chrm', 'strand', 'pos', 'score',
@@ -30,15 +33,28 @@ CREATE_MODS_IDX = "CREATE INDEX mod_pos ON mods (chrm, strand, pos)"
 
 COUNT_UNIQ_MODS = """
 SELECT COUNT(*) FROM (
-SELECT DISTINCT chrm, strand, pos, mod_base FROM mods)"""
-SEL_UNIQ_MODS = 'SELECT DISTINCT chrm, strand, pos, mod_base FROM mods'
+SELECT DISTINCT chrm, strand, pos FROM mods)"""
+SEL_UNIQ_MODS = 'SELECT DISTINCT chrm, strand, pos FROM mods'
 SEL_MOD_STATS = '''
-SELECT * FROM mods WHERE chrm=? AND strand=? AND pos=? and mod_base=?'''
+SELECT * FROM mods WHERE chrm=? AND strand=? AND pos=?'''
 
 BIN_THRESH_NAME = 'binary_threshold'
 EM_NAME = 'em'
 PROP_METHOD_NAMES = set((BIN_THRESH_NAME, EM_NAME))
 
+FIXED_VCF_MI = [
+    'INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
+    'INFO=<ID=SN,Number=1,Type=String,Description="Strand">',
+    'FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read Depth">',
+]
+MOD_MI_TMPLT = (
+    'FORMAT=<ID={},Number=1,Type=Float,Description='+
+    '"{} Modified Base Proportion">')
+
+
+################################
+##### Per-read Mod Scoring #####
+################################
 
 def score_mod_seq(
         tpost, seq, mod_cats, can_mods_offsets,
@@ -110,6 +126,11 @@ def call_read_mods(
 
     return r_mod_calls
 
+
+###############################
+##### Per-read Mod Output #####
+###############################
+
 def _get_mods_queue(mods_q, mods_conn, mods_db_fn, mods_txt_fn, db_safety):
     mods_db = sqlite3.connect(mods_db_fn)
     mods_db_c = mods_db.cursor()
@@ -160,6 +181,138 @@ def _get_mods_queue(mods_q, mods_conn, mods_db_fn, mods_txt_fn, db_safety):
     return
 
 
+#########################
+##### modVCF Writer #####
+#########################
+
+class ModSite(object):
+    """ Modified base site for entry into ModVcfWriter.
+    Currently only handles a single sample.
+    """
+    def __init__(
+            self, chrom, pos, strand, ref, mods, id='.', qual='.', filter='.',
+            info=None, sample_dict=None):
+        self.chrom = chrom
+        self.pos = int(pos)
+        self.ref = ref.upper()
+        self.alt = mods
+        self.id = str(id)
+        self.qual = qual
+        self.filter = str(filter)
+        self.strand = strand
+        if info is None:
+            info = {}
+        if 'STRD' not in info:
+            info['STRD'] = strand
+        self.info_dict = info
+        if sample_dict is None:
+            sample_dict = OrderedDict()
+        self.sample_dict = sample_dict
+        return
+
+    @property
+    def _sorted_format_keys(self):
+        sorted_keys = sorted(self.sample_dict.keys())
+        return sorted_keys
+    @property
+    def format(self):
+        return ':'.join(map(str, self._sorted_format_keys))
+    @property
+    def sample(self):
+        return ':'.join((str(self.sample_dict[k])
+                         for k in self._sorted_format_keys))
+    @property
+    def info(self):
+        str_tags = []
+        for key, value in self.info_dict.items():
+            # If key is of type 'Flag', print only key, else 'key=value'
+            if value is True:
+                str_tags.append(key)
+            else:
+                if isinstance(value, (tuple, list)):
+                    value = ','.join(map(str, value))
+                str_tags.append('{}={}'.format(key, value))
+        return ';'.join(str_tags)
+
+    def add_tag(self, tag, value=None):
+        self.info_dict[tag] = value
+
+    def add_sample_field(self, tag, value=None):
+        self.sample_dict[tag] = value
+
+    def add_mod_props(self, mod_props):
+        with np.errstate(divide='ignore'):
+            can_pl = -10 * np.log10(1 - sum((x[1] for x in mod_props)))
+        self.qual = '{:.0f}'.format(
+            np.abs(np.around(np.minimum(can_pl, mh.MAX_PL_VALUE))))
+        for mod_name, mod_prop in mod_props:
+            self.add_sample_field(mod_name, '{:.4f}'.format(mod_prop))
+        return
+
+    def __eq__(self, mod2):
+        return (self.chrm, self.pos, self.strand) == (
+            mod2.chrm, mod2.pos, mod2.strand)
+    def __ne__(self, var2):
+        return (self.chrm, self.pos, self.strand) != (
+            mod2.chrm, mod2.pos, mod2.strand)
+    def __lt__(self, var2):
+        return (self.chrm, self.pos, self.strand) < (
+            mod2.chrm, mod2.pos, mod2.strand)
+    def __le__(self, var2):
+        return (self.chrm, self.pos, self.strand) <= (
+            mod2.chrm, mod2.pos, mod2.strand)
+    def __gt__(self, var2):
+        return (self.chrm, self.pos, self.strand) > (
+            mod2.chrm, mod2.pos, mod2.strand)
+    def __ge__(self, var2):
+        return (self.chrm, self.pos, self.strand) >= (
+            mod2.chrm, mod2.pos, mod2.strand)
+
+
+class ModVcfWriter(object):
+    """ modVCF writer class
+    """
+    version_options = {'4.3', '4.1'}
+    def __init__(
+            self, filename, mods, mode='w',
+            header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER',
+                    'INFO', 'FORMAT', 'SAMPLE'),
+            extra_meta_info=FIXED_VCF_MI, version='4.3', ref_fn=None):
+        self.filename = filename
+        self.mods = mods
+        self.mode = mode
+        self.header = header
+        if version not in self.version_options:
+            raise ValueError('version must be one of {}'.format(
+                self.version_options))
+        self.version = version
+        self.meta = [
+            mh.VCF_VERSION_MI.format(self.version),
+            mh.FILE_DATE_MI.format(
+                datetime.date.today().strftime("%Y%m%d")),
+            mh.SOURCE_MI.format(__version__),
+            mh.REF_MI.format(ref_fn)] + [
+                MOD_MI_TMPLT.format(*mod_info) for mod_info in self.mods
+            ] + extra_meta_info
+
+        self.handle = open(self.filename, self.mode, encoding='utf-8')
+        self.handle.write('\n'.join('##' + line for line in self.meta) + '\n')
+        self.handle.write('#' + '\t'.join(self.header) + '\n')
+        return
+
+    def close(self):
+        self.handle.close()
+        return
+
+    def write_mod_site(self, mod_site):
+        elements = [getattr(mod_site, field.lower()) for field in self.header]
+        elements = ['.' if e == '' else e for e in elements]
+        # VCF POS field is 1-based
+        elements[self.header.index('POS')] += 1
+        self.handle.write('{}\n'.format('\t'.join(map(str, elements))))
+        self.handle.flush()
+
+        return
 
 
 ##################################
@@ -170,22 +323,11 @@ class AggMods(mh.AbstractAggregationClass):
     """ Class to assist in database queries for per-site aggregation of
     modified base calls over reads.
     """
-    def _load_calibration(self, mods_calib_fn):
-        mod_calib_data = np.load(mods_calib_fn)
-        self.stratify_type = str(mod_calib_data['stratify_type'])
-        self.max_input_llhr = np.int(mod_calib_data['smooth_max'])
-        self.num_calib_vals = np.int(mod_calib_data['smooth_nvals'])
-        self.discrete_step = 2 * self.max_input_llhr / (self.num_calib_vals - 1)
-        return mod_calib_data['global_calibration_table'].copy()
-
     def __init__(
-            self, mods_db_fn, mods_calib_fn=None,
-            prop_method=BIN_THRESH_NAME, binary_thresh=0):
+            self, mods_db_fn, prop_method=BIN_THRESH_NAME, binary_thresh=0):
         # open as read only database
         self.mods_db = sqlite3.connect(mods_db_fn, uri=True)
         self.n_uniq_mods = None
-        self.calib_table = (None if mods_calib_fn is None else
-                            self._load_calibration(mods_calib_fn))
         assert prop_method in PROP_METHOD_NAMES
         self.prop_method = prop_method
         self.binary_thresh = binary_thresh
@@ -205,25 +347,20 @@ class AggMods(mh.AbstractAggregationClass):
         return
 
     def get_per_read_mod_stats(self, mod_loc):
-        return [MOD_DATA(*snp_stats) for mod_stats in self.mods_db.execute(
+        return [MOD_DATA(*mod_stats) for mod_stats in self.mods_db.execute(
             SEL_MOD_STATS, mod_loc)]
 
-    def calibrate_llhrs(self, llhrs):
-        return self.calib_table[np.around((
-            np.clip(llhrs, -self.max_input_llhr, self.max_input_llhr) +
-            self.max_input_llhr) / self.discrete_step).astype(int)]
-
-    def est_binary_thresh(pos_scores):
+    def est_binary_thresh(self, pos_scores):
         pos_mod = np.less(pos_scores, self.binary_thresh[0])
         mod_cov = pos_mod.sum()
         valid_cov = np.logical_or(
-            pos_mod, np.greater(pos_scores, binary_thresh[1])).sum()
+            pos_mod, np.greater(pos_scores, self.binary_thresh[1])).sum()
         if valid_cov == 0:
             return 0, valid_cov
         return mod_cov / float(valid_cov), valid_cov
 
     def est_em_prop(
-            pos_scores, max_iters=5, conv_tol=0.005,
+            self, pos_scores, max_iters=5, conv_tol=0.005,
             init_thresh=0, min_prop=0.01, max_prop=0.99):
         curr_mix_prop = np.clip(np.mean(pos_scores < init_thresh),
                                 min_prop, max_prop)
@@ -240,7 +377,7 @@ class AggMods(mh.AbstractAggregationClass):
 
         return curr_mix_prop, pos_scores.shape[0]
 
-    def emp_em(pos_scores, max_iters):
+    def emp_em(self, pos_scores, max_iters):
         """ Emperical EM estimation
 
         This method does not actually work yet. Need to compute
@@ -257,21 +394,36 @@ class AggMods(mh.AbstractAggregationClass):
         return curr_mix_prop, pos_scores.shape[0]
 
     def compute_mod_stats(self, mod_loc, prop_method=None):
-        pr_mod_stats = self.get_per_read_mod_stats(mod_loc)
-        loc_llhrs = np.array([r_stats.score for r_stats in pr_snp_stats])
-        if self.calib_table is not None:
-            llhrs = self.calibrate_llhrs(llhrs)
         if prop_method is None:
             prop_method = self.prop_method
-        if prop_method == BIN_THRESH_NAME:
-            prop_est = self.est_binary_thresh(llhrs)
-        elif prop_method == EM_NAME:
-            prop_est = self.est_em_prop(llhrs)
-        else:
+        if prop_method not in PROP_METHOD_NAMES:
             raise NotImplementedError(
                 'No modified base proportion estimation method: {}'.format(
                     prop_method))
-        return prop_est
+
+        pr_mod_stats = self.get_per_read_mod_stats(mod_loc)
+        mod_type_stats = defaultdict(list)
+        for r_stats in pr_mod_stats:
+            mod_type_stats[r_stats.mod_base].append(r_stats)
+        mt_stats = []
+        for mod_base, mt_reads in mod_type_stats.items():
+            mt_llhrs = np.array([r_stats.score for r_stats in mt_reads])
+            if prop_method == BIN_THRESH_NAME:
+                prop_est, valid_cov = self.est_binary_thresh(mt_llhrs)
+            else:
+                prop_est, valid_cov = self.est_em_prop(mt_llhrs)
+            mt_stats.append((mod_base, prop_est))
+        r0_stats = pr_mod_stats[0]
+        strand = '+' if r0_stats.strand == 1 else '-'
+        site_motifs = ','.join(sorted(set(rs.motif for rs in pr_mod_stats)))
+        mod_site = ModSite(
+            chrom=r0_stats.chrm, pos=r0_stats.pos, strand=strand,
+            ref=site_motifs, mods=','.join(mod_type_stats.keys()),
+            id='_'.join(map(str, (r0_stats.chrm, r0_stats.pos, strand))))
+        mod_site.add_mod_props(mt_stats)
+        mod_site.add_tag('DP', '{}'.format(len(pr_mod_stats)))
+        mod_site.add_sample_field('DP', '{}'.format(len(pr_mod_stats)))
+        return mod_site
 
     def close(self):
         self.mods_db.close()
