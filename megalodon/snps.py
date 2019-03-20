@@ -160,7 +160,8 @@ def score_seq(tpost, seq, tpost_start=0, tpost_end=None,
 
 def call_read_snps(
         r_ref_pos, snps_to_test, edge_buffer, context_bases, r_ref_seq,
-        rl_cumsum, r_to_q_poss, r_post, post_mapped_start, all_paths):
+        rl_cumsum, r_to_q_poss, r_post, post_mapped_start, all_paths,
+        snp_calib_tbl):
     # call all snps overlapping this read
     r_snp_calls = []
     for r_snp_pos, snp_ref_seq, snp_alt_seq, snp_id in get_overlapping_snps(
@@ -204,9 +205,12 @@ def call_read_snps(
                 mh.revcomp(mh.ALPHABET[r_ref_seq[pos_bb + len(snp_ref_seq)]]))
             fwd_strand_ref_seq = fwd_ref_base + fwd_strand_ref_seq
             fwd_strand_alt_seq = fwd_ref_base + fwd_strand_alt_seq
+
+        # calibrate llhr
+        calib_llhr = snp_calib_tbl.calibrate_llhr(loc_ref_score - loc_alt_score)
         r_snp_calls.append((
-            snp_ref_pos, loc_ref_score - loc_alt_score, fwd_strand_ref_seq,
-            fwd_strand_alt_seq, snp_id))
+            snp_ref_pos, calib_llhr, fwd_strand_ref_seq, fwd_strand_alt_seq,
+            snp_id))
 
     return r_snp_calls
 
@@ -274,12 +278,37 @@ def _get_snps_queue(
 ##### VCF Reader #####
 ######################
 
-class VcfReader(object):
+class SnpCalibrator(object):
+    def _load_calibration(self):
+        snp_calib_data = np.load(self.fn)
+        self.stratify_type = str(snp_calib_data['stratify_type'])
+        self.max_input_llhr = np.int(snp_calib_data['smooth_max'])
+        self.num_calib_vals = np.int(snp_calib_data['smooth_nvals'])
+        self.discrete_step = 2 * self.max_input_llhr / (self.num_calib_vals - 1)
+        # TODO potentially store more accurate calibration tables for
+        # particular types of SNPs
+        return snp_calib_data['global_calibration_table'].copy()
+
+    def __init__(self, snps_calib_fn):
+        self.fn = snps_calib_fn
+        self.calib_table = None if self.fn is None else self._load_calibration()
+        return
+
+    def calibrate_llhr(self, llhr):
+        if self.calib_table is None:
+            return llhr
+        return self.calib_table[np.around((
+            np.clip(llhr, -self.max_input_llhr, self.max_input_llhr) +
+            self.max_input_llhr) / self.discrete_step).astype(int)]
+
+
+class SnpData(object):
     def __init__(
             self, snp_fn, do_prepend_chr_vcf, max_snp_size, all_paths,
-            write_snps_txt):
+            write_snps_txt, snps_calib_fn=None):
         self.all_paths = all_paths
         self.write_snps_txt = write_snps_txt
+        self.calib_table = SnpCalibrator(snps_calib_fn)
         if snp_fn is None:
             self.snps_to_test = None
             self.snp_id_tbl = None
@@ -492,20 +521,10 @@ class AggSnps(mh.AbstractAggregationClass):
     """ Class to assist in database queries for per-site aggregation of
     SNP calls over reads.
     """
-    def _load_calibration(self, snps_calib_fn):
-        snp_calib_data = np.load(snps_calib_fn)
-        self.stratify_type = str(snp_calib_data['stratify_type'])
-        self.max_input_llhr = np.int(snp_calib_data['smooth_max'])
-        self.num_calib_vals = np.int(snp_calib_data['smooth_nvals'])
-        self.discrete_step = 2 * self.max_input_llhr / (self.num_calib_vals - 1)
-        return snp_calib_data['global_calibration_table'].copy()
-
-    def __init__(self, snps_db_fn, snps_calib_fn=None):
+    def __init__(self, snps_db_fn):
         # open as read only database
         self.snps_db = sqlite3.connect(snps_db_fn, uri=True)
         self.n_uniq_snps = None
-        self.calib_table = (None if snps_calib_fn is None else
-                            self._load_calibration(snps_calib_fn))
         return
 
     def num_uniq(self):
@@ -523,11 +542,6 @@ class AggSnps(mh.AbstractAggregationClass):
         return [SNP_DATA(*snp_stats) for snp_stats in self.snps_db.execute(
             SEL_SNP_ID_STATS, (snp_id,))]
 
-    def calibrate_llhrs(self, llhrs):
-        return self.calib_table[np.around((
-            np.clip(llhrs, -self.max_input_llhr, self.max_input_llhr) +
-            self.max_input_llhr) / self.discrete_step).astype(int)]
-
     def compute_diploid_probs(self, llhrs):
         prob_alt = np.sort(1 / (np.exp(llhrs) + 1))[::-1]
         prob_homo_alt = np.prod(prob_alt)
@@ -543,8 +557,6 @@ class AggSnps(mh.AbstractAggregationClass):
     def compute_snp_stats(self, snp_id):
         pr_snp_stats = self.get_per_read_snp_stats(snp_id)
         llhrs = np.array([r_stats.score for r_stats in pr_snp_stats])
-        if self.calib_table is not None:
-            llhrs = self.calibrate_llhrs(llhrs)
         diploid_probs = self.compute_diploid_probs(llhrs)
         r0_stats = pr_snp_stats[0]
         snp_var = Variant(

@@ -58,8 +58,8 @@ def create_getter_q(getter_func, args):
 #######################################
 
 def _agg_snps_worker(
-        locs_q, snp_stats_q, snp_prog_q, snps_db_fn, snps_calib_fn):
-    agg_snps = snps.AggSnps(snps_db_fn, snps_calib_fn)
+        locs_q, snp_stats_q, snp_prog_q, snps_db_fn):
+    agg_snps = snps.AggSnps(snps_db_fn)
 
     while True:
         try:
@@ -177,7 +177,7 @@ def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps):
 
     return
 
-def aggregate_stats(outputs, out_dir, num_ps, snps_calib_fn):
+def aggregate_stats(outputs, out_dir, num_ps):
     sys.stderr.write('Aggregating SNPs/Mods at sites over reads.\n')
     if mh.SNP_NAME in outputs and mh.MOD_NAME in outputs:
         num_ps = num_ps // 2
@@ -201,32 +201,32 @@ def aggregate_stats(outputs, out_dir, num_ps, snps_calib_fn):
         for _ in range(num_ps):
             p = mp.Process(
                 target=_agg_snps_worker,
-                args=(snp_filler_q, snp_stats_q, snp_prog_q, snps_db_fn,
-                      snps_calib_fn), daemon=True)
+                args=(snp_filler_q, snp_stats_q, snp_prog_q, snps_db_fn),
+                daemon=True)
             p.start()
             agg_snps_ps.append(p)
 
     if mh.MOD_NAME in outputs:
         mods_db_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.PR_MOD_NAME][0])
         num_mods = mods.AggMods(mods_db_fn).num_uniq()
-        # create process to collect snp stats from workers
+        # create process to collect mods stats from workers
         mod_stats_q, mod_stats_p, main_mod_stats_conn = create_getter_q(
             _get_mod_stats_queue, (out_dir,))
-        # create process to fill snp locs queue
+        # create process to fill mod locs queue
         mod_filler_q = mp.Queue(maxsize=_MAX_QUEUE_SIZE)
         mod_filler_p = mp.Process(
             target=_fill_locs_queue,
-            args=(mod_filler_q, mods_db_fn, snps.AggMods, num_ps), daemon=True)
+            args=(mod_filler_q, mods_db_fn, mods.AggMods, num_ps), daemon=True)
         mod_filler_p.start()
-        # create worker processes to aggregate snps
-        snp_prog_q = mp.Queue(maxsize=_MAX_QUEUE_SIZE)
+        # create worker processes to aggregate mods
+        mod_prog_q = mp.Queue(maxsize=_MAX_QUEUE_SIZE)
         for _ in range(num_ps):
             p = mp.Process(
-                target=_agg_snps_worker,
-                args=(snp_filler_q, snp_stats_q, snp_prog_q, snps_db_fn,
-                      snps_calib_fn), daemon=True)
+                target=_agg_mods_worker,
+                args=(mod_filler_q, mod_stats_q, mod_prog_q, mods_db_fn,
+                      mods_calib_fn), daemon=True)
             p.start()
-            agg_snps_ps.append(p)
+            agg_mods_ps.append(p)
 
     # TODO create progress process
 
@@ -252,7 +252,7 @@ def aggregate_stats(outputs, out_dir, num_ps, snps_calib_fn):
 
 def process_read(
         raw_sig, read_id, model_info, bc_q, caller_conn, snps_to_test,
-        snp_all_paths, snps_q, mods_q, alphabet_info,
+        snp_all_paths, snp_calib_tbl, snps_q, mods_q, alphabet_info,
         context_bases=DEFAULT_CONTEXT_BASES, edge_buffer=DEFAULT_EDGE_BUFFER):
     if model_info.is_cat_mod:
         bc_weights, mod_weights = model_info.run_model(
@@ -286,7 +286,7 @@ def process_read(
                 snps.call_read_snps(
                     r_ref_pos, snps_to_test, edge_buffer, context_bases,
                     np_ref_seq, rl_cumsum, r_to_q_poss, r_post,
-                    post_mapped_start, snp_all_paths),
+                    post_mapped_start, snp_all_paths, snp_calib_tbl),
                 (read_id, r_ref_pos.chrm, r_ref_pos.strand)))
         except mh.MegaError:
             pass
@@ -354,8 +354,8 @@ def _fill_files_queue(fast5_q, fast5_fns, num_ps):
     return
 
 def _process_reads_worker(
-        fast5_q, bc_q, mo_q, snps_q, failed_reads_q, model_info, caller_conn,
-        snps_to_test, snp_all_paths, alphabet_info, mods_q):
+        fast5_q, bc_q, mo_q, snps_q, failed_reads_q, mods_q, caller_conn,
+        model_info, snps_to_test, snp_all_paths, snp_calib_tbl, alphabet_info):
     model_info.prep_model_worker()
 
     while True:
@@ -374,7 +374,7 @@ def _process_reads_worker(
             raw_sig, read_id = mh.extract_read_data(fast5_fn)
             process_read(
                 raw_sig, read_id, model_info, bc_q, caller_conn, snps_to_test,
-                snp_all_paths, snps_q, mods_q, alphabet_info)
+                snp_all_paths, snp_calib_tbl, snps_q, mods_q, alphabet_info)
             failed_reads_q.put((False, None, None, None))
         except KeyboardInterrupt:
             failed_reads_q.put((True, 'Keyboard interrupt', fast5_fn, None))
@@ -545,9 +545,9 @@ def process_all_reads(
         map_conns.append(map_conn)
         p = mp.Process(
             target=_process_reads_worker, args=(
-                fast5_q, bc_q, mo_q, snps_q, failed_reads_q, model_info,
-                caller_conn, snps_data.snps_to_test, snps_data.all_paths,
-                alphabet_info, mods_q))
+                fast5_q, bc_q, mo_q, snps_q, failed_reads_q, mods_q,
+                caller_conn, model_info, snps_data.snps_to_test,
+                snps_data.all_paths, snps_data.calib_table, alphabet_info))
         p.daemon = True
         p.start()
         proc_reads_ps.append(p)
@@ -879,9 +879,9 @@ def _main():
             'flip-flop model is not supported.\n' + '*' * 100 + '\n')
         sys.exit(1)
     # snps data object loads with None snp_fn for easier handling downstream
-    snps_data = snps.VcfReader(
+    snps_data = snps.SnpData(
         args.snp_filename, args.prepend_chr_vcf, args.max_snp_size,
-        args.snp_all_paths, args.write_snps_text)
+        args.snp_all_paths, args.write_snps_text, args.snp_calibration_filename)
     if args.snp_filename is not None and mh.PR_SNP_NAME not in args.outputs:
         sys.stderr.write(
             '*' * 100 + '\nWARNING: --snps-filename provided, but ' +
@@ -919,8 +919,7 @@ def _main():
         alphabet_info, args.database_safety)
 
     if mh.SNP_NAME in args.outputs or mh.MOD_NAME in args.outputs:
-        aggregate_stats(args.outputs, args.output_directory, args.processes,
-                        args.snp_calibration_filename)
+        aggregate_stats(args.outputs, args.output_directory, args.processes)
 
     return
 
