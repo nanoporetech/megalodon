@@ -14,8 +14,6 @@ from megalodon.version import __version__
 
 
 MAX_PL_VALUE = 255
-# non-standard SAMPLE field to inspect per-read log likelihood ratios
-VCF_OUTPUT_LLHRS = False
 
 FIELD_NAMES = ('read_id', 'chrm', 'strand', 'pos', 'score',
                'ref_seq', 'alt_seq', 'snp_id')
@@ -521,10 +519,11 @@ class AggSnps(mh.AbstractAggregationClass):
     """ Class to assist in database queries for per-site aggregation of
     SNP calls over reads.
     """
-    def __init__(self, snps_db_fn):
+    def __init__(self, snps_db_fn, write_vcf_llr=False):
         # open as read only database
         self.snps_db = sqlite3.connect(snps_db_fn, uri=True)
         self.n_uniq_snps = None
+        self.write_vcf_llr = write_vcf_llr
         return
 
     def num_uniq(self):
@@ -564,7 +563,7 @@ class AggSnps(mh.AbstractAggregationClass):
             alt=r0_stats.alt_seq, id=r0_stats.snp_id)
         snp_var.add_tag('DP', '{}'.format(len(pr_snp_stats)))
         snp_var.add_sample_field('DP', '{}'.format(len(pr_snp_stats)))
-        if VCF_OUTPUT_LLHRS:
+        if self.write_vcf_llr:
             snp_var.add_sample_field('LLHRS', ','.join(
                 '{:.2f}'.format(llhr) for llhr in  sorted(llhrs)))
         snp_var.add_diploid_probs(diploid_probs)

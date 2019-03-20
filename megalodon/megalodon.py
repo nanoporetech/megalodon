@@ -58,8 +58,8 @@ def create_getter_q(getter_func, args):
 #######################################
 
 def _agg_snps_worker(
-        locs_q, snp_stats_q, snp_prog_q, snps_db_fn):
-    agg_snps = snps.AggSnps(snps_db_fn)
+        locs_q, snp_stats_q, snp_prog_q, snps_db_fn, write_vcf_llr):
+    agg_snps = snps.AggSnps(snps_db_fn, write_vcf_llr)
 
     while True:
         try:
@@ -177,7 +177,7 @@ def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps):
 
     return
 
-def aggregate_stats(outputs, out_dir, num_ps):
+def aggregate_stats(outputs, out_dir, num_ps, write_vcf_llr):
     sys.stderr.write('Aggregating SNPs/Mods at sites over reads.\n')
     if mh.SNP_NAME in outputs and mh.MOD_NAME in outputs:
         num_ps = num_ps // 2
@@ -201,8 +201,8 @@ def aggregate_stats(outputs, out_dir, num_ps):
         for _ in range(num_ps):
             p = mp.Process(
                 target=_agg_snps_worker,
-                args=(snp_filler_q, snp_stats_q, snp_prog_q, snps_db_fn),
-                daemon=True)
+                args=(snp_filler_q, snp_stats_q, snp_prog_q, snps_db_fn,
+                      write_vcf_llr), daemon=True)
             p.start()
             agg_snps_ps.append(p)
 
@@ -783,6 +783,9 @@ def get_parser():
         '--write-snps-text', action='store_true',
         help='Write per-read SNP calls out to a text file. Default: ' +
         'Only ouput to database.')
+    snp_grp.add_argument(
+        '--write-vcf-llr', action='store_true',
+        help='Write log-likelihood ratios out in non-standard VCF field.')
 
     mod_grp = parser.add_argument_group('Modified Base Arguments')
     mod_grp.add_argument(
@@ -919,7 +922,8 @@ def _main():
         alphabet_info, args.database_safety)
 
     if mh.SNP_NAME in args.outputs or mh.MOD_NAME in args.outputs:
-        aggregate_stats(args.outputs, args.output_directory, args.processes)
+        aggregate_stats(args.outputs, args.output_directory, args.processes,
+                        args.write_vcf_llr)
 
     return
 
