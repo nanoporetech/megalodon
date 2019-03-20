@@ -168,6 +168,45 @@ def _get_mod_stats_queue(mod_stats_q, mod_conn, out_dir, do_sort=False):
 
     return
 
+def _agg_prog_worker(
+        snp_prog_q, mod_prog_q, num_snps, num_mods, prog_conn):
+    snp_bar, mod_bar = None, None
+    if num_snps > 0:
+        snp_bar = tqdm(desc='SNPs', total=num_snps, position=0)
+        if num_mods > 0:
+            mod_bar = tqdm(desc='Mods', total=num_snps, position=1)
+    elif num_mods > 0:
+        mod_bar = tqdm(desc='Mods', total=num_snps, position=0)
+    else:
+        return
+
+    while True:
+        try:
+            snp_prog_q.get(block=False)
+            snp_bar.update(1)
+        except queue.Empty:
+            try:
+                mod_prog_q.get(block=False)
+                mod_bar.update(1)
+            except queue.Empty:
+                sleep(0.1)
+                if prog_conn.poll():
+                    break
+                continue
+
+    while not snp_prog_q.empty():
+        snp_prog_q.get(block=False)
+        snp_bar.update(1)
+    while not mod_prog_q.empty():
+        mod_prog_q.get(block=False)
+        mod_bar.update(1)
+    if snp_bar is not None:
+        snp_bar.close()
+    if mod_bar is not None:
+        mod_bar.close()
+
+    return
+
 def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps):
     agg_db = agg_class(db_fn)
     for loc in agg_db.iter_uniq():
@@ -182,8 +221,8 @@ def aggregate_stats(outputs, out_dir, num_ps, write_vcf_llr):
     if mh.SNP_NAME in outputs and mh.MOD_NAME in outputs:
         num_ps = num_ps // 2
 
-    agg_snps_ps, agg_mods_ps = [], []
-    num_snps, num_mods = 0, 0
+    num_snps, num_mods, snp_prog_q, mod_prog_q = (
+        0, 0, queue.Queue(), queue.Queue())
     if mh.SNP_NAME in outputs:
         snps_db_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.PR_SNP_NAME][0])
         num_snps = snps.AggSnps(snps_db_fn).num_uniq()
@@ -198,6 +237,7 @@ def aggregate_stats(outputs, out_dir, num_ps, write_vcf_llr):
         snp_filler_p.start()
         # create worker processes to aggregate snps
         snp_prog_q = mp.Queue(maxsize=_MAX_QUEUE_SIZE)
+        agg_snps_ps = []
         for _ in range(num_ps):
             p = mp.Process(
                 target=_agg_snps_worker,
@@ -220,6 +260,7 @@ def aggregate_stats(outputs, out_dir, num_ps, write_vcf_llr):
         mod_filler_p.start()
         # create worker processes to aggregate mods
         mod_prog_q = mp.Queue(maxsize=_MAX_QUEUE_SIZE)
+        agg_mods_ps = []
         for _ in range(num_ps):
             p = mp.Process(
                 target=_agg_mods_worker,
@@ -228,7 +269,13 @@ def aggregate_stats(outputs, out_dir, num_ps, write_vcf_llr):
             p.start()
             agg_mods_ps.append(p)
 
-    # TODO create progress process
+    # create progress process
+    main_prog_conn, prog_conn = mp.Pipe()
+    prog_p = mp.Process(
+        target=_agg_prog_worker,
+        args=(snp_prog_q, mod_prog_q, num_snps, num_mods, prog_conn),
+        daemon=True)
+    prog_p.start()
 
     # join filler processes first
     if mh.SNP_NAME in outputs:
@@ -240,8 +287,15 @@ def aggregate_stats(outputs, out_dir, num_ps, write_vcf_llr):
             main_snp_stats_conn.send(True)
         snp_stats_p.join()
     if mh.MOD_NAME in outputs:
+        snp_filler_p.join()
         for agg_mods_p in agg_mods_ps:
             agg_mods_p.join()
+        if mod_stats_p.is_alive():
+            main_mod_stats_conn.send(True)
+        mod_stats_p.join()
+    if prog_p.is_alive():
+        main_prog_conn.send(True)
+        prog_p.join()
 
     return
 
