@@ -914,7 +914,7 @@ def _main():
         model_info, args.mod_motifs, args.mod_all_paths, args.override_alphabet,
         args.write_mods_text)
     if mh.PR_MOD_NAME not in args.outputs and mh.MOD_NAME in args.outputs:
-        args.output.append(mh.PR_MOD_NAME)
+        args.outputs.append(mh.PR_MOD_NAME)
     if model_info.is_cat_mod and mh.PR_MOD_NAME not in args.outputs:
         sys.stderr.write(
             '*' * 100 + '\nWARNING: Categorical modifications model ' +
