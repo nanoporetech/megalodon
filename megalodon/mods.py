@@ -232,7 +232,7 @@ class ModSite(object):
                 if isinstance(value, (tuple, list)):
                     value = ','.join(map(str, value))
                 str_tags.append('{}={}'.format(key, value))
-        return ';'.join(str_tags)
+        return ':'.join(str_tags)
 
     def add_tag(self, tag, value=None):
         self.info_dict[tag] = value
@@ -291,9 +291,8 @@ class ModVcfWriter(object):
             mh.FILE_DATE_MI.format(
                 datetime.date.today().strftime("%Y%m%d")),
             mh.SOURCE_MI.format(__version__),
-            mh.REF_MI.format(ref_fn)] + [
-                MOD_MI_TMPLT.format(*mod_info) for mod_info in self.mods
-            ] + extra_meta_info
+            mh.REF_MI.format(ref_fn)] + extra_meta_info + [
+                MOD_MI_TMPLT.format(*mod_info) for mod_info in self.mods]
 
         self.handle = open(self.filename, self.mode, encoding='utf-8')
         self.handle.write('\n'.join('##' + line for line in self.meta) + '\n')

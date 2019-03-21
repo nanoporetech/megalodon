@@ -200,7 +200,7 @@ def call_read_snps(
         if np.isnan(loc_ref_score) or np.isnan(loc_alt_score):
             raise mh.MegaError(
                 'Score computation error (mapped signal too short for ' +
-                'proposed sequence memory error)')
+                'proposed sequence or memory error)')
 
         snp_ref_pos = (r_snp_pos + r_ref_pos.start if r_ref_pos.strand == 1 else
                        r_ref_pos.end - r_snp_pos - len(snp_ref_seq))
@@ -424,7 +424,7 @@ class Variant(object):
                 if isinstance(value, (tuple, list)):
                     value = ','.join(map(str, value))
                 str_tags.append('{}={}'.format(key, value))
-        return ';'.join(str_tags)
+        return ':'.join(str_tags)
 
     def add_tag(self, tag, value=None):
         self.info_dict[tag] = value
