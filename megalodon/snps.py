@@ -547,7 +547,8 @@ class AggSnps(mh.AbstractAggregationClass):
             SEL_SNP_ID_STATS, (snp_id,))]
 
     def compute_diploid_probs(self, llhrs):
-        prob_alt = np.sort(1 / (np.exp(llhrs) + 1))[::-1]
+        if np.errstate(over='ignore'):
+            prob_alt = np.sort(1 / (np.exp(llhrs) + 1))[::-1]
         prob_homo_alt = np.prod(prob_alt)
         prob_homo_ref = np.prod(1 - prob_alt)
         rv = stats.binom(len(llhrs), 0.5)
