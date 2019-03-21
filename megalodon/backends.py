@@ -55,6 +55,7 @@ class ModelInfo(object):
                 self.alphabet = mh.ALPHABET
                 self.collapse_alphabet = mh.ALPHABET
                 self.output_size = 40
+                self.n_mods = 0
         elif taiyaki_model_fn is not None:
             self.model_type = TAI_NAME
             self.fn = taiyaki_model_fn
@@ -77,6 +78,8 @@ class ModelInfo(object):
             except AttributeError:
                 self.alphabet = mh.ALPHABET
                 self.collapse_alphabet = mh.ALPHABET
+            ncan_base = len(set(self.collapse_alphabet))
+            self.n_mods = len(self.alphabet) - ncan_base
         else:
             raise mh.MegaError('Invalid model specification.')
 

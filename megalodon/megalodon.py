@@ -910,11 +910,20 @@ def _main():
     model_info = backends.ModelInfo(
         args.flappie_model_name, args.taiyaki_model_filename, args.device)
 
+    # modified base output parsing
     alphabet_info = AlphabetInfo(
         model_info, args.mod_motifs, args.mod_all_paths, args.override_alphabet,
         args.write_mods_text)
     if mh.PR_MOD_NAME not in args.outputs and mh.MOD_NAME in args.outputs:
         args.outputs.append(mh.PR_MOD_NAME)
+    if mh.PR_MOD_NAME in args.outputs and not model_info.is_cat_mod:
+        sys.stderr.write(
+            '*' * 100 + '\nERROR: {} output requested, '.format(
+                mh.PR_MOD_NAME) +
+            'but model provided is not a categotical modified base model.\n' +
+            'Note that modified base calling from naive modified base ' +
+            'model is not currently supported.\n' + '*' * 100 + '\n')
+        sys.exit(1)
     if model_info.is_cat_mod and mh.PR_MOD_NAME not in args.outputs:
         sys.stderr.write(
             '*' * 100 + '\nWARNING: Categorical modifications model ' +
@@ -927,6 +936,7 @@ def _main():
             '{} not requested '.format(mh.PR_MOD_NAME) +
             '(via --outputs). Argument will be ignored.\n' + '*' * 100 + '\n')
 
+    # SNP output parsing
     if mh.SNP_NAME in args.outputs and not mh.PR_SNP_NAME in args.outputs:
         args.outputs.append(mh.PR_SNP_NAME)
     if mh.PR_SNP_NAME in args.outputs and args.snp_filename is None:
