@@ -928,7 +928,7 @@ def _main():
             '(via --outputs). Argument will be ignored.\n' + '*' * 100 + '\n')
 
     if mh.SNP_NAME in args.outputs and not mh.PR_SNP_NAME in args.outputs:
-        args.output.append(mh.PR_SNP_NAME)
+        args.outputs.append(mh.PR_SNP_NAME)
     if mh.PR_SNP_NAME in args.outputs and args.snp_filename is None:
         sys.stderr.write(
             '*' * 100 + '\nERROR: {} output requested, '.format(

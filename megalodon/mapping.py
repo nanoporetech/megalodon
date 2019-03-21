@@ -90,6 +90,7 @@ def parse_cigar(r_cigar, strand):
         elif op == 6:
             # padding (shouldn't happen in mappy)
             pass
+    r_to_q_poss.append((curr_r_pos, curr_q_pos))
 
     return dict(r_to_q_poss)
 

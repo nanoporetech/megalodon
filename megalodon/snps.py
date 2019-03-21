@@ -170,8 +170,9 @@ def call_read_snps(
     r_snp_calls = []
     for r_snp_pos, snp_ref_seq, snp_alt_seq, snp_id in get_overlapping_snps(
             r_ref_pos, snps_to_test, edge_buffer):
-        pos_bb, pos_ab = min(context_bases, r_snp_pos), min(
-            context_bases, r_ref_seq.shape[0] - r_snp_pos - len(snp_ref_seq))
+        pos_bb = min(context_bases, r_snp_pos)
+        pos_ab = min(context_bases,
+                     r_ref_seq.shape[0] - r_snp_pos - len(snp_ref_seq))
         pos_ref_seq = r_ref_seq[r_snp_pos - pos_bb:
                                 r_snp_pos + pos_ab + len(snp_ref_seq)]
         if any(pos_ref_seq[pos_bb:pos_bb + len(snp_ref_seq)] !=
@@ -180,11 +181,13 @@ def call_read_snps(
                 'Reference SNP sequence does not match reference FASTA.')
         pos_alt_seq = np.concatenate([
             pos_ref_seq[:pos_bb],
-            np.array([mh.ALPHABET.find(b) for b in snp_alt_seq], dtype=np.uintp),
+            np.array([mh.ALPHABET.find(b)
+                      for b in snp_alt_seq], dtype=np.uintp),
             pos_ref_seq[pos_bb + len(snp_ref_seq):]])
-        blk_start, blk_end = (rl_cumsum[r_to_q_poss[r_snp_pos - pos_bb]],
-                              rl_cumsum[r_to_q_poss[r_snp_pos + pos_ab]])
-        if blk_end - blk_start < (context_bases * 2) + 1:
+        blk_start  = rl_cumsum[r_to_q_poss[r_snp_pos - pos_bb]]
+        blk_end = rl_cumsum[r_to_q_poss[r_snp_pos + pos_ab]]
+
+        if blk_end - blk_start < max(len(pos_ref_seq), len(pos_alt_seq)):
             # no valid mapping over large inserted query bases
             # i.e. need as many "events/strides" as bases for valid mapping
             continue
@@ -194,8 +197,10 @@ def call_read_snps(
         loc_alt_score = score_seq(
             r_post, pos_alt_seq, post_mapped_start + blk_start,
             post_mapped_start + blk_end, all_paths)
-        if loc_ref_score is None or loc_alt_score is None:
-            raise mh.MegaError('Score computation error (memory error)')
+        if np.isnan(loc_ref_score) or np.isnan(loc_alt_score):
+            raise mh.MegaError(
+                'Score computation error (mapped signal too short for ' +
+                'proposed sequence memory error)')
 
         snp_ref_pos = (r_snp_pos + r_ref_pos.start if r_ref_pos.strand == 1 else
                        r_ref_pos.end - r_snp_pos - len(snp_ref_seq))
