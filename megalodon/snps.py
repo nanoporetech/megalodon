@@ -9,7 +9,7 @@ from collections import defaultdict, namedtuple, OrderedDict
 import numpy as np
 
 from megalodon import decode, megalodon_helper as mh
-from megalodon.version import __version__
+from megalodon._version import MEGALODON_VERSION
 
 
 FIELD_NAMES = ('read_id', 'chrm', 'strand', 'pos', 'score',
@@ -504,7 +504,7 @@ class VcfWriter(object):
         self.meta = [
             mh.VCF_VERSION_MI.format(self.version),
             mh.FILE_DATE_MI.format(datetime.date.today().strftime("%Y%m%d")),
-            mh.SOURCE_MI.format(__version__),
+            mh.SOURCE_MI.format(MEGALODON_VERSION),
             mh.REF_MI.format(ref_fn)] + extra_meta_info
 
         self.handle = open(self.filename, self.mode, encoding='utf-8')
