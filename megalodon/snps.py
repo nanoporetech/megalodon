@@ -33,15 +33,15 @@ SET_ASYNC_MODE='PRAGMA synchronous = OFF'
 
 ADDMANY_SNPS = "INSERT INTO snps VALUES (?,?,?,?,?,?,?,?)"
 CREATE_SNPS_IDX = '''
-CREATE INDEX snp_pos ON snps (chrm, strand, pos, ref_seq, alt_seq, snp_id)'''
+CREATE INDEX snp_pos ON snps (chrm, pos, ref_seq, alt_seq, snp_id)'''
 
 COUNT_UNIQ_SNPS = """
 SELECT COUNT(*) FROM (
-SELECT DISTINCT chrm, strand, pos, snp_id, ref_seq, alt_seq FROM snps)"""
+SELECT DISTINCT chrm, pos, snp_id, ref_seq, alt_seq FROM snps)"""
 SEL_UNIQ_SNP_ID = '''
-SELECT DISTINCT chrm, strand, pos, snp_id, ref_seq, alt_seq FROM snps'''
+SELECT DISTINCT chrm, pos, snp_id, ref_seq, alt_seq FROM snps'''
 SEL_SNP_STATS = '''
-SELECT * FROM snps WHERE chrm=? AND strand=? AND pos=? AND
+SELECT * FROM snps WHERE chrm=? AND pos=? AND
 snp_id=? AND ref_seq=? AND alt_seq=?'''
 
 FIXED_VCF_MI = [
