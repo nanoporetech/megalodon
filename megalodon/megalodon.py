@@ -220,7 +220,6 @@ def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps):
     return
 
 def aggregate_stats(outputs, out_dir, num_ps, write_vcf_llr, mod_names):
-    sys.stderr.write('Aggregating SNPs/Mods at sites over reads.\n')
     if mh.SNP_NAME in outputs and mh.MOD_NAME in outputs:
         num_ps = num_ps // 2
 
@@ -273,6 +272,9 @@ def aggregate_stats(outputs, out_dir, num_ps, write_vcf_llr, mod_names):
             agg_mods_ps.append(p)
 
     # create progress process
+    sys.stderr.write(
+        'Aggregating {} SNPs and {} mod sites over reads.\n'.format(
+            num_snps, num_mods))
     main_prog_conn, prog_conn = mp.Pipe()
     prog_p = mp.Process(
         target=_agg_prog_worker,
@@ -347,13 +349,15 @@ def process_read(
                     post_mapped_start, snp_all_paths, snp_calib_tbl),
                 (read_id, r_ref_pos.chrm, r_ref_pos.strand)))
         except KeyboardInterrupt:
-            failed_reads_q.put((True, 'Keyboard interrupt', fast5_fn, None))
+            failed_reads_q.put(
+                (True, False, 'Keyboard interrupt', fast5_fn, None))
             return
         except mh.MegaError as e:
-            failed_reads_q.put((True, str(e), fast5_fn, None))
+            failed_reads_q.put((True, False, str(e), fast5_fn, None))
         except:
             failed_reads_q.put((
-                True, _UNEXPECTED_ERROR_CODE, fast5_fn, traceback.format_exc()))
+                True, False, _UNEXPECTED_ERROR_CODE, fast5_fn,
+                traceback.format_exc()))
     if mods_q is not None:
         r_post_w_mods = np.concatenate([r_post, mod_weights], axis=1)
         try:
@@ -364,13 +368,16 @@ def process_read(
                     post_mapped_start, alphabet_info),
                 (read_id, r_ref_pos.chrm, r_ref_pos.strand)))
         except KeyboardInterrupt:
-            failed_reads_q.put((True, 'Keyboard interrupt', fast5_fn, None))
+            failed_reads_q.put((
+                True, False, 'Keyboard interrupt', fast5_fn, None))
             return
         except mh.MegaError as e:
-            failed_reads_q.put((True, str(e), fast5_fn, None))
+            failed_reads_q.put((
+                True, False, str(e), fast5_fn, None))
         except:
             failed_reads_q.put((
-                True, _UNEXPECTED_ERROR_CODE, fast5_fn, traceback.format_exc()))
+                True, False, _UNEXPECTED_ERROR_CODE, fast5_fn,
+                traceback.format_exc()))
 
     return
 
@@ -446,15 +453,16 @@ def _process_reads_worker(
                 raw_sig, read_id, model_info, bc_q, caller_conn, snps_to_test,
                 snp_all_paths, snp_calib_tbl, snps_q, mods_q, alphabet_info,
                 fast5_fn, failed_reads_q)
-            failed_reads_q.put((False, None, None, None))
+            failed_reads_q.put((False, True, None, None, None))
         except KeyboardInterrupt:
-            failed_reads_q.put((True, 'Keyboard interrupt', fast5_fn, None))
+            failed_reads_q.put((True, True, 'Keyboard interrupt', fast5_fn, None))
             return
         except mh.MegaError as e:
-            failed_reads_q.put((True, str(e), fast5_fn, None))
+            failed_reads_q.put((True, True, str(e), fast5_fn, None))
         except:
             failed_reads_q.put((
-                True, _UNEXPECTED_ERROR_CODE, fast5_fn, traceback.format_exc()))
+                True, True, _UNEXPECTED_ERROR_CODE, fast5_fn,
+                traceback.format_exc()))
 
     return
 
@@ -514,7 +522,8 @@ def _get_fail_queue(
         num_update_errors, tot_reads, suppress_progress)
     while True:
         try:
-            is_err, err_type, fast5_fn, err_tb = failed_reads_q.get(block=False)
+            (is_err, update_prog, err_type, fast5_fn,
+             err_tb) = failed_reads_q.get(block=False)
             if is_err:
                 failed_reads[err_type].append(fast5_fn)
                 if err_type == _UNEXPECTED_ERROR_CODE:
@@ -528,8 +537,9 @@ def _get_fail_queue(
                             fast5_fn + '\n:::\n' + err_tb + '\n\n\n')
                         unexp_err_fp.flush()
 
-            if not suppress_progress: bar.update(1)
-            reads_called += 1
+            if update_prog:
+                if not suppress_progress: bar.update(1)
+                reads_called += 1
             if num_update_errors > 0:
                 bar.write(prog_prefix + format_fail_summ(
                     bar_header,
