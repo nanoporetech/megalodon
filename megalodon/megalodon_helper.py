@@ -1,3 +1,4 @@
+import multiprocessing as mp
 from abc import ABC, abstractmethod
 
 import h5py
@@ -33,6 +34,8 @@ OUTPUT_FNS = {
 }
 COMP_BASES = dict(zip(map(ord, 'ACGT'), map(ord, 'TGCA')))
 
+_MAX_QUEUE_SIZE = 1000
+
 
 class MegaError(Exception):
     """ Custom megalodon error for more graceful error handling
@@ -47,6 +50,18 @@ def comp(seq):
 
 def revcomp(seq):
     return seq.translate(COMP_BASES)[::-1]
+
+
+###################################
+##### Multi-processing Helper #####
+###################################
+
+def create_getter_q(getter_func, args):
+    q = mp.Queue(maxsize=_MAX_QUEUE_SIZE)
+    main_conn, conn = mp.Pipe()
+    p = mp.Process(target=getter_func, daemon=True, args=(q, conn, *args))
+    p.start()
+    return q, p, main_conn
 
 
 ################################
