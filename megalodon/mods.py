@@ -272,12 +272,12 @@ class ModSite(object):
 class ModVcfWriter(object):
     """ modVCF writer class
     """
-    version_options = {'4.3', '4.1'}
+    version_options = set(['4.2',])
     def __init__(
             self, filename, mods, mode='w',
             header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER',
                     'INFO', 'FORMAT', 'SAMPLE'),
-            extra_meta_info=FIXED_VCF_MI, version='4.3', ref_fn=None):
+            extra_meta_info=FIXED_VCF_MI, version='4.2', ref_fn=None):
         self.filename = filename
         self.mods = mods
         self.mode = mode
