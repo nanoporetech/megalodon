@@ -7,7 +7,6 @@ import multiprocessing as mp
 from collections import defaultdict, namedtuple, OrderedDict
 
 import numpy as np
-from scipy import stats
 
 from megalodon import decode, megalodon_helper as mh
 from megalodon.version import __version__
@@ -532,6 +531,15 @@ class VcfWriter(object):
 ##### SNP Aggregation Class #####
 #################################
 
+def logsumexp(x):
+    x_max = x.max()
+    return np.log(np.sum(np.exp(x - x_max))) + x_max
+
+def binom_pmf(k, n, p):
+    return (np.math.factorial(n) / (
+        np.math.factorial(k) * np.math.factorial(n - k))) * (
+            p ** k) * ((1 - p) ** (n - k))
+
 class AggSnps(mh.AbstractAggregationClass):
     """ Class to assist in database queries for per-site aggregation of
     SNP calls over reads.
@@ -560,16 +568,18 @@ class AggSnps(mh.AbstractAggregationClass):
 
     def compute_diploid_probs(self, llhrs):
         if np.errstate(over='ignore'):
-            prob_alt = np.sort(1 / (np.exp(llhrs) + 1))[::-1]
-        prob_homo_alt = np.prod(prob_alt)
-        prob_homo_ref = np.prod(1 - prob_alt)
-        rv = stats.binom(len(llhrs), 0.5)
-        prob_het = sum(
-            rv.pmf(i) * np.prod(prob_alt[:i]) * np.prod(1 - prob_alt[i:])
-            for i in range(len(llhrs) + 1))
-        snp_probs = np.array([prob_homo_ref, prob_het, prob_homo_alt])
-        post_snp_probs = snp_probs / snp_probs.sum()
-        return post_snp_probs
+            exp_llhrs = np.exp(llhrs)
+        lp_alt = np.sort(np.log(1) - np.log1p(exp_llhrs))[::-1]
+        lp_ref = np.sort(llhrs - np.log1p(exp_llhrs))
+        lp_hom_alt = np.sum(lp_alt)
+        lp_hom_ref = np.sum(lp_ref)
+        lp_het = np.log(sum(
+            np.exp(np.log(binom_pmf(i, len(llhrs), 0.5)) +
+                   np.sum(lp_alt[:i]) + np.sum(lp_ref[i:]))
+            for i in range(len(llhrs) + 1)))
+        snp_lps = np.array([lp_hom_ref, lp_het, lp_hom_alt])
+        post_snp_lps = snp_lps - logsumexp(snp_lps)
+        return np.exp(post_snp_lps)
 
     def compute_snp_stats(self, snp_loc):
         pr_snp_stats = self.get_per_read_snp_stats(snp_loc)
