@@ -310,7 +310,8 @@ def aggregate_stats(outputs, out_dir, num_ps, write_vcf_llr, mod_names):
 def process_read(
         raw_sig, read_id, model_info, bc_q, caller_conn, snps_to_test,
         snp_all_paths, snp_calib_tbl, snps_q, mods_q, alphabet_info,
-        context_bases=DEFAULT_CONTEXT_BASES, edge_buffer=DEFAULT_EDGE_BUFFER):
+        fast5_fn, failed_reads_q, context_bases=DEFAULT_CONTEXT_BASES,
+        edge_buffer=DEFAULT_EDGE_BUFFER):
     if model_info.is_cat_mod:
         bc_weights, mod_weights = model_info.run_model(
             raw_sig, alphabet_info.n_can_state)
@@ -345,8 +346,14 @@ def process_read(
                     np_ref_seq, rl_cumsum, r_to_q_poss, r_post,
                     post_mapped_start, snp_all_paths, snp_calib_tbl),
                 (read_id, r_ref_pos.chrm, r_ref_pos.strand)))
-        except mh.MegaError:
-            pass
+        except KeyboardInterrupt:
+            failed_reads_q.put((True, 'Keyboard interrupt', fast5_fn, None))
+            return
+        except mh.MegaError as e:
+            failed_reads_q.put((True, str(e), fast5_fn, None))
+        except:
+            failed_reads_q.put((
+                True, _UNEXPECTED_ERROR_CODE, fast5_fn, traceback.format_exc()))
     if mods_q is not None:
         r_post_w_mods = np.concatenate([r_post, mod_weights], axis=1)
         try:
@@ -356,8 +363,14 @@ def process_read(
                     np_ref_seq, rl_cumsum, r_to_q_poss, r_post_w_mods,
                     post_mapped_start, alphabet_info),
                 (read_id, r_ref_pos.chrm, r_ref_pos.strand)))
-        except mh.MegaError:
-            pass
+        except KeyboardInterrupt:
+            failed_reads_q.put((True, 'Keyboard interrupt', fast5_fn, None))
+            return
+        except mh.MegaError as e:
+            failed_reads_q.put((True, str(e), fast5_fn, None))
+        except:
+            failed_reads_q.put((
+                True, _UNEXPECTED_ERROR_CODE, fast5_fn, traceback.format_exc()))
 
     return
 
@@ -431,7 +444,8 @@ def _process_reads_worker(
             raw_sig, read_id = mh.extract_read_data(fast5_fn)
             process_read(
                 raw_sig, read_id, model_info, bc_q, caller_conn, snps_to_test,
-                snp_all_paths, snp_calib_tbl, snps_q, mods_q, alphabet_info)
+                snp_all_paths, snp_calib_tbl, snps_q, mods_q, alphabet_info,
+                fast5_fn, failed_reads_q)
             failed_reads_q.put((False, None, None, None))
         except KeyboardInterrupt:
             failed_reads_q.put((True, 'Keyboard interrupt', fast5_fn, None))
@@ -538,6 +552,13 @@ def _get_fail_queue(
             '******* WARNING *******\n\tUnexpected errors occured. See full ' +
             'error stack traces for first (up to) {0:d} errors in ' +
             '"{1}"\n').format(_MAX_NUM_UNEXP_ERRORS, unexp_err_fp.name))
+    if len(failed_reads) > 0:
+        sys.stderr.write(
+            format_fail_summ(
+                'Unsuccessful processing types:',
+                [(len(fns), err) for err, fns in failed_reads.items()
+                 if len(fns) > 0], reads_called) + '\n')
+    # TODO flag to output failed read names to file
 
     return
 

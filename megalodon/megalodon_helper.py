@@ -42,6 +42,9 @@ class MegaError(Exception):
 def nstate_to_nbase(nstate):
     return int(np.sqrt(0.25 + (0.5 * nstate)) - 0.5)
 
+def comp(seq):
+    return seq.translate(COMP_BASES)
+
 def revcomp(seq):
     return seq.translate(COMP_BASES)[::-1]
 

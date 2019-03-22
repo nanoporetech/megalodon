@@ -119,12 +119,11 @@ def simplify_and_encode_snp(snp_ref_seq, snp_alt_seq, ref_pos, max_snp_size):
 ##### Per-read SNP Scoring #####
 ################################
 
-def get_overlapping_snps(r_ref_pos, snps_to_test, edge_buffer):
-    """Return SNPs overlapping the read mapped position.
+def iter_overlapping_snps(r_ref_pos, snps_to_test, edge_buffer):
+    """Iterator over SNPs overlapping the read mapped position.
 
     SNPs within edge buffer of the end of the mapping will be ignored.
     """
-    ovlp_snps = []
     try:
         chrm_poss, chrm_ref_es, chrm_alt_es = snps_to_test[r_ref_pos.chrm]
     except KeyError:
@@ -135,21 +134,21 @@ def get_overlapping_snps(r_ref_pos, snps_to_test, edge_buffer):
     if start_idx >= end_idx:
         raise mh.MegaError('No overlapping SNPs')
 
-    for pos, ref_es, alt_es, snp_id in zip(chrm_poss[start_idx:end_idx],
-                                           chrm_ref_es[start_idx:end_idx],
-                                           chrm_alt_es[start_idx:end_idx],
-                                           range(start_idx, end_idx)):
+    for ref_pos, ref_es, alt_es, snp_id in zip(chrm_poss[start_idx:end_idx],
+                                               chrm_ref_es[start_idx:end_idx],
+                                               chrm_alt_es[start_idx:end_idx],
+                                               range(start_idx, end_idx)):
         snp_ref_seq = decode_snp_seq(ref_es)
         snp_alt_seq = decode_snp_seq(alt_es)
         if r_ref_pos.strand == 1:
-            read_pos = pos - r_ref_pos.start
+            read_pos = ref_pos - r_ref_pos.start
         else:
-            read_pos = r_ref_pos.end - pos - 1
+            read_pos = r_ref_pos.end - ref_pos - 1
             snp_ref_seq = mh.revcomp(snp_ref_seq)
             snp_alt_seq = mh.revcomp(snp_alt_seq)
-        ovlp_snps.append((read_pos, snp_ref_seq, snp_alt_seq, snp_id))
+        yield read_pos, snp_ref_seq, snp_alt_seq, snp_id, ref_pos
 
-    return ovlp_snps
+    return
 
 def score_seq(tpost, seq, tpost_start=0, tpost_end=None,
               all_paths=False):
@@ -173,8 +172,9 @@ def call_read_snps(
         snp_calib_tbl):
     # call all snps overlapping this read
     r_snp_calls = []
-    for r_snp_pos, snp_ref_seq, snp_alt_seq, snp_id in get_overlapping_snps(
-            r_ref_pos, snps_to_test, edge_buffer):
+    for (r_snp_pos, snp_ref_seq, snp_alt_seq, snp_id,
+         snp_ref_pos) in iter_overlapping_snps(
+             r_ref_pos, snps_to_test, edge_buffer):
         pos_bb = min(context_bases, r_snp_pos)
         pos_ab = min(context_bases,
                      r_ref_seq.shape[0] - r_snp_pos - len(snp_ref_seq))
@@ -182,12 +182,17 @@ def call_read_snps(
                                 r_snp_pos + pos_ab + len(snp_ref_seq)]
         if any(pos_ref_seq[pos_bb:pos_bb + len(snp_ref_seq)] !=
                np.array([mh.ALPHABET.find(b) for b in snp_ref_seq])):
+            """print('*' * 10 + 'Refernce seq at {} expected "{}" got "{}"'.format(
+                snp_ref_pos,
+                ''.join(mh.ALPHABET[b] for b in
+                        pos_ref_seq[pos_bb:pos_bb + len(snp_ref_seq)]),
+                snp_ref_seq) + '*' * 10)"""
             raise mh.MegaError(
                 'Reference SNP sequence does not match reference FASTA.')
         pos_alt_seq = np.concatenate([
             pos_ref_seq[:pos_bb],
-            np.array([mh.ALPHABET.find(b)
-                      for b in snp_alt_seq], dtype=np.uintp),
+            np.array([mh.ALPHABET.find(b) for b in snp_alt_seq],
+                     dtype=np.uintp),
             pos_ref_seq[pos_bb + len(snp_ref_seq):]])
         blk_start  = rl_cumsum[r_to_q_poss[r_snp_pos - pos_bb]]
         blk_end = rl_cumsum[r_to_q_poss[r_snp_pos + pos_ab]]
@@ -207,18 +212,20 @@ def call_read_snps(
                 'Score computation error (mapped signal too short for ' +
                 'proposed sequence or memory error)')
 
-        snp_ref_pos = (r_snp_pos + r_ref_pos.start if r_ref_pos.strand == 1 else
-                       r_ref_pos.end - r_snp_pos - len(snp_ref_seq))
         fwd_strand_ref_seq = (snp_ref_seq if r_ref_pos.strand == 1 else
                               mh.revcomp(snp_ref_seq))
         fwd_strand_alt_seq = (snp_alt_seq if r_ref_pos.strand == 1 else
                               mh.revcomp(snp_alt_seq))
         if len(fwd_strand_ref_seq) == 0 or len(fwd_strand_alt_seq) == 0:
-            fwd_ref_base = (
-                mh.ALPHABET[r_ref_seq[pos_bb - 1]] if r_ref_pos.strand == 1 else
-                mh.revcomp(mh.ALPHABET[r_ref_seq[pos_bb + len(snp_ref_seq)]]))
+            # add forward strand reference base to both ref and alt snp seqs
+            if r_ref_pos.strand == 1:
+                fwd_ref_base = mh.ALPHABET[pos_ref_seq[pos_bb - 1]]
+            else:
+                fwd_ref_base = mh.comp(mh.ALPHABET[
+                    pos_ref_seq[::-1][pos_ab - 1]])
             fwd_strand_ref_seq = fwd_ref_base + fwd_strand_ref_seq
             fwd_strand_alt_seq = fwd_ref_base + fwd_strand_alt_seq
+            snp_ref_pos -= 1
 
         # calibrate llhr
         calib_llhr = snp_calib_tbl.calibrate_llhr(loc_ref_score - loc_alt_score)
