@@ -10,9 +10,10 @@ from matplotlib.backends.backend_pdf import PdfPages
 from sklearn.metrics import (
     roc_curve, auc, precision_recall_curve, average_precision_score)
 
+from megalodon import megalodon_helper as mh
 
-MAP_FN = 'mappings.summary.txt'
-MODS_FN = 'per_read_modified_base_calls.txt'
+MAP_FN = mh.OUTPUT_FNS[mh.MAP_NAME][1]
+MODS_FN = mh.OUTPUT_FNS[mh.PR_MOD_NAME][1]
 
 VERBOSE = False
 
