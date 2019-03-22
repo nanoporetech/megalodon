@@ -562,7 +562,7 @@ def _get_fail_queue(
             '******* WARNING *******\n\tUnexpected errors occured. See full ' +
             'error stack traces for first (up to) {0:d} errors in ' +
             '"{1}"\n').format(_MAX_NUM_UNEXP_ERRORS, unexp_err_fp.name))
-    if len(failed_reads) > 0:
+    if any(len(fns) > 0 for fns in failed_reads.values()):
         sys.stderr.write(
             format_fail_summ(
                 'Unsuccessful processing types:',

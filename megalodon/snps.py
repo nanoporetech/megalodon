@@ -142,7 +142,7 @@ def iter_overlapping_snps(r_ref_pos, snps_to_test, edge_buffer):
         if r_ref_pos.strand == 1:
             read_pos = ref_pos - r_ref_pos.start
         else:
-            read_pos = r_ref_pos.end - ref_pos - 1
+            read_pos = r_ref_pos.end - ref_pos - len(snp_ref_seq)
             snp_ref_seq = mh.revcomp(snp_ref_seq)
             snp_alt_seq = mh.revcomp(snp_alt_seq)
         yield read_pos, snp_ref_seq, snp_alt_seq, snp_id, ref_pos
@@ -181,7 +181,7 @@ def call_read_snps(
                                 r_snp_pos + pos_ab + len(snp_ref_seq)]
         if any(pos_ref_seq[pos_bb:pos_bb + len(snp_ref_seq)] !=
                np.array([mh.ALPHABET.find(b) for b in snp_ref_seq])):
-            """print('*' * 10 + 'Refernce seq at {} expected "{}" got "{}"'.format(
+            """print('*'*10+'Refernce seq at {} expected "{}" got "{}"'.format(
                 snp_ref_pos,
                 ''.join(mh.ALPHABET[b] for b in
                         pos_ref_seq[pos_bb:pos_bb + len(snp_ref_seq)]),
