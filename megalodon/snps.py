@@ -32,12 +32,17 @@ SET_NO_ROLLBACK_MODE='PRAGMA journal_mode = OFF'
 SET_ASYNC_MODE='PRAGMA synchronous = OFF'
 
 ADDMANY_SNPS = "INSERT INTO snps VALUES (?,?,?,?,?,?,?,?)"
-CREATE_SNPS_IDX = "CREATE INDEX snp_pos ON snps (snp_id)"
+CREATE_SNPS_IDX = '''
+CREATE INDEX snp_pos ON snps (chrm, strand, pos, ref_seq, alt_seq, snp_id)'''
 
-COUNT_UNIQ_SNP_ID = """
-SELECT COUNT(DISTINCT snp_id) FROM snps"""
-SEL_UNIQ_SNP_ID = 'SELECT DISTINCT snp_id FROM snps'
-SEL_SNP_ID_STATS = 'SELECT * FROM snps WHERE snp_id=?'
+COUNT_UNIQ_SNPS = """
+SELECT COUNT(*) FROM (
+SELECT DISTINCT chrm, strand, pos, snp_id, ref_seq, alt_seq FROM snps)"""
+SEL_UNIQ_SNP_ID = '''
+SELECT DISTINCT chrm, strand, pos, snp_id, ref_seq, alt_seq FROM snps'''
+SEL_SNP_STATS = '''
+SELECT * FROM snps WHERE chrm=? AND strand=? AND pos=? AND
+snp_id=? AND ref_seq=? AND alt_seq=?'''
 
 FIXED_VCF_MI = [
     'phasing=none',
@@ -534,7 +539,7 @@ class AggSnps(mh.AbstractAggregationClass):
     def num_uniq(self):
         if self.n_uniq_snps is None:
             self.n_uniq_snps = self.snps_db.execute(
-                COUNT_UNIQ_SNP_ID).fetchone()[0]
+                COUNT_UNIQ_SNPS).fetchone()[0]
         return self.n_uniq_snps
 
     def iter_uniq(self):
@@ -542,9 +547,9 @@ class AggSnps(mh.AbstractAggregationClass):
             yield q_val
         return
 
-    def get_per_read_snp_stats(self, snp_id):
+    def get_per_read_snp_stats(self, snp_loc):
         return [SNP_DATA(*snp_stats) for snp_stats in self.snps_db.execute(
-            SEL_SNP_ID_STATS, (snp_id,))]
+            SEL_SNP_STATS, snp_loc)]
 
     def compute_diploid_probs(self, llhrs):
         if np.errstate(over='ignore'):
@@ -559,8 +564,8 @@ class AggSnps(mh.AbstractAggregationClass):
         post_snp_probs = snp_probs / snp_probs.sum()
         return post_snp_probs
 
-    def compute_snp_stats(self, snp_id):
-        pr_snp_stats = self.get_per_read_snp_stats(snp_id)
+    def compute_snp_stats(self, snp_loc):
+        pr_snp_stats = self.get_per_read_snp_stats(snp_loc)
         llhrs = np.array([r_stats.score for r_stats in pr_snp_stats])
         diploid_probs = self.compute_diploid_probs(llhrs)
         r0_stats = pr_snp_stats[0]

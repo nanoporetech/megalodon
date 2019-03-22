@@ -63,14 +63,14 @@ def _agg_snps_worker(
 
     while True:
         try:
-            snp_id = locs_q.get(block=False)
+            snp_loc = locs_q.get(block=False)
         except queue.Empty:
             sleep(0.1)
             continue
-        if snp_id is None:
+        if snp_loc is None:
             break
 
-        snp_var = agg_snps.compute_snp_stats(snp_id[0])
+        snp_var = agg_snps.compute_snp_stats(snp_loc)
         snp_stats_q.put(snp_var)
         snp_prog_q.put(1)
 
