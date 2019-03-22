@@ -22,6 +22,7 @@ from tqdm._utils import _term_move_up
 
 from megalodon import (
     aggregate, decode, backends, snps, mods, mapping, megalodon_helper as mh)
+from megalodon._version import MEGALODON_VERSION
 
 
 DEFAULT_CONTEXT_BASES = 10
@@ -655,6 +656,10 @@ def get_parser():
         help='Setting for database performance versus corruption protection. ' +
         'Options: 0 (DB corruption on application crash), 1 (DB corruption ' +
         'on system crash), 2 (DB safe mode). Default: %(default)d')
+    misc_grp.add_argument(
+        '-v', '--version', action='version',
+        version='Megalodon version: {}'.format(MEGALODON_VERSION),
+        help='show megalodon version and exit.')
 
     return parser
 
