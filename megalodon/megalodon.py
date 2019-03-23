@@ -353,7 +353,7 @@ def process_all_reads(
                 snps_txt_fn, db_safety))
     if mh.PR_MOD_NAME in outputs:
         mods_db_fn, mods_txt_fn = mh.OUTPUT_FNS[mh.PR_MOD_NAME]
-        mods_txt_fn = (os.path.join(out_dir, mods_db_fn)
+        mods_txt_fn = (os.path.join(out_dir, mods_txt_fn)
                        if alphabet_info.write_mods_txt else None)
         mods_q, mods_p, main_mods_conn = mh.create_getter_q(
             mods._get_mods_queue, (
