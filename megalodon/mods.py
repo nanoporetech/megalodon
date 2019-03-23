@@ -133,19 +133,18 @@ def call_read_mods(
 
 def _get_mods_queue(mods_q, mods_conn, mods_db_fn, mods_txt_fn, db_safety):
     mods_db = sqlite3.connect(mods_db_fn)
-    mods_db_c = mods_db.cursor()
     if db_safety < 2:
-        mods_db_c.execute(SET_ASYNC_MODE)
+        mods_db.execute(SET_ASYNC_MODE)
     if db_safety < 1:
-        mods_db_c.execute(SET_NO_ROLLBACK_MODE)
-    mods_db_c.execute(CREATE_MODS_TBLS)
+        mods_db.execute(SET_NO_ROLLBACK_MODE)
+    mods_db.execute(CREATE_MODS_TBLS)
     mods_txt_fp = None if mods_txt_fn is None else open(mods_txt_fn, 'w')
 
     while True:
         try:
             # note strand is +1 for fwd or -1 for rev
             r_mod_calls, (read_id, chrm, strand) = mods_q.get(block=False)
-            mods_db_c.executemany(ADDMANY_MODS, [
+            mods_db.executemany(ADDMANY_MODS, [
                 (read_id, chrm, strand, pos, score, mod_base, raw_motif)
                 for pos, score, raw_motif, mod_base in r_mod_calls])
             if mods_txt_fp is not None:
@@ -164,7 +163,7 @@ def _get_mods_queue(mods_q, mods_conn, mods_db_fn, mods_txt_fn, db_safety):
 
     while not mods_q.empty():
         r_mod_calls, (read_id, chrm, strand) = mods_q.get(block=False)
-        mods_db_c.execute(ADDMANY_MODS, [
+        mods_db.execute(ADDMANY_MODS, [
             (read_id, chrm, strand, pos, score, mod_base, raw_motif)
             for pos, score, raw_motif, mod_base in r_mod_calls])
         if mods_txt_fp is not None:
@@ -174,7 +173,7 @@ def _get_mods_queue(mods_q, mods_conn, mods_db_fn, mods_txt_fn, db_safety):
                 for pos, score, raw_motif, mod_base in r_mod_calls)) + '\n')
             mods_txt_fp.flush()
     if mods_txt_fp is not None: mods_txt_fp.close()
-    mods_db_c.execute(CREATE_MODS_IDX)
+    mods_db.execute(CREATE_MODS_IDX)
     mods_db.commit()
     mods_db.close()
 
