@@ -85,6 +85,8 @@ def simplify_and_encode_snp(snp_ref_seq, snp_alt_seq, ref_pos, max_snp_size):
     snp_alt_seq = snp_alt_seq.upper()
     # handle cases containing non-canonical base values (e.g. dash for deletion;
     # assume this means full ref or alt deletion)
+    if any(b == ',' for b in snp_alt_seq):
+        raise mh.MegaError('Multiple alt SNPs not currently processed.')
     if not all(rb in mh.ALPHABET for rb in snp_ref_seq):
         if not all(ab in mh.ALPHABET for ab in snp_alt_seq):
             raise mh.MegaError('Invalid SNP')
