@@ -78,40 +78,47 @@ def decode_snp_seq(val):
         seq += mh.ALPHABET[int(bi) - 1]
     return seq
 
-def simplify_and_encode_snp(snp_ref_seq, snp_alt_seq, ref_pos, max_snp_size):
+def simplify_and_encode_snp(
+        snp_ref_seq, snp_alt_seq, ref_pos, max_snp_size, trim_matching=False):
     """ Simplify SNP when extra bases are included (for indels)
     """
     snp_ref_seq = snp_ref_seq.upper()
     snp_alt_seq = snp_alt_seq.upper()
-    # handle cases containing non-canonical base values (e.g. dash for deletion;
-    # assume this means full ref or alt deletion)
     if any(b == ',' for b in snp_alt_seq):
-        raise mh.MegaError('Multiple alt SNPs not currently processed.')
-    if not all(rb in mh.ALPHABET for rb in snp_ref_seq):
-        if not all(ab in mh.ALPHABET for ab in snp_alt_seq):
+        raise mh.MegaError('Multiple alt SNPs not currently supported.')
+    # handle cases containing non-base values (e.g. dash for deletion)
+    # assume ref or alt deletion, but only if it is a single character
+    if any(rb not in mh.ALPHABET for rb in snp_ref_seq):
+        if len(snp_ref_seq) > 1:
             raise mh.MegaError('Invalid SNP')
-        if len(snp_alt_seq) > max_snp_size:
+        if any(ab not in mh.ALPHABET for ab in snp_alt_seq):
+            raise mh.MegaError('Invalid SNP')
+        if max_snp_size is not None and len(snp_alt_seq) > max_snp_size:
             raise mh.MegaError('SNP too long')
         return 0, encode_snp_seq(snp_alt_seq), ref_pos
-    elif not all(ab in mh.ALPHABET for ab in snp_alt_seq):
-        if len(snp_ref_seq) > max_snp_size:
+    elif any(ab not in mh.ALPHABET for ab in snp_alt_seq):
+        if len(snp_alt_seq) > 1:
+            raise mh.MegaError('Invalid SNP')
+        if max_snp_size is not None and len(snp_ref_seq) > max_snp_size:
             raise mh.MegaError('SNP too long')
         return encode_snp_seq(snp_ref_seq), 0, ref_pos
 
-    # trim base positions that are equal
-    while (len(snp_ref_seq) > 0 and len(snp_alt_seq) > 0 and
-           snp_ref_seq[0] == snp_alt_seq[0]):
-        snp_ref_seq = snp_ref_seq[1:]
-        snp_alt_seq = snp_alt_seq[1:]
-        ref_pos += 1
-    while (len(snp_ref_seq) > 0 and len(snp_alt_seq) > 0 and
-           snp_ref_seq[-1] == snp_alt_seq[-1]):
-        snp_ref_seq = snp_ref_seq[:-1]
-        snp_alt_seq = snp_alt_seq[:-1]
-    if len(snp_ref_seq) == 0 and len(snp_alt_seq) == 0:
-        raise mh.MegaError('Invalid SNP')
+    if trim_matching:
+        # trim base positions that are equal
+        while (len(snp_ref_seq) > 0 and len(snp_alt_seq) > 0 and
+               snp_ref_seq[0] == snp_alt_seq[0]):
+            snp_ref_seq = snp_ref_seq[1:]
+            snp_alt_seq = snp_alt_seq[1:]
+            ref_pos += 1
+        while (len(snp_ref_seq) > 0 and len(snp_alt_seq) > 0 and
+               snp_ref_seq[-1] == snp_alt_seq[-1]):
+            snp_ref_seq = snp_ref_seq[:-1]
+            snp_alt_seq = snp_alt_seq[:-1]
+        if len(snp_ref_seq) == 0 and len(snp_alt_seq) == 0:
+            raise mh.MegaError('Invalid SNP')
 
-    if np.abs(len(snp_ref_seq) - len(snp_alt_seq)) > max_snp_size:
+    if (max_snp_size is not None and
+        np.abs(len(snp_ref_seq) - len(snp_alt_seq)) > max_snp_size):
         raise mh.MegaError('SNP too long')
     return encode_snp_seq(snp_ref_seq), encode_snp_seq(snp_alt_seq), ref_pos
 
