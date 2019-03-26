@@ -599,6 +599,10 @@ def get_parser():
         help='Maximum difference in number of reference and alternate bases. ' +
         'Default: %(default)d')
     snp_grp.add_argument(
+        '--heterozygous-factor', type=float, default=0.5,
+        help='Bayesian prior factor for heterozygous calls (compared to 1.0 ' +
+        'for hom ref/alt). Default: %(default)f')
+    snp_grp.add_argument(
         '--snp-all-paths', action='store_true',
         help='Compute forwards algorithm all paths score. (Default: Viterbi ' +
         'best-path score)')
@@ -768,7 +772,8 @@ def _main():
                      if mh.MOD_NAME in args.outputs else [])
         aggregate.aggregate_stats(
             args.outputs, args.output_directory, args.processes,
-            args.write_vcf_llr, mod_names, args.suppress_progress)
+            args.write_vcf_llr, args.heterozygous_factor, mod_names,
+            args.suppress_progress)
 
     return
 

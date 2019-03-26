@@ -568,7 +568,7 @@ class AggSnps(mh.AbstractAggregationClass):
         return [SNP_DATA(*snp_stats) for snp_stats in self.snps_db.execute(
             SEL_SNP_STATS, snp_loc)]
 
-    def compute_diploid_probs(self, llhrs):
+    def compute_diploid_probs(self, llhrs, het_factor=1.0):
         if np.errstate(over='ignore'):
             exp_llhrs = np.exp(llhrs)
         lp_alt = np.sort(np.log(1) - np.log1p(exp_llhrs))[::-1]
@@ -579,14 +579,17 @@ class AggSnps(mh.AbstractAggregationClass):
             np.exp(np.log(binom_pmf(i, len(llhrs), 0.5)) +
                    np.sum(lp_alt[:i]) + np.sum(lp_ref[i:]))
             for i in range(len(llhrs) + 1)))
-        snp_lps = np.array([lp_hom_ref, lp_het, lp_hom_alt])
+        prior_weights = np.array([1.0, het_factor, 1.0])
+        prior_weights /= prior_weights.sum()
+        snp_lps = np.array([lp_hom_ref, lp_het, lp_hom_alt]) + np.log(
+            prior_weights)
         post_snp_lps = snp_lps - logsumexp(snp_lps)
         return np.exp(post_snp_lps)
 
-    def compute_snp_stats(self, snp_loc):
+    def compute_snp_stats(self, snp_loc, het_factor):
         pr_snp_stats = self.get_per_read_snp_stats(snp_loc)
         llhrs = np.array([r_stats.score for r_stats in pr_snp_stats])
-        diploid_probs = self.compute_diploid_probs(llhrs)
+        diploid_probs = self.compute_diploid_probs(llhrs, het_factor)
         r0_stats = pr_snp_stats[0]
         snp_var = Variant(
             chrom=r0_stats.chrm, pos=r0_stats.pos, ref=r0_stats.ref_seq,
