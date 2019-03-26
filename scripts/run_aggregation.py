@@ -23,7 +23,7 @@ def get_parser():
         default=['basecalls',], choices=tuple(mh.OUTPUT_FNS.keys()),
         help='Output type(s) to produce. Default: %(default)s')
     parser.add_argument(
-        '--heterozygous-factor', type=float, default=0.5,
+        '--heterozygous-factor', type=float, default=mh.DEFAULT_HET_FACTOR,
         help='Bayesian prior factor for heterozygous calls (compared to 1.0 ' +
         'for hom ref/alt). Default: %(default)f')
     parser.add_argument(

@@ -599,7 +599,7 @@ def get_parser():
         help='Maximum difference in number of reference and alternate bases. ' +
         'Default: %(default)d')
     snp_grp.add_argument(
-        '--heterozygous-factor', type=float, default=0.5,
+        '--heterozygous-factor', type=float, default=mh.DEFAULT_HET_FACTOR,
         help='Bayesian prior factor for heterozygous calls (compared to 1.0 ' +
         'for hom ref/alt). Default: %(default)f')
     snp_grp.add_argument(

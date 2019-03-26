@@ -5,6 +5,8 @@ import h5py
 import numpy as np
 
 
+DEFAULT_HET_FACTOR = 0.58
+
 # VCF spec text
 MAX_PL_VALUE = 255
 VCF_VERSION_MI = 'fileformat=VCFv{}'

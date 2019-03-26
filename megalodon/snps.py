@@ -579,7 +579,7 @@ class AggSnps(mh.AbstractAggregationClass):
             np.exp(np.log(binom_pmf(i, len(llhrs), 0.5)) +
                    np.sum(lp_alt[:i]) + np.sum(lp_ref[i:]))
             for i in range(len(llhrs) + 1)))
-        prior_weights = np.array([1.0, het_factor, 1.0])
+        prior_weights = np.array([1.0, het_factor ** len(llhrs), 1.0])
         prior_weights /= prior_weights.sum()
         snp_lps = np.array([lp_hom_ref, lp_het, lp_hom_alt]) + np.log(
             prior_weights)
