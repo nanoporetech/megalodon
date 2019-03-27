@@ -15,7 +15,9 @@ MOD_ALPHABET = CAN_ALPHABET + ''.join(
 
 
 class ModelInfo(object):
-    def __init__(self, flappie_model_name, taiyaki_model_fn, device):
+    def __init__(
+            self, flappie_model_name, taiyaki_model_fn, devices, num_proc,
+            chunk_size, chunk_overlap, max_concur_chunks):
         if flappie_model_name is not None:
             self.model_type = FLP_NAME
             self.name = flappie_model_name
@@ -56,10 +58,23 @@ class ModelInfo(object):
                 self.collapse_alphabet = mh.ALPHABET
                 self.output_size = 40
                 self.n_mods = 0
+            # flappie is CPU only
+            self.process_devices = [None] * num_proc
         elif taiyaki_model_fn is not None:
             self.model_type = TAI_NAME
             self.fn = taiyaki_model_fn
-            self.device = device
+            self.chunk_size = chunk_size
+            self.chunk_overlap = chunk_overlap
+            self.max_concur_chunks = max_concur_chunks
+
+            self.devices = devices
+            base_proc_per_device = np.ceil(num_proc / len(devices)).astype(int)
+            procs_per_device = np.repeat(base_proc_per_device, len(devices))
+            if base_proc_per_device * len(devices) > nproc:
+                procs_per_device[
+                    -(base_proc_per_device * len(devices) - nproc):] -= 1
+            assert sum(procs_per_device) == num_proc
+            self.process_devices = np.repeat(devices, procs_per_device)
 
             # import modules
             from taiyaki.helpers import load_model as load_taiyaki_model
@@ -94,12 +109,12 @@ class ModelInfo(object):
 
         return
 
-    def prep_model_worker(self):
+    def prep_model_worker(self, device):
         if self.model_type == TAI_NAME:
             # setup for taiyaki model
             self.model = self.load_taiyaki_model(self.fn)
-            if self.device is not None:
-                self.device = self.torch.device(self.device)
+            if device is not None:
+                self.device = self.torch.device(device)
                 self.torch.cuda.set_device(self.device)
                 self.model = self.model.cuda()
             else:
@@ -108,8 +123,7 @@ class ModelInfo(object):
 
         return
 
-    def run_model(
-            self, raw_sig, n_can_state=None, chunk_size=10000, overlap=200):
+    def run_model(self, raw_sig, device=None, n_can_state=None):
         if self.model_type == FLP_NAME:
             rt = self.flappy.RawTable(raw_sig)
             # flappy will return split bc and mods based on model
@@ -118,7 +132,8 @@ class ModelInfo(object):
             raw_sig_t = self.torch.from_numpy(raw_sig).to(self.device)
             try:
                 trans_weights = self.tai_run_model(
-                    raw_sig_t, self.model, chunk_size, overlap)
+                    raw_sig_t, self.model, self.chunk_size, self.chunk_overlap,
+                    self.max_concur_chunks)
             except AttributeError:
                 raise MegaError('Out of date or incompatible model')
             except RuntimeError:

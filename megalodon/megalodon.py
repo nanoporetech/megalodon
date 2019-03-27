@@ -164,8 +164,8 @@ def _fill_files_queue(fast5_q, fast5_fns, num_ps):
 def _process_reads_worker(
         fast5_q, bc_q, mo_q, snps_q, failed_reads_q, mods_q, caller_conn,
         model_info, snps_to_test, snp_all_paths, snp_calib_tbl,
-        snp_context_bases, alphabet_info, edge_buffer):
-    model_info.prep_model_worker()
+        snp_context_bases, alphabet_info, edge_buffer, device):
+    model_info.prep_model_worker(device)
 
     while True:
         try:
@@ -358,7 +358,7 @@ def process_all_reads(
                 os.path.join(out_dir, mods_db_fn), mods_txt_fn, db_safety))
 
     proc_reads_ps, map_conns = [], []
-    for _ in range(num_ps):
+    for device in model_info.process_devices:
         if aligner is None:
             map_conn, caller_conn = None, None
         else:
@@ -369,7 +369,7 @@ def process_all_reads(
                 fast5_q, bc_q, mo_q, snps_q, failed_reads_q, mods_q,
                 caller_conn, model_info, snps_data.snps_to_test,
                 snps_data.all_paths, snps_data.calib_table,
-                snps_data.context_bases, alphabet_info, edge_buffer))
+                snps_data.context_bases, alphabet_info, edge_buffer, device))
         p.daemon = True
         p.start()
         proc_reads_ps.append(p)
@@ -640,6 +640,22 @@ def get_parser():
         help='Write per-read modified bases out to a text file. Default: ' +
         'Only ouput to database.')
 
+    tai_grp = parser.add_argument_group('Taiyaki Signal Chunking Arguments')
+    tai_grp.add_argument(
+        '--devices', type=int, nargs='+',
+        help='CUDA GPU devices to use (only valid for taiyaki), default: CPU')
+    tai_grp.add_argument(
+        '--chunk_size', type=int, default=3000,
+        help='Chunk length for base calling. Default: %(default)d')
+    tai_grp.add_argument(
+        '--chunk_overlap', type=int, default=200,
+        help='Overlap between chunks to be stitched together. ' +
+        'Default: %(default)d')
+    tai_grp.add_argument(
+        '--max_concurrent_chunks', type=int, default=10,
+        help='Only process N chunks concurrently per-read (to avoid GPU ' +
+        'memory errors). Default: %(default)d')
+
     misc_grp = parser.add_argument_group('Miscellaneous Arguments')
     misc_grp.add_argument(
         '--override-alphabet', nargs=2,
@@ -663,9 +679,6 @@ def get_parser():
         '--edge-buffer', type=int, default=20,
         help='Ignore SNP or indel calls near edge of read mapping. ' +
         'Default: %(default)d')
-    misc_grp.add_argument(
-        '--device', default=None, type=int,
-        help='CUDA device to use (only valid for taiyaki), or None to use CPU')
     misc_grp.add_argument(
         '--database-safety', type=int, default=1,
         help='Setting for database performance versus corruption protection. ' +
@@ -693,7 +706,9 @@ def _main():
 
     mkdir(args.output_directory, args.overwrite)
     model_info = backends.ModelInfo(
-        args.flappie_model_name, args.taiyaki_model_filename, args.device)
+        args.flappie_model_name, args.taiyaki_model_filename, args.devices,
+        args.processes, args.chunk_size, args.chunk_overlap,
+        args.max_concurrent_chunks)
 
     # modified base output parsing
     alphabet_info = AlphabetInfo(
