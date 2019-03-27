@@ -62,16 +62,20 @@ class ModelInfo(object):
             self.device = device
 
             # import modules
-            global load_taiyaki_model, GlobalNormFlipFlopCatMod, torch
+            global load_taiyaki_model, GlobalNormFlipFlopCatMod, torch, \
+                tai_run_model
             from taiyaki.helpers import load_model as load_taiyaki_model
-            from taiyaki.basecall_helpers import run_model
-            from taiyaki.layers import (
-                GlobalNormFlipFlopCatMod, GlobalNormFlipFlopCatMod)
+            from taiyaki.basecall_helpers import run_model as tai_run_model
+            try:
+                from taiyaki.layers import GlobalNormFlipFlopCatMod
+            except ImportError:
+                GlobalNormFlipFlopCatMod = None
             import torch
 
             tmp_model = load_taiyaki_model(taiyaki_model_fn)
-            self.is_cat_mod = isinstance(
-                tmp_model.sublayers[-1], GlobalNormFlipFlopCatMod)
+            self.is_cat_mod = (
+                GlobalNormFlipFlopCatMod is not None and isinstance(
+                    tmp_model.sublayers[-1], GlobalNormFlipFlopCatMod))
             self.output_size = tmp_model.sublayers[-1].size
             try:
                 # TODO Add mod long names
@@ -108,11 +112,10 @@ class ModelInfo(object):
             # flappy will return split bc and mods based on model
             trans_weights = flappy.run_network(rt, self.name)
         elif self.model_type == TAI_NAME:
-            raw_sig_t = torch.from_numpy(
-                raw_sig[:,np.newaxis,np.newaxis]).to(self.device)
+            raw_sig_t = torch.from_numpy(raw_sig).to(self.device)
             try:
-                trans_weights = run_model(
-                    raw_sig_t, model, chunk_size, overlap)
+                trans_weights = tai_run_model(
+                    raw_sig_t, self.model, chunk_size, overlap)
             except AttributeError:
                 raise MegaError('Out of date or incompatible model')
             except RuntimeError:
