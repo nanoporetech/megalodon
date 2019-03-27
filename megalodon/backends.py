@@ -70,11 +70,12 @@ class ModelInfo(object):
             self.devices = devices
             base_proc_per_device = np.ceil(num_proc / len(devices)).astype(int)
             procs_per_device = np.repeat(base_proc_per_device, len(devices))
-            if base_proc_per_device * len(devices) > nproc:
+            if base_proc_per_device * len(devices) > num_proc:
                 procs_per_device[
-                    -(base_proc_per_device * len(devices) - nproc):] -= 1
+                    -(base_proc_per_device * len(devices) - num_proc):] -= 1
             assert sum(procs_per_device) == num_proc
-            self.process_devices = np.repeat(devices, procs_per_device)
+            self.process_devices = [
+                int(dv) for dv in np.repeat(devices, procs_per_device)]
 
             # import modules
             from taiyaki.helpers import load_model as load_taiyaki_model
@@ -129,10 +130,9 @@ class ModelInfo(object):
             # flappy will return split bc and mods based on model
             trans_weights = self.flappy.run_network(rt, self.name)
         elif self.model_type == TAI_NAME:
-            raw_sig_t = self.torch.from_numpy(raw_sig).to(self.device)
             try:
                 trans_weights = self.tai_run_model(
-                    raw_sig_t, self.model, self.chunk_size, self.chunk_overlap,
+                    raw_sig, self.model, self.chunk_size, self.chunk_overlap,
                     self.max_concur_chunks)
             except AttributeError:
                 raise MegaError('Out of date or incompatible model')

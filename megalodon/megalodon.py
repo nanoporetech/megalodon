@@ -645,14 +645,14 @@ def get_parser():
         '--devices', type=int, nargs='+',
         help='CUDA GPU devices to use (only valid for taiyaki), default: CPU')
     tai_grp.add_argument(
-        '--chunk_size', type=int, default=3000,
+        '--chunk_size', type=int, default=1000,
         help='Chunk length for base calling. Default: %(default)d')
     tai_grp.add_argument(
-        '--chunk_overlap', type=int, default=200,
+        '--chunk_overlap', type=int, default=100,
         help='Overlap between chunks to be stitched together. ' +
         'Default: %(default)d')
     tai_grp.add_argument(
-        '--max_concurrent_chunks', type=int, default=10,
+        '--max_concurrent_chunks', type=int, default=50,
         help='Only process N chunks concurrently per-read (to avoid GPU ' +
         'memory errors). Default: %(default)d')
 
