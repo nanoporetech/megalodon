@@ -25,9 +25,6 @@ from megalodon import (
 from megalodon._version import MEGALODON_VERSION
 
 
-DEFAULT_CONTEXT_BASES = 10
-DEFAULT_EDGE_BUFFER = 5
-
 SINGLE_LETTER_CODE = {
     'A':'A', 'C':'C', 'G':'G', 'T':'T', 'B':'[CGT]',
     'D':'[AGT]', 'H':'[ACT]', 'K':'[GT]', 'M':'[AC]',
@@ -46,9 +43,8 @@ _MAX_NUM_UNEXP_ERRORS = 50
 
 def process_read(
         raw_sig, read_id, model_info, bc_q, caller_conn, snps_to_test,
-        snp_all_paths, snp_calib_tbl, snps_q, mods_q, alphabet_info,
-        fast5_fn, failed_reads_q, context_bases=DEFAULT_CONTEXT_BASES,
-        edge_buffer=DEFAULT_EDGE_BUFFER):
+        snp_all_paths, snp_calib_tbl, snp_context_bases, snps_q, mods_q,
+        alphabet_info,  fast5_fn, failed_reads_q, edge_buffer):
     if model_info.is_cat_mod:
         bc_weights, mod_weights = model_info.run_model(
             raw_sig, alphabet_info.n_can_state)
@@ -79,7 +75,7 @@ def process_read(
         try:
             snps_q.put((
                 snps.call_read_snps(
-                    r_ref_pos, snps_to_test, edge_buffer, context_bases,
+                    r_ref_pos, snps_to_test, edge_buffer, snp_context_bases,
                     np_ref_seq, rl_cumsum, r_to_q_poss, r_post,
                     post_mapped_start, snp_all_paths, snp_calib_tbl),
                 (read_id, r_ref_pos.chrm, r_ref_pos.strand)))
@@ -98,9 +94,9 @@ def process_read(
         try:
             mods_q.put((
                 mods.call_read_mods(
-                    r_ref_pos, edge_buffer, context_bases, r_ref_seq,
-                    np_ref_seq, rl_cumsum, r_to_q_poss, r_post_w_mods,
-                    post_mapped_start, alphabet_info),
+                    r_ref_pos, edge_buffer, r_ref_seq, np_ref_seq, rl_cumsum,
+                    r_to_q_poss, r_post_w_mods, post_mapped_start,
+                    alphabet_info),
                 (read_id, r_ref_pos.chrm, r_ref_pos.strand)))
         except KeyboardInterrupt:
             failed_reads_q.put((
@@ -167,7 +163,8 @@ def _fill_files_queue(fast5_q, fast5_fns, num_ps):
 
 def _process_reads_worker(
         fast5_q, bc_q, mo_q, snps_q, failed_reads_q, mods_q, caller_conn,
-        model_info, snps_to_test, snp_all_paths, snp_calib_tbl, alphabet_info):
+        model_info, snps_to_test, snp_all_paths, snp_calib_tbl,
+        snp_context_bases, alphabet_info, edge_buffer):
     model_info.prep_model_worker()
 
     while True:
@@ -186,11 +183,12 @@ def _process_reads_worker(
             raw_sig, read_id = mh.extract_read_data(fast5_fn)
             process_read(
                 raw_sig, read_id, model_info, bc_q, caller_conn, snps_to_test,
-                snp_all_paths, snp_calib_tbl, snps_q, mods_q, alphabet_info,
-                fast5_fn, failed_reads_q)
+                snp_all_paths, snp_calib_tbl, snp_context_bases, snps_q, mods_q,
+                alphabet_info, fast5_fn, failed_reads_q, edge_buffer)
             failed_reads_q.put((False, True, None, None, None))
         except KeyboardInterrupt:
-            failed_reads_q.put((True, True, 'Keyboard interrupt', fast5_fn, None))
+            failed_reads_q.put((
+                True, True, 'Keyboard interrupt', fast5_fn, None))
             return
         except mh.MegaError as e:
             failed_reads_q.put((True, True, str(e), fast5_fn, None))
@@ -315,7 +313,7 @@ def _get_fail_queue(
 def process_all_reads(
         fast5s_dir, num_reads, model_info, outputs, out_dir, bc_fmt, aligner,
         add_chr_ref, snps_data, num_ps, num_update_errors, suppress_progress,
-        alphabet_info, db_safety):
+        alphabet_info, db_safety, edge_buffer):
     sys.stderr.write('Searching for reads.\n')
     fast5_fns = get_read_files(fast5s_dir)
     if num_reads is not None:
@@ -370,7 +368,8 @@ def process_all_reads(
             target=_process_reads_worker, args=(
                 fast5_q, bc_q, mo_q, snps_q, failed_reads_q, mods_q,
                 caller_conn, model_info, snps_data.snps_to_test,
-                snps_data.all_paths, snps_data.calib_table, alphabet_info))
+                snps_data.all_paths, snps_data.calib_table,
+                snps_data.context_bases, alphabet_info, edge_buffer))
         p.daemon = True
         p.start()
         proc_reads_ps.append(p)
@@ -483,9 +482,10 @@ class AlphabetInfo(object):
 
     def __init__(
             self, model_info, all_mod_motifs_raw, mod_all_paths,
-            override_alphabet, write_mods_txt):
+            override_alphabet, write_mods_txt, mod_context_bases):
         self.mod_all_paths = mod_all_paths
         self.write_mods_txt = write_mods_txt
+        self.mod_context_bases = mod_context_bases
 
         self.alphabet = model_info.alphabet
         self.collapse_alphabet = model_info.collapse_alphabet
@@ -591,6 +591,10 @@ def get_parser():
         help='File containing emperical calibration for SNP scores. As ' +
         'created by megalodon/scripts/calibrate_snp_scores.py.')
     snp_grp.add_argument(
+        '--snp-context-bases', type=int, nargs=2, default=[10, 30],
+        help='Context bases for single base SNP and indel calling. ' +
+        'Default: %(default)s')
+    snp_grp.add_argument(
         '--prepend-chr-vcf', action='store_true',
         help='Prepend "chr" to chromosome names from VCF to match ' +
         'reference names.')
@@ -625,6 +629,9 @@ def get_parser():
         help='File containing emperical calibration for modified base ' +
         'scores. As created by megalodon/scripts/calibrate_mod_scores.py.')
     mod_grp.add_argument(
+        '--mod-context-bases', type=int, default=10,
+        help='Context bases for modified base calling. Default: %(default)d')
+    mod_grp.add_argument(
         '--mod-all-paths', action='store_true',
         help='Compute forwards algorithm all paths score for modified base ' +
         'calls. (Default: Viterbi best-path score)')
@@ -652,6 +659,10 @@ def get_parser():
     misc_grp.add_argument(
         '--processes', type=int, default=1,
         help='Number of parallel processes. Default: %(default)d')
+    misc_grp.add_argument(
+        '--edge-buffer', type=int, default=20,
+        help='Ignore SNP or indel calls near edge of read mapping. ' +
+        'Default: %(default)d')
     misc_grp.add_argument(
         '--device', default=None, type=int,
         help='CUDA device to use (only valid for taiyaki), or None to use CPU')
@@ -687,7 +698,7 @@ def _main():
     # modified base output parsing
     alphabet_info = AlphabetInfo(
         model_info, args.mod_motifs, args.mod_all_paths, args.override_alphabet,
-        args.write_mods_text)
+        args.write_mods_text, args.mod_context_bases)
     if mh.PR_MOD_NAME not in args.outputs and mh.MOD_NAME in args.outputs:
         args.outputs.append(mh.PR_MOD_NAME)
     if mh.PR_MOD_NAME in args.outputs and not model_info.is_cat_mod:
@@ -729,7 +740,8 @@ def _main():
     # snps data object loads with None snp_fn for easier handling downstream
     snps_data = snps.SnpData(
         args.snp_filename, args.prepend_chr_vcf, args.max_snp_size,
-        args.snp_all_paths, args.write_snps_text, args.snp_calibration_filename)
+        args.snp_all_paths, args.write_snps_text, args.snp_context_bases,
+        args.snp_calibration_filename)
     if args.snp_filename is not None and mh.PR_SNP_NAME not in args.outputs:
         sys.stderr.write(
             '*' * 100 + '\nWARNING: --snps-filename provided, but ' +
@@ -764,7 +776,7 @@ def _main():
         args.output_directory, args.basecalls_format, aligner,
         args.prepend_chr_ref, snps_data, args.processes,
         args.verbose_read_progress, args.suppress_progress,
-        alphabet_info, args.database_safety)
+        alphabet_info, args.database_safety, args.edge_buffer)
 
     if mh.SNP_NAME in args.outputs or mh.MOD_NAME in args.outputs:
         # TODO load long names from taiyaki model for VCF output

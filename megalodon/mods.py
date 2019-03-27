@@ -78,7 +78,7 @@ def score_mod_seq(
         all_paths)
 
 def call_read_mods(
-        r_ref_pos, edge_buffer, context_bases, r_ref_seq, np_ref_seq, rl_cumsum,
+        r_ref_pos, edge_buffer, r_ref_seq, np_ref_seq, rl_cumsum,
         r_to_q_poss, r_post, post_mapped_start, alphabet_info):
     def iter_motif_sites(r_ref_seq):
         max_pos = len(r_ref_seq) - edge_buffer
@@ -94,8 +94,8 @@ def call_read_mods(
     # call all mods overlapping this read
     r_mod_calls = []
     for pos, mod_base, raw_motif in iter_motif_sites(r_ref_seq):
-        pos_bb, pos_ab = min(context_bases, pos), min(
-            context_bases, np_ref_seq.shape[0] - pos - 1)
+        pos_bb, pos_ab = min(alphabet_info.mod_context_bases, pos), min(
+            alphabet_info.mod_context_bases, np_ref_seq.shape[0] - pos - 1)
         pos_ref_seq = np_ref_seq[pos - pos_bb:pos + pos_ab + 1]
         pos_ref_mods = np.zeros_like(pos_ref_seq)
         pos_alt_mods = pos_ref_mods.copy()
@@ -103,7 +103,7 @@ def call_read_mods(
 
         blk_start, blk_end = (rl_cumsum[r_to_q_poss[pos - pos_bb]],
                               rl_cumsum[r_to_q_poss[pos + pos_ab]])
-        if blk_end - blk_start < (context_bases * 2) + 1:
+        if blk_end - blk_start < (alphabet_info.mod_context_bases * 2) + 1:
             # no valid mapping over large inserted query bases
             # i.e. need as many "events/strides" as bases for valid mapping
             continue

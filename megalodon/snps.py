@@ -183,8 +183,12 @@ def call_read_snps(
     for (r_snp_pos, snp_ref_seq, snp_alt_seq, snp_id,
          snp_ref_pos) in iter_overlapping_snps(
              r_ref_pos, snps_to_test, edge_buffer):
-        pos_bb = min(context_bases, r_snp_pos)
-        pos_ab = min(context_bases,
+        # select single base SNP or indel context width
+        snp_context_bases = (context_bases[0]
+                             if len(snp_ref_seq) == len(snp_alt_seq) else
+                             context_bases[1])
+        pos_bb = min(snp_context_bases, r_snp_pos)
+        pos_ab = min(snp_context_bases,
                      r_ref_seq.shape[0] - r_snp_pos - len(snp_ref_seq))
         pos_ref_seq = r_ref_seq[r_snp_pos - pos_bb:
                                 r_snp_pos + pos_ab + len(snp_ref_seq)]
@@ -334,10 +338,11 @@ class SnpCalibrator(object):
 class SnpData(object):
     def __init__(
             self, snp_fn, do_prepend_chr_vcf, max_snp_size, all_paths,
-            write_snps_txt, snps_calib_fn=None):
+            write_snps_txt, context_bases, snps_calib_fn=None):
         self.all_paths = all_paths
         self.write_snps_txt = write_snps_txt
         self.calib_table = SnpCalibrator(snps_calib_fn)
+        self.context_bases = context_bases
         if snp_fn is None:
             self.snps_to_test = None
             self.snp_id_tbl = None
