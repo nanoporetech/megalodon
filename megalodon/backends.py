@@ -64,6 +64,7 @@ class ModelInfo(object):
             # import modules
             global load_taiyaki_model, GlobalNormFlipFlopCatMod, torch
             from taiyaki.helpers import load_model as load_taiyaki_model
+            from taiyaki.basecall_helpers import run_model
             from taiyaki.layers import (
                 GlobalNormFlipFlopCatMod, GlobalNormFlipFlopCatMod)
             import torch
@@ -73,6 +74,7 @@ class ModelInfo(object):
                 tmp_model.sublayers[-1], GlobalNormFlipFlopCatMod)
             self.output_size = tmp_model.sublayers[-1].size
             try:
+                # TODO Add mod long names
                 self.alphabet = tmp_model.alphabet
                 self.collapse_alphabet = tmp_model.collapse_alphabet
             except AttributeError:
@@ -99,22 +101,22 @@ class ModelInfo(object):
 
         return
 
-    def run_model(self, raw_sig, n_can_state=None):
+    def run_model(
+            self, raw_sig, n_can_state=None, chunk_size=10000, overlap=200):
         if self.model_type == FLP_NAME:
             rt = flappy.RawTable(raw_sig)
             # flappy will return split bc and mods based on model
             trans_weights = flappy.run_network(rt, self.name)
         elif self.model_type == TAI_NAME:
-            with torch.no_grad():
-                raw_sig_t = torch.from_numpy(
-                    raw_sig[:,np.newaxis,np.newaxis]).to(self.device)
-                try:
-                    trans_weights = self.model(
-                        raw_sig_t).squeeze().cpu().numpy()
-                except AttributeError:
-                    raise MegaError('Out of date or incompatible model')
-                except RuntimeError:
-                    raise MegaError('Likely out of memory error.')
+            raw_sig_t = torch.from_numpy(
+                raw_sig[:,np.newaxis,np.newaxis]).to(self.device)
+            try:
+                trans_weights = run_model(
+                    raw_sig_t, model, chunk_size, overlap)
+            except AttributeError:
+                raise MegaError('Out of date or incompatible model')
+            except RuntimeError:
+                raise MegaError('Likely out of memory error.')
             if self.device != torch.device('cpu'):
                 torch.cuda.empty_cache()
             if n_can_state is not None:
