@@ -21,8 +21,8 @@ class ModelInfo(object):
             self.name = flappie_model_name
 
             # import module
-            global flappy
             import flappy
+            self.flappy = flappy
 
             # compiled flappie models require hardcoding or running fake model
             if flappie_model_name in ('r941_cat_mod', 'r941_5mC'):
@@ -62,8 +62,6 @@ class ModelInfo(object):
             self.device = device
 
             # import modules
-            global load_taiyaki_model, GlobalNormFlipFlopCatMod, torch, \
-                tai_run_model
             from taiyaki.helpers import load_model as load_taiyaki_model
             from taiyaki.basecall_helpers import run_model as tai_run_model
             try:
@@ -71,6 +69,11 @@ class ModelInfo(object):
             except ImportError:
                 GlobalNormFlipFlopCatMod = None
             import torch
+
+            # store modules in object
+            self.load_taiyaki_model = load_taiyaki_model
+            self.tai_run_model = tai_run_model
+            self.torch = torch
 
             tmp_model = load_taiyaki_model(taiyaki_model_fn)
             self.is_cat_mod = (
@@ -94,13 +97,13 @@ class ModelInfo(object):
     def prep_model_worker(self):
         if self.model_type == TAI_NAME:
             # setup for taiyaki model
-            self.model = load_taiyaki_model(self.fn)
+            self.model = self.load_taiyaki_model(self.fn)
             if self.device is not None:
-                self.device = torch.device(self.device)
-                torch.cuda.set_device(self.device)
+                self.device = self.torch.device(self.device)
+                self.torch.cuda.set_device(self.device)
                 self.model = self.model.cuda()
             else:
-                self.device = torch.device('cpu')
+                self.device = self.torch.device('cpu')
             self.model = self.model.eval()
 
         return
@@ -108,20 +111,20 @@ class ModelInfo(object):
     def run_model(
             self, raw_sig, n_can_state=None, chunk_size=10000, overlap=200):
         if self.model_type == FLP_NAME:
-            rt = flappy.RawTable(raw_sig)
+            rt = self.flappy.RawTable(raw_sig)
             # flappy will return split bc and mods based on model
-            trans_weights = flappy.run_network(rt, self.name)
+            trans_weights = self.flappy.run_network(rt, self.name)
         elif self.model_type == TAI_NAME:
-            raw_sig_t = torch.from_numpy(raw_sig).to(self.device)
+            raw_sig_t = self.torch.from_numpy(raw_sig).to(self.device)
             try:
-                trans_weights = tai_run_model(
+                trans_weights = self.tai_run_model(
                     raw_sig_t, self.model, chunk_size, overlap)
             except AttributeError:
                 raise MegaError('Out of date or incompatible model')
             except RuntimeError:
                 raise MegaError('Likely out of memory error.')
-            if self.device != torch.device('cpu'):
-                torch.cuda.empty_cache()
+            if self.device != self.torch.device('cpu'):
+                self.torch.cuda.empty_cache()
             if n_can_state is not None:
                 trans_weights = (
                     np.ascontiguousarray(trans_weights[:,:n_can_state]),
