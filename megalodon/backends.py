@@ -15,14 +15,16 @@ MOD_ALPHABET = CAN_ALPHABET + ''.join(
 
 
 class ModelInfo(object):
-    def __init__(self, flappie_model_name, taiyaki_model_fn, device):
+    def __init__(
+            self, flappie_model_name, taiyaki_model_fn, devices, num_proc,
+            chunk_size, chunk_overlap, max_concur_chunks):
         if flappie_model_name is not None:
             self.model_type = FLP_NAME
             self.name = flappie_model_name
 
             # import module
-            global flappy
             import flappy
+            self.flappy = flappy
 
             # compiled flappie models require hardcoding or running fake model
             if flappie_model_name in ('r941_cat_mod', 'r941_5mC'):
@@ -56,23 +58,46 @@ class ModelInfo(object):
                 self.collapse_alphabet = mh.ALPHABET
                 self.output_size = 40
                 self.n_mods = 0
+            # flappie is CPU only
+            self.process_devices = [None] * num_proc
         elif taiyaki_model_fn is not None:
             self.model_type = TAI_NAME
             self.fn = taiyaki_model_fn
-            self.device = device
+            self.chunk_size = chunk_size
+            self.chunk_overlap = chunk_overlap
+            self.max_concur_chunks = max_concur_chunks
+
+            self.devices = devices
+            base_proc_per_device = np.ceil(num_proc / len(devices)).astype(int)
+            procs_per_device = np.repeat(base_proc_per_device, len(devices))
+            if base_proc_per_device * len(devices) > num_proc:
+                procs_per_device[
+                    -(base_proc_per_device * len(devices) - num_proc):] -= 1
+            assert sum(procs_per_device) == num_proc
+            self.process_devices = [
+                int(dv) for dv in np.repeat(devices, procs_per_device)]
 
             # import modules
-            global load_taiyaki_model, GlobalNormFlipFlopCatMod, torch
             from taiyaki.helpers import load_model as load_taiyaki_model
-            from taiyaki.layers import (
-                GlobalNormFlipFlopCatMod, GlobalNormFlipFlopCatMod)
+            from taiyaki.basecall_helpers import run_model as tai_run_model
+            try:
+                from taiyaki.layers import GlobalNormFlipFlopCatMod
+            except ImportError:
+                GlobalNormFlipFlopCatMod = None
             import torch
 
+            # store modules in object
+            self.load_taiyaki_model = load_taiyaki_model
+            self.tai_run_model = tai_run_model
+            self.torch = torch
+
             tmp_model = load_taiyaki_model(taiyaki_model_fn)
-            self.is_cat_mod = isinstance(
-                tmp_model.sublayers[-1], GlobalNormFlipFlopCatMod)
+            self.is_cat_mod = (
+                GlobalNormFlipFlopCatMod is not None and isinstance(
+                    tmp_model.sublayers[-1], GlobalNormFlipFlopCatMod))
             self.output_size = tmp_model.sublayers[-1].size
             try:
+                # TODO Add mod long names
                 self.alphabet = tmp_model.alphabet
                 self.collapse_alphabet = tmp_model.collapse_alphabet
             except AttributeError:
@@ -85,38 +110,36 @@ class ModelInfo(object):
 
         return
 
-    def prep_model_worker(self):
+    def prep_model_worker(self, device):
         if self.model_type == TAI_NAME:
             # setup for taiyaki model
-            self.model = load_taiyaki_model(self.fn)
-            if self.device is not None:
-                self.device = torch.device(self.device)
-                torch.cuda.set_device(self.device)
+            self.model = self.load_taiyaki_model(self.fn)
+            if device is not None:
+                self.device = self.torch.device(device)
+                self.torch.cuda.set_device(self.device)
                 self.model = self.model.cuda()
             else:
-                self.device = torch.device('cpu')
+                self.device = self.torch.device('cpu')
             self.model = self.model.eval()
 
         return
 
-    def run_model(self, raw_sig, n_can_state=None):
+    def run_model(self, raw_sig, device=None, n_can_state=None):
         if self.model_type == FLP_NAME:
-            rt = flappy.RawTable(raw_sig)
+            rt = self.flappy.RawTable(raw_sig)
             # flappy will return split bc and mods based on model
-            trans_weights = flappy.run_network(rt, self.name)
+            trans_weights = self.flappy.run_network(rt, self.name)
         elif self.model_type == TAI_NAME:
-            with torch.no_grad():
-                raw_sig_t = torch.from_numpy(
-                    raw_sig[:,np.newaxis,np.newaxis]).to(self.device)
-                try:
-                    trans_weights = self.model(
-                        raw_sig_t).squeeze().cpu().numpy()
-                except AttributeError:
-                    raise MegaError('Out of date or incompatible model')
-                except RuntimeError:
-                    raise MegaError('Likely out of memory error.')
-            if self.device != torch.device('cpu'):
-                torch.cuda.empty_cache()
+            try:
+                trans_weights = self.tai_run_model(
+                    raw_sig, self.model, self.chunk_size, self.chunk_overlap,
+                    self.max_concur_chunks)
+            except AttributeError:
+                raise MegaError('Out of date or incompatible model')
+            except RuntimeError:
+                raise MegaError('Likely out of memory error.')
+            if self.device != self.torch.device('cpu'):
+                self.torch.cuda.empty_cache()
             if n_can_state is not None:
                 trans_weights = (
                     np.ascontiguousarray(trans_weights[:,:n_can_state]),
