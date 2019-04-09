@@ -43,6 +43,7 @@ def _get_snp_stats_queue(snp_stats_q, snp_conn, out_dir, do_sort=False):
     while True:
         try:
             snp_var = snp_stats_q.get(block=False)
+            if snp_var is None: continue
             if do_sort:
                 all_snp_vars.append(snp_var)
             else:

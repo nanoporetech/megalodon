@@ -554,6 +554,7 @@ def binom_pmf(k, n, p):
         np.math.factorial(k) * np.math.factorial(n - k))) * (
             p ** k) * ((1 - p) ** (n - k))
 
+AMBIG_LLRS_THRESH = None
 class AggSnps(mh.AbstractAggregationClass):
     """ Class to assist in database queries for per-site aggregation of
     SNP calls over reads.
@@ -601,6 +602,11 @@ class AggSnps(mh.AbstractAggregationClass):
     def compute_snp_stats(self, snp_loc, het_factor):
         pr_snp_stats = self.get_per_read_snp_stats(snp_loc)
         llhrs = np.array([r_stats.score for r_stats in pr_snp_stats])
+        if AMBIG_LLRS_THRESH is not None:
+            llhrs = llhrs[np.logical_or(llhrs < -AMBIG_LLRS_THRESH,
+                                        llhrs > AMBIG_LLRS_THRESH)]
+            if len(llhrs) == 0:
+                return None
         diploid_probs = self.compute_diploid_probs(llhrs, het_factor)
         r0_stats = pr_snp_stats[0]
         snp_var = Variant(

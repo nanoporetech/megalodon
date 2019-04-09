@@ -16,8 +16,9 @@ MOD_ALPHABET = CAN_ALPHABET + ''.join(
 
 class ModelInfo(object):
     def __init__(
-            self, flappie_model_name, taiyaki_model_fn, devices, num_proc,
-            chunk_size, chunk_overlap, max_concur_chunks):
+            self, flappie_model_name, taiyaki_model_fn, devices=None,
+            num_proc=1, chunk_size=None, chunk_overlap=None,
+            max_concur_chunks=None):
         if flappie_model_name is not None:
             self.model_type = FLP_NAME
             self.name = flappie_model_name
