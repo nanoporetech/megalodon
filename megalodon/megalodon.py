@@ -53,7 +53,7 @@ def process_read(
 
     r_post = decode.crf_flipflop_trans_post(bc_weights, log=True)
     r_seq, score, runlen = decode.decode_post(
-        r_post, alphabet_info.collapse_alphabet)
+        r_post, alphabet_info.alphabet)
     if bc_q is not None:
         bc_q.put((read_id, r_seq))
 

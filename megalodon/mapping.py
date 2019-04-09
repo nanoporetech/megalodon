@@ -28,6 +28,25 @@ class alignerPlus(mappy.Aligner):
         return
 
 
+def align_read(r_seq, aligner, map_thr_buf, read_id=None, add_chr_ref=False):
+    try:
+        r_algn = next(aligner.map(str(r_seq), buf=map_thr_buf))
+    except StopIteration:
+        # alignment not produced
+        return [None, None], None
+
+    ref_seq = aligner.seq(r_algn.ctg, r_algn.r_st, r_algn.r_en)
+    if r_algn.strand == -1:
+        ref_seq = mh.revcomp(ref_seq)
+    chrm = 'chr' + r_algn.ctg if add_chr_ref else r_algn.ctg
+    r_algn_data = [
+        chrm, r_algn.strand, r_algn.r_st, r_algn.r_en,
+        r_algn.q_st, r_algn.q_en, r_algn.cigar]
+    return [ref_seq, r_algn_data], (
+        read_id, r_seq, r_algn.ctg, r_algn.strand, r_algn.r_st,
+        r_algn.q_st, r_algn.q_en, r_algn.cigar)
+
+
 def _map_read_worker(aligner, map_conn, mo_q, add_chr_ref):
     # get mappy aligner thread buffer
     map_thr_buf = mappy.ThreadBuffer()
@@ -40,30 +59,15 @@ def _map_read_worker(aligner, map_conn, mo_q, add_chr_ref):
             return
         if r_seq is None:
             break
-        try:
-            r_algn = next(aligner.map(str(r_seq), buf=map_thr_buf))
-        except StopIteration:
-            # alignment not produced
-            map_conn.send([None, None])
-            continue
+        map_res, full_res = align_read(
+            r_seq, aligner, map_thr_buf, read_id, add_chr_ref)
+        map_conn.send(map_res)
 
-        ref_seq = aligner.seq(r_algn.ctg, r_algn.r_st, r_algn.r_en)
-        if r_algn.strand == -1:
-            ref_seq = mh.revcomp(ref_seq)
-        chrm = 'chr' + r_algn.ctg if add_chr_ref else r_algn.ctg
-        r_algn_data = [
-            chrm, r_algn.strand, r_algn.r_st, r_algn.r_en,
-            r_algn.q_st, r_algn.q_en, r_algn.cigar]
-        map_conn.send([ref_seq, r_algn_data])
-
-        if mo_q is not None:
-            mo_q.put((
-                read_id, r_seq, r_algn.ctg, r_algn.strand, r_algn.r_st,
-                r_algn.q_st, r_algn.q_en, r_algn.cigar))
-
-        del r_seq, r_algn, ref_seq, r_algn_data
+        if mo_q is not None and full_res is not None:
+            mo_q.put(full_res)
 
     return
+
 
 def parse_cigar(r_cigar, strand):
     # get each base calls genomic position
@@ -93,6 +97,7 @@ def parse_cigar(r_cigar, strand):
     r_to_q_poss.append((curr_r_pos, curr_q_pos))
 
     return dict(r_to_q_poss)
+
 
 def map_read(r_seq, read_id, caller_conn):
     """Map read (query) sequence and return:
