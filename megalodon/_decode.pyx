@@ -120,14 +120,14 @@ def rle(x, tol=0):
 
     return x[starts], runlength
 
-def decode_post(r_post, collapse_alphabet=ALPHABET):
+def decode_post(r_post, alphabet=ALPHABET):
     """Decode a posterior using Viterbi algorithm for transducer.
     :param r_post: numpy array containing transducer posteriors.
-    :param collapse_alphabet: alphabet corresponding to flip-flop labels.
+    :param alphabet: alphabet corresponding to flip-flop labels.
     :returns: tuple containing (base calls, score and raw block positions).
     """
     nblock, nstate = r_post.shape[:2]
-    nbase = len(set(collapse_alphabet))
+    nbase = len(set(alphabet))
     if nbase != nstate_to_nbase(nstate):
         raise NotImplementedError(
             'Incompatible decoding alphabet and posterior states.')
@@ -138,6 +138,6 @@ def decode_post(r_post, collapse_alphabet=ALPHABET):
     score = crf_flipflop_viterbi(r_post, path, qpath)
 
     runval, runlen = rle(path)
-    basecall = ''.join(collapse_alphabet[int(b) % nbase] for b in runval)
+    basecall = ''.join(alphabet[int(b) % nbase] for b in runval)
 
     return basecall, score, runlen

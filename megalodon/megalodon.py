@@ -423,37 +423,14 @@ def process_all_reads(
 ################################
 
 class AlphabetInfo(object):
-    def _parse_cat_mods(self):
-        self.n_can_state = (self.ncan_base + self.ncan_base) * (
-            self.ncan_base + 1)
-        self.nmod_base = len(set(self.alphabet)) - self.ncan_base
-        # record the canonical base group indices for modified base
-        # categorical output layer
-        self.can_mods_offsets = np.cumsum([0] + [
-            self.collapse_alphabet.count(can_b)
-            for can_b in self.alphabet[:self.ncan_base]]).astype(np.uintp)
-
-        # create table of string mod labels to ints taken by
-        # categorical modifications model
-        self.str_to_int_mod_labels = {}
-        can_grouped_mods = defaultdict(int)
-        for mod_lab, can_lab in zip(
-                self.alphabet[self.ncan_base:],
-                self.collapse_alphabet[self.ncan_base:]):
-            can_grouped_mods[can_lab] += 1
-            self.str_to_int_mod_labels[mod_lab] = can_grouped_mods[can_lab]
-
-        return
-
     def _parse_mod_motifs(self, all_mod_motifs_raw):
         # note only works for mod_refactor models currently
         self.all_mod_motifs = []
         if all_mod_motifs_raw is None:
-            for can_base, mod_base in zip(
-                    self.collapse_alphabet[self.ncan_base:],
-                    self.alphabet[self.ncan_base:]):
-                self.all_mod_motifs.append((
-                    re.compile(can_base), 0, mod_base, can_base))
+            for can_base, mod_bases in self.can_base_mods.items():
+                for mod_base in mod_bases:
+                    self.all_mod_motifs.append((
+                        re.compile(can_base), 0, mod_base, can_base))
         else:
             # parse detection motifs
             for mod_motifs_raw in all_mod_motifs_raw:
@@ -482,34 +459,42 @@ class AlphabetInfo(object):
 
     def __init__(
             self, model_info, all_mod_motifs_raw, mod_all_paths,
-            override_alphabet, write_mods_txt, mod_context_bases):
+            write_mods_txt, mod_context_bases):
         self.mod_all_paths = mod_all_paths
         self.write_mods_txt = write_mods_txt
         self.mod_context_bases = mod_context_bases
 
-        self.alphabet = model_info.alphabet
-        self.collapse_alphabet = model_info.collapse_alphabet
-        self.ncan_base = len(set(self.collapse_alphabet))
-        if override_alphabet is not None:
-            self.alphabet, self.collapse_alphabet = override_alphabet
+        self.alphabet = model_info.can_alphabet
+        self.ncan_base = len(self.alphabet)
         try:
             self.alphabet = self.alphabet.decode()
-            self.collapse_alphabet = self.collapse_alphabet.decode()
         except:
             pass
-        sys.stderr.write('Using alphabet {} collapsed to {}.\n'.format(
-            self.alphabet, self.collapse_alphabet))
+        if model_info.is_cat_mod:
+            sys.stderr.write(
+                'Using canoncical alphabet {} and modified bases {}.\n'.format(
+                    self.alphabet, ' '.join(
+                        '{}={}'.format(*mod_b)
+                        for mod_b in model_info.mod_long_names)))
+        else:
+            sys.stderr.write(
+                'Using canoncical alphabet {}.\n'.format(self.alphabet))
 
         self.nbase = len(self.alphabet)
         if model_info.is_cat_mod:
-            self._parse_cat_mods()
+            self.n_can_state = (self.ncan_base + self.ncan_base) * (
+                self.ncan_base + 1)
+            self.nmod_base = model_info.n_mods
+            self.can_base_mods = model_info.can_base_mods
+            self.can_mods_offsets = model_info.can_indices
+            self.str_to_int_mod_labels = model_info.str_to_int_mod_labels
             assert (
                 model_info.output_size - self.n_can_state ==
                 self.nmod_base + 1), (
                     'Alphabet ({}) and model number of modified bases ({}) ' +
-                    'do not agree. See --override-alphabet.'
-                ).format(self.alphabet,
-                         model_info.output_size - self.n_can_state - 1)
+                    'do not agree.').format(
+                        self.alphabet,
+                        model_info.output_size - self.n_can_state - 1)
 
         # parse mod motifs or use "swap" base if no motif provided
         self._parse_mod_motifs(all_mod_motifs_raw)
@@ -658,9 +643,6 @@ def get_parser():
 
     misc_grp = parser.add_argument_group('Miscellaneous Arguments')
     misc_grp.add_argument(
-        '--override-alphabet', nargs=2,
-        help='Override alphabet and collapse alphabet from model.')
-    misc_grp.add_argument(
         '--prepend-chr-ref', action='store_true',
         help='Prepend "chr" to chromosome names from reference to match ' +
         'VCF names.')
@@ -712,7 +694,7 @@ def _main():
 
     # modified base output parsing
     alphabet_info = AlphabetInfo(
-        model_info, args.mod_motifs, args.mod_all_paths, args.override_alphabet,
+        model_info, args.mod_motifs, args.mod_all_paths,
         args.write_mods_text, args.mod_context_bases)
     if mh.PR_MOD_NAME not in args.outputs and mh.MOD_NAME in args.outputs:
         args.outputs.append(mh.PR_MOD_NAME)

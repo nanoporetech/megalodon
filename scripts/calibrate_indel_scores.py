@@ -1,9 +1,16 @@
+import sys
+import queue
+import argparse
+import threading
+from time import sleep
 from random import choice
+import multiprocessing as mp
 
 import mappy
 import numpy as np
 
-from megalodon import decode, megalodon_helper as mh, megalodon, backends
+from megalodon import (
+    decode, megalodon_helper as mh, megalodon, backends, mapping, snps)
 
 
 CAN_BASES = "ACGT"
@@ -11,15 +18,15 @@ CAN_BASES_SET = set(CAN_BASES)
 
 
 def call_snp(
-        r_post, post_mapped_start, r_snp_pos, r_ref_seq, rl_cumsum, r_to_q_poss,
-        snp_ref_seq, snp_alt_seq, context_bases, all_paths):
+        r_post, post_mapped_start, r_snp_pos, np_ref_seq, rl_cumsum,
+        r_to_q_poss, snp_ref_seq, snp_alt_seq, context_bases, all_paths):
     snp_context_bases = (context_bases[0]
                          if len(snp_ref_seq) == len(snp_alt_seq) else
                          context_bases[1])
     pos_bb = min(snp_context_bases, r_snp_pos)
     pos_ab = min(snp_context_bases,
-                 r_ref_seq.shape[0] - r_snp_pos - len(snp_ref_seq))
-    pos_ref_seq = r_ref_seq[r_snp_pos - pos_bb:
+                 np_ref_seq.shape[0] - r_snp_pos - len(snp_ref_seq))
+    pos_ref_seq = np_ref_seq[r_snp_pos - pos_bb:
                             r_snp_pos + pos_ab + len(snp_ref_seq)]
     pos_alt_seq = np.concatenate([
         pos_ref_seq[:pos_bb],
@@ -31,28 +38,28 @@ def call_snp(
 
     if blk_end - blk_start < max(len(pos_ref_seq), len(pos_alt_seq)):
         return np.NAN
-    loc_ref_score = score_seq(
+    loc_ref_score = snps.score_seq(
         r_post, pos_ref_seq, post_mapped_start + blk_start,
         post_mapped_start + blk_end, all_paths)
-    loc_alt_score = score_seq(
+    loc_alt_score = snps.score_seq(
         r_post, pos_alt_seq, post_mapped_start + blk_start,
         post_mapped_start + blk_end, all_paths)
 
     return loc_ref_score - loc_alt_score
 
 def process_read(
-        raw_sig, read_id, model_info, caller_conn, alphabet_info,
+        raw_sig, read_id, model_info, alphabet_info, caller_conn,
         context_bases=[10,30], edge_buffer=100, max_indel_len=3,
         all_paths=False):
     if model_info.is_cat_mod:
         bc_weights, mod_weights = model_info.run_model(
-            raw_sig, alphabet_info.n_can_state)
+            raw_sig, n_can_state=alphabet_info.n_can_state)
     else:
         bc_weights = model_info.run_model(raw_sig)
 
     r_post = decode.crf_flipflop_trans_post(bc_weights, log=True)
     r_seq, score, runlen = decode.decode_post(
-        r_post, alphabet_info.collapse_alphabet)
+        r_post, alphabet_info.alphabet)
 
     r_ref_seq, r_to_q_poss, r_ref_pos = mapping.map_read(
         r_seq, read_id, caller_conn)
@@ -69,40 +76,41 @@ def process_read(
 
     if np_ref_seq.shape[0] < edge_buffer * 2:
         raise NotImplementedError('Too few reads.')
+    read_snp_calls = []
     for r_snp_pos in range(edge_buffer, np_ref_seq.shape[0]):
         # test simple SNP first
         snp_ref_seq = r_ref_seq[r_snp_pos]
-        snp_alt_seq = choice(CAN_BASES.difference(snp_ref_seq))
+        snp_alt_seq = choice(list(CAN_BASES_SET.difference(snp_ref_seq)))
         score = call_snp(
-            r_post, post_mapped_start, r_snp_pos, r_ref_seq, rl_cumsum,
+            r_post, post_mapped_start, r_snp_pos, np_ref_seq, rl_cumsum,
             r_to_q_poss, snp_ref_seq,
             snp_alt_seq, context_bases, all_paths)
-        # TODO change from printing to passing back through a queue
-        print('TRUE\t{}\t{}\t{}\n'.format(score, snp_ref_seq, snp_alt_seq))
+        read_snp_calls.append((True, score, snp_ref_seq, snp_alt_seq))
 
         # then test indels
         for indel_size in range(1, max_indel_len + 1):
             # test deletion
-            snp_ref_seq = r_ref_seq[r_snp_pos:r_snp_pos + indel_size]
+            snp_ref_seq = r_ref_seq[r_snp_pos:r_snp_pos + indel_size + 1]
             snp_alt_seq = r_ref_seq[r_snp_pos]
             score = call_snp(
-                r_post, post_mapped_start, r_snp_pos, r_ref_seq, rl_cumsum,
+                r_post, post_mapped_start, r_snp_pos, np_ref_seq, rl_cumsum,
                 r_to_q_poss, snp_ref_seq, snp_alt_seq, context_bases, all_paths)
-            print('TRUE\t{}\t{}\t{}\n'.format(score, snp_ref_seq, snp_alt_seq))
+            read_snp_calls.append((True, score, snp_ref_seq, snp_alt_seq))
 
             # test random insertion
             snp_ref_seq = r_ref_seq[r_snp_pos]
             snp_alt_seq = snp_ref_seq + ''.join(
                 choice(CAN_BASES) for _ in range(indel_size))
             score = call_snp(
-                r_post, post_mapped_start, r_snp_pos, r_ref_seq, rl_cumsum,
+                r_post, post_mapped_start, r_snp_pos, np_ref_seq, rl_cumsum,
                 r_to_q_poss, snp_ref_seq, snp_alt_seq, context_bases, all_paths)
-            print('TRUE\t{}\t{}\t{}\n'.format(score, snp_ref_seq, snp_alt_seq))
+            read_snp_calls.append((True, score, snp_ref_seq, snp_alt_seq))
 
-    return
+    return read_snp_calls
 
-def _process_reads_worker(fast5_q, caller_conn, model_info, alphabet_info):
-    model_info.prep_model_worker()
+def _process_reads_worker(
+        fast5_q, snp_calls_q, caller_conn, model_info, alphabet_info, device):
+    model_info.prep_model_worker(device)
 
     while True:
         try:
@@ -118,16 +126,44 @@ def _process_reads_worker(fast5_q, caller_conn, model_info, alphabet_info):
 
         try:
             raw_sig, read_id = mh.extract_read_data(fast5_fn)
-            process_read(
-                raw_sig, read_id, model_info, caller_conn, alphabet_info)
+            read_snp_calls = process_read(
+                raw_sig, read_id, model_info, alphabet_info, caller_conn)
+            snp_calls_q.put(read_snp_calls)
         except:
             pass
 
     return
 
 
+def _get_snp_calls(snp_calls_q, snp_calls_conn, out_fn, total_reads):
+    out_fp = open(out_fn, 'w')
+    # TODO add progress bar
+
+    while True:
+        try:
+            read_snp_calls = snp_calls_q.get(block=False)
+            for snp_call in read_snp_calls:
+                out_fp.write('{}\t{}\t{}\t{}\n'.format(*snp_call))
+            out_fp.flush()
+        except queue.Empty:
+            if snp_calls_conn.poll():
+                break
+            sleep(0.1)
+            continue
+
+    while not snp_calls_q.empty():
+        read_snp_calls = snp_calls_q.get(block=False)
+        for snp_call in read_snp_calls:
+            out_fp.write('{}\t{}\t{}\t{}\n'.format(*snp_call))
+        out_fp.flush()
+    out_fp.close()
+
+    return
+
+
 def process_all_reads(
-        fast5s_dir, num_reads, model_info, aligner, num_ps, alphabet_info):
+        fast5s_dir, num_reads, model_info, aligner, num_ps, alphabet_info,
+        out_fn):
     sys.stderr.write('Searching for reads.\n')
     fast5_fns = megalodon.get_read_files(fast5s_dir)
     if num_reads is not None:
@@ -138,13 +174,15 @@ def process_all_reads(
     # read filename queue filler
     fast5_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
     files_p = mp.Process(
-        target=_fill_files_queue, args=(fast5_q, fast5_fns, num_ps),
+        target=megalodon._fill_files_queue, args=(fast5_q, fast5_fns, num_ps),
         daemon=True)
     files_p.start()
 
+    snp_calls_q, snp_calls_p, main_sc_conn = mh.create_getter_q(
+            _get_snp_calls, (out_fn, len(fast5_fns)))
 
     proc_reads_ps, map_conns = [], []
-    for _ in range(num_ps):
+    for device in model_info.process_devices:
         if aligner is None:
             map_conn, caller_conn = None, None
         else:
@@ -152,7 +190,8 @@ def process_all_reads(
         map_conns.append(map_conn)
         p = mp.Process(
             target=_process_reads_worker, args=(
-                fast5_q, caller_conn, model_info, alphabet_info))
+                fast5_q, snp_calls_q, caller_conn, model_info, alphabet_info,
+                device))
         p.daemon = True
         p.start()
         proc_reads_ps.append(p)
@@ -172,6 +211,9 @@ def process_all_reads(
     if map_read_ts is not None:
         for map_t in map_read_ts:
             map_t.join()
+    if snp_calls_p.is_alive():
+        main_sc_conn.send(True)
+        snp_calls_p.join()
 
     return
 
@@ -197,16 +239,32 @@ def get_parser():
 
     out_grp = parser.add_argument_group('Output Arguments')
     out_grp.add_argument(
+        '--output', default='snp_calibration_statistics.txt',
+        help='Filename to output statistics. Default: %(default)s')
+    out_grp.add_argument(
         '--num-reads', type=int,
         help='Number of reads to process. Default: All reads')
+
+    tai_grp = parser.add_argument_group('Taiyaki Signal Chunking Arguments')
+    tai_grp.add_argument(
+        '--devices', type=int, nargs='+',
+        help='CUDA GPU devices to use (only valid for taiyaki), default: CPU')
+    tai_grp.add_argument(
+        '--chunk_size', type=int, default=1000,
+        help='Chunk length for base calling. Default: %(default)d')
+    tai_grp.add_argument(
+        '--chunk_overlap', type=int, default=100,
+        help='Overlap between chunks to be stitched together. ' +
+        'Default: %(default)d')
+    tai_grp.add_argument(
+        '--max_concurrent_chunks', type=int, default=50,
+        help='Only process N chunks concurrently per-read (to avoid GPU ' +
+        'memory errors). Default: %(default)d')
 
     misc_grp = parser.add_argument_group('Miscellaneous Arguments')
     misc_grp.add_argument(
         '--processes', type=int, default=1,
         help='Number of parallel processes. Default: %(default)d')
-    misc_grp.add_argument(
-        '--device', default=None, type=int,
-        help='CUDA device to use (only valid for taiyaki), or None to use CPU')
 
     return parser
 
@@ -214,15 +272,17 @@ def main():
     args = get_parser().parse_args()
 
     model_info = backends.ModelInfo(
-        args.flappie_model_name, args.taiyaki_model_filename, args.device)
+        args.flappie_model_name, args.taiyaki_model_filename, args.devices,
+        args.processes, args.chunk_size, args.chunk_overlap,
+        args.max_concurrent_chunks)
     alphabet_info = megalodon.AlphabetInfo(
-        model_info, None, False, None, None, None)
+        model_info, None, False, None, None)
     aligner = mapping.alignerPlus(
         str(args.reference), preset=str('map-ont'), best_n=1)
 
     process_all_reads(
         args.fast5s_dir, args.num_reads, model_info, aligner, args.processes,
-        alphabet_info)
+        alphabet_info, args.output)
 
     return
 

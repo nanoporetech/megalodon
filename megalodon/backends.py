@@ -1,6 +1,6 @@
 import string
 import numpy as np
-from collections import namedtuple
+from collections import defaultdict, namedtuple
 
 from megalodon import megalodon_helper as mh
 
@@ -28,40 +28,47 @@ class ModelInfo(object):
             self.flappy = flappy
 
             # compiled flappie models require hardcoding or running fake model
-            if flappie_model_name in ('r941_cat_mod', 'r941_5mC'):
-                if flappie_model_name == 'r941_cat_mod':
-                    self.is_cat_mod = True
-                    can_nmods, output_alphabet = flappy.get_cat_mods()
-                    self.can_nmods = can_nmods
-                    self.n_mods = self.can_nmods.sum()
-                    self.output_size = 41 + self.n_mods
-                    self.can_offsets = np.cumsum(np.concatenate(
-                        [[0], self.can_nmods[:-1] + 1]))
-                    can_bases = ''.join(
-                        output_alphabet[b_i] for b_i in self.can_offsets)
-                    mod_bases = ''.join(
-                        output_alphabet[b_i + 1:b_i + 1 + b_nmods]
-                        for b_i, b_nmods in
-                        zip(self.can_offsets, self.can_nmods))
-                    self.alphabet = can_bases + mod_bases
-                    self.collapse_alphabet = can_bases + ''.join(
-                        b for can_b, b_nmods in zip(can_bases, self.can_nmods)
-                        for b in can_b * b_nmods)
-                else:
-                    self.is_cat_mod = False
-                    self.n_mods = 1
-                    self.output_size = 60
-                    self.alphabet = MOD_ALPHABET[:5]
-                    self.collapse_alphabet = CAN_ALPHABET + 'C'
+            if flappie_model_name == 'r941_5mC':
+                raise NotImplementedError(
+                    'Naive modified base flip-flop models are not supported.')
+            if flappie_model_name in ('r941_cat_mod', ):
+                self.is_cat_mod = True
+                can_nmods, output_alphabet = flappy.get_cat_mods()
+                self.output_alphabet = output_alphabet
+                self.can_nmods = can_nmods
+                self.n_mods = self.can_nmods.sum()
+                self.output_size = 41 + self.n_mods
+                self.can_indices = np.cumsum(np.concatenate(
+                    [[0], self.can_nmods[:-1] + 1]))
+                can_bases = ''.join(
+                    output_alphabet[b_i] for b_i in self.can_indices)
+                mod_bases = ''.join(
+                    output_alphabet[b_i + 1:b_i + 1 + b_nmods]
+                    for b_i, b_nmods in zip(self.can_indices, self.can_nmods))
+                self.can_alphabet = can_bases
+                self.mod_long_names = [(mod_b, mod_b) for mod_b in mod_bases]
+                self.can_base_mod = defaultdict(list)
+                for base in self.output_alphabet:
+                    if base in can_bases:
+                        curr_can_base = base
+                    else:
+                        self.can_base_mod[curr_can_base].append(base)
+                self.can_base_mods = dict(self.can_base_mods)
             else:
                 self.is_cat_mod = False
-                self.alphabet = mh.ALPHABET
-                self.collapse_alphabet = mh.ALPHABET
+                self.can_alphabet = mh.ALPHABET
+                self.mod_long_names = []
                 self.output_size = 40
                 self.n_mods = 0
             # flappie is CPU only
             self.process_devices = [None] * num_proc
         elif taiyaki_model_fn is not None:
+            if any(arg is None for arg in (
+                    chunk_size, chunk_overlap, max_concur_chunks)):
+                raise NotImplementedError(
+                    'Must provide chunk_size, chunk_overlap, ' +
+                    'max_concur_chunks in order to run the taiyaki ' +
+                    'base calling backend.')
             self.model_type = TAI_NAME
             self.fn = taiyaki_model_fn
             self.chunk_size = chunk_size
@@ -92,20 +99,44 @@ class ModelInfo(object):
             self.tai_run_model = tai_run_model
             self.torch = torch
 
-            tmp_model = load_taiyaki_model(taiyaki_model_fn)
+            tmp_model = self.load_taiyaki_model(taiyaki_model_fn)
+            ff_layer = tmp_model.sublayers[-1]
             self.is_cat_mod = (
                 GlobalNormFlipFlopCatMod is not None and isinstance(
-                    tmp_model.sublayers[-1], GlobalNormFlipFlopCatMod))
-            self.output_size = tmp_model.sublayers[-1].size
-            try:
-                # TODO Add mod long names
-                self.alphabet = tmp_model.alphabet
-                self.collapse_alphabet = tmp_model.collapse_alphabet
-            except AttributeError:
-                self.alphabet = mh.ALPHABET
-                self.collapse_alphabet = mh.ALPHABET
-            ncan_base = len(set(self.collapse_alphabet))
-            self.n_mods = len(self.alphabet) - ncan_base
+                    ff_layer, GlobalNormFlipFlopCatMod))
+            self.output_size = ff_layer.size
+            if self.is_cat_mod:
+                # TODO everything here can be derived from the json attributes
+                # can_nmods, output_alphabet and modified_base_long_names
+                # should be converted to use only these attributes to allow
+                # a bit more flexability for the taiyaki layer attributes
+                self.output_alphabet = ff_layer.output_alphabet
+                self.can_indices = np.cumsum(np.concatenate(
+                    [[0], ff_layer.can_nmods[:-1] + 1]))
+                self.can_alphabet = ''.join(self.output_alphabet[b_i]
+                                            for b_i in self.can_indices)
+                self.mod_long_names = list(ff_layer.mod_long_names_conv.items())
+                self.str_to_int_mod_labels = {}
+                self.can_base_mods = defaultdict(list)
+                for base_i, base in enumerate(self.output_alphabet):
+                    if base_i in self.can_indices:
+                        curr_can_base = base
+                        curr_mod_i = 0
+                    else:
+                        self.str_to_int_mod_labels[base] = curr_mod_i
+                        self.can_base_mods[curr_can_base].append(base)
+                        curr_mod_i += 1
+                self.can_base_mods = dict(self.can_base_mods)
+            else:
+                if mh.nstate_to_nbase(ff_layer.size) != 4:
+                    raise NotImplementedError(
+                        'Naive modified base flip-flop models are not ' +
+                        'supported.')
+                self.output_alphabet = mh.ALPHABET
+                self.can_alphabet = mh.ALPHABET
+                self.mod_long_names = []
+                self.str_to_int_mod_labels = {}
+            self.n_mods = len(self.mod_long_names)
         else:
             raise mh.MegaError('Invalid model specification.')
 
@@ -125,7 +156,7 @@ class ModelInfo(object):
 
         return
 
-    def run_model(self, raw_sig, device=None, n_can_state=None):
+    def run_model(self, raw_sig, n_can_state=None):
         if self.model_type == FLP_NAME:
             rt = self.flappy.RawTable(raw_sig)
             # flappy will return split bc and mods based on model
@@ -136,9 +167,9 @@ class ModelInfo(object):
                     raw_sig, self.model, self.chunk_size, self.chunk_overlap,
                     self.max_concur_chunks)
             except AttributeError:
-                raise MegaError('Out of date or incompatible model')
+                raise mh.MegaError('Out of date or incompatible model')
             except RuntimeError:
-                raise MegaError('Likely out of memory error.')
+                raise mh.MegaError('Likely out of memory error.')
             if self.device != self.torch.device('cpu'):
                 self.torch.cuda.empty_cache()
             if n_can_state is not None:
@@ -146,7 +177,7 @@ class ModelInfo(object):
                     np.ascontiguousarray(trans_weights[:,:n_can_state]),
                     np.ascontiguousarray(trans_weights[:,n_can_state:]))
         else:
-            raise MegaError('Invalid model type.')
+            raise mh.MegaError('Invalid model type.')
 
         return trans_weights
 
