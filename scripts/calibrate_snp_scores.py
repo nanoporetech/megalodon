@@ -5,11 +5,15 @@ from collections import defaultdict
 import numpy as np
 from tqdm import tqdm
 
+
 DO_PLOT = False
 SMOOTH_BW = 0.8
+SMOOTH_MAX = 200
+SMOOTH_NVALS = 1001
 
-def extract_and_filter_llhrs(args):
-    all_llhrs = defaultdict(dict)
+
+def extract_and_filter_llrs(args):
+    all_llrs = defaultdict(dict)
     homo_alt_calls = set()
     sys.stderr.write('Extracting log-likelihood ratios.\n')
     for line in tqdm(open(args.snps_vcf), smoothing=0):
@@ -25,9 +29,9 @@ def extract_and_filter_llhrs(args):
             fields['FORMAT'].split(':'), fields['SAMPLE'].split(':')))
         if fields['SAMPLE']['GT'] == '1/1':
             homo_alt_calls.add((fields['CHROM'], int(fields['POS'])))
-        llhrs = list(map(float, fields['SAMPLE']['LLHRS'].split(',')))
-        all_llhrs[(fields['CHROM'], fields['POS'])][
-            (fields['REF'], fields['ALT'])] = llhrs
+        llrs = list(map(float, fields['SAMPLE']['LLRS'].split(',')))
+        all_llrs[(fields['CHROM'], fields['POS'])][
+            (fields['REF'], fields['ALT'])] = llrs
 
     # create filter to remove all SNPs near homozygous alt calls
     expand_homo_alt_filter = set()
@@ -37,26 +41,26 @@ def extract_and_filter_llhrs(args):
             expand_homo_alt_filter.add((chrom, filt_pos))
 
     return np.array([
-        llhr
-        for chrm_pos, alts in all_llhrs.items()
-        for ref_alt, alt_llhrs in alts.items()
-        for llhr in alt_llhrs
+        llr
+        for chrm_pos, alts in all_llrs.items()
+        for ref_alt, alt_llrs in alts.items()
+        for llr in alt_llrs
         if chrm_pos not in expand_homo_alt_filter])
 
-def compute_calibration(filt_llhrs, args):
+def compute_calibration(filt_llrs, args):
     def guassian(x):
         return (np.exp(-x ** 2 / (2 * SMOOTH_BW ** 2)) /
                 (SMOOTH_BW * np.sqrt(2 * np.pi)))
 
 
     sys.stderr.write('Computing emperical density.\n')
-    smooth_ls = np.linspace(-args.max_input_llhr, args.max_input_llhr,
+    smooth_ls = np.linspace(-args.max_input_llr, args.max_input_llr,
                             args.num_calibration_values, endpoint=True)
 
     smooth_vals = np.zeros(smooth_ls.shape[0])
-    for llhr in tqdm(filt_llhrs, smoothing=0):
-        smooth_vals += guassian(smooth_ls - llhr)
-    smooth_vals /= filt_llhrs.shape[0]
+    for llr in tqdm(filt_llrs, smoothing=0):
+        smooth_vals += guassian(smooth_ls - llr)
+    smooth_vals /= filt_llrs.shape[0]
 
     sys.stderr.write('Computing emperical likelihood.\n')
     peak_site = np.argmax(smooth_vals)
@@ -100,12 +104,11 @@ def compute_calibration(filt_llhrs, args):
     return np.log((1 - mono_prob) / mono_prob)
 
 
-SMOOTH_MAX, SMOOTH_NVALS = 200, 1001
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--snps-vcf', default='megalodon_results/snps.vcf',
-        help='VCF file produced from megalodon (with VCF_OUTPUT_LLHRS=True). ' +
+        help='VCF file produced from megalodon (with --write-vcf-llr). ' +
         'Default: %(default)s')
     parser.add_argument(
         '--coverage-threshold', type=int, default=10,
@@ -114,11 +117,11 @@ def get_parser():
         '--homozygous-alt-mask-width', type=int, default=10,
         help='Window to mask around homozygous alt calls. Default: %(default)d')
     parser.add_argument(
-        '--max-input-llhr', type=int, default=200,
+        '--max-input-llr', type=int, default=SMOOTH_MAX,
         help='Maximum log-likelihood ratio to compute calibration. ' +
         'Default: %(default)d')
     parser.add_argument(
-        '--num-calibration-values', type=int, default=1001,
+        '--num-calibration-values', type=int, default=SMOOTH_NVALS,
         help='Number of discrete calibration values to compute. ' +
         'Default: %(default)d')
     parser.add_argument(
@@ -130,17 +133,17 @@ def get_parser():
 def main():
     args = get_parser().parse_args()
 
-    filt_llhrs = extract_and_filter_llhrs(args)
+    filt_llrs = extract_and_filter_llrs(args)
 
-    mono_llhr = compute_calibration(filt_llhrs, args)
+    mono_llr = compute_calibration(filt_llrs, args)
 
     # save valibration table for reading into SNP table
     np.savez(
         args.out_filename,
         stratify_type='none',
-        smooth_max=args.max_input_llhr,
+        smooth_max=args.max_input_llr,
         smooth_nvals=args.num_calibration_values,
-        global_calibration_table=mono_llhr)
+        global_calibration_table=mono_llr)
 
     return
 

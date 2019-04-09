@@ -405,11 +405,11 @@ class AggMods(mh.AbstractAggregationClass):
             mod_type_stats[r_stats.mod_base].append(r_stats)
         mt_stats = []
         for mod_base, mt_reads in mod_type_stats.items():
-            mt_llhrs = np.array([r_stats.score for r_stats in mt_reads])
+            mt_llrs = np.array([r_stats.score for r_stats in mt_reads])
             if prop_method == BIN_THRESH_NAME:
-                prop_est, valid_cov = self.est_binary_thresh(mt_llhrs)
+                prop_est, valid_cov = self.est_binary_thresh(mt_llrs)
             else:
-                prop_est, valid_cov = self.est_em_prop(mt_llhrs)
+                prop_est, valid_cov = self.est_em_prop(mt_llrs)
             mt_stats.append((mod_base, prop_est))
         r0_stats = pr_mod_stats[0]
         strand = '+' if r0_stats.strand == 1 else '-'

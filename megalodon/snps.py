@@ -239,10 +239,10 @@ def call_read_snps(
             fwd_strand_alt_seq = fwd_ref_base + fwd_strand_alt_seq
             snp_ref_pos -= 1
 
-        # calibrate llhr
-        calib_llhr = snp_calib_tbl.calibrate_llhr(loc_ref_score - loc_alt_score)
+        # calibrate llr
+        calib_llr = snp_calib_tbl.calibrate_llr(loc_ref_score - loc_alt_score)
         r_snp_calls.append((
-            snp_ref_pos, calib_llhr, fwd_strand_ref_seq, fwd_strand_alt_seq,
+            snp_ref_pos, calib_llr, fwd_strand_ref_seq, fwd_strand_alt_seq,
             snp_id))
 
     return r_snp_calls
@@ -315,9 +315,9 @@ class SnpCalibrator(object):
     def _load_calibration(self):
         snp_calib_data = np.load(self.fn)
         self.stratify_type = str(snp_calib_data['stratify_type'])
-        self.max_input_llhr = np.int(snp_calib_data['smooth_max'])
+        self.max_input_llr = np.int(snp_calib_data['smooth_max'])
         self.num_calib_vals = np.int(snp_calib_data['smooth_nvals'])
-        self.discrete_step = 2 * self.max_input_llhr / (self.num_calib_vals - 1)
+        self.discrete_step = 2 * self.max_input_llr / (self.num_calib_vals - 1)
         # TODO potentially store more accurate calibration tables for
         # particular types of SNPs
         return snp_calib_data['global_calibration_table'].copy()
@@ -327,12 +327,12 @@ class SnpCalibrator(object):
         self.calib_table = None if self.fn is None else self._load_calibration()
         return
 
-    def calibrate_llhr(self, llhr):
+    def calibrate_llr(self, llr):
         if self.calib_table is None:
-            return llhr
+            return llr
         return self.calib_table[np.around((
-            np.clip(llhr, -self.max_input_llhr, self.max_input_llhr) +
-            self.max_input_llhr) / self.discrete_step).astype(int)]
+            np.clip(llr, -self.max_input_llr, self.max_input_llr) +
+            self.max_input_llr) / self.discrete_step).astype(int)]
 
 
 class SnpData(object):
@@ -581,18 +581,18 @@ class AggSnps(mh.AbstractAggregationClass):
         return [SNP_DATA(*snp_stats) for snp_stats in self.snps_db.execute(
             SEL_SNP_STATS, snp_loc)]
 
-    def compute_diploid_probs(self, llhrs, het_factor=1.0):
+    def compute_diploid_probs(self, llrs, het_factor=1.0):
         if np.errstate(over='ignore'):
-            exp_llhrs = np.exp(llhrs)
-        lp_alt = np.sort(np.log(1) - np.log1p(exp_llhrs))[::-1]
-        lp_ref = np.sort(llhrs - np.log1p(exp_llhrs))
+            exp_llrs = np.exp(llrs)
+        lp_alt = np.sort(np.log(1) - np.log1p(exp_llrs))[::-1]
+        lp_ref = np.sort(llrs - np.log1p(exp_llrs))
         lp_hom_alt = np.sum(lp_alt)
         lp_hom_ref = np.sum(lp_ref)
         lp_het = np.log(sum(
-            np.exp(np.log(binom_pmf(i, len(llhrs), 0.5)) +
+            np.exp(np.log(binom_pmf(i, len(llrs), 0.5)) +
                    np.sum(lp_alt[:i]) + np.sum(lp_ref[i:]))
-            for i in range(len(llhrs) + 1)))
-        prior_weights = np.array([1.0, het_factor ** len(llhrs), 1.0])
+            for i in range(len(llrs) + 1)))
+        prior_weights = np.array([1.0, het_factor ** len(llrs), 1.0])
         prior_weights /= prior_weights.sum()
         snp_lps = np.array([lp_hom_ref, lp_het, lp_hom_alt]) + np.log(
             prior_weights)
@@ -601,13 +601,13 @@ class AggSnps(mh.AbstractAggregationClass):
 
     def compute_snp_stats(self, snp_loc, het_factor):
         pr_snp_stats = self.get_per_read_snp_stats(snp_loc)
-        llhrs = np.array([r_stats.score for r_stats in pr_snp_stats])
+        llrs = np.array([r_stats.score for r_stats in pr_snp_stats])
         if AMBIG_LLRS_THRESH is not None:
-            llhrs = llhrs[np.logical_or(llhrs < -AMBIG_LLRS_THRESH,
-                                        llhrs > AMBIG_LLRS_THRESH)]
-            if len(llhrs) == 0:
+            llrs = llrs[np.logical_or(llrs < -AMBIG_LLRS_THRESH,
+                                        llrs > AMBIG_LLRS_THRESH)]
+            if len(llrs) == 0:
                 return None
-        diploid_probs = self.compute_diploid_probs(llhrs, het_factor)
+        diploid_probs = self.compute_diploid_probs(llrs, het_factor)
         r0_stats = pr_snp_stats[0]
         snp_var = Variant(
             chrom=r0_stats.chrm, pos=r0_stats.pos, ref=r0_stats.ref_seq,
@@ -615,8 +615,8 @@ class AggSnps(mh.AbstractAggregationClass):
         snp_var.add_tag('DP', '{}'.format(len(pr_snp_stats)))
         snp_var.add_sample_field('DP', '{}'.format(len(pr_snp_stats)))
         if self.write_vcf_llr:
-            snp_var.add_sample_field('LLHRS', ','.join(
-                '{:.2f}'.format(llhr) for llhr in  sorted(llhrs)))
+            snp_var.add_sample_field('LLRS', ','.join(
+                '{:.2f}'.format(llr) for llr in  sorted(llrs)))
         snp_var.add_diploid_probs(diploid_probs)
         return snp_var
 
