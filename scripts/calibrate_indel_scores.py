@@ -8,6 +8,7 @@ import multiprocessing as mp
 
 import mappy
 import numpy as np
+from tqdm import tqdm
 
 from megalodon import (
     decode, megalodon_helper as mh, megalodon, backends, mapping, snps)
@@ -137,7 +138,7 @@ def _process_reads_worker(
 
 def _get_snp_calls(snp_calls_q, snp_calls_conn, out_fn, total_reads):
     out_fp = open(out_fn, 'w')
-    # TODO add progress bar
+    bar = tqdm(total=total_reads, smoothing=0)
 
     while True:
         try:
@@ -145,6 +146,7 @@ def _get_snp_calls(snp_calls_q, snp_calls_conn, out_fn, total_reads):
             for snp_call in read_snp_calls:
                 out_fp.write('{}\t{}\t{}\t{}\n'.format(*snp_call))
             out_fp.flush()
+            bar.update(1)
         except queue.Empty:
             if snp_calls_conn.poll():
                 break
@@ -156,7 +158,9 @@ def _get_snp_calls(snp_calls_q, snp_calls_conn, out_fn, total_reads):
         for snp_call in read_snp_calls:
             out_fp.write('{}\t{}\t{}\t{}\n'.format(*snp_call))
         out_fp.flush()
+        bar.update(1)
     out_fp.close()
+    bar.close()
 
     return
 
