@@ -106,26 +106,37 @@ class ModelInfo(object):
                     ff_layer, GlobalNormFlipFlopCatMod))
             self.output_size = ff_layer.size
             if self.is_cat_mod:
-                # TODO everything here can be derived from the json attributes
+                # Modified base model is defined by 3 fixed fields in taiyaki
                 # can_nmods, output_alphabet and modified_base_long_names
-                # should be converted to use only these attributes to allow
-                # a bit more flexability for the taiyaki layer attributes
                 self.output_alphabet = ff_layer.output_alphabet
-                self.can_indices = np.cumsum(np.concatenate(
-                    [[0], ff_layer.can_nmods[:-1] + 1]))
-                self.can_alphabet = ''.join(self.output_alphabet[b_i]
-                                            for b_i in self.can_indices)
-                self.mod_long_names = list(ff_layer.mod_long_names_conv.items())
+                self.can_nmods = ff_layer.can_nmods
+                self.ordered_mod_long_names = ff_layer.ordered_mod_long_names
+
+                # parse these values to more user-friendly data structures
+                self.can_alphabet = ''
+                self.can_indices = []
+                self.mod_long_names = []
                 self.str_to_int_mod_labels = {}
                 self.can_base_mods = defaultdict(list)
-                for base_i, base in enumerate(self.output_alphabet):
-                    if base_i in self.can_indices:
-                        curr_can_base = base
-                        curr_mod_i = 0
-                    else:
-                        self.str_to_int_mod_labels[base] = curr_mod_i
-                        self.can_base_mods[curr_can_base].append(base)
-                        curr_mod_i += 1
+                curr_can_offset = 0
+                curr_nmods = 0
+                for can_base_nmods in self.can_nmods:
+                    can_base = self.output_alphabet[curr_can_offset]
+                    self.can_alphabet += can_base
+                    self.can_indices.append(curr_can_offset)
+                    for mod_i, mod_base in enumerate(self.output_alphabet[
+                            curr_can_offset + 1:
+                            curr_can_offset + can_base_nmods + 1]):
+                        self.mod_long_names.append((
+                            mod_base, self.ordered_mod_long_names[
+                                curr_nmods + mod_i]))
+                        self.str_to_int_mod_labels[mod_base] = mod_i
+                        self.can_base_mods[can_base].append(mod_base)
+
+                    curr_can_offset += can_base_nmods + 1
+                    curr_nmods += can_base_nmods
+
+                self.can_indices = np.array(self.can_indices)
                 self.can_base_mods = dict(self.can_base_mods)
             else:
                 if mh.nstate_to_nbase(ff_layer.size) != 4:
