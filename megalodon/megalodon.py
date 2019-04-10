@@ -444,13 +444,12 @@ class AlphabetInfo(object):
                 assert mod_base_idx != -1, (
                     'Invalid modified base motif. Mod base ({}) not found ' +
                     'in alphabet ({}).').format(mod_base, self.alphabet)
-                assert (self.collapse_alphabet[mod_base_idx] ==
-                        raw_motif[pos]), (
+                assert (self.alphabet[mod_base_idx] == raw_motif[pos]), (
                             'Invalid modified base motif. Raw motif modified ' +
                             'position ({}) base ({}) does not match ' +
                             'collapsed alphabet value ({}).').format(
                                 pos, raw_motif[pos],
-                                self.collapse_alphabet[mod_base_idx])
+                                self.alphabet[mod_base_idx])
                 motif = re.compile(''.join(
                     SINGLE_LETTER_CODE[letter] for letter in raw_motif))
                 self.all_mod_motifs.append((motif, pos, mod_base, raw_motif))
