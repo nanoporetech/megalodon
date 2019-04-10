@@ -112,7 +112,7 @@ def call_alt_true_indel(
 def process_read(
         raw_sig, read_id, model_info, alphabet_info, caller_conn,
         map_thr_buf, context_bases=[10,30], edge_buffer=100, max_indel_len=3,
-        all_paths=False, every_n=5):
+        all_paths=False, every_n=5, max_pos_per_read=400):
     if model_info.is_cat_mod:
         bc_weights, mod_weights = model_info.run_model(
             raw_sig, n_can_state=alphabet_info.n_can_state)
@@ -132,9 +132,11 @@ def process_read(
         raise NotImplementedError(
             'Mapping too short for calibration statistic computation.')
 
+    snp_poss = list(range(
+        edge_buffer, np_ref_seq.shape[0] - edge_buffer,
+        every_n))[:max_pos_per_read]
     read_snp_calls = []
-    for r_snp_pos in range(
-            edge_buffer, np_ref_seq.shape[0] - edge_buffer, every_n):
+    for r_snp_pos in snp_poss:
         for indel_size in range(1, max_indel_len + 1):
             try:
                 score, snp_ref_seq, snp_alt_seq = call_alt_true_indel(
@@ -157,8 +159,7 @@ def process_read(
         r_ref_pos.q_trim_start:
         r_ref_pos.q_trim_end + 1] - rl_cumsum[r_ref_pos.q_trim_start]
 
-    for r_snp_pos in range(
-            edge_buffer, np_ref_seq.shape[0] - edge_buffer, every_n):
+    for r_snp_pos in snp_poss:
         # test simple SNP first
         snp_ref_seq = r_ref_seq[r_snp_pos]
         snp_alt_seq = choice(list(CAN_BASES_SET.difference(snp_ref_seq)))
