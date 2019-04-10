@@ -48,6 +48,79 @@ def call_snp(
 
     return loc_ref_score - loc_alt_score
 
+def call_alt_true_indel(
+        indel_size, r_snp_pos, true_ref_seq, r_seq, map_thr_buf, context_bases,
+        r_post, runlen, all_paths):
+    if indel_size > 0:
+        # test alt truth reference insertion
+        false_ref_seq = (
+            true_ref_seq[:r_snp_pos + 1] +
+            true_ref_seq[r_snp_pos + indel_size + 1:])
+        snp_ref_seq = true_ref_seq[r_snp_pos]
+        snp_alt_seq = true_ref_seq[r_snp_pos:r_snp_pos + indel_size + 1]
+
+        aligner = mapping.alignerPlus(
+            seq=false_ref_seq, preset=str('map-ont'), best_n=1)
+        (r_ref_seq, r_algn), _ = mapping.align_read(r_seq, aligner, map_thr_buf)
+        if r_ref_seq is None:
+            raise mh.MegaError('No alignment')
+        chrm, strand, r_st, r_en, q_st, q_en, r_cigar = r_algn
+        r_to_q_poss = mapping.parse_cigar(r_cigar, strand)
+        r_ref_pos = mapping.MAP_POS(
+            chrm=chrm, strand=strand, start=r_st, end=r_en,
+            q_trim_start=q_st, q_trim_end=q_en)
+        if (r_ref_pos.strand != '+' or
+            r_ref_pos.start > r_snp_pos - context_bases[1] or
+            r_ref_pos.end < r_snp_pos + context_bases[1]):
+            raise mh.MegaError('Indel mapped read clipped snp position.')
+
+        np_ref_seq = np.array([
+            mh.ALPHABET.find(b) for b in r_ref_seq], dtype=np.uintp)
+
+        post_mapped_start = sum(runlen[:r_ref_pos.q_trim_start])
+        rl_cumsum = np.cumsum(np.concatenate([
+            [0], runlen[r_ref_pos.q_trim_start:r_ref_pos.q_trim_end]]))
+
+        score = call_snp(
+            r_post, post_mapped_start, r_snp_pos, np_ref_seq, rl_cumsum,
+            r_to_q_poss, snp_ref_seq, snp_alt_seq, context_bases, all_paths)
+    else:
+        # test alt truth reference deletion
+        deleted_seq = ''.join(choice(CAN_BASES) for _ in range(-indel_size))
+        false_ref_seq = (
+            true_ref_seq[:r_snp_pos + 1] + deleted_seq +
+            true_ref_seq[r_snp_pos + 1:])
+        snp_ref_seq = true_ref_seq[r_snp_pos] + deleted_seq
+        snp_alt_seq = true_ref_seq[r_snp_pos]
+
+        aligner = mapping.alignerPlus(
+            seq=false_ref_seq, preset=str('map-ont'), best_n=1)
+        (r_ref_seq, r_algn), _ = mapping.align_read(r_seq, aligner, map_thr_buf)
+        if r_ref_seq is None:
+            raise mh.MegaError('No alignment')
+        chrm, strand, r_st, r_en, q_st, q_en, r_cigar = r_algn
+        r_to_q_poss = mapping.parse_cigar(r_cigar, strand)
+        r_ref_pos = mapping.MAP_POS(
+            chrm=chrm, strand=strand, start=r_st, end=r_en,
+            q_trim_start=q_st, q_trim_end=q_en)
+        if (r_ref_pos.strand != '+' or
+            r_ref_pos.start > r_snp_pos - context_bases[1] or
+            r_ref_pos.end < r_snp_pos + context_bases[1]):
+            raise mh.MegaError('Indel mapped read clipped snp position.')
+
+        np_ref_seq = np.array([
+            mh.ALPHABET.find(b) for b in r_ref_seq], dtype=np.uintp)
+
+        post_mapped_start = sum(runlen[:r_ref_pos.q_trim_start])
+        rl_cumsum = np.cumsum(np.concatenate([
+            [0], runlen[r_ref_pos.q_trim_start:r_ref_pos.q_trim_end]]))
+
+        score = call_snp(
+            r_post, post_mapped_start, r_snp_pos, np_ref_seq, rl_cumsum,
+            r_to_q_poss, snp_ref_seq, snp_alt_seq, context_bases, all_paths)
+
+    return score, snp_ref_seq, snp_alt_seq
+
 def process_read(
         raw_sig, read_id, model_info, alphabet_info, caller_conn,
         context_bases=[10,30], edge_buffer=100, max_indel_len=3,
@@ -64,12 +137,18 @@ def process_read(
 
     r_ref_seq, r_to_q_poss, r_ref_pos = mapping.map_read(
         r_seq, read_id, caller_conn)
-
-    # TODO need to re-map to new reference in order to test ground truth
-    # involves creating new mappy aligner
-
     np_ref_seq = np.array([
         mh.ALPHABET.find(b) for b in r_ref_seq], dtype=np.uintp)
+
+    for r_snp_pos in range(edge_buffer, np_ref_seq.shape[0]):
+        for indel_size in range(1, max_indel_len + 1):
+            score, snp_ref_seq, snp_alt_seq = call_alt_true_indel(
+                indel_size)
+            read_snp_calls.append((False, score, snp_ref_seq, snp_alt_seq))
+            score, snp_ref_seq, snp_alt_seq = call_alt_true_indel(
+                -indel_size)
+            read_snp_calls.append((False, score, snp_ref_seq, snp_alt_seq))
+
     # get mapped start in post and run len to mapped bit of output
     post_mapped_start = sum(runlen[:r_ref_pos.q_trim_start])
     rl_cumsum = np.cumsum(np.concatenate([
