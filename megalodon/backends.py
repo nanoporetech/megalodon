@@ -75,15 +75,17 @@ class ModelInfo(object):
             self.chunk_overlap = chunk_overlap
             self.max_concur_chunks = max_concur_chunks
 
-            self.devices = devices
-            base_proc_per_device = np.ceil(num_proc / len(devices)).astype(int)
-            procs_per_device = np.repeat(base_proc_per_device, len(devices))
-            if base_proc_per_device * len(devices) > num_proc:
+            self.devices = ['cpu',] if devices is None else devices
+            base_proc_per_device = int(np.ceil(num_proc / len(self.devices)))
+            procs_per_device = np.repeat(
+                base_proc_per_device, len(self.devices))
+            if base_proc_per_device * len(self.devices) > num_proc:
                 procs_per_device[
-                    -(base_proc_per_device * len(devices) - num_proc):] -= 1
+                    -(base_proc_per_device * len(self.devices) - num_proc):] -= 1
             assert sum(procs_per_device) == num_proc
             self.process_devices = [
-                int(dv) for dv in np.repeat(devices, procs_per_device)]
+                dv for dv, n_dv in zip(self.devices, procs_per_device)
+                for _ in range(n_dv)]
 
             # import modules
             from taiyaki.helpers import load_model as load_taiyaki_model
@@ -157,12 +159,12 @@ class ModelInfo(object):
         if self.model_type == TAI_NAME:
             # setup for taiyaki model
             self.model = self.load_taiyaki_model(self.fn)
-            if device is not None:
+            if device is None or device == 'cpu':
+                self.device = self.torch.device('cpu')
+            else:
                 self.device = self.torch.device(device)
                 self.torch.cuda.set_device(self.device)
                 self.model = self.model.cuda()
-            else:
-                self.device = self.torch.device('cpu')
             self.model = self.model.eval()
 
         return

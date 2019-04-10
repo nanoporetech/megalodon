@@ -71,7 +71,7 @@ def _map_read_worker(aligner, map_conn, mo_q, add_chr_ref):
 
 def parse_cigar(r_cigar, strand):
     # get each base calls genomic position
-    r_to_q_poss = []
+    r_to_q_poss = {}
     # process cigar ops in read direction
     curr_r_pos, curr_q_pos = 0, 0
     cigar_ops = r_cigar if strand == 1 else r_cigar[::-1]
@@ -81,22 +81,21 @@ def parse_cigar(r_cigar, strand):
             curr_q_pos += op_len
         elif op in (2, 3):
             # deleted ref bases
-            r_to_q_poss.extend(((r_pos, curr_q_pos) for r_pos in range(
-                curr_r_pos, curr_r_pos + op_len)))
+            for r_pos in range(curr_r_pos, curr_r_pos + op_len):
+                r_to_q_poss[r_pos] = curr_q_pos
             curr_r_pos += op_len
         elif op in (0, 7, 8):
             # aligned bases
-            r_to_q_poss.extend(zip(
-                range(curr_r_pos, curr_r_pos + op_len),
-                range(curr_q_pos, curr_q_pos + op_len)))
+            for op_offset in range(op_len):
+                r_to_q_poss[curr_r_pos + op_offset] = curr_q_pos + op_offset
             curr_q_pos += op_len
             curr_r_pos += op_len
         elif op == 6:
             # padding (shouldn't happen in mappy)
             pass
-    r_to_q_poss.append((curr_r_pos, curr_q_pos))
+    r_to_q_poss[curr_r_pos] = curr_q_pos
 
-    return dict(r_to_q_poss)
+    return r_to_q_poss
 
 
 def map_read(r_seq, read_id, caller_conn):

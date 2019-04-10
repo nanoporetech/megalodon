@@ -207,7 +207,7 @@ def call_read_snps(
                      dtype=np.uintp),
             pos_ref_seq[pos_bb + len(snp_ref_seq):]])
         blk_start  = rl_cumsum[r_to_q_poss[r_snp_pos - pos_bb]]
-        blk_end = rl_cumsum[r_to_q_poss[r_snp_pos + pos_ab]]
+        blk_end = rl_cumsum[r_to_q_poss[r_snp_pos + pos_ab] + 1]
 
         if blk_end - blk_start < max(len(pos_ref_seq), len(pos_alt_seq)):
             # no valid mapping over large inserted query bases
