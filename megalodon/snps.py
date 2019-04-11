@@ -166,7 +166,8 @@ def score_seq(tpost, seq, tpost_start=0, tpost_end=None,
     :param seq: `ndarray` containing integers encoding proposed sequence
     :param tpost_start: start position within post (Default: 0)
     :param tpost_end: end position within post (Default: full posterior)
-    :param all_paths: boolean to produce the forwards all paths score (default Viterbi best path)
+    :param all_paths: boolean to produce the forwards all paths score
+        (default Viterbi best path)
     """
     seq = seq.astype(np.uintp)
     if tpost_end is None:
@@ -240,7 +241,8 @@ def call_read_snps(
             snp_ref_pos -= 1
 
         # calibrate llr
-        calib_llr = snp_calib_tbl.calibrate_llr(loc_ref_score - loc_alt_score)
+        calib_llr = snp_calib_tbl.calibrate_llr(
+            loc_ref_score - loc_alt_score, snp_ref_seq, snp_alt_seq)
         r_snp_calls.append((
             snp_ref_pos, calib_llr, fwd_strand_ref_seq, fwd_strand_alt_seq,
             snp_id))
@@ -313,26 +315,50 @@ def _get_snps_queue(
 
 class SnpCalibrator(object):
     def _load_calibration(self):
-        snp_calib_data = np.load(self.fn)
-        self.stratify_type = str(snp_calib_data['stratify_type'])
-        self.max_input_llr = np.int(snp_calib_data['smooth_max'])
-        self.num_calib_vals = np.int(snp_calib_data['smooth_nvals'])
-        self.discrete_step = 2 * self.max_input_llr / (self.num_calib_vals - 1)
-        # TODO potentially store more accurate calibration tables for
-        # particular types of SNPs
-        return snp_calib_data['global_calibration_table'].copy()
+        calib_data = np.load(self.fn)
+        self.stratify_type = str(calib_data['stratify_type'])
+        assert self.stratify_type == 'snp_ins_del'
+
+        self.num_calib_vals = np.int(calib_data['smooth_nvals'])
+
+        self.snp_llr_range = calib_data['snp_llr_range'].copy()
+        self.snp_step = (self.snp_llr_range[1] - self.snp_llr_range[0]) / (
+            self.num_calib_vals - 1)
+        self.snp_calib_table = calib_data['snp_calibration_table'].copy()
+
+        self.del_llr_range = calib_data['del_llr_range'].copy()
+        self.del_step = (self.del_llr_range[1] - self.del_llr_range[0]) / (
+            self.num_calib_vals - 1)
+        self.del_calib_table = calib_data['del_calibration_table'].copy()
+
+        self.ins_llr_range = calib_data['ins_llr_range'].copy()
+        self.ins_step = (self.ins_llr_range[1] - self.ins_llr_range[0]) / (
+            self.num_calib_vals - 1)
+        self.ins_calib_table = calib_data['ins_calibration_table'].copy()
+
+        return
 
     def __init__(self, snps_calib_fn):
         self.fn = snps_calib_fn
-        self.calib_table = None if self.fn is None else self._load_calibration()
+        if self.fn is not None:
+            self._load_calibration()
+        self.calib_loaded = self.fn is not None
         return
 
-    def calibrate_llr(self, llr):
-        if self.calib_table is None:
+    def calibrate_llr(self, llr, ref_seq, alt_seq):
+        if not self.calib_loaded:
             return llr
-        return self.calib_table[np.around((
-            np.clip(llr, -self.max_input_llr, self.max_input_llr) +
-            self.max_input_llr) / self.discrete_step).astype(int)]
+        if len(ref_seq) == len(alt_seq):
+            return self.snp_calib_table[np.around((
+                np.clip(llr, self.snp_llr_range[0], self.snp_llr_range[1]) -
+                self.snp_llr_range[0]) / self.snp_step).astype(int)]
+        elif len(ref_seq) > len(alt_seq):
+            return self.del_calib_table[np.around((
+                np.clip(llr, self.del_llr_range[0], self.del_llr_range[1]) -
+                self.del_llr_range[0]) / self.del_step).astype(int)]
+        return self.ins_calib_table[np.around((
+            np.clip(llr, self.ins_llr_range[0], self.ins_llr_range[1]) -
+            self.ins_llr_range[0]) / self.ins_step).astype(int)]
 
 
 class SnpData(object):
