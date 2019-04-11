@@ -255,7 +255,6 @@ def aggregate_stats(
             main_snp_stats_conn.send(True)
         snp_stats_p.join()
     if mh.MOD_NAME in outputs:
-        snp_filler_p.join()
         for agg_mods_p in agg_mods_ps:
             agg_mods_p.join()
         if mod_stats_p.is_alive():

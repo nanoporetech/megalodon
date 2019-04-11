@@ -39,7 +39,7 @@ class ModelInfo(object):
                 self.n_mods = self.can_nmods.sum()
                 self.output_size = 41 + self.n_mods
                 self.can_indices = np.cumsum(np.concatenate(
-                    [[0], self.can_nmods[:-1] + 1]))
+                    [[0], self.can_nmods[:-1] + 1])).astype(np.uintp)
                 can_bases = ''.join(
                     output_alphabet[b_i] for b_i in self.can_indices)
                 mod_bases = ''.join(
@@ -138,7 +138,8 @@ class ModelInfo(object):
                     curr_can_offset += can_base_nmods + 1
                     curr_nmods += can_base_nmods
 
-                self.can_indices = np.array(self.can_indices)
+                self.can_indices.append(curr_can_offset)
+                self.can_indices = np.array(self.can_indices).astype(np.uintp)
                 self.can_base_mods = dict(self.can_base_mods)
             else:
                 if mh.nstate_to_nbase(ff_layer.size) != 4:

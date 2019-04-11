@@ -50,15 +50,15 @@ def process_read(
         bc_weights, mod_weights = model_info.run_model(
             raw_sig, alphabet_info.n_can_state)
         can_nmods = model_info.can_nmods
-        if mods_q is not None:
-            r_post_w_mods = np.concatenate([r_post, mod_weights], axis=1)
-        if not alphabet_info.do_output_mods:
-            mod_weights = None
     else:
         mod_weights, can_nmods = None, None
         bc_weights = model_info.run_model(raw_sig)
 
     r_post = decode.crf_flipflop_trans_post(bc_weights, log=True)
+    if mods_q is not None:
+        r_post_w_mods = np.concatenate([r_post, mod_weights], axis=1)
+    if not alphabet_info.do_output_mods:
+        mod_weights = None
     r_seq, score, runlen, mods_scores = decode.decode_post(
         r_post, alphabet_info.alphabet, mod_weights, can_nmods)
     if bc_q is not None:
@@ -129,7 +129,7 @@ def _get_bc_queue(
         out_dir, mh.OUTPUT_FNS[mh.BC_NAME] + '.' + bc_fmt), 'w')
     if do_output_mods:
         mods_fp = h5py.File(os.path.join(
-            out_dir, mh.OUTPUT_FNS[mh.BC_MODS_NAME]), 'w')
+            out_dir, mh.OUTPUT_FNS[mh.BC_MODS_NAME]))
         mods_fp.create_group('Reads')
         mods_fp.create_dataset(
             'mod_long_names', data=np.array(mod_long_names, dtype='S'),
@@ -155,6 +155,7 @@ def _get_bc_queue(
         bc_fp.flush()
         if do_output_mods:
             mods_fp.create_dataset('Reads/' + read_id, data=mods_scores)
+
     bc_fp.close()
     if do_output_mods:
         mods_fp.close()
@@ -354,9 +355,12 @@ def process_all_reads(
     # start output type getters/writers
     (bc_q, bc_p, main_bc_conn, mo_q, mo_p, main_mo_conn, snps_q, snps_p,
      main_snps_conn, mods_q, mods_p, main_mods_conn) = [None,] * 12
-    if mh.BC_NAME in outputs:
+    if mh.BC_NAME in outputs or mh.BC_MODS_NAME in outputs:
+        if mh.BC_NAME not in outputs:
+            outputs.append(mh.BC_NAME)
         bc_q, bc_p, main_bc_conn = mh.create_getter_q(
-            _get_bc_queue, (out_dir, bc_fmt, alphabet_info.do_output_mods))
+            _get_bc_queue, (out_dir, bc_fmt, alphabet_info.do_output_mods,
+                            alphabet_info.mod_long_names))
     if mh.MAP_NAME in outputs:
         mo_q, mo_p, main_mo_conn = mh.create_getter_q(
             mapping._get_map_queue, (out_dir, aligner.ref_names_and_lens,
@@ -455,21 +459,20 @@ class AlphabetInfo(object):
             # parse detection motifs
             for mod_motifs_raw in all_mod_motifs_raw:
                 mod_base, motif_raw = mod_motifs_raw.split(':')
-                assert mod_base in self.alphabet[self.ncan_base:], (
+                assert mod_base in self.str_to_int_mod_labels, (
                     'Modified base label ({}) not found in model ' +
-                    'alphabet ({}).').format(mod_base, self.alphabet)
+                    'alphabet ({}).').format(
+                        mod_base, list(self.str_to_int_mod_labels.keys()))
                 raw_motif, pos = motif_raw.split('-')
                 pos = int(pos)
-                mod_base_idx = self.alphabet.find(mod_base)
-                assert mod_base_idx != -1, (
-                    'Invalid modified base motif. Mod base ({}) not found ' +
-                    'in alphabet ({}).').format(mod_base, self.alphabet)
-                assert (self.alphabet[mod_base_idx] == raw_motif[pos]), (
-                            'Invalid modified base motif. Raw motif modified ' +
-                            'position ({}) base ({}) does not match ' +
-                            'collapsed alphabet value ({}).').format(
-                                pos, raw_motif[pos],
-                                self.alphabet[mod_base_idx])
+                can_base = next(
+                    can_base for can_base, can_mods in
+                    self.can_base_mods.items() if mod_base in can_mods)
+                assert (can_base == raw_motif[pos]), (
+                    'Invalid modified base motif. Raw motif modified ' +
+                    'position ({}) base ({}) does not match ' +
+                    'collapsed alphabet value ({}).').format(
+                        pos, raw_motif[pos], can_base)
                 motif = re.compile(''.join(
                     SINGLE_LETTER_CODE[letter] for letter in raw_motif))
                 self.all_mod_motifs.append((motif, pos, mod_base, raw_motif))
@@ -487,6 +490,7 @@ class AlphabetInfo(object):
         self.write_mods_txt = write_mods_txt
         self.mod_context_bases = mod_context_bases
         self.do_output_mods = do_output_mods
+        self.mod_long_names = model_info.mod_long_names
 
         self.alphabet = model_info.can_alphabet
         self.ncan_base = len(self.alphabet)

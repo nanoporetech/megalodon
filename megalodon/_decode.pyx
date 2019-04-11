@@ -150,7 +150,7 @@ def decode_post(r_post, alphabet=ALPHABET, mod_weights=None, can_nmods=None):
         curr_can_pos = 0
         mods_scores = []
         for base_i, can_nmod in enumerate(can_nmods):
-            if can_nmods > 0:
+            if can_nmod > 0:
                 # TODO run this outside this if block and return instead
                 # of runlen
                 base_poss = np.where(np.equal(np.mod(
@@ -161,6 +161,6 @@ def decode_post(r_post, alphabet=ALPHABET, mod_weights=None, can_nmods=None):
                     base_poss, curr_can_pos + 1 + mod_i]
                 mods_scores.append(mod_i_scores)
             curr_can_pos += 1 + can_nmod
-        mods_scores = np.stack(mods_scores)
+        mods_scores = np.stack(mods_scores, axis=1)
 
     return basecall, score, runlen, mods_scores
