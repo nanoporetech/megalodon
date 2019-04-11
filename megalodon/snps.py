@@ -326,15 +326,15 @@ class SnpCalibrator(object):
             self.num_calib_vals - 1)
         self.snp_calib_table = calib_data['snp_calibration_table'].copy()
 
-        self.del_llr_range = calib_data['del_llr_range'].copy()
+        self.del_llr_range = calib_data['deletion_llr_range'].copy()
         self.del_step = (self.del_llr_range[1] - self.del_llr_range[0]) / (
             self.num_calib_vals - 1)
-        self.del_calib_table = calib_data['del_calibration_table'].copy()
+        self.del_calib_table = calib_data['deletion_calibration_table'].copy()
 
-        self.ins_llr_range = calib_data['ins_llr_range'].copy()
+        self.ins_llr_range = calib_data['insertion_llr_range'].copy()
         self.ins_step = (self.ins_llr_range[1] - self.ins_llr_range[0]) / (
             self.num_calib_vals - 1)
-        self.ins_calib_table = calib_data['ins_calibration_table'].copy()
+        self.ins_calib_table = calib_data['insertion_calibration_table'].copy()
 
         return
 
