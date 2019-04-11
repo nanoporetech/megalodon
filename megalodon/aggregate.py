@@ -15,7 +15,8 @@ from megalodon import snps, mods, megalodon_helper as mh
 #######################################
 
 def _agg_snps_worker(
-        locs_q, snp_stats_q, snp_prog_q, snps_db_fn, write_vcf_llr, het_factor):
+        locs_q, snp_stats_q, snp_prog_q, snps_db_fn, write_vcf_llr,
+        het_factors):
     agg_snps = snps.AggSnps(snps_db_fn, write_vcf_llr)
 
     while True:
@@ -27,7 +28,7 @@ def _agg_snps_worker(
         if snp_loc is None:
             break
 
-        snp_var = agg_snps.compute_snp_stats(snp_loc, het_factor)
+        snp_var = agg_snps.compute_snp_stats(snp_loc, het_factors)
         snp_stats_q.put(snp_var)
         snp_prog_q.put(1)
 
@@ -180,7 +181,7 @@ def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps):
     return
 
 def aggregate_stats(
-        outputs, out_dir, num_ps, write_vcf_llr, het_factor, mod_names,
+        outputs, out_dir, num_ps, write_vcf_llr, het_factors, mod_names,
         suppress_progress):
     if mh.SNP_NAME in outputs and mh.MOD_NAME in outputs:
         num_ps = num_ps // 2
@@ -206,7 +207,7 @@ def aggregate_stats(
             p = mp.Process(
                 target=_agg_snps_worker,
                 args=(snp_filler_q, snp_stats_q, snp_prog_q, snps_db_fn,
-                      write_vcf_llr, het_factor), daemon=True)
+                      write_vcf_llr, het_factors), daemon=True)
             p.start()
             agg_snps_ps.append(p)
 

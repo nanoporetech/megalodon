@@ -625,16 +625,20 @@ class AggSnps(mh.AbstractAggregationClass):
         post_snp_lps = snp_lps - logsumexp(snp_lps)
         return np.exp(post_snp_lps)
 
-    def compute_snp_stats(self, snp_loc, het_factor):
+    def compute_snp_stats(self, snp_loc, het_factors):
         pr_snp_stats = self.get_per_read_snp_stats(snp_loc)
         llrs = np.array([r_stats.score for r_stats in pr_snp_stats])
         if AMBIG_LLRS_THRESH is not None:
             llrs = llrs[np.logical_or(llrs < -AMBIG_LLRS_THRESH,
-                                        llrs > AMBIG_LLRS_THRESH)]
+                                      llrs > AMBIG_LLRS_THRESH)]
             if len(llrs) == 0:
                 return None
-        diploid_probs = self.compute_diploid_probs(llrs, het_factor)
         r0_stats = pr_snp_stats[0]
+        het_factor = (
+            het_factors[0] if len(r0_stats.ref_seq) == 1 and
+            len(r0_stats.alt_seq) == 1 else
+            het_factors[1])
+        diploid_probs = self.compute_diploid_probs(llrs, het_factor)
         snp_var = Variant(
             chrom=r0_stats.chrm, pos=r0_stats.pos, ref=r0_stats.ref_seq,
             alt=r0_stats.alt_seq, id=r0_stats.snp_id)
