@@ -1,3 +1,4 @@
+import os
 import sys
 import argparse
 from collections import defaultdict
@@ -22,6 +23,9 @@ if DO_PLOT:
 
 def determine_min_dens_edge(
         sm_ref, sm_alt, num_calib_vals, min_dens_val, smooth_ls):
+    """ Compute positions where the density values are too small to produce
+    robust calibration estimates and return range with valid density values
+    """
     lower_invalid_dens_pos = 0
     ref_before = np.where(sm_ref[:num_calib_vals // 2] < min_dens_val)[0]
     if len(ref_before) > 0:
@@ -70,6 +74,7 @@ def compute_smooth_mono_density(llrs, num_calib_vals, smooth_bw, smooth_ls):
 
     return mono_smooth_vals, smooth_vals
 
+
 def compute_calibration(
         ref_llrs, alt_llrs, max_input_llr, num_calib_vals, smooth_bw,
         min_dens_val):
@@ -82,6 +87,10 @@ def compute_calibration(
     sm_alt, s_alt = compute_smooth_mono_density(
         alt_llrs, num_calib_vals, smooth_bw, smooth_ls)
 
+    # the ratio of very small density values can cause invalid or inaccurate
+    # calibration values, so check that the max_input_llr is valid or
+    # find a valid clipping location according to min_dens_val
+    # then recompute smooth values
     new_input_llr_range = determine_min_dens_edge(
         sm_ref, sm_alt, num_calib_vals, min_dens_val, smooth_ls)
     if (new_input_llr_range[0] != -max_input_llr or
@@ -125,7 +134,7 @@ def compute_calibration(
     return np.log((1 - mono_prob) / mono_prob), new_input_llr_range
 
 
-def extract_llrs(llr_fn):
+def extract_llrs(llr_fn, max_indel_len=None):
     snp_llrs, ins_ref_llrs, ins_alt_llrs, del_ref_llrs, del_alt_llrs = (
         [], [], [], [], [])
     with open(llr_fn) as llr_fp:
@@ -133,6 +142,9 @@ def extract_llrs(llr_fn):
             is_ref_correct, llr, ref_seq, alt_seq = line.split()
             llr = float(llr)
             if np.isnan(llr): continue
+            if (max_indel_len is not None and
+                np.abs(len(ref_seq) - len(alt_seq)) > max_indel_len):
+                continue
             if len(ref_seq) == 1 and len(alt_seq) == 1:
                 snp_llrs.append(llr)
             else:
@@ -149,6 +161,25 @@ def extract_llrs(llr_fn):
 
     return map(np.array, (snp_llrs, ins_ref_llrs, ins_alt_llrs,
                           del_ref_llrs, del_alt_llrs))
+
+
+def prep_out(out_fn, overwrite):
+    if os.path.exists(out_fn):
+        if overwrite:
+            os.remove(out_fn)
+        else:
+            raise NotImplementedError(
+                'ERROR: --out-filename exists and --overwrite not set.')
+    try:
+        open(out_fn, 'w').close()
+        os.remove(out_fn)
+    except:
+        sys.stderr.write(
+            '*' * 60 + '\nERROR: Attempt to write to --out-filename location ' +
+            'failed with the following error.\n' + '*' * 60 + '\n\n')
+        raise
+
+    return
 
 
 def get_parser():
@@ -176,11 +207,17 @@ def get_parser():
     parser.add_argument(
         '--out-filename', default='megalodon_snp_calibration.npz',
         help='Filename to output calibration values. Default: %(default)s')
+    parser.add_argument(
+        '--overwrite', action='store_true',
+        help='Overwrite --out-filename if it exists.')
 
     return parser
 
+
 def main():
     args = get_parser().parse_args()
+
+    prep_out(args.out_filename, args.overwrite)
 
     sys.stderr.write('Parsing log-likelihood ratios\n')
     (snp_llrs, ins_ref_llrs, ins_alt_llrs,
@@ -205,18 +242,16 @@ def main():
         args.out_filename,
         stratify_type='snp_ins_del',
         smooth_nvals=args.num_calibration_values,
-        snp_smooth_min=snp_llr_range[0],
-        snp_smooth_max=snp_llr_range[1],
+        snp_llr_range=snp_llr_range,
         snp_calibration_table=snp_calib,
-        del_smooth_min=del_llr_range[0],
-        del_smooth_max=del_llr_range[1],
+        deletion_llr_range=del_llr_range,
         deletion_calibration_table=del_calib,
-        ins_smooth_min=ins_llr_range[0],
-        ins_smooth_max=ins_llr_range[1],
+        insertion_llr_range=ins_llr_range,
         insertion_calibration_table=ins_calib
     )
 
     return
+
 
 if __name__ == '__main__':
     main()
