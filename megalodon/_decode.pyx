@@ -137,7 +137,7 @@ def decode_post(r_post, alphabet=ALPHABET, mod_weights=None, can_nmods=None):
 
     score = crf_flipflop_viterbi(r_post, path, qpath)
 
-    runval, runlen = rle(path)
+    runval, runlen = rle(path[1:])
     basecall = ''.join(alphabet[int(b) % nbase] for b in runval)
 
     mods_scores = None
