@@ -137,6 +137,10 @@ def decode_post(r_post, alphabet=ALPHABET, mod_weights=None, can_nmods=None):
 
     score = crf_flipflop_viterbi(r_post, path, qpath)
 
+    # only process positions "transitioned into" along the path
+    # first position doesn't have a score anyways
+    # This aligned the indices of path and the posterior matricies
+    qpath = qpath[1:]
     runval, runlen = rle(path[1:])
     basecall = ''.join(alphabet[int(b) % nbase] for b in runval)
 
