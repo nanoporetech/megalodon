@@ -5,7 +5,8 @@ import h5py
 import numpy as np
 
 
-DEFAULT_HET_FACTOR = 0.58
+DEFAULT_SVN_HET_FACTOR = 0.58
+DEFAULT_INDEL_HET_FACTOR = 1.3
 
 # VCF spec text
 MAX_PL_VALUE = 255

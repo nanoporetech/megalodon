@@ -616,9 +616,10 @@ def get_parser():
         help='Maximum difference in number of reference and alternate bases. ' +
         'Default: %(default)d')
     snp_grp.add_argument(
-        '--heterozygous-factor', type=float, default=mh.DEFAULT_HET_FACTOR,
-        help='Bayesian prior factor for heterozygous calls (compared to 1.0 ' +
-        'for hom ref/alt). Default: %(default)f')
+        '--heterozygous-factors', type=float, nargs=2,
+        default=[mh.DEFAULT_SNV_HET_FACTOR, mh.DEFAULT_INDEL_HET_FACTOR],
+        help='Bayesian prior factor for snv and indel heterozygous calls ' +
+        '(compared to 1.0 for hom ref/alt). Default: %(default)f')
     snp_grp.add_argument(
         '--snp-all-paths', action='store_true',
         help='Compute forwards algorithm all paths score. (Default: Viterbi ' +
@@ -805,12 +806,11 @@ def _main():
         alphabet_info, args.database_safety, args.edge_buffer)
 
     if mh.SNP_NAME in args.outputs or mh.MOD_NAME in args.outputs:
-        # TODO load long names from taiyaki model for VCF output
-        mod_names = ([(mod_b, mod_b) for mod_b in alphabet_info.alphabet[4:]]
+        mod_names = (alphabet_info.mod_long_names
                      if mh.MOD_NAME in args.outputs else [])
         aggregate.aggregate_stats(
             args.outputs, args.output_directory, args.processes,
-            args.write_vcf_llr, args.heterozygous_factor, mod_names,
+            args.write_vcf_llr, args.heterozygous_factors, mod_names,
             args.suppress_progress)
 
     return
