@@ -120,9 +120,8 @@ def process_read(
         bc_weights = model_info.run_model(raw_sig)
 
     r_post = decode.crf_flipflop_trans_post(bc_weights, log=True)
-    r_seq, score, runlen = decode.decode_post(
+    r_seq, score, rl_cumsum, _ = decode.decode_post(
         r_post, alphabet_info.alphabet)
-    rl_cumsum = np.cumsum(np.concatenate([[0], runlen]))
 
     r_ref_seq, r_to_q_poss, r_ref_pos = mapping.map_read(
         r_seq, read_id, caller_conn)
@@ -154,10 +153,9 @@ def process_read(
                 pass
 
     # get mapped start in post and run len to mapped bit of output
-    post_mapped_start = sum(runlen[:r_ref_pos.q_trim_start])
+    post_mapped_start = rl_cumsum[r_ref_pos.q_trim_start]
     mapped_rl_cumsum = rl_cumsum[
-        r_ref_pos.q_trim_start:
-        r_ref_pos.q_trim_end + 1] - rl_cumsum[r_ref_pos.q_trim_start]
+        r_ref_pos.q_trim_start:r_ref_pos.q_trim_end + 1] - post_mapped_start
 
     for r_snp_pos in snp_poss:
         # test simple SNP first

@@ -140,31 +140,30 @@ def decode_post(r_post, alphabet=ALPHABET, mod_weights=None, can_nmods=None):
     # only process positions "transitioned into" along the path
     # first position doesn't have a score anyways
     # This aligned the indices of path and the posterior matricies
-    qpath = qpath[1:]
-    runval, runlen = rle(path[1:])
+    runval, runlen = rle(path)
     basecall = ''.join(alphabet[int(b) % nbase] for b in runval)
+    rl_cumsum = np.cumsum(np.concatenate([[0], runlen]))
 
     mods_scores = None
     if mod_weights is not None:
         # TODO cythonize this function
         # extract modified base probabilities for each modification included in
         # the input model
-        rl_cumsum = np.cumsum(np.concatenate([[0], runlen[:-1]]))
-        bc_matched_mod_weights = mod_weights[rl_cumsum]
+        # don't test first base since it is never "moved into"
+        # and subtract 1 to align "moved into" indices
+        bc_matched_mod_weights = mod_weights[rl_cumsum[1:-1] - 1]
         curr_can_pos = 0
         mods_scores = []
         for base_i, can_nmod in enumerate(can_nmods):
             if can_nmod > 0:
-                # TODO run this outside this if block and return instead
-                # of runlen
                 base_poss = np.where(np.equal(np.mod(
-                    runval, len(can_nmods)), base_i))[0]
+                    runval[1:], len(can_nmods)), base_i))[0]
             for mod_i in range(can_nmod):
-                mod_i_scores = np.full(rl_cumsum.shape, np.NAN)
-                mod_i_scores[base_poss] = bc_matched_mod_weights[
+                mod_i_scores = np.full(runval.shape, np.NAN)
+                mod_i_scores[base_poss + 1] = bc_matched_mod_weights[
                     base_poss, curr_can_pos + 1 + mod_i]
                 mods_scores.append(mod_i_scores)
             curr_can_pos += 1 + can_nmod
         mods_scores = np.stack(mods_scores, axis=1)
 
-    return basecall, score, runlen, mods_scores
+    return basecall, score, rl_cumsum, mods_scores

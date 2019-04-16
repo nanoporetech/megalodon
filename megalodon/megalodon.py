@@ -59,7 +59,7 @@ def process_read(
         r_post_w_mods = np.concatenate([r_post, mod_weights], axis=1)
     if not alphabet_info.do_output_mods:
         mod_weights = None
-    r_seq, score, runlen, mods_scores = decode.decode_post(
+    r_seq, score, rl_cumsum, mods_scores = decode.decode_post(
         r_post, alphabet_info.alphabet, mod_weights, can_nmods)
     if bc_q is not None:
         bc_q.put((read_id, r_seq, mods_scores))
@@ -74,16 +74,16 @@ def process_read(
         mh.ALPHABET.find(b) for b in r_ref_seq], dtype=np.uintp)
 
     # get mapped start in post and run len to mapped bit of output
-    post_mapped_start = sum(runlen[:r_ref_pos.q_trim_start])
-    rl_cumsum = np.cumsum(np.concatenate([
-        [0], runlen[r_ref_pos.q_trim_start:r_ref_pos.q_trim_end]]))
+    post_mapped_start = rl_cumsum[r_ref_pos.q_trim_start]
+    mapped_rl_cumsum = rl_cumsum[
+        r_ref_pos.q_trim_start:r_ref_pos.q_trim_end + 1] - post_mapped_start
 
     if snps_q is not None:
         try:
             snps_q.put((
                 snps.call_read_snps(
                     r_ref_pos, snps_to_test, edge_buffer, snp_context_bases,
-                    np_ref_seq, rl_cumsum, r_to_q_poss, r_post,
+                    np_ref_seq, mapped_rl_cumsum, r_to_q_poss, r_post,
                     post_mapped_start, snp_all_paths, snp_calib_tbl),
                 (read_id, r_ref_pos.chrm, r_ref_pos.strand)))
         except KeyboardInterrupt:
@@ -100,9 +100,9 @@ def process_read(
         try:
             mods_q.put((
                 mods.call_read_mods(
-                    r_ref_pos, edge_buffer, r_ref_seq, np_ref_seq, rl_cumsum,
-                    r_to_q_poss, r_post_w_mods, post_mapped_start,
-                    alphabet_info),
+                    r_ref_pos, edge_buffer, r_ref_seq, np_ref_seq,
+                    mapped_rl_cumsum, r_to_q_poss, r_post_w_mods,
+                    post_mapped_start, alphabet_info),
                 (read_id, r_ref_pos.chrm, r_ref_pos.strand)))
         except KeyboardInterrupt:
             failed_reads_q.put((
