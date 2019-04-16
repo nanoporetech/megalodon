@@ -8,6 +8,8 @@ import numpy as np
 DEFAULT_SNV_HET_FACTOR = 0.58
 DEFAULT_INDEL_HET_FACTOR = 1.3
 
+MED_NORM_FACTOR = 1.4826
+
 # VCF spec text
 MAX_PL_VALUE = 255
 VCF_VERSION_MI = 'fileformat=VCFv{}'
@@ -101,7 +103,7 @@ def med_mad(data, factor=None, axis=None, keepdims=False):
     :returns: a tuple containing the median and MAD of the data
     """
     if factor is None:
-        factor = 1.4826
+        factor = MED_NORM_FACTOR
     dmed = np.median(data, axis=axis, keepdims=True)
     dmad = factor * np.median(abs(data - dmed), axis=axis, keepdims=True)
     if axis is None:

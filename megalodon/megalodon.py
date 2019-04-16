@@ -621,7 +621,7 @@ def get_parser():
         '--heterozygous-factors', type=float, nargs=2,
         default=[mh.DEFAULT_SNV_HET_FACTOR, mh.DEFAULT_INDEL_HET_FACTOR],
         help='Bayesian prior factor for snv and indel heterozygous calls ' +
-        '(compared to 1.0 for hom ref/alt). Default: %(default)f')
+        '(compared to 1.0 for hom ref/alt). Default: %(default)s')
     snp_grp.add_argument(
         '--snp-all-paths', action='store_true',
         help='Compute forwards algorithm all paths score. (Default: Viterbi ' +
@@ -738,10 +738,12 @@ def _main():
             'Note that modified base calling from naive modified base ' +
             'model is not currently supported.\n' + '*' * 100 + '\n')
         sys.exit(1)
-    if model_info.is_cat_mod and mh.PR_MOD_NAME not in args.outputs:
+    if (model_info.is_cat_mod and mh.PR_MOD_NAME not in args.outputs and
+        mh.BC_MODS_NAME not in args.outputs):
         sys.stderr.write(
             '*' * 100 + '\nWARNING: Categorical modifications model ' +
-            'provided, but {} not requested '.format(mh.PR_MOD_NAME) +
+            'provided, but neither {} nor {} requested '.format(
+                mh.PR_MOD_NAME, mh.BC_MODS_NAME) +
             '(via --outputs). Modified base output will not be produced.\n' +
             '*' * 100 + '\n')
     if args.mod_motifs is not None and mh.PR_MOD_NAME not in args.outputs:
