@@ -142,7 +142,8 @@ def _get_bc_queue(
             bc_fp.write('>{}\n{}\n'.format(read_id, r_seq))
             bc_fp.flush()
             if do_output_mods:
-                mods_fp.create_dataset('Reads/' + read_id, data=mods_scores)
+                mods_fp.create_dataset(
+                    'Reads/' + read_id, data=mods_scores, compression="gzip")
         except queue.Empty:
             if bc_conn.poll():
                 break
@@ -154,7 +155,8 @@ def _get_bc_queue(
         bc_fp.write('>{}\n{}\n'.format(read_id, r_seq))
         bc_fp.flush()
         if do_output_mods:
-            mods_fp.create_dataset('Reads/' + read_id, data=mods_scores)
+            mods_fp.create_dataset(
+                'Reads/' + read_id, data=mods_scores, compression="gzip")
 
     bc_fp.close()
     if do_output_mods:
