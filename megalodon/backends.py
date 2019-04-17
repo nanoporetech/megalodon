@@ -132,7 +132,7 @@ class ModelInfo(object):
                         self.mod_long_names.append((
                             mod_base, self.ordered_mod_long_names[
                                 curr_nmods + mod_i]))
-                        self.str_to_int_mod_labels[mod_base] = mod_i
+                        self.str_to_int_mod_labels[mod_base] = mod_i + 1
                         self.can_base_mods[can_base].append(mod_base)
 
                     curr_can_offset += can_base_nmods + 1

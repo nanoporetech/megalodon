@@ -599,6 +599,9 @@ def get_parser():
 
     snp_grp = parser.add_argument_group('SNP Arguments')
     snp_grp.add_argument(
+        '--haploid', action='store_true',
+        help='Compute SNP aggregation for haploid genotypes. Default: diploid')
+    snp_grp.add_argument(
         '--snp-filename',
         help='SNPs to call for each read in VCF format (required for output).')
     snp_grp.add_argument(
@@ -755,6 +758,9 @@ def _main():
     # SNP output parsing
     if mh.SNP_NAME in args.outputs and not mh.PR_SNP_NAME in args.outputs:
         args.outputs.append(mh.PR_SNP_NAME)
+    call_mode = None
+    if mh.SNP_NAME in args.outputs:
+        call_mode = snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE
     if mh.PR_SNP_NAME in args.outputs and args.snp_filename is None:
         sys.stderr.write(
             '*' * 100 + '\nERROR: {} output requested, '.format(
@@ -814,7 +820,7 @@ def _main():
                      if mh.MOD_NAME in args.outputs else [])
         aggregate.aggregate_stats(
             args.outputs, args.output_directory, args.processes,
-            args.write_vcf_llr, args.heterozygous_factors, mod_names,
+            args.write_vcf_llr, args.heterozygous_factors, call_mode, mod_names,
             args.suppress_progress)
 
     return

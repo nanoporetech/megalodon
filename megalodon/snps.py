@@ -12,6 +12,10 @@ from megalodon import decode, megalodon_helper as mh
 from megalodon._version import MEGALODON_VERSION
 
 
+DIPLOID_MODE = 'diploid'
+HAPLIOD_MODE = 'haploid'
+AMBIG_LLRS_THRESH = None
+
 FIELD_NAMES = ('read_id', 'chrm', 'strand', 'pos', 'score',
                'ref_seq', 'alt_seq', 'snp_id')
 SNP_DATA = namedtuple('SNP_DATA', FIELD_NAMES)
@@ -483,6 +487,30 @@ class Variant(object):
     def add_sample_field(self, tag, value=None):
         self.sample_dict[tag] = value
 
+    def add_haploid_probs(self, probs):
+        assert len(probs) == 2, 'Haploid probabilities must be length 2.'
+        gt_call = np.argmax(probs)
+        # phred scaled likelihoods
+        with np.errstate(divide='ignore'):
+            raw_pl = -10 * np.log10(probs)
+        # "normalized" PL values stored as decsribed by VCF format
+        # abs to remove negative 0 from file
+        pl = np.abs(np.minimum(raw_pl - raw_pl.min(), mh.MAX_PL_VALUE))
+        s_pl = np.sort(pl)
+
+        # add sample tags
+        self.qual = '{:.0f}'.format(
+            np.around(np.minimum(raw_pl[0], mh.MAX_PL_VALUE)))
+        self.add_sample_field('GQ', '{:.0f}'.format(np.around(s_pl[1])))
+        self.add_sample_field('PL', '{:.0f},{:.0f}'.format(*np.around(pl)))
+        if gt_call == 0:
+            # ref
+            self.add_sample_field('GT', '0')
+        else:
+            # alt
+            self.add_sample_field('GT', '1')
+        return
+
     def add_diploid_probs(self, probs):
         assert len(probs) == 3, 'Diploid probabilities must be length 3.'
         gt_call = np.argmax(probs)
@@ -580,7 +608,6 @@ def binom_pmf(k, n, p):
         np.math.factorial(k) * np.math.factorial(n - k))) * (
             p ** k) * ((1 - p) ** (n - k))
 
-AMBIG_LLRS_THRESH = None
 class AggSnps(mh.AbstractAggregationClass):
     """ Class to assist in database queries for per-site aggregation of
     SNP calls over reads.
@@ -625,7 +652,19 @@ class AggSnps(mh.AbstractAggregationClass):
         post_snp_lps = snp_lps - logsumexp(snp_lps)
         return np.exp(post_snp_lps)
 
-    def compute_snp_stats(self, snp_loc, het_factors):
+    def compute_haploid_probs(self, llrs):
+        if np.errstate(over='ignore'):
+            exp_llrs = np.exp(llrs)
+        lp_ref = np.sum(llrs - np.log1p(exp_llrs))
+        lp_alt = np.sum(np.log(1) - np.log1p(exp_llrs))
+        snp_lps = np.array([lp_ref, lp_alt])
+        post_snp_lps = snp_lps - logsumexp(snp_lps)
+        return np.exp(post_snp_lps)
+
+    def compute_snp_stats(self, snp_loc, het_factors, call_mode=DIPLOID_MODE):
+        assert call_mode in (HAPLIOD_MODE, DIPLOID_MODE), (
+            'Invalid SNP aggregation call mode.')
+
         pr_snp_stats = self.get_per_read_snp_stats(snp_loc)
         llrs = np.array([r_stats.score for r_stats in pr_snp_stats])
         if AMBIG_LLRS_THRESH is not None:
@@ -634,20 +673,27 @@ class AggSnps(mh.AbstractAggregationClass):
             if len(llrs) == 0:
                 return None
         r0_stats = pr_snp_stats[0]
-        het_factor = (
-            het_factors[0] if len(r0_stats.ref_seq) == 1 and
-            len(r0_stats.alt_seq) == 1 else
-            het_factors[1])
-        diploid_probs = self.compute_diploid_probs(llrs, het_factor)
         snp_var = Variant(
             chrom=r0_stats.chrm, pos=r0_stats.pos, ref=r0_stats.ref_seq,
             alt=r0_stats.alt_seq, id=r0_stats.snp_id)
         snp_var.add_tag('DP', '{}'.format(len(pr_snp_stats)))
         snp_var.add_sample_field('DP', '{}'.format(len(pr_snp_stats)))
+
         if self.write_vcf_llr:
             snp_var.add_sample_field('LLRS', ','.join(
                 '{:.2f}'.format(llr) for llr in  sorted(llrs)))
-        snp_var.add_diploid_probs(diploid_probs)
+
+        if call_mode == DIPLOID_MODE:
+            het_factor = (
+                het_factors[0] if len(r0_stats.ref_seq) == 1 and
+                len(r0_stats.alt_seq) == 1 else
+                het_factors[1])
+            diploid_probs = self.compute_diploid_probs(llrs, het_factor)
+            snp_var.add_diploid_probs(diploid_probs)
+        elif call_mode == HAPLIOD_MODE:
+            haploid_probs = self.compute_haploid_probs(llrs)
+            snp_var.add_haploid_probs(haploid_probs)
+
         return snp_var
 
     def close(self):
