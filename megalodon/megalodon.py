@@ -22,7 +22,8 @@ from tqdm import tqdm
 from tqdm._utils import _term_move_up
 
 from megalodon import (
-    aggregate, decode, backends, snps, mods, mapping, megalodon_helper as mh)
+    aggregate, decode, fast5_io, backends, snps, mods, mapping,
+    megalodon_helper as mh)
 from megalodon._version import MEGALODON_VERSION
 
 
@@ -164,35 +165,24 @@ def _get_bc_queue(
 
     return
 
-def get_read_files(fast5s_dir):
-    """Get all fast5 files recursively below this directory
-    """
-    fast5_fns = []
-    # walk through directory structure searching for fast5 files
-    for root, _, fns in os.walk(fast5s_dir, followlinks=True):
-        for fn in fns:
-            if not fn.endswith('.fast5'): continue
-            fast5_fns.append(os.path.join(root, fn))
-
-    return fast5_fns
-
-def _fill_files_queue(fast5_q, fast5_fns, num_ps):
+def _fill_files_queue(read_file_q, fast5_fns, num_ps):
+    # fill queue with read filename and read id tuples
     for fast5_fn in fast5_fns:
-        fast5_q.put(fast5_fn)
+        read_file_q.put(fast5_fn)
     for _ in range(num_ps):
-        fast5_q.put(None)
+        read_file_q.put((None, None))
 
     return
 
 def _process_reads_worker(
-        fast5_q, bc_q, mo_q, snps_q, failed_reads_q, mods_q, caller_conn,
+        read_file_q, bc_q, mo_q, snps_q, failed_reads_q, mods_q, caller_conn,
         model_info, snps_to_test, snp_all_paths, snp_calib_tbl,
         snp_context_bases, alphabet_info, edge_buffer, device):
     model_info.prep_model_worker(device)
 
     while True:
         try:
-            fast5_fn = fast5_q.get(block=False)
+            fast5_fn, read_id = read_file_q.get(block=False)
         except queue.Empty:
             sleep(0.1)
             continue
@@ -203,7 +193,7 @@ def _process_reads_worker(
             break
 
         try:
-            raw_sig, read_id = mh.extract_read_data(fast5_fn)
+            raw_sig = fast5_io.get_signal(fast5_fn, read_id, scale=True)
             process_read(
                 raw_sig, read_id, model_info, bc_q, caller_conn, snps_to_test,
                 snp_all_paths, snp_calib_tbl, snp_context_bases, snps_q, mods_q,
@@ -334,19 +324,18 @@ def _get_fail_queue(
 ###############################
 
 def process_all_reads(
-        fast5s_dir, num_reads, model_info, outputs, out_dir, bc_fmt, aligner,
-        add_chr_ref, snps_data, num_ps, num_update_errors, suppress_progress,
-        alphabet_info, db_safety, edge_buffer):
+        fast5s_dir, recursive, num_reads, model_info, outputs, out_dir, bc_fmt,
+        aligner, add_chr_ref, snps_data, num_ps, num_update_errors,
+        suppress_progress, alphabet_info, db_safety, edge_buffer):
     sys.stderr.write('Searching for reads.\n')
-    fast5_fns = get_read_files(fast5s_dir)
-    if num_reads is not None:
-        fast5_fns = fast5_fns[:num_reads]
+    fast5_fns = list(fast5_io.iterate_fast5_reads(
+        fast5s_dir, num_reads, recursive))
 
     sys.stderr.write('Preparing workers and calling reads.\n')
     # read filename queue filler
-    fast5_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
+    read_file_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
     files_p = mp.Process(
-        target=_fill_files_queue, args=(fast5_q, fast5_fns, num_ps),
+        target=_fill_files_queue, args=(read_file_q, fast5_fns, num_ps),
         daemon=True)
     files_p.start()
     # progress and failed reads getter
@@ -392,7 +381,7 @@ def process_all_reads(
         map_conns.append(map_conn)
         p = mp.Process(
             target=_process_reads_worker, args=(
-                fast5_q, bc_q, mo_q, snps_q, failed_reads_q, mods_q,
+                read_file_q, bc_q, mo_q, snps_q, failed_reads_q, mods_q,
                 caller_conn, model_info, snps_data.snps_to_test,
                 snps_data.all_paths, snps_data.calib_table,
                 snps_data.context_bases, alphabet_info, edge_buffer, device))
@@ -684,6 +673,10 @@ def get_parser():
         '--suppress-progress', action='store_true',
         help='Suppress progress bar output.')
     misc_grp.add_argument(
+        '--not-recursive', action='store_true',
+        help='Only search for fast5 read files directly found within the ' +
+        'fast5 directory. Default: search recursively')
+    misc_grp.add_argument(
         '--verbose-read-progress', type=int, default=0,
         help='Output verbose output on read progress. Outputs N most ' +
         'common points where reads could not be processed further. ' +
@@ -809,8 +802,8 @@ def _main():
             '*' * 100 + '\n')
 
     process_all_reads(
-        args.fast5s_dir, args.num_reads, model_info, args.outputs,
-        args.output_directory, args.basecalls_format, aligner,
+        args.fast5s_dir, not args.not_recursive, args.num_reads, model_info,
+        args.outputs, args.output_directory, args.basecalls_format, aligner,
         args.prepend_chr_ref, snps_data, args.processes,
         args.verbose_read_progress, args.suppress_progress,
         alphabet_info, args.database_safety, args.edge_buffer)

@@ -1,7 +1,6 @@
 import multiprocessing as mp
 from abc import ABC, abstractmethod
 
-import h5py
 import numpy as np
 
 
@@ -113,39 +112,6 @@ def med_mad(data, factor=None, axis=None, keepdims=False):
         dmed = dmed.squeeze(axis)
         dmad = dmad.squeeze(axis)
     return dmed, dmad
-
-def extract_read_data(fast5_fn, scale=True):
-    """Extract raw signal and read id from single fast5 file.
-    :returns: tuple containing numpy array with raw signal  and read unique identifier
-    """
-    # TODO support mutli-fast5
-    try:
-        fast5_data = h5py.File(fast5_fn, 'r')
-    except:
-        raise MegaError('Error opening read file')
-    try:
-        raw_slot = next(iter(fast5_data['/Raw/Reads'].values()))
-    except:
-        fast5_data.close()
-        raise MegaError('Raw signal not found in /Raw/Reads slot')
-    try:
-        raw_sig = raw_slot['Signal'][:].astype(np.float32)
-    except:
-        fast5_data.close()
-        raise MegaError('Raw signal not found in Signal dataset')
-    read_id = None
-    try:
-        read_id = raw_slot.attrs.get('read_id')
-        read_id = read_id.decode()
-    except:
-        pass
-    fast5_data.close()
-
-    if scale:
-        med, mad = med_mad(raw_sig)
-        raw_sig = (raw_sig - med) / mad
-
-    return raw_sig, read_id
 
 
 if __name__ == '__main__':
