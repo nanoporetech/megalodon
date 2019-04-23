@@ -27,12 +27,6 @@ from megalodon import (
 from megalodon._version import MEGALODON_VERSION
 
 
-SINGLE_LETTER_CODE = {
-    'A':'A', 'C':'C', 'G':'G', 'T':'T', 'B':'[CGT]',
-    'D':'[AGT]', 'H':'[ACT]', 'K':'[GT]', 'M':'[AC]',
-    'N':'[ACGT]', 'R':'[AG]', 'S':'[CG]', 'V':'[ACG]',
-    'W':'[AT]', 'Y':'[CT]'}
-
 _DO_PROFILE = False
 _UNEXPECTED_ERROR_CODE = 'Unexpected error'
 _UNEXPECTED_ERROR_FN = 'unexpected_snp_calling_errors.{}.err'
@@ -433,11 +427,17 @@ def process_all_reads(
     return
 
 
-################################
-########## Parse SNPs ##########
-################################
+###################################
+########## Alphabet Info ##########
+###################################
 
 class AlphabetInfo(object):
+    single_letter_code = {
+        'A':'A', 'C':'C', 'G':'G', 'T':'T', 'B':'[CGT]',
+        'D':'[AGT]', 'H':'[ACT]', 'K':'[GT]', 'M':'[AC]',
+        'N':'[ACGT]', 'R':'[AG]', 'S':'[CG]', 'V':'[ACG]',
+        'W':'[AT]', 'Y':'[CT]'}
+
     def _parse_mod_motifs(self, all_mod_motifs_raw):
         # note only works for mod_refactor models currently
         self.all_mod_motifs = []
@@ -466,7 +466,7 @@ class AlphabetInfo(object):
                     'collapsed alphabet value ({}).').format(
                         pos, raw_motif[pos], can_base)
                 motif = re.compile(''.join(
-                    SINGLE_LETTER_CODE[letter] for letter in raw_motif))
+                    self.single_letter_code[letter] for letter in raw_motif))
                 self.all_mod_motifs.append((motif, pos, mod_base, raw_motif))
 
         return
@@ -521,6 +521,90 @@ class AlphabetInfo(object):
 
         return
 
+
+######################################
+########## Input validation ##########
+######################################
+
+def aligner_validation(args):
+    if len(mh.ALIGN_OUTPUTS.intersection(args.outputs)) > 0:
+        if args.reference is None:
+            sys.stderr.write(
+                '*' * 100 + '\nERROR: Output(s) requiring reference ' +
+                'alignment requested, but --reference not provided.\n' +
+                '*' * 100 + '\n')
+            sys.exit(1)
+        sys.stderr.write('Loading reference.\n')
+        aligner = mapping.alignerPlus(
+            str(args.reference), preset=str('map-ont'), best_n=1)
+        setattr(aligner, 'out_fmt', args.mappings_format)
+        setattr(aligner, 'ref_fn', args.reference)
+        if mh.MAP_NAME in args.outputs:
+            aligner.add_ref_names(args.reference)
+    else:
+        aligner = None
+        if args.reference is not None:
+            sys.stderr.write(
+                '*' * 100 + '\nWARNING: --reference provided, but no ' +
+                '--outputs requiring alignment was requested. Argument will ' +
+                'be ignored.\n' + '*' * 100 + '\n')
+    return aligner
+
+def snps_validation(args, is_cat_mod):
+    if mh.SNP_NAME in args.outputs and not mh.PR_SNP_NAME in args.outputs:
+        args.outputs.append(mh.PR_SNP_NAME)
+    if mh.PR_SNP_NAME in args.outputs and args.snp_filename is None:
+        sys.stderr.write(
+            '*' * 100 + '\nERROR: {} output requested, '.format(
+                mh.PR_SNP_NAME) +
+            'but --snp-filename provided.\n' + '*' * 100 + '\n')
+        sys.exit(1)
+    if mh.PR_SNP_NAME in args.outputs and not (
+            is_cat_mod or
+            mh.nstate_to_nbase(model_info.output_size) == 4):
+        sys.stderr.write(
+            '*' * 100 + '\nERROR: SNP calling from standard modified base ' +
+            'flip-flop model is not supported.\n' + '*' * 100 + '\n')
+        sys.exit(1)
+    # snps data object loads with None snp_fn for easier handling downstream
+    snps_data = snps.SnpData(
+        args.snp_filename, args.prepend_chr_vcf, args.max_snp_size,
+        args.snp_all_paths, args.write_snps_text, args.snp_context_bases,
+        args.snp_calibration_filename,
+        snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE)
+    if args.snp_filename is not None and mh.PR_SNP_NAME not in args.outputs:
+        sys.stderr.write(
+            '*' * 100 + '\nWARNING: --snps-filename provided, but ' +
+            'SNP output not requested (via --outputs). Argument will be ' +
+            'ignored.\n' + '*' * 100 + '\n')
+    return args, snps_data
+
+def mods_validation(args, is_cat_mod):
+    if mh.PR_MOD_NAME not in args.outputs and mh.MOD_NAME in args.outputs:
+        args.outputs.append(mh.PR_MOD_NAME)
+    if mh.PR_MOD_NAME in args.outputs and not is_cat_mod:
+        sys.stderr.write(
+            '*' * 100 + '\nERROR: {} output requested, '.format(
+                mh.PR_MOD_NAME) +
+            'but model provided is not a categotical modified base model.\n' +
+            'Note that modified base calling from naive modified base ' +
+            'model is not currently supported.\n' + '*' * 100 + '\n')
+        sys.exit(1)
+    if (is_cat_mod and mh.PR_MOD_NAME not in args.outputs and
+        mh.BC_MODS_NAME not in args.outputs):
+        sys.stderr.write(
+            '*' * 100 + '\nWARNING: Categorical modifications model ' +
+            'provided, but neither {} nor {} requested '.format(
+                mh.PR_MOD_NAME, mh.BC_MODS_NAME) +
+            '(via --outputs). Modified base output will not be produced.\n' +
+            '*' * 100 + '\n')
+    if len(args.mod_motif) != 0 and mh.PR_MOD_NAME not in args.outputs:
+        sys.stderr.write(
+            '*' * 100 + '\nWARNING: --mod-motif provided, but ' +
+            '{} not requested '.format(mh.PR_MOD_NAME) +
+            '(via --outputs). Argument will be ignored.\n' + '*' * 100 + '\n')
+    return args
+
 def mkdir(out_dir, overwrite):
     if os.path.exists(out_dir):
         if not overwrite:
@@ -535,6 +619,17 @@ def mkdir(out_dir, overwrite):
     os.mkdir(out_dir)
 
     return
+
+def profile_validation(args):
+    if args.processes > 1:
+        msg = ('Running profiling with multiple processes is ' +
+               'not allowed. Setting to single process.')
+        args.processes = 1
+    else:
+        msg = 'Running profiling. This may slow processing.'
+    sys.stderr.write(
+        '*' * 100 + '\nWARNING: ' + msg + '\n' + '*' * 100 + '\n')
+    return args
 
 
 ##########################
@@ -726,102 +821,20 @@ def get_parser():
 def _main():
     args = get_parser().parse_args()
     if _DO_PROFILE:
-        if args.processes > 1:
-            msg = ('Running profiling with multiple processes is ' +
-                   'not allowed. Setting to single process.')
-            args.processes = 1
-        else:
-            msg = 'Running profiling. This may slow processing.'
-        sys.stderr.write(
-            '*' * 100 + '\nWARNING: ' + msg + '\n' + '*' * 100 + '\n')
+        args = profile_validation(args)
 
     mkdir(args.output_directory, args.overwrite)
     model_info = backends.ModelInfo(
         args.flappie_model_name, args.taiyaki_model_filename, args.devices,
         args.processes, args.chunk_size, args.chunk_overlap,
         args.max_concurrent_chunks)
-
-    # modified base output parsing
     alphabet_info = AlphabetInfo(
         model_info, args.mod_motif, args.mod_all_paths,
         args.write_mods_text, args.mod_context_bases,
         mh.BC_MODS_NAME in args.outputs)
-    if mh.PR_MOD_NAME not in args.outputs and mh.MOD_NAME in args.outputs:
-        args.outputs.append(mh.PR_MOD_NAME)
-    if mh.PR_MOD_NAME in args.outputs and not model_info.is_cat_mod:
-        sys.stderr.write(
-            '*' * 100 + '\nERROR: {} output requested, '.format(
-                mh.PR_MOD_NAME) +
-            'but model provided is not a categotical modified base model.\n' +
-            'Note that modified base calling from naive modified base ' +
-            'model is not currently supported.\n' + '*' * 100 + '\n')
-        sys.exit(1)
-    if (model_info.is_cat_mod and mh.PR_MOD_NAME not in args.outputs and
-        mh.BC_MODS_NAME not in args.outputs):
-        sys.stderr.write(
-            '*' * 100 + '\nWARNING: Categorical modifications model ' +
-            'provided, but neither {} nor {} requested '.format(
-                mh.PR_MOD_NAME, mh.BC_MODS_NAME) +
-            '(via --outputs). Modified base output will not be produced.\n' +
-            '*' * 100 + '\n')
-    if len(args.mod_motif) != 0 and mh.PR_MOD_NAME not in args.outputs:
-        sys.stderr.write(
-            '*' * 100 + '\nWARNING: --mod-motif provided, but ' +
-            '{} not requested '.format(mh.PR_MOD_NAME) +
-            '(via --outputs). Argument will be ignored.\n' + '*' * 100 + '\n')
-
-    # SNP output parsing
-    if mh.SNP_NAME in args.outputs and not mh.PR_SNP_NAME in args.outputs:
-        args.outputs.append(mh.PR_SNP_NAME)
-    call_mode = None
-    if mh.SNP_NAME in args.outputs:
-        call_mode = snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE
-    if mh.PR_SNP_NAME in args.outputs and args.snp_filename is None:
-        sys.stderr.write(
-            '*' * 100 + '\nERROR: {} output requested, '.format(
-                mh.PR_SNP_NAME) +
-            'but --snp-filename provided.\n' + '*' * 100 + '\n')
-        sys.exit(1)
-    if mh.PR_SNP_NAME in args.outputs and not (
-            model_info.is_cat_mod or
-            mh.nstate_to_nbase(model_info.output_size) == 4):
-        sys.stderr.write(
-            '*' * 100 + '\nERROR: SNP calling from standard modified base ' +
-            'flip-flop model is not supported.\n' + '*' * 100 + '\n')
-        sys.exit(1)
-    # snps data object loads with None snp_fn for easier handling downstream
-    snps_data = snps.SnpData(
-        args.snp_filename, args.prepend_chr_vcf, args.max_snp_size,
-        args.snp_all_paths, args.write_snps_text, args.snp_context_bases,
-        args.snp_calibration_filename)
-    if args.snp_filename is not None and mh.PR_SNP_NAME not in args.outputs:
-        sys.stderr.write(
-            '*' * 100 + '\nWARNING: --snps-filename provided, but ' +
-            'per_read_snp not requested (via --outputs). Argument will be ' +
-            'ignored.\n' + '*' * 100 + '\n')
-
-    do_align = len(mh.ALIGN_OUTPUTS.intersection(args.outputs)) > 0
-    if do_align:
-        if args.reference is None:
-            sys.stderr.write(
-                '*' * 100 + '\nERROR: Output(s) requiring reference ' +
-                'alignment requested, but --reference not provided.\n' +
-                '*' * 100 + '\n')
-            sys.exit(1)
-        sys.stderr.write('Loading reference.\n')
-        aligner = mapping.alignerPlus(
-            str(args.reference), preset=str('map-ont'), best_n=1)
-        setattr(aligner, 'out_fmt', args.mappings_format)
-        setattr(aligner, 'ref_fn', args.reference)
-        if mh.MAP_NAME in args.outputs:
-            aligner.add_ref_names(args.reference)
-    else:
-        aligner = None
-    if args.reference is not None and not do_align:
-        sys.stderr.write(
-            '*' * 100 + '\nWARNING: --reference provided, but no --outputs ' +
-            'requiring alignment was requested. Argument will be ignored.\n' +
-            '*' * 100 + '\n')
+    args = mods_validation(args, model_info.is_cat_mod)
+    args, snps_data = snps_validation(args, model_info.is_cat_mod)
+    aligner = aligner_validation(args)
 
     process_all_reads(
         args.fast5s_dir, not args.not_recursive, args.num_reads, model_info,
@@ -835,8 +848,8 @@ def _main():
                      if mh.MOD_NAME in args.outputs else [])
         aggregate.aggregate_stats(
             args.outputs, args.output_directory, args.processes,
-            args.write_vcf_llr, args.heterozygous_factors, call_mode, mod_names,
-            args.suppress_progress)
+            args.write_vcf_llr, args.heterozygous_factors, snps_data.call_mode,
+            mod_names, args.suppress_progress)
 
     return
 

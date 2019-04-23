@@ -368,11 +368,13 @@ class SnpCalibrator(object):
 class SnpData(object):
     def __init__(
             self, snp_fn, do_prepend_chr_vcf, max_snp_size, all_paths,
-            write_snps_txt, context_bases, snps_calib_fn=None):
+            write_snps_txt, context_bases, snps_calib_fn=None,
+            call_mode=DIPLOID_MODE):
         self.all_paths = all_paths
         self.write_snps_txt = write_snps_txt
         self.calib_table = SnpCalibrator(snps_calib_fn)
         self.context_bases = context_bases
+        self.call_mode = call_mode
         if snp_fn is None:
             self.snps_to_test = None
             self.snp_id_tbl = None
