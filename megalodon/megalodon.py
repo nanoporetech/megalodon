@@ -542,6 +542,13 @@ def mkdir(out_dir, overwrite):
 ##########################
 
 def get_parser():
+    # hide more complex arguments for standard help output
+    show_hidden_args = '--help-long' in sys.argv
+    def hidden_help(help_msg):
+        if not show_hidden_args:
+            return argparse.SUPPRESS
+        return help_msg
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         'fast5s_dir',
@@ -551,9 +558,10 @@ def get_parser():
     mdl_grp.add_argument(
         '--taiyaki-model-filename',
         help='Taiyaki model checkpoint file.')
+
     mdl_grp.add_argument(
         '--flappie-model-name',
-        help='Flappie model name.')
+        help=hidden_help('Flappie model name.'))
 
     out_grp = parser.add_argument_group('Output Arguments')
     out_grp.add_argument(
@@ -567,25 +575,29 @@ def get_parser():
     out_grp.add_argument(
         '--overwrite', action='store_true',
         help='Overwrite output directory if it exists.')
+
+    out_grp.add_argument(
+        '--basecalls-format', choices=mh.BC_OUT_FMTS, default=mh.BC_OUT_FMTS[0],
+        help=hidden_help('Basecalls output format. Choices: {}'.format(
+            ', '.join(mh.BC_OUT_FMTS))))
     out_grp.add_argument(
         '--num-reads', type=int,
-        help='Number of reads to process. Default: All reads')
-
-    bc_grp = parser.add_argument_group('Basecall Arguments')
-    bc_grp.add_argument(
-        '--basecalls-format', choices=mh.BC_OUT_FMTS, default=mh.BC_OUT_FMTS[0],
-        help='Basecalls output format. Choices: {}'.format(
-            ', '.join(mh.BC_OUT_FMTS)))
+        help=hidden_help('Number of reads to process. Default: All reads'))
 
     map_grp = parser.add_argument_group('Mapping Arguments')
-    map_grp.add_argument(
-        '--reference',
-        help='Reference FASTA file used for mapping called reads.')
     map_grp.add_argument(
         '--mappings-format', choices=mh.MAP_OUT_FMTS,
         default=mh.MAP_OUT_FMTS[0],
         help='Mappings output format. Choices: {}'.format(
             ', '.join(mh.MAP_OUT_FMTS)))
+    map_grp.add_argument(
+        '--reference',
+        help='Reference FASTA file used for mapping called reads.')
+
+    map_grp.add_argument(
+        '--prepend-chr-ref', action='store_true',
+        help=hidden_help('Prepend "chr" to chromosome names from reference ' +
+                         'to match VCF names.'))
 
     snp_grp = parser.add_argument_group('SNP Arguments')
     snp_grp.add_argument(
@@ -599,33 +611,36 @@ def get_parser():
         help='File containing emperical calibration for SNP scores. As ' +
         'created by megalodon/scripts/calibrate_snp_scores.py.')
     snp_grp.add_argument(
-        '--snp-context-bases', type=int, nargs=2, default=[10, 30],
-        help='Context bases for single base SNP and indel calling. ' +
-        'Default: %(default)s')
-    snp_grp.add_argument(
-        '--prepend-chr-vcf', action='store_true',
-        help='Prepend "chr" to chromosome names from VCF to match ' +
-        'reference names.')
-    snp_grp.add_argument(
-        '--max-snp-size', type=int, default=5,
-        help='Maximum difference in number of reference and alternate bases. ' +
-        'Default: %(default)d')
-    snp_grp.add_argument(
-        '--heterozygous-factors', type=float, nargs=2,
-        default=[mh.DEFAULT_SNV_HET_FACTOR, mh.DEFAULT_INDEL_HET_FACTOR],
-        help='Bayesian prior factor for snv and indel heterozygous calls ' +
-        '(compared to 1.0 for hom ref/alt). Default: %(default)s')
-    snp_grp.add_argument(
-        '--snp-all-paths', action='store_true',
-        help='Compute forwards algorithm all paths score. (Default: Viterbi ' +
-        'best-path score)')
-    snp_grp.add_argument(
         '--write-snps-text', action='store_true',
         help='Write per-read SNP calls out to a text file. Default: ' +
         'Only ouput to database.')
+
+    snp_grp.add_argument(
+        '--heterozygous-factors', type=float, nargs=2,
+        default=[mh.DEFAULT_SNV_HET_FACTOR, mh.DEFAULT_INDEL_HET_FACTOR],
+        help=hidden_help('Bayesian prior factor for snv and indel ' +
+                         'heterozygous calls (compared to 1.0 for hom ' +
+                         'ref/alt). Default: %(default)s'))
+    snp_grp.add_argument(
+        '--max-snp-size', type=int, default=5,
+        help=hidden_help('Maximum difference in number of reference and ' +
+                         'alternate bases. Default: %(default)d'))
+    snp_grp.add_argument(
+        '--prepend-chr-vcf', action='store_true',
+        help=hidden_help('Prepend "chr" to chromosome names from VCF to ' +
+                         'match reference names.'))
+    snp_grp.add_argument(
+        '--snp-all-paths', action='store_true',
+        help=hidden_help('Compute forwards algorithm all paths score. ' +
+                         '(Default: Viterbi best-path score)'))
+    snp_grp.add_argument(
+        '--snp-context-bases', type=int, nargs=2, default=[10, 30],
+        help=hidden_help('Context bases for single base SNP and indel ' +
+                         'calling. Default: %(default)s'))
     snp_grp.add_argument(
         '--write-vcf-llr', action='store_true',
-        help='Write log-likelihood ratios out in non-standard VCF field.')
+        help=hidden_help('Write log-likelihood ratios out in non-standard ' +
+                         'VCF field.'))
 
     mod_grp = parser.add_argument_group('Modified Base Arguments')
     mod_grp.add_argument(
@@ -635,25 +650,26 @@ def get_parser():
         'example to restrict to CpG, dcm and dam motifs use ' +
         '"--mod-motif Z CG 0 --mod-motif Z CCWGG 1 --mod-motif Y GATC 1".')
     mod_grp.add_argument(
-        '--mod-calibration-filename',
-        help='File containing emperical calibration for modified base ' +
-        'scores. As created by megalodon/scripts/calibrate_mod_scores.py.')
-    mod_grp.add_argument(
-        '--mod-context-bases', type=int, default=10,
-        help='Context bases for modified base calling. Default: %(default)d')
-    mod_grp.add_argument(
-        '--mod-all-paths', action='store_true',
-        help='Compute forwards algorithm all paths score for modified base ' +
-        'calls. (Default: Viterbi best-path score)')
-    mod_grp.add_argument(
         '--write-mods-text', action='store_true',
         help='Write per-read modified bases out to a text file. Default: ' +
         'Only ouput to database.')
 
+    mod_grp.add_argument(
+        '--mod-calibration-filename',
+        help=hidden_help('File containing emperical calibration for ' +
+                         'modified base scores. As created by ' +
+                         'megalodon/scripts/calibrate_mod_scores.py.'))
+    mod_grp.add_argument(
+        '--mod-context-bases', type=int, default=10,
+        help=hidden_help(
+            'Context bases for modified base calling. Default: %(default)d'))
+    mod_grp.add_argument(
+        '--mod-all-paths', action='store_true',
+        help=hidden_help('Compute forwards algorithm all paths score for ' +
+                         'modified base calls. (Default: Viterbi ' +
+                         'best-path score)'))
+
     tai_grp = parser.add_argument_group('Taiyaki Signal Chunking Arguments')
-    tai_grp.add_argument(
-        '--devices', type=int, nargs='+',
-        help='CUDA GPU devices to use (only valid for taiyaki), default: CPU')
     tai_grp.add_argument(
         '--chunk_size', type=int, default=1000,
         help='Chunk length for base calling. Default: %(default)d')
@@ -662,43 +678,47 @@ def get_parser():
         help='Overlap between chunks to be stitched together. ' +
         'Default: %(default)d')
     tai_grp.add_argument(
+        '--devices', type=int, nargs='+',
+        help='CUDA GPU devices to use (only valid for taiyaki), default: CPU')
+    tai_grp.add_argument(
         '--max_concurrent_chunks', type=int, default=50,
         help='Only process N chunks concurrently per-read (to avoid GPU ' +
         'memory errors). Default: %(default)d')
 
     misc_grp = parser.add_argument_group('Miscellaneous Arguments')
     misc_grp.add_argument(
-        '--prepend-chr-ref', action='store_true',
-        help='Prepend "chr" to chromosome names from reference to match ' +
-        'VCF names.')
+        '--help-long', help='Show all options.', action='help')
     misc_grp.add_argument(
-        '--suppress-progress', action='store_true',
-        help='Suppress progress bar output.')
-    misc_grp.add_argument(
-        '--not-recursive', action='store_true',
-        help='Only search for fast5 read files directly found within the ' +
-        'fast5 directory. Default: search recursively')
+        '--processes', type=int, default=1,
+        help='Number of parallel processes. Default: %(default)d')
     misc_grp.add_argument(
         '--verbose-read-progress', type=int, default=0,
         help='Output verbose output on read progress. Outputs N most ' +
         'common points where reads could not be processed further. ' +
         'Default: %(default)d')
     misc_grp.add_argument(
-        '--processes', type=int, default=1,
-        help='Number of parallel processes. Default: %(default)d')
-    misc_grp.add_argument(
-        '--edge-buffer', type=int, default=20,
-        help='Ignore SNP or indel calls near edge of read mapping. ' +
-        'Default: %(default)d')
-    misc_grp.add_argument(
-        '--database-safety', type=int, default=1,
-        help='Setting for database performance versus corruption protection. ' +
-        'Options: 0 (DB corruption on application crash), 1 (DB corruption ' +
-        'on system crash), 2 (DB safe mode). Default: %(default)d')
-    misc_grp.add_argument(
         '-v', '--version', action='version',
         version='Megalodon version: {}'.format(MEGALODON_VERSION),
         help='show megalodon version and exit.')
+
+    misc_grp.add_argument(
+        '--database-safety', type=int, default=1,
+        help=hidden_help('Setting for database performance versus ' +
+                         'corruption protection. Options: 0 (DB corruption ' +
+                         'on application crash), 1 (DB corruption on system ' +
+                         'crash), 2 (DB safe mode). Default: %(default)d'))
+    misc_grp.add_argument(
+        '--edge-buffer', type=int, default=100,
+        help=hidden_help('Ignore SNP or indel calls near edge of read ' +
+                         'mapping. Default: %(default)d'))
+    misc_grp.add_argument(
+        '--not-recursive', action='store_true',
+        help=hidden_help('Only search for fast5 read files directly found ' +
+                         'within the fast5 directory. Default: search ' +
+                         'recursively'))
+    misc_grp.add_argument(
+        '--suppress-progress', action='store_true',
+        help=hidden_help('Suppress progress bar output.'))
 
     return parser
 
