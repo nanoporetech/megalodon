@@ -8,7 +8,7 @@ from collections import defaultdict, namedtuple, OrderedDict
 
 import numpy as np
 
-from megalodon import decode, megalodon_helper as mh
+from megalodon import decode, logging, megalodon_helper as mh
 from megalodon._version import MEGALODON_VERSION
 
 
@@ -380,7 +380,8 @@ class SnpData(object):
             self.snp_id_tbl = None
             return
 
-        sys.stderr.write('Loading SNPs.\n')
+        logger = logging.get_logger('snps')
+        logger.info('Loading SNPs.')
         raw_snps_to_test = defaultdict(lambda: defaultdict(list))
         warned_invalid_line = False
         n_skipped_snps = 0
@@ -390,10 +391,13 @@ class SnpData(object):
                 try:
                     chrm, pos, snp_id, ref_seq, alt_seq = line.split()[:5]
                 except:
+                    logger.debug(
+                        'Encountered invalid VCF line: "{}"'.format(line))
                     if not warned_invalid_line:
-                        sys.stderr.write(
-                            'WARNING: Encountered invalid VCF line. Silently ' +
-                            'ignoring any further invalid lines.\n\t' + line)
+                        logger.warning(
+                            'Encountered invalid VCF line. Further invalid ' +
+                            'lines included in debug logging. "{}"'.format(
+                                line))
                     warned_invalid_line = True
 
                 try:
@@ -424,9 +428,9 @@ class SnpData(object):
             self.snps_to_test[chrm] = (s_poss, s_ref_es, s_alt_es)
 
         n_uniq_snps = sum(len(cs_snps) for cs_snps in raw_snps_to_test.values())
-        sys.stderr.write((
+        logger.info((
             ('Loaded {} SNPs. (Skipped {} entries due to incompatible ' +
-             'SNP type)\n')).format(n_uniq_snps, n_skipped_snps))
+             'SNP type)')).format(n_uniq_snps, n_skipped_snps))
 
         return
 

@@ -22,7 +22,7 @@ from tqdm import tqdm
 from tqdm._utils import _term_move_up
 
 from megalodon import (
-    aggregate, decode, fast5_io, backends, snps, mods, mapping,
+    aggregate, backends, decode, fast5_io, logging, mapping, mods, snps,
     megalodon_helper as mh)
 from megalodon._version import MEGALODON_VERSION
 
@@ -297,17 +297,18 @@ def _get_fail_queue(
             continue
 
     if not suppress_progress: bar.close()
+    logger = logging.get_logger()
     if len(failed_reads[_UNEXPECTED_ERROR_CODE]) >= 1:
-        sys.stderr.write((
-            '******* WARNING *******\n\tUnexpected errors occured. See full ' +
+        logger.warning((
+            'Unexpected errors occured. See full ' +
             'error stack traces for first (up to) {0:d} errors in ' +
-            '"{1}"\n').format(_MAX_NUM_UNEXP_ERRORS, unexp_err_fp.name))
+            '"{1}"').format(_MAX_NUM_UNEXP_ERRORS, unexp_err_fp.name))
     if any(len(fns) > 0 for fns in failed_reads.values()):
-        sys.stderr.write(
+        logger.info(
             format_fail_summ(
                 'Unsuccessful processing types:',
                 [(len(fns), err) for err, fns in failed_reads.items()
-                 if len(fns) > 0], reads_called) + '\n')
+                 if len(fns) > 0], reads_called))
     # TODO flag to output failed read names to file
 
     return
@@ -321,11 +322,12 @@ def process_all_reads(
         fast5s_dir, recursive, num_reads, model_info, outputs, out_dir, bc_fmt,
         aligner, add_chr_ref, snps_data, num_ps, num_update_errors,
         suppress_progress, alphabet_info, db_safety, edge_buffer):
-    sys.stderr.write('Searching for reads.\n')
+    logger = logging.get_logger()
+    logger.info('Searching for reads.')
     fast5_fns = list(fast5_io.iterate_fast5_reads(
         fast5s_dir, num_reads, recursive))
 
-    sys.stderr.write('Preparing workers and calling reads.\n')
+    logger.info('Preparing workers and calling reads.')
     # read filename queue filler
     read_file_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
     files_p = mp.Process(
@@ -400,7 +402,7 @@ def process_all_reads(
     try:
         files_p.join()
     except KeyboardInterrupt:
-        sys.stderr.write('Exiting due to keyboard interrupt.\n')
+        logger.error('Exiting due to keyboard interrupt.')
         sys.exit(1)
     for proc_reads_p in proc_reads_ps:
         proc_reads_p.join()
@@ -419,9 +421,9 @@ def process_all_reads(
         if on in outputs and p.is_alive():
             main_conn.send(True)
             if on in (mh.PR_SNP_NAME, mh.PR_MOD_NAME):
-                sys.stderr.write(
+                logger.info(
                     'Waiting for snps and/or mods process to complete ' +
-                    'database indexing.\n')
+                    'database indexing.')
             p.join()
 
     return
@@ -474,6 +476,7 @@ class AlphabetInfo(object):
     def __init__(
             self, model_info, all_mod_motifs_raw, mod_all_paths,
             write_mods_txt, mod_context_bases, do_output_mods):
+        logger = logging.get_logger()
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other alphabet info
         # don't want to pass all of these parameters around individually though
@@ -491,14 +494,14 @@ class AlphabetInfo(object):
         except:
             pass
         if model_info.is_cat_mod:
-            sys.stderr.write(
-                'Using canoncical alphabet {} and modified bases {}.\n'.format(
+            logger.info(
+                'Using canoncical alphabet {} and modified bases {}.'.format(
                     self.alphabet, ' '.join(
                         '{}={}'.format(*mod_b)
                         for mod_b in model_info.mod_long_names)))
         else:
-            sys.stderr.write(
-                'Using canoncical alphabet {}.\n'.format(self.alphabet))
+            logger.info(
+                'Using canoncical alphabet {}.'.format(self.alphabet))
 
         self.nbase = len(self.alphabet)
         if model_info.is_cat_mod:
@@ -527,14 +530,14 @@ class AlphabetInfo(object):
 ######################################
 
 def aligner_validation(args):
+    logger = logging.get_logger()
     if len(mh.ALIGN_OUTPUTS.intersection(args.outputs)) > 0:
         if args.reference is None:
-            sys.stderr.write(
-                '*' * 100 + '\nERROR: Output(s) requiring reference ' +
-                'alignment requested, but --reference not provided.\n' +
-                '*' * 100 + '\n')
+            logger.error(
+                'Output(s) requiring reference alignment requested, but ' +
+                '--reference not provided.')
             sys.exit(1)
-        sys.stderr.write('Loading reference.\n')
+        logger.info('Loading reference.')
         aligner = mapping.alignerPlus(
             str(args.reference), preset=str('map-ont'), best_n=1)
         setattr(aligner, 'out_fmt', args.mappings_format)
@@ -544,27 +547,26 @@ def aligner_validation(args):
     else:
         aligner = None
         if args.reference is not None:
-            sys.stderr.write(
-                '*' * 100 + '\nWARNING: --reference provided, but no ' +
-                '--outputs requiring alignment was requested. Argument will ' +
-                'be ignored.\n' + '*' * 100 + '\n')
+            logger.warning(
+                '--reference provided, but no --outputs requiring alignment ' +
+                'was requested. Argument will be ignored.')
     return aligner
 
 def snps_validation(args, is_cat_mod):
+    logger = logging.get_logger()
     if mh.SNP_NAME in args.outputs and not mh.PR_SNP_NAME in args.outputs:
         args.outputs.append(mh.PR_SNP_NAME)
     if mh.PR_SNP_NAME in args.outputs and args.snp_filename is None:
-        sys.stderr.write(
-            '*' * 100 + '\nERROR: {} output requested, '.format(
-                mh.PR_SNP_NAME) +
-            'but --snp-filename provided.\n' + '*' * 100 + '\n')
+        logger.error(
+            '{} output requested, '.format(mh.PR_SNP_NAME) +
+            'but --snp-filename provided.')
         sys.exit(1)
     if mh.PR_SNP_NAME in args.outputs and not (
             is_cat_mod or
             mh.nstate_to_nbase(model_info.output_size) == 4):
-        sys.stderr.write(
-            '*' * 100 + '\nERROR: SNP calling from standard modified base ' +
-            'flip-flop model is not supported.\n' + '*' * 100 + '\n')
+        logger.error(
+            'SNP calling from standard modified base flip-flop model is ' +
+            'not supported.')
         sys.exit(1)
     # snps data object loads with None snp_fn for easier handling downstream
     snps_data = snps.SnpData(
@@ -573,44 +575,41 @@ def snps_validation(args, is_cat_mod):
         args.snp_calibration_filename,
         snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE)
     if args.snp_filename is not None and mh.PR_SNP_NAME not in args.outputs:
-        sys.stderr.write(
-            '*' * 100 + '\nWARNING: --snps-filename provided, but ' +
-            'SNP output not requested (via --outputs). Argument will be ' +
-            'ignored.\n' + '*' * 100 + '\n')
+        logger.warning(
+            '--snps-filename provided, but SNP output not requested ' +
+            '(via --outputs). Argument will be ignored.')
     return args, snps_data
 
 def mods_validation(args, is_cat_mod):
+    logger = logging.get_logger()
     if mh.PR_MOD_NAME not in args.outputs and mh.MOD_NAME in args.outputs:
         args.outputs.append(mh.PR_MOD_NAME)
     if mh.PR_MOD_NAME in args.outputs and not is_cat_mod:
-        sys.stderr.write(
-            '*' * 100 + '\nERROR: {} output requested, '.format(
-                mh.PR_MOD_NAME) +
+        logger.error(
+            '{} output requested, '.format(mh.PR_MOD_NAME) +
             'but model provided is not a categotical modified base model.\n' +
             'Note that modified base calling from naive modified base ' +
-            'model is not currently supported.\n' + '*' * 100 + '\n')
+            'model is not currently supported.')
         sys.exit(1)
     if (is_cat_mod and mh.PR_MOD_NAME not in args.outputs and
         mh.BC_MODS_NAME not in args.outputs):
-        sys.stderr.write(
-            '*' * 100 + '\nWARNING: Categorical modifications model ' +
-            'provided, but neither {} nor {} requested '.format(
-                mh.PR_MOD_NAME, mh.BC_MODS_NAME) +
-            '(via --outputs). Modified base output will not be produced.\n' +
-            '*' * 100 + '\n')
+        loggger.warning(
+            ('Categorical modifications model provided, but neither {} nor ' +
+            '{} requested (via --outputs). Modified base output will not be ' +
+             'produced.').format( mh.PR_MOD_NAME, mh.BC_MODS_NAME))
     if len(args.mod_motif) != 0 and mh.PR_MOD_NAME not in args.outputs:
-        sys.stderr.write(
-            '*' * 100 + '\nWARNING: --mod-motif provided, but ' +
-            '{} not requested '.format(mh.PR_MOD_NAME) +
-            '(via --outputs). Argument will be ignored.\n' + '*' * 100 + '\n')
+        logger.warning((
+            '--mod-motif provided, but {} not requested (via --outputs). ' +
+            'Argument will be ignored.').format(mh.PR_MOD_NAME))
     return args
 
 def mkdir(out_dir, overwrite):
+    logger = logging.get_logger()
     if os.path.exists(out_dir):
         if not overwrite:
             sys.stderr.write(
-                '*' * 100 + '\nERROR: --output-directory exists and ' +
-                '--overwrite is not set.\n' + '*' * 100 + '\n')
+                'ERROR: --output-directory exists and --overwrite is ' +
+                'not set.\n')
             sys.exit(1)
         if os.path.isfile(out_dir) or os.path.islink(out_dir):
             os.remove(out_dir)
@@ -621,14 +620,14 @@ def mkdir(out_dir, overwrite):
     return
 
 def profile_validation(args):
+    logger = logging.get_logger()
     if args.processes > 1:
         msg = ('Running profiling with multiple processes is ' +
                'not allowed. Setting to single process.')
         args.processes = 1
     else:
         msg = 'Running profiling. This may slow processing.'
-    sys.stderr.write(
-        '*' * 100 + '\nWARNING: ' + msg + '\n' + '*' * 100 + '\n')
+    logger.warning(msg)
     return args
 
 
@@ -820,10 +819,15 @@ def get_parser():
 
 def _main():
     args = get_parser().parse_args()
+
+    mkdir(args.output_directory, args.overwrite)
+    logging.init_logger(args.output_directory)
+    logger = logging.get_logger()
+    logger.debug('Command: """' + ' '.join(sys.argv) + '"""')
+
     if _DO_PROFILE:
         args = profile_validation(args)
 
-    mkdir(args.output_directory, args.overwrite)
     model_info = backends.ModelInfo(
         args.flappie_model_name, args.taiyaki_model_filename, args.devices,
         args.processes, args.chunk_size, args.chunk_overlap,

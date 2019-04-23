@@ -7,7 +7,7 @@ import multiprocessing as mp
 
 from tqdm import tqdm
 
-from megalodon import snps, mods, megalodon_helper as mh
+from megalodon import logging, mods, snps, megalodon_helper as mh
 
 
 #######################################
@@ -235,8 +235,9 @@ def aggregate_stats(
             agg_mods_ps.append(p)
 
     # create progress process
-    sys.stderr.write(
-        'Aggregating {} SNPs and {} mod sites over reads.\n'.format(
+    logger = logging.get_logger('agg')
+    logger.info(
+        'Aggregating {} SNPs and {} mod sites over reads.'.format(
             num_snps, num_mods))
     main_prog_conn, prog_conn = mp.Pipe()
     prog_p = mp.Process(

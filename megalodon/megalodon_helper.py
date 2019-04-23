@@ -38,6 +38,7 @@ OUTPUT_FNS = {
                  'per_read_modified_base_calls.txt'],
     MOD_NAME:'mods.mvcf'
 }
+LOG_FILENAME = 'log.txt'
 COMP_BASES = dict(zip(map(ord, 'ACGT'), map(ord, 'TGCA')))
 
 _MAX_QUEUE_SIZE = 1000
