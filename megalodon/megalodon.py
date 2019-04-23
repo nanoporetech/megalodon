@@ -441,20 +441,21 @@ class AlphabetInfo(object):
     def _parse_mod_motifs(self, all_mod_motifs_raw):
         # note only works for mod_refactor models currently
         self.all_mod_motifs = []
-        if all_mod_motifs_raw is None:
+        if all_mod_motifs_raw is None or len(all_mod_motifs_raw) == 0:
             for can_base, mod_bases in self.can_base_mods.items():
                 for mod_base in mod_bases:
                     self.all_mod_motifs.append((
                         re.compile(can_base), 0, mod_base, can_base))
         else:
             # parse detection motifs
-            for mod_motifs_raw in all_mod_motifs_raw:
-                mod_base, motif_raw = mod_motifs_raw.split(':')
+            for mod_base, raw_motif, pos in all_mod_motifs_raw:
+                assert len(mod_base) == 1, (
+                    'Modfied base must be a single character. Got {}'.format(
+                        mod_base))
                 assert mod_base in self.str_to_int_mod_labels, (
                     'Modified base label ({}) not found in model ' +
                     'alphabet ({}).').format(
                         mod_base, list(self.str_to_int_mod_labels.keys()))
-                raw_motif, pos = motif_raw.split('-')
                 pos = int(pos)
                 can_base = next(
                     can_base for can_base, can_mods in
@@ -628,10 +629,11 @@ def get_parser():
 
     mod_grp = parser.add_argument_group('Modified Base Arguments')
     mod_grp.add_argument(
-        '--mod-motifs', nargs='+',
-        help='Restrict modified base calls to specified motifs. Format as ' +
-        '"[mod_base]:[motif]-[relative_pos]". For CpG, dcm and dam calling ' +
-        'use "Z:CG-0 Z:CCWGG-1 Y:GATC-1".')
+        '--mod-motif', action="append", nargs=3,
+        metavar=('base', 'motif', 'position'),
+        help='Restrict modified base calls to specified motif(s). For ' +
+        'example to restrict to CpG, dcm and dam motifs use ' +
+        '"--mod-motif Z CG 0 --mod-motif Z CCWGG 1 --mod-motif Y GATC 1".')
     mod_grp.add_argument(
         '--mod-calibration-filename',
         help='File containing emperical calibration for modified base ' +
@@ -721,7 +723,7 @@ def _main():
 
     # modified base output parsing
     alphabet_info = AlphabetInfo(
-        model_info, args.mod_motifs, args.mod_all_paths,
+        model_info, args.mod_motif, args.mod_all_paths,
         args.write_mods_text, args.mod_context_bases,
         mh.BC_MODS_NAME in args.outputs)
     if mh.PR_MOD_NAME not in args.outputs and mh.MOD_NAME in args.outputs:
@@ -742,9 +744,9 @@ def _main():
                 mh.PR_MOD_NAME, mh.BC_MODS_NAME) +
             '(via --outputs). Modified base output will not be produced.\n' +
             '*' * 100 + '\n')
-    if args.mod_motifs is not None and mh.PR_MOD_NAME not in args.outputs:
+    if len(args.mod_motif) != 0 and mh.PR_MOD_NAME not in args.outputs:
         sys.stderr.write(
-            '*' * 100 + '\nWARNING: --mod-motifs provided, but ' +
+            '*' * 100 + '\nWARNING: --mod-motif provided, but ' +
             '{} not requested '.format(mh.PR_MOD_NAME) +
             '(via --outputs). Argument will be ignored.\n' + '*' * 100 + '\n')
 
