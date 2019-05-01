@@ -1,6 +1,5 @@
-<p align="center">
-  <img src="ONT_logo.png">
-</p>
+.. image:: /ONT_logo.png
+  :width: 800
 
 ******************
 
