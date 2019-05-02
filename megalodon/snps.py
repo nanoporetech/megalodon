@@ -260,6 +260,25 @@ def call_read_snps(
 
 def _get_snps_queue(
         snps_q, snps_conn, snp_id_tbl, snps_db_fn, snps_txt_fn, db_safety):
+    def get_snp_call():
+        # note strand is +1 for fwd or -1 for rev
+        r_snp_calls, (read_id, chrm, strand) = snps_q.get(block=False)
+        snps_db.executemany(ADDMANY_SNPS, [
+            (read_id, chrm, strand, pos, score, ref_seq, alt_seq,
+             snp_id_tbl[chrm][snp_i])
+            for pos, score, ref_seq, alt_seq, snp_i in r_snp_calls])
+        if snps_txt_fp is not None:
+            # would involve batching and creating several conversion tables
+            # for var strings (read_if and chrms).
+            snps_txt_fp.write('\n'.join((
+                '{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
+                    read_id, chrm, strand, pos, score, ref_seq, alt_seq,
+                    snp_id_tbl[chrm][snp_i])
+                for pos, score, ref_seq, alt_seq, snp_i in r_snp_calls)) + '\n')
+            snps_txt_fp.flush()
+        return
+
+
     snps_db = sqlite3.connect(snps_db_fn)
     if db_safety < 2:
         snps_db.execute(SET_ASYNC_MODE)
@@ -270,22 +289,7 @@ def _get_snps_queue(
 
     while True:
         try:
-            # note strand is +1 for fwd or -1 for rev
-            r_snp_calls, (read_id, chrm, strand) = snps_q.get(block=False)
-            snps_db.executemany(ADDMANY_SNPS, [
-                (read_id, chrm, strand, pos, score, ref_seq, alt_seq,
-                 snp_id_tbl[chrm][snp_i])
-                for pos, score, ref_seq, alt_seq, snp_i in r_snp_calls])
-            if snps_txt_fp is not None:
-                # would involve batching and creating several conversion tables
-                # for var strings (read_if and chrms).
-                snps_txt_fp.write('\n'.join((
-                    '{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
-                        read_id, chrm, strand, pos, score, ref_seq, alt_seq,
-                        snp_id_tbl[chrm][snp_i])
-                    for pos, score, ref_seq, alt_seq, snp_i in r_snp_calls)) +
-                              '\n')
-                snps_txt_fp.flush()
+            get_snp_call()
         except queue.Empty:
             if snps_conn.poll():
                 break
@@ -293,18 +297,7 @@ def _get_snps_queue(
             continue
 
     while not snps_q.empty():
-        r_snp_calls, (read_id, chrm, strand) = snps_q.get(block=False)
-        snps_db.executemany(ADDMANY_SNPS, [
-            (read_id, chrm, strand, pos, score, ref_seq, alt_seq,
-             snp_id_tbl[chrm][snp_i])
-            for pos, score, ref_seq, alt_seq, snp_i in r_snp_calls])
-        if snps_txt_fp is not None:
-            snps_txt_fp.write('\n'.join((
-                '{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
-                    read_id, chrm, strand, pos, score, ref_seq, alt_seq,
-                    snp_id_tbl[chrm][snp_i])
-                for pos, score, ref_seq, alt_seq, snp_i in r_snp_calls)) + '\n')
-            snps_txt_fp.flush()
+        get_snp_call()
     if snps_txt_fp is not None: snps_txt_fp.close()
     snps_db.execute(CREATE_SNPS_IDX)
     snps_db.commit()

@@ -37,10 +37,27 @@ _MAX_NUM_UNEXP_ERRORS = 50
 ##### Read Processing #####
 ###########################
 
+def handle_errors(func, args, r_vals, out_q, fast5_fn, failed_reads_q):
+    try:
+        out_q.put((func(*args), r_vals))
+    except KeyboardInterrupt:
+        failed_reads_q.put(
+            (True, False, 'Keyboard interrupt', fast5_fn, None))
+        return
+    except mh.MegaError as e:
+        failed_reads_q.put((True, False, str(e), fast5_fn, None))
+    except:
+        failed_reads_q.put((
+            True, False, _UNEXPECTED_ERROR_CODE, fast5_fn,
+            traceback.format_exc()))
+    return
+
 def process_read(
         raw_sig, read_id, model_info, bc_q, caller_conn, snps_to_test,
         snp_all_paths, snp_calib_tbl, snp_context_bases, snps_q, mods_q,
-        alphabet_info,  fast5_fn, failed_reads_q, edge_buffer):
+        alphabet_info, fast5_fn, failed_reads_q, edge_buffer):
+    """ Workhorse per-read megalodon function (connects all the parts)
+    """
     if model_info.is_cat_mod:
         bc_weights, mod_weights = model_info.run_model(
             raw_sig, alphabet_info.n_can_state)
@@ -74,42 +91,21 @@ def process_read(
         r_ref_pos.q_trim_start:r_ref_pos.q_trim_end + 1] - post_mapped_start
 
     if snps_q is not None:
-        try:
-            snps_q.put((
-                snps.call_read_snps(
-                    r_ref_pos, snps_to_test, edge_buffer, snp_context_bases,
-                    np_ref_seq, mapped_rl_cumsum, r_to_q_poss, r_post,
-                    post_mapped_start, snp_all_paths, snp_calib_tbl),
-                (read_id, r_ref_pos.chrm, r_ref_pos.strand)))
-        except KeyboardInterrupt:
-            failed_reads_q.put(
-                (True, False, 'Keyboard interrupt', fast5_fn, None))
-            return
-        except mh.MegaError as e:
-            failed_reads_q.put((True, False, str(e), fast5_fn, None))
-        except:
-            failed_reads_q.put((
-                True, False, _UNEXPECTED_ERROR_CODE, fast5_fn,
-                traceback.format_exc()))
+        handle_errors(
+            func=snps.call_read_snps,
+            args=(r_ref_pos, snps_to_test, edge_buffer, snp_context_bases,
+                  np_ref_seq, mapped_rl_cumsum, r_to_q_poss, r_post,
+                  post_mapped_start, snp_all_paths, snp_calib_tbl),
+            r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand),
+            out_q=snps_q, fast5_fn=fast5_fn, failed_reads_q=failed_reads_q)
     if mods_q is not None:
-        try:
-            mods_q.put((
-                mods.call_read_mods(
-                    r_ref_pos, edge_buffer, r_ref_seq, np_ref_seq,
-                    mapped_rl_cumsum, r_to_q_poss, r_post_w_mods,
-                    post_mapped_start, alphabet_info),
-                (read_id, r_ref_pos.chrm, r_ref_pos.strand)))
-        except KeyboardInterrupt:
-            failed_reads_q.put((
-                True, False, 'Keyboard interrupt', fast5_fn, None))
-            return
-        except mh.MegaError as e:
-            failed_reads_q.put((
-                True, False, str(e), fast5_fn, None))
-        except:
-            failed_reads_q.put((
-                True, False, _UNEXPECTED_ERROR_CODE, fast5_fn,
-                traceback.format_exc()))
+        handle_errors(
+            func=mods.call_read_mods,
+            args=(r_ref_pos, edge_buffer, r_ref_seq, np_ref_seq,
+                  mapped_rl_cumsum, r_to_q_poss, r_post_w_mods,
+                  post_mapped_start, alphabet_info),
+            r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand),
+            out_q=mods_q, fast5_fn=fast5_fn, failed_reads_q=failed_reads_q)
 
     return
 

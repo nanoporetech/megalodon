@@ -132,6 +132,23 @@ def call_read_mods(
 ###############################
 
 def _get_mods_queue(mods_q, mods_conn, mods_db_fn, mods_txt_fn, db_safety):
+    def get_mod_call():
+        # note strand is +1 for fwd or -1 for rev
+        r_mod_calls, (read_id, chrm, strand) = mods_q.get(block=False)
+        mods_db.executemany(ADDMANY_MODS, [
+            (read_id, chrm, strand, pos, score, mod_base, raw_motif)
+            for pos, score, raw_motif, mod_base in r_mod_calls])
+        if mods_txt_fp is not None:
+            # would involve batching and creating several conversion tables
+            # for var strings (read_if and chrms).
+            mods_txt_fp.write('\n'.join((
+                '{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
+                    read_id, chrm, strand, pos, score, raw_motif, mod_base)
+                for pos, score, raw_motif, mod_base in r_mod_calls)) + '\n')
+            mods_txt_fp.flush()
+        return
+
+
     mods_db = sqlite3.connect(mods_db_fn)
     if db_safety < 2:
         mods_db.execute(SET_ASYNC_MODE)
@@ -142,19 +159,7 @@ def _get_mods_queue(mods_q, mods_conn, mods_db_fn, mods_txt_fn, db_safety):
 
     while True:
         try:
-            # note strand is +1 for fwd or -1 for rev
-            r_mod_calls, (read_id, chrm, strand) = mods_q.get(block=False)
-            mods_db.executemany(ADDMANY_MODS, [
-                (read_id, chrm, strand, pos, score, mod_base, raw_motif)
-                for pos, score, raw_motif, mod_base in r_mod_calls])
-            if mods_txt_fp is not None:
-                # would involve batching and creating several conversion tables
-                # for var strings (read_if and chrms).
-                mods_txt_fp.write('\n'.join((
-                    '{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
-                        read_id, chrm, strand, pos, score, raw_motif, mod_base)
-                    for pos, score, raw_motif, mod_base in r_mod_calls)) + '\n')
-                mods_txt_fp.flush()
+            get_mod_call()
         except queue.Empty:
             if mods_conn.poll():
                 break
@@ -162,16 +167,7 @@ def _get_mods_queue(mods_q, mods_conn, mods_db_fn, mods_txt_fn, db_safety):
             continue
 
     while not mods_q.empty():
-        r_mod_calls, (read_id, chrm, strand) = mods_q.get(block=False)
-        mods_db.execute(ADDMANY_MODS, [
-            (read_id, chrm, strand, pos, score, mod_base, raw_motif)
-            for pos, score, raw_motif, mod_base in r_mod_calls])
-        if mods_txt_fp is not None:
-            mods_txt_fp.write('\n'.join((
-                '{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
-                    read_id, chrm, strand, pos, score, raw_motif, mod_base)
-                for pos, score, raw_motif, mod_base in r_mod_calls)) + '\n')
-            mods_txt_fp.flush()
+        get_mod_call()
     if mods_txt_fp is not None: mods_txt_fp.close()
     mods_db.execute(CREATE_MODS_IDX)
     mods_db.commit()
