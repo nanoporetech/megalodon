@@ -104,7 +104,7 @@ def process_read(
             args=(r_ref_pos, edge_buffer, r_ref_seq, np_ref_seq,
                   mapped_rl_cumsum, r_to_q_poss, r_post_w_mods,
                   post_mapped_start, alphabet_info),
-            r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand),
+            r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand, r_ref_seq),
             out_q=mods_q, fast5_fn=fast5_fn, failed_reads_q=failed_reads_q)
 
     return
@@ -165,7 +165,7 @@ def _fill_files_queue(read_file_q, fast5_fns, num_ps):
     return
 
 def _process_reads_worker(
-        read_file_q, bc_q, mo_q, snps_q, failed_reads_q, mods_q, caller_conn,
+        read_file_q, bc_q, snps_q, failed_reads_q, mods_q, caller_conn,
         model_info, snps_to_test, snp_all_paths, snp_calib_tbl,
         snp_context_bases, alphabet_info, edge_buffer, device):
     model_info.prep_model_worker(device)
@@ -345,9 +345,12 @@ def process_all_reads(
             _get_bc_queue, (out_dir, bc_fmt, alphabet_info.do_output_mods,
                             alphabet_info.mod_long_names))
     if mh.MAP_NAME in outputs:
+        do_output_pr_refs = (mh.PR_REF_NAME in outputs and
+                          not alphabet_info.do_pr_ref_mods)
         mo_q, mo_p, main_mo_conn = mh.create_getter_q(
-            mapping._get_map_queue, (out_dir, aligner.ref_names_and_lens,
-                             aligner.out_fmt, aligner.ref_fn))
+            mapping._get_map_queue, (
+                out_dir, aligner.ref_names_and_lens, aligner.out_fmt,
+                aligner.ref_fn, do_output_pr_refs))
     if mh.PR_SNP_NAME in outputs:
         snps_db_fn, snps_txt_fn = mh.OUTPUT_FNS[mh.PR_SNP_NAME]
         snps_txt_fn = (os.path.join(out_dir, snps_txt_fn)
@@ -357,12 +360,16 @@ def process_all_reads(
                 snps_data.snp_id_tbl, os.path.join(out_dir, snps_db_fn),
                 snps_txt_fn, db_safety))
     if mh.PR_MOD_NAME in outputs:
+        pr_refs_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.PR_REF_NAME]) if (
+            mh.PR_REF_NAME in outputs and
+            alphabet_info.do_pr_ref_mods) else None
         mods_db_fn, mods_txt_fn = mh.OUTPUT_FNS[mh.PR_MOD_NAME]
         mods_txt_fn = (os.path.join(out_dir, mods_txt_fn)
                        if alphabet_info.write_mods_txt else None)
         mods_q, mods_p, main_mods_conn = mh.create_getter_q(
             mods._get_mods_queue, (
-                os.path.join(out_dir, mods_db_fn), mods_txt_fn, db_safety))
+                os.path.join(out_dir, mods_db_fn), mods_txt_fn, db_safety,
+                pr_refs_fn))
 
     proc_reads_ps, map_conns = [], []
     for device in model_info.process_devices:
@@ -373,7 +380,7 @@ def process_all_reads(
         map_conns.append(map_conn)
         p = mp.Process(
             target=_process_reads_worker, args=(
-                read_file_q, bc_q, mo_q, snps_q, failed_reads_q, mods_q,
+                read_file_q, bc_q, snps_q, failed_reads_q, mods_q,
                 caller_conn, model_info, snps_data.snps_to_test,
                 snps_data.all_paths, snps_data.calib_table,
                 snps_data.context_bases, alphabet_info, edge_buffer, device))
@@ -471,7 +478,7 @@ class AlphabetInfo(object):
 
     def __init__(
             self, model_info, all_mod_motifs_raw, mod_all_paths,
-            write_mods_txt, mod_context_bases, do_output_mods):
+            write_mods_txt, mod_context_bases, do_output_mods, do_pr_ref_mods):
         logger = logging.get_logger()
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other alphabet info
@@ -481,6 +488,7 @@ class AlphabetInfo(object):
         self.write_mods_txt = write_mods_txt
         self.mod_context_bases = mod_context_bases
         self.do_output_mods = do_output_mods
+        self.do_pr_ref_mods = do_pr_ref_mods
         self.mod_long_names = model_info.mod_long_names
 
         self.alphabet = model_info.can_alphabet
@@ -530,22 +538,22 @@ def aligner_validation(args):
     if len(mh.ALIGN_OUTPUTS.intersection(args.outputs)) > 0:
         if args.reference is None:
             logger.error(
-                'Output(s) requiring reference alignment requested, but ' +
-                '--reference not provided.')
+                ('Output(s) requiring reference alignment requested ({}), ' +
+                 'but --reference not provided.').format(', '.join(
+                    mh.ALIGN_OUTPUTS.intersection(args.outputs))))
             sys.exit(1)
         logger.info('Loading reference.')
         aligner = mapping.alignerPlus(
             str(args.reference), preset=str('map-ont'), best_n=1)
         setattr(aligner, 'out_fmt', args.mappings_format)
         setattr(aligner, 'ref_fn', args.reference)
-        if mh.MAP_NAME in args.outputs:
-            aligner.add_ref_names(args.reference)
+        aligner.add_ref_names(args.reference)
     else:
         aligner = None
         if args.reference is not None:
             logger.warning(
-                '--reference provided, but no --outputs requiring alignment ' +
-                'was requested. Argument will be ignored.')
+                '[--reference] provided, but no [--outputs] requiring ' +
+                'alignment was requested. Argument will be ignored.')
     return aligner
 
 def snps_validation(args, is_cat_mod):
@@ -561,7 +569,7 @@ def snps_validation(args, is_cat_mod):
             is_cat_mod or
             mh.nstate_to_nbase(model_info.output_size) == 4):
         logger.error(
-            'SNP calling from standard modified base flip-flop model is ' +
+            'SNP calling from naive modified base flip-flop model is ' +
             'not supported.')
         sys.exit(1)
     # snps data object loads with None snp_fn for easier handling downstream
@@ -578,6 +586,10 @@ def snps_validation(args, is_cat_mod):
 
 def mods_validation(args, is_cat_mod):
     logger = logging.get_logger()
+    if args.refs_include_mods and mh.PR_MOD_NAME not in args.outputs:
+        # TODO don't really have to output this data, but have to compute it
+        # so sort out how to compute the output but not output it
+        args.outputs.append(mh.PR_MOD_NAME)
     if mh.PR_MOD_NAME not in args.outputs and mh.MOD_NAME in args.outputs:
         args.outputs.append(mh.PR_MOD_NAME)
     if mh.PR_MOD_NAME in args.outputs and not is_cat_mod:
@@ -597,6 +609,11 @@ def mods_validation(args, is_cat_mod):
         logger.warning((
             '--mod-motif provided, but {} not requested (via --outputs). ' +
             'Argument will be ignored.').format(mh.PR_MOD_NAME))
+    if args.refs_include_mods and mh.PR_REF_NAME not in args.outputs:
+        logger.warning((
+            '--refs-include-mods provided, but {} not requested ' +
+            '(via --outputs). Argument will be ignored.').format(
+                mh.PR_REF_NAME))
     return args
 
 def mkdir(out_dir, overwrite):
@@ -758,6 +775,10 @@ def get_parser():
         help=hidden_help('Compute forwards algorithm all paths score for ' +
                          'modified base calls. (Default: Viterbi ' +
                          'best-path score)'))
+    mod_grp.add_argument(
+        '--refs-include-mods', action='store_true',
+        help=hidden_help('Include modified base calls in per-read ' +
+                         'reference output.'))
 
     tai_grp = parser.add_argument_group('Taiyaki Signal Chunking Arguments')
     tai_grp.add_argument(
@@ -831,7 +852,7 @@ def _main():
     alphabet_info = AlphabetInfo(
         model_info, args.mod_motif, args.mod_all_paths,
         args.write_mods_text, args.mod_context_bases,
-        mh.BC_MODS_NAME in args.outputs)
+        mh.BC_MODS_NAME in args.outputs, args.refs_include_mods)
     args = mods_validation(args, model_info.is_cat_mod)
     args, snps_data = snps_validation(args, model_info.is_cat_mod)
     aligner = aligner_validation(args)

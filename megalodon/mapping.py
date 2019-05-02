@@ -28,9 +28,9 @@ class alignerPlus(mappy.Aligner):
         return
 
 
-def align_read(r_seq, aligner, map_thr_buf, read_id=None, add_chr_ref=False):
+def align_read(q_seq, aligner, map_thr_buf, read_id=None, add_chr_ref=False):
     try:
-        r_algn = next(aligner.map(str(r_seq), buf=map_thr_buf))
+        r_algn = next(aligner.map(str(q_seq), buf=map_thr_buf))
     except StopIteration:
         # alignment not produced
         return [None, None], None
@@ -43,7 +43,7 @@ def align_read(r_seq, aligner, map_thr_buf, read_id=None, add_chr_ref=False):
         chrm, r_algn.strand, r_algn.r_st, r_algn.r_en,
         r_algn.q_st, r_algn.q_en, r_algn.cigar]
     return [ref_seq, r_algn_data], (
-        read_id, r_seq, r_algn.ctg, r_algn.strand, r_algn.r_st,
+        read_id, q_seq, r_algn.ctg, r_algn.strand, r_algn.r_st,
         r_algn.q_st, r_algn.q_en, r_algn.cigar)
 
 
@@ -53,18 +53,18 @@ def _map_read_worker(aligner, map_conn, mo_q, add_chr_ref):
 
     while True:
         try:
-            r_seq, read_id = map_conn.recv()
+            q_seq, read_id = map_conn.recv()
         except:
             # exit gracefully
             return
-        if r_seq is None:
+        if q_seq is None:
             break
         map_res, full_res = align_read(
-            r_seq, aligner, map_thr_buf, read_id, add_chr_ref)
+            q_seq, aligner, map_thr_buf, read_id, add_chr_ref)
         map_conn.send(map_res)
 
         if mo_q is not None and full_res is not None:
-            mo_q.put(full_res)
+            mo_q.put((map_res[0], full_res))
 
     return
 
@@ -98,14 +98,14 @@ def parse_cigar(r_cigar, strand):
     return r_to_q_poss
 
 
-def map_read(r_seq, read_id, caller_conn):
+def map_read(q_seq, read_id, caller_conn):
     """Map read (query) sequence and return:
     1) reference sequence (endcoded as int labels)
     2) mapping from reference to read positions (after trimming)
     3) reference mapping position (including read trimming positions)
     """
     # send seq to _map_read_worker and receive mapped seq and pos
-    caller_conn.send((r_seq, read_id))
+    caller_conn.send((q_seq, read_id))
     r_ref_seq, r_algn = caller_conn.recv()
     if r_ref_seq is None:
         raise mh.MegaError('No alignment')
@@ -119,25 +119,26 @@ def map_read(r_seq, read_id, caller_conn):
     return r_ref_seq, r_to_q_poss, r_pos
 
 def _get_map_queue(
-        mo_q, map_conn, out_dir, ref_names_and_lens, map_fmt, ref_fn):
+        mo_q, map_conn, out_dir, ref_names_and_lens, map_fmt, ref_fn,
+        do_output_pr_refs):
     def write_alignment(
-            read_id, r_seq, chrm, strand, r_st, q_st, q_en, r_cigar):
-        r_seq = r_seq[q_st:q_en]
+            read_id, q_seq, chrm, strand, r_st, q_st, q_en, cigar):
+        q_seq = q_seq[q_st:q_en]
         if strand == -1:
-            r_cigar = r_cigar[::-1]
+            cigar = cigar[::-1]
 
         a = pysam.AlignedSegment()
         a.query_name = read_id
-        a.query_sequence = r_seq if strand == 1 else mh.revcomp(r_seq)
+        a.query_sequence = q_seq if strand == 1 else mh.revcomp(q_seq)
         a.flag = 0 if strand == 1 else 16
         a.reference_id = map_fp.get_tid(chrm)
         a.reference_start = r_st
-        a.cigartuples = [(op, op_l) for op_l, op in r_cigar]
+        a.cigartuples = [(op, op_l) for op_l, op in cigar]
         a.template_length = q_en - q_st
         map_fp.write(a)
 
         nalign, nmatch, ndel, nins = [0,] * 4
-        for op_len, op in r_cigar:
+        for op_len, op in cigar:
             if op not in (4, 5): nalign += op_len
             if op in (0, 7): nmatch += op_len
             elif op in (2, 3): ndel += op_len
@@ -147,6 +148,19 @@ def _get_map_queue(
             read_id, 100 * nmatch / float(nalign), nalign, nmatch, ndel, nins))
         summ_fp.flush()
 
+        return
+
+    def write_pr_ref(read_id, ref_seq):
+        pr_ref_fp.write('>{}\n{}\n'.format(read_id, ref_seq))
+        pr_ref_fp.flush()
+        return
+
+    def get_alignment():
+        ref_seq, (read_id, q_seq, chrm, strand, r_st, q_st, q_en,
+                  cigar) = mo_q.get(block=False)
+        write_alignment(read_id, q_seq, chrm, strand, r_st, q_st, q_en, cigar)
+        if do_output_pr_refs:
+            write_pr_ref(read_id, ref_seq)
         return
 
 
@@ -161,15 +175,19 @@ def _get_map_queue(
     elif map_fmt == 'cram': w_mode = 'wc'
     elif map_fmt == 'sam': w_mode = 'w'
     else:
-        raise mh.MegaError('Invalid mapping output format\n')
+        raise mh.MegaError('Invalid mapping output format')
     map_fp = pysam.AlignmentFile(
         map_fn, w_mode, reference_names=ref_names_and_lens[0],
         reference_lengths=ref_names_and_lens[1], reference_filename=ref_fn)
 
+    if do_output_pr_refs:
+        pr_ref_fp = open(
+            os.path.join(out_dir, mh.OUTPUT_FNS[mh.PR_REF_NAME]), 'w')
+
     try:
         while True:
             try:
-                write_alignment(*mo_q.get(block=False))
+                get_alignment()
             except queue.Empty:
                 if map_conn.poll():
                     break
@@ -177,10 +195,12 @@ def _get_map_queue(
                 continue
 
         while not mo_q.empty():
-            write_alignment(*mo_q.get(block=False))
+            get_alignment()
     finally:
         map_fp.close()
         summ_fp.close()
+        if do_output_pr_refs:
+            pr_ref_fp.close()
 
     return
 

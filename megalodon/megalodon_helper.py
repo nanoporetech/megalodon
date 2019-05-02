@@ -22,15 +22,18 @@ BC_OUT_FMTS = ('fasta',)
 BC_MODS_NAME = 'mod_basecalls'
 MAP_NAME = 'mappings'
 MAP_OUT_FMTS = ('bam', 'cram', 'sam')
+PR_REF_NAME = 'per_read_ref'
 PR_SNP_NAME = 'per_read_snps'
 SNP_NAME = 'snps'
 PR_MOD_NAME = 'per_read_mods'
 MOD_NAME = 'mods'
-ALIGN_OUTPUTS = set((MAP_NAME, PR_SNP_NAME, SNP_NAME, PR_MOD_NAME, MOD_NAME))
+ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, PR_SNP_NAME, SNP_NAME,
+                     PR_MOD_NAME, MOD_NAME))
 OUTPUT_FNS = {
     BC_NAME:'basecalls',
     BC_MODS_NAME:'basecalls.modified_base_scores.hdf5',
     MAP_NAME:['mappings', 'mappings.summary.txt'],
+    PR_REF_NAME:'per_read_references.fasta',
     PR_SNP_NAME:['per_read_snp_calls.db',
                  'per_read_snp_calls.txt'],
     SNP_NAME:'snps.vcf',

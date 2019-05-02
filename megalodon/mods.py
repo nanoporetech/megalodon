@@ -92,7 +92,7 @@ def call_read_mods(
 
 
     # call all mods overlapping this read
-    r_mod_calls = []
+    r_mod_scores = []
     for pos, mod_base, raw_motif in iter_motif_sites(r_ref_seq):
         pos_bb, pos_ab = min(alphabet_info.mod_context_bases, pos), min(
             alphabet_info.mod_context_bases, np_ref_seq.shape[0] - pos - 1)
@@ -121,31 +121,55 @@ def call_read_mods(
 
         m_ref_pos = (pos + r_ref_pos.start if r_ref_pos.strand == 1 else
                      r_ref_pos.end - pos - 1)
-        r_mod_calls.append((
+        r_mod_scores.append((
             m_ref_pos, loc_ref_score - loc_alt_score, raw_motif, mod_base))
 
-    return r_mod_calls
+    return r_mod_scores
 
 
 ###############################
 ##### Per-read Mod Output #####
 ###############################
 
-def _get_mods_queue(mods_q, mods_conn, mods_db_fn, mods_txt_fn, db_safety):
+def _get_mods_queue(
+        mods_q, mods_conn, mods_db_fn, mods_txt_fn, db_safety,
+        pr_refs_fn):
+    def write_pr_ref(read_id, ref_seq, r_mod_scores):
+        mod_seqs = []
+        prev_pos = 0
+        for mod_pos, score, _, mod_base in sorted(r_mod_scores):
+            # called canonical
+            # TODO: handle models with more than one mod per canonical base
+            if score <= 0: continue
+
+
+
+
+            logger.debug([mod_pos, prev_pos, mod_base])
+            mod_seqs.append(ref_seq[prev_pos:mod_pos] + mod_base)
+            prev_pos = mod_pos + 1
+        mod_seqs.append(ref_seq[prev_pos:])
+        mod_seq = ''.join(mod_seqs)
+        pr_refs_fp.write('>{}\n{}\n'.format(read_id, mod_seq))
+        pr_refs_fp.flush()
+        return
+
     def get_mod_call():
         # note strand is +1 for fwd or -1 for rev
-        r_mod_calls, (read_id, chrm, strand) = mods_q.get(block=False)
+        r_mod_scores, (read_id, chrm, strand, ref_seq) = mods_q.get(block=False)
         mods_db.executemany(ADDMANY_MODS, [
             (read_id, chrm, strand, pos, score, mod_base, raw_motif)
-            for pos, score, raw_motif, mod_base in r_mod_calls])
+            for pos, score, raw_motif, mod_base in r_mod_scores])
         if mods_txt_fp is not None:
             # would involve batching and creating several conversion tables
             # for var strings (read_if and chrms).
             mods_txt_fp.write('\n'.join((
                 '{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
                     read_id, chrm, strand, pos, score, raw_motif, mod_base)
-                for pos, score, raw_motif, mod_base in r_mod_calls)) + '\n')
+                for pos, score, raw_motif, mod_base in r_mod_scores)) + '\n')
             mods_txt_fp.flush()
+        if pr_refs_fn is not None:
+            write_pr_ref(read_id, ref_seq, r_mod_scores)
         return
 
 
@@ -156,6 +180,12 @@ def _get_mods_queue(mods_q, mods_conn, mods_db_fn, mods_txt_fn, db_safety):
         mods_db.execute(SET_NO_ROLLBACK_MODE)
     mods_db.execute(CREATE_MODS_TBLS)
     mods_txt_fp = None if mods_txt_fn is None else open(mods_txt_fn, 'w')
+
+    from megalodon import logging
+    logger = logging.get_logger()
+    logger.debug(pr_refs_fn)
+    if pr_refs_fn is not None:
+        pr_refs_fp = open(pr_refs_fn, 'w')
 
     while True:
         try:
@@ -169,6 +199,7 @@ def _get_mods_queue(mods_q, mods_conn, mods_db_fn, mods_txt_fn, db_safety):
     while not mods_q.empty():
         get_mod_call()
     if mods_txt_fp is not None: mods_txt_fp.close()
+    if pr_refs_fn is not None: pr_refs_fp.close()
     mods_db.execute(CREATE_MODS_IDX)
     mods_db.commit()
     mods_db.close()
