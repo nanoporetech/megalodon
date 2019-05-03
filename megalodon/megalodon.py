@@ -104,7 +104,8 @@ def process_read(
             args=(r_ref_pos, edge_buffer, r_ref_seq, np_ref_seq,
                   mapped_rl_cumsum, r_to_q_poss, r_post_w_mods,
                   post_mapped_start, alphabet_info),
-            r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand, r_ref_seq),
+            r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand,
+                    r_ref_pos.start, r_ref_seq),
             out_q=mods_q, fast5_fn=fast5_fn, failed_reads_q=failed_reads_q)
 
     return

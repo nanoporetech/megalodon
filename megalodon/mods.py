@@ -134,29 +134,29 @@ def call_read_mods(
 def _get_mods_queue(
         mods_q, mods_conn, mods_db_fn, mods_txt_fn, db_safety,
         pr_refs_fn):
-    def write_pr_ref(read_id, ref_seq, r_mod_scores):
+    def write_pr_ref(read_id, r_start, ref_seq, r_mod_scores, strand):
         mod_seqs = []
         prev_pos = 0
+        if strand == -1:
+            ref_seq = ref_seq[::-1]
         for mod_pos, score, _, mod_base in sorted(r_mod_scores):
             # called canonical
             # TODO: handle models with more than one mod per canonical base
-            if score <= 0: continue
-
-
-
-
-            logger.debug([mod_pos, prev_pos, mod_base])
-            mod_seqs.append(ref_seq[prev_pos:mod_pos] + mod_base)
-            prev_pos = mod_pos + 1
+            if score >= 0: continue
+            mod_seqs.append(ref_seq[prev_pos:mod_pos - r_start] + mod_base)
+            prev_pos = mod_pos - r_start + 1
         mod_seqs.append(ref_seq[prev_pos:])
         mod_seq = ''.join(mod_seqs)
+        if strand == -1:
+            mod_seq = mod_seq[::-1]
         pr_refs_fp.write('>{}\n{}\n'.format(read_id, mod_seq))
         pr_refs_fp.flush()
         return
 
     def get_mod_call():
         # note strand is +1 for fwd or -1 for rev
-        r_mod_scores, (read_id, chrm, strand, ref_seq) = mods_q.get(block=False)
+        r_mod_scores, (read_id, chrm, strand, r_start,
+                       ref_seq) = mods_q.get(block=False)
         mods_db.executemany(ADDMANY_MODS, [
             (read_id, chrm, strand, pos, score, mod_base, raw_motif)
             for pos, score, raw_motif, mod_base in r_mod_scores])
@@ -169,7 +169,7 @@ def _get_mods_queue(
                 for pos, score, raw_motif, mod_base in r_mod_scores)) + '\n')
             mods_txt_fp.flush()
         if pr_refs_fn is not None:
-            write_pr_ref(read_id, ref_seq, r_mod_scores)
+            write_pr_ref(read_id, r_start, ref_seq, r_mod_scores, strand)
         return
 
 
@@ -181,9 +181,6 @@ def _get_mods_queue(
     mods_db.execute(CREATE_MODS_TBLS)
     mods_txt_fp = None if mods_txt_fn is None else open(mods_txt_fn, 'w')
 
-    from megalodon import logging
-    logger = logging.get_logger()
-    logger.debug(pr_refs_fn)
     if pr_refs_fn is not None:
         pr_refs_fp = open(pr_refs_fn, 'w')
 
