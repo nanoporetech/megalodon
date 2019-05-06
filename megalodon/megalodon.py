@@ -80,7 +80,7 @@ def process_read(
     if caller_conn is None: return
 
     # map read and record mapping from reference to query positions
-    r_ref_seq, r_to_q_poss, r_ref_pos = mapping.map_read(
+    r_ref_seq, r_to_q_poss, r_ref_pos, r_cigar = mapping.map_read(
         r_seq, read_id, caller_conn)
     np_ref_seq = np.array([
         mh.ALPHABET.find(b) for b in r_ref_seq], dtype=np.uintp)
@@ -105,7 +105,8 @@ def process_read(
                   mapped_rl_cumsum, r_to_q_poss, r_post_w_mods,
                   post_mapped_start, alphabet_info),
             r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand,
-                    r_ref_pos.start, r_ref_seq),
+                    r_ref_pos.start, r_ref_seq, len(r_seq),
+                    r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
             out_q=mods_q, fast5_fn=fast5_fn, failed_reads_q=failed_reads_q)
 
     return
@@ -318,7 +319,7 @@ def _get_fail_queue(
 def process_all_reads(
         fast5s_dir, recursive, num_reads, model_info, outputs, out_dir, bc_fmt,
         aligner, add_chr_ref, snps_data, num_ps, num_update_errors,
-        suppress_progress, alphabet_info, db_safety, edge_buffer):
+        suppress_progress, alphabet_info, db_safety, edge_buffer, pr_ref_filts):
     logger = logging.get_logger()
     logger.info('Searching for reads.')
     fast5_fns = list(fast5_io.iterate_fast5_reads(
@@ -351,7 +352,7 @@ def process_all_reads(
         mo_q, mo_p, main_mo_conn = mh.create_getter_q(
             mapping._get_map_queue, (
                 out_dir, aligner.ref_names_and_lens, aligner.out_fmt,
-                aligner.ref_fn, do_output_pr_refs))
+                aligner.ref_fn, do_output_pr_refs, pr_ref_filts))
     if mh.PR_SNP_NAME in outputs:
         snps_db_fn, snps_txt_fn = mh.OUTPUT_FNS[mh.PR_SNP_NAME]
         snps_txt_fn = (os.path.join(out_dir, snps_txt_fn)
@@ -361,7 +362,7 @@ def process_all_reads(
                 snps_data.snp_id_tbl, os.path.join(out_dir, snps_db_fn),
                 snps_txt_fn, db_safety))
     if mh.PR_MOD_NAME in outputs:
-        pr_refs_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.PR_REF_NAME]) if (
+        pr_refs_fn = os.path.join(out_dir, mh.PR_REF_FN) if (
             mh.PR_REF_NAME in outputs and
             alphabet_info.do_pr_ref_mods) else None
         mods_db_fn, mods_txt_fn = mh.OUTPUT_FNS[mh.PR_MOD_NAME]
@@ -370,7 +371,7 @@ def process_all_reads(
         mods_q, mods_p, main_mods_conn = mh.create_getter_q(
             mods._get_mods_queue, (
                 os.path.join(out_dir, mods_db_fn), mods_txt_fn, db_safety,
-                pr_refs_fn))
+                pr_refs_fn, pr_ref_filts))
 
     proc_reads_ps, map_conns = [], []
     for device in model_info.process_devices:
@@ -617,6 +618,20 @@ def mods_validation(args, is_cat_mod):
                 mh.PR_REF_NAME))
     return args
 
+def parse_pr_ref_output(args):
+    logger = logging.get_logger()
+    if args.output_per_read_references:
+        args.outputs.append(mh.PR_REF_NAME)
+    min_len, max_len = (args.refs_length_range
+                        if args.refs_length_range is not None else
+                        (None, None))
+    pr_ref_filts = mh.PR_REF_FILTERS(
+        pct_idnt=args.refs_percent_identity_threshold,
+        pct_cov=args.refs_percent_coverage_threshold,
+        min_len=min_len, max_len=max_len)
+
+    return args, pr_ref_filts
+
 def mkdir(out_dir, overwrite):
     logger = logging.get_logger()
     if os.path.exists(out_dir):
@@ -776,10 +791,6 @@ def get_parser():
         help=hidden_help('Compute forwards algorithm all paths score for ' +
                          'modified base calls. (Default: Viterbi ' +
                          'best-path score)'))
-    mod_grp.add_argument(
-        '--refs-include-mods', action='store_true',
-        help=hidden_help('Include modified base calls in per-read ' +
-                         'reference output.'))
 
     tai_grp = parser.add_argument_group('Taiyaki Signal Chunking Arguments')
     tai_grp.add_argument(
@@ -796,6 +807,27 @@ def get_parser():
         '--max_concurrent_chunks', type=int, default=50,
         help='Only process N chunks concurrently per-read (to avoid GPU ' +
         'memory errors). Default: %(default)d')
+
+    refout_grp = parser.add_argument_group('Reference Output Arguments')
+    refout_grp.add_argument(
+        '--output-per-read-references', action='store_true',
+        help=hidden_help('Output per-read references.'))
+    refout_grp.add_argument(
+        '--refs-include-mods', action='store_true',
+        help=hidden_help('Include modified base calls in per-read ' +
+                         'reference output.'))
+    refout_grp.add_argument(
+        '--refs-percent-identity-threshold', type=float,
+        help=hidden_help('Only include reads with higher percent identity ' +
+                         'in per-read reference output.'))
+    refout_grp.add_argument(
+        '--refs-percent-coverage-threshold', type=float,
+        help=hidden_help('Only include reads with higher read alignment ' +
+                         'coverage in per-read reference output.'))
+    refout_grp.add_argument(
+        '--refs-length-range', type=int, nargs=2,
+        help=hidden_help('Only include reads with specified read length ' +
+                         'in per-read reference output.'))
 
     misc_grp = parser.add_argument_group('Miscellaneous Arguments')
     misc_grp.add_argument(
@@ -846,6 +878,7 @@ def _main():
     if _DO_PROFILE:
         args = profile_validation(args)
 
+    args, pr_ref_filts = parse_pr_ref_output(args)
     model_info = backends.ModelInfo(
         args.flappie_model_name, args.taiyaki_model_filename, args.devices,
         args.processes, args.chunk_size, args.chunk_overlap,
@@ -863,7 +896,7 @@ def _main():
         args.outputs, args.output_directory, args.basecalls_format, aligner,
         args.prepend_chr_ref, snps_data, args.processes,
         args.verbose_read_progress, args.suppress_progress,
-        alphabet_info, args.database_safety, args.edge_buffer)
+        alphabet_info, args.database_safety, args.edge_buffer, pr_ref_filts)
 
     if mh.SNP_NAME in args.outputs or mh.MOD_NAME in args.outputs:
         mod_names = (alphabet_info.mod_long_names

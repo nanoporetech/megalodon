@@ -116,11 +116,31 @@ def map_read(q_seq, read_id, caller_conn):
         chrm=chrm, strand=strand, start=r_st, end=r_en,
         q_trim_start=q_st, q_trim_end=q_en)
 
-    return r_ref_seq, r_to_q_poss, r_pos
+    return r_ref_seq, r_to_q_poss, r_pos, r_cigar
+
+def compute_pct_identity(cigar):
+    nalign, nmatch = 0, 0
+    for op_len, op in cigar:
+        if op not in (4, 5): nalign += op_len
+        if op in (0, 7): nmatch += op_len
+    return 100 * nmatch / float(nalign)
+
+def read_passes_filters(pr_ref_filts, read_len, q_st, q_en, cigar):
+    if pr_ref_filts.min_len is not None and read_len < pr_ref_filts.min_len:
+        return False
+    if pr_ref_filts.max_len is not None and read_len > pr_ref_filts.max_len:
+        return False
+    if (pr_ref_filts.pct_cov is not None and
+        100 * (q_en - q_st) / read_len < pr_ref_filts.pct_cov):
+        return False
+    if (pr_ref_filts.pct_idnt is not None and
+        compute_pct_identity(cigar) < pr_ref_filts.pct_idnt):
+        return False
+    return True
 
 def _get_map_queue(
         mo_q, map_conn, out_dir, ref_names_and_lens, map_fmt, ref_fn,
-        do_output_pr_refs):
+        do_output_pr_refs, pr_ref_filts):
     def write_alignment(
             read_id, q_seq, chrm, strand, r_st, q_st, q_en, cigar):
         q_seq = q_seq[q_st:q_en]
@@ -160,7 +180,9 @@ def _get_map_queue(
                   cigar) = mo_q.get(block=False)
         write_alignment(read_id, q_seq, chrm, strand, r_st, q_st, q_en, cigar)
         if do_output_pr_refs:
-            write_pr_ref(read_id, ref_seq)
+            if read_passes_filters(
+                    pr_ref_filts, len(q_seq), q_st, q_en, cigar):
+                write_pr_ref(read_id, ref_seq)
         return
 
 
@@ -181,8 +203,7 @@ def _get_map_queue(
         reference_lengths=ref_names_and_lens[1], reference_filename=ref_fn)
 
     if do_output_pr_refs:
-        pr_ref_fp = open(
-            os.path.join(out_dir, mh.OUTPUT_FNS[mh.PR_REF_NAME]), 'w')
+        pr_ref_fp = open(os.path.join(out_dir, mh.PR_REF_FN), 'w')
 
     try:
         while True:

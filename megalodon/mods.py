@@ -7,7 +7,7 @@ from collections import defaultdict, namedtuple, OrderedDict
 
 import numpy as np
 
-from megalodon import decode, megalodon_helper as mh
+from megalodon import decode, mapping, megalodon_helper as mh
 from megalodon._version import MEGALODON_VERSION
 
 
@@ -133,8 +133,13 @@ def call_read_mods(
 
 def _get_mods_queue(
         mods_q, mods_conn, mods_db_fn, mods_txt_fn, db_safety,
-        pr_refs_fn):
-    def write_pr_ref(read_id, r_start, ref_seq, r_mod_scores, strand):
+        pr_refs_fn, pr_ref_filts):
+    def write_pr_ref(
+            read_id, r_start, ref_seq, r_mod_scores, strand,
+            read_len, q_st, q_en, cigar):
+        if not mapping.read_passes_filters(
+                pr_ref_filts, read_len, q_st, q_en, cigar):
+            return
         mod_seqs = []
         prev_pos = 0
         if strand == -1:
@@ -155,8 +160,9 @@ def _get_mods_queue(
 
     def get_mod_call():
         # note strand is +1 for fwd or -1 for rev
-        r_mod_scores, (read_id, chrm, strand, r_start,
-                       ref_seq) = mods_q.get(block=False)
+        r_mod_scores, (
+            read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
+            cigar) = mods_q.get(block=False)
         mods_db.executemany(ADDMANY_MODS, [
             (read_id, chrm, strand, pos, score, mod_base, raw_motif)
             for pos, score, raw_motif, mod_base in r_mod_scores])
@@ -169,7 +175,8 @@ def _get_mods_queue(
                 for pos, score, raw_motif, mod_base in r_mod_scores)) + '\n')
             mods_txt_fp.flush()
         if pr_refs_fn is not None:
-            write_pr_ref(read_id, r_start, ref_seq, r_mod_scores, strand)
+            write_pr_ref(read_id, r_start, ref_seq, r_mod_scores, strand,
+                         read_len, q_st, q_en, cigar)
         return
 
 

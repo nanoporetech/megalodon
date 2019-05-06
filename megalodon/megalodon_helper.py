@@ -1,4 +1,5 @@
 import multiprocessing as mp
+from collections import namedtuple
 from abc import ABC, abstractmethod
 
 import numpy as np
@@ -9,6 +10,11 @@ DEFAULT_INDEL_HET_FACTOR = 1.3
 
 MED_NORM_FACTOR = 1.4826
 
+ALPHABET = 'ACGT'
+COMP_BASES = dict(zip(map(ord, 'ACGT'), map(ord, 'TGCA')))
+
+_MAX_QUEUE_SIZE = 1000
+
 # VCF spec text
 MAX_PL_VALUE = 255
 VCF_VERSION_MI = 'fileformat=VCFv{}'
@@ -16,24 +22,20 @@ FILE_DATE_MI = 'fileDate={}'
 SOURCE_MI = 'source=ont-megalodon.v{}'
 REF_MI = "reference={}"
 
-ALPHABET = 'ACGT'
+# outputs specification
 BC_NAME = 'basecalls'
 BC_OUT_FMTS = ('fasta',)
 BC_MODS_NAME = 'mod_basecalls'
 MAP_NAME = 'mappings'
 MAP_OUT_FMTS = ('bam', 'cram', 'sam')
-PR_REF_NAME = 'per_read_ref'
 PR_SNP_NAME = 'per_read_snps'
 SNP_NAME = 'snps'
 PR_MOD_NAME = 'per_read_mods'
 MOD_NAME = 'mods'
-ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, PR_SNP_NAME, SNP_NAME,
-                     PR_MOD_NAME, MOD_NAME))
 OUTPUT_FNS = {
     BC_NAME:'basecalls',
     BC_MODS_NAME:'basecalls.modified_base_scores.hdf5',
     MAP_NAME:['mappings', 'mappings.summary.txt'],
-    PR_REF_NAME:'per_read_references.fasta',
     PR_SNP_NAME:['per_read_snp_calls.db',
                  'per_read_snp_calls.txt'],
     SNP_NAME:'snps.vcf',
@@ -42,9 +44,16 @@ OUTPUT_FNS = {
     MOD_NAME:'mods.mvcf'
 }
 LOG_FILENAME = 'log.txt'
-COMP_BASES = dict(zip(map(ord, 'ACGT'), map(ord, 'TGCA')))
+# special output type, not included in standard --outputs (since it is
+# used only in special circumstances)
+PR_REF_NAME = 'per_read_ref'
+PR_REF_FN = 'per_read_references.fasta'
 
-_MAX_QUEUE_SIZE = 1000
+ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, PR_SNP_NAME, SNP_NAME,
+                     PR_MOD_NAME, MOD_NAME))
+
+PR_REF_FILTERS = namedtuple(
+    'pr_ref_filters', ('pct_idnt', 'pct_cov', 'min_len', 'max_len'))
 
 
 class MegaError(Exception):
