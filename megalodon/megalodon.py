@@ -96,7 +96,9 @@ def process_read(
             args=(r_ref_pos, snps_to_test, edge_buffer, snp_context_bases,
                   np_ref_seq, mapped_rl_cumsum, r_to_q_poss, r_post,
                   post_mapped_start, snp_all_paths, snp_calib_tbl),
-            r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand),
+            r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand,
+                    r_ref_pos.start, r_ref_seq, len(r_seq),
+                    r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
             out_q=snps_q, fast5_fn=fast5_fn, failed_reads_q=failed_reads_q)
     if mods_q is not None:
         handle_errors(
@@ -348,19 +350,23 @@ def process_all_reads(
                             alphabet_info.mod_long_names))
     if mh.MAP_NAME in outputs:
         do_output_pr_refs = (mh.PR_REF_NAME in outputs and
-                          not alphabet_info.do_pr_ref_mods)
+                             not alphabet_info.do_pr_ref_mods and
+                             not snps_data.do_pr_ref_snps)
         mo_q, mo_p, main_mo_conn = mh.create_getter_q(
             mapping._get_map_queue, (
                 out_dir, aligner.ref_names_and_lens, aligner.out_fmt,
                 aligner.ref_fn, do_output_pr_refs, pr_ref_filts))
     if mh.PR_SNP_NAME in outputs:
+        pr_refs_fn = os.path.join(out_dir, mh.PR_REF_FN) if (
+            mh.PR_REF_NAME in outputs and
+            snps_data.do_pr_ref_snps) else None
         snps_db_fn, snps_txt_fn = mh.OUTPUT_FNS[mh.PR_SNP_NAME]
         snps_txt_fn = (os.path.join(out_dir, snps_txt_fn)
                        if snps_data.write_snps_txt else None)
         snps_q, snps_p, main_snps_conn = mh.create_getter_q(
             snps._get_snps_queue, (
                 snps_data.snp_id_tbl, os.path.join(out_dir, snps_db_fn),
-                snps_txt_fn, db_safety))
+                snps_txt_fn, db_safety, pr_refs_fn, pr_ref_filts))
     if mh.PR_MOD_NAME in outputs:
         pr_refs_fn = os.path.join(out_dir, mh.PR_REF_FN) if (
             mh.PR_REF_NAME in outputs and
@@ -579,7 +585,8 @@ def snps_validation(args, is_cat_mod):
         args.snp_filename, args.prepend_chr_vcf, args.max_snp_size,
         args.snp_all_paths, args.write_snps_text, args.snp_context_bases,
         args.snp_calibration_filename,
-        snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE)
+        snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE,
+        args.refs_include_snps)
     if args.snp_filename is not None and mh.PR_SNP_NAME not in args.outputs:
         logger.warning(
             '--snps-filename provided, but SNP output not requested ' +
@@ -622,6 +629,20 @@ def parse_pr_ref_output(args):
     logger = logging.get_logger()
     if args.output_per_read_references:
         args.outputs.append(mh.PR_REF_NAME)
+        if args.refs_include_snps and args.refs_include_mods:
+            logger.error('Cannot output both modified base and SNPs in ' +
+                         'per-read references (remove one of ' +
+                         '--refs-include-snps or --refs-include-mods).')
+            sys.exit(1)
+    else:
+        if args.refs_include_snps:
+            logger.warning(
+                '--refs-include-snps but not --output-per-read-references ' +
+                'set. Ignoring --refs-include-snps.')
+        if args.refs_include_mods:
+            logger.warning(
+                '--refs-include-mods but not --output-per-read-references ' +
+                'set. Ignoring --refs-include-mods.')
     min_len, max_len = (args.refs_length_range
                         if args.refs_length_range is not None else
                         (None, None))
@@ -815,6 +836,10 @@ def get_parser():
     refout_grp.add_argument(
         '--refs-include-mods', action='store_true',
         help=hidden_help('Include modified base calls in per-read ' +
+                         'reference output.'))
+    refout_grp.add_argument(
+        '--refs-include-snps', action='store_true',
+        help=hidden_help('Include SNP calls in per-read ' +
                          'reference output.'))
     refout_grp.add_argument(
         '--refs-percent-identity-threshold', type=float,

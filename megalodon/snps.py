@@ -8,7 +8,7 @@ from collections import defaultdict, namedtuple, OrderedDict
 
 import numpy as np
 
-from megalodon import decode, logging, megalodon_helper as mh
+from megalodon import decode, logging, mapping, megalodon_helper as mh
 from megalodon._version import MEGALODON_VERSION
 
 
@@ -258,24 +258,56 @@ def call_read_snps(
 ##### Per-read SNP Output #####
 ###############################
 
+def annotate_snps(r_start, ref_seq, r_snp_calls, strand):
+    """ Annotate reference sequence with called snps.
+
+    Note: Reference sequence is in read orientation and snp calls are in
+    genome coordiates.
+    """
+    snp_seqs = []
+    prev_pos = 0
+    if strand == -1:
+        ref_seq = ref_seq[::-1]
+    for snp_pos, score, snp_ref_seq, snp_alt_seq, _ in sorted(r_snp_calls):
+        # called canonical
+        if score >= 0: continue
+        snp_seqs.append(ref_seq[prev_pos:snp_pos - r_start] + snp_alt_seq)
+        prev_pos = snp_pos - r_start + len(snp_ref_seq)
+    snp_seqs.append(ref_seq[prev_pos:])
+    snp_seq = ''.join(snp_seqs)
+    if strand == -1:
+        snp_seq = snp_seq[::-1]
+
+    return snp_seq
+
 def _get_snps_queue(
-        snps_q, snps_conn, snp_id_tbl, snps_db_fn, snps_txt_fn, db_safety):
+        snps_q, snps_conn, snp_id_tbl, snps_db_fn, snps_txt_fn, db_safety,
+        pr_refs_fn, pr_ref_filts):
     def get_snp_call():
         # note strand is +1 for fwd or -1 for rev
-        r_snp_calls, (read_id, chrm, strand) = snps_q.get(block=False)
+        r_snp_calls, (read_id, chrm, strand, r_start, ref_seq, read_len,
+                      q_st, q_en, cigar) = snps_q.get(block=False)
         snps_db.executemany(ADDMANY_SNPS, [
-            (read_id, chrm, strand, pos, score, ref_seq, alt_seq,
+            (read_id, chrm, strand, pos, score, snp_ref_seq, snp_alt_seq,
              snp_id_tbl[chrm][snp_i])
-            for pos, score, ref_seq, alt_seq, snp_i in r_snp_calls])
+            for pos, score, snp_ref_seq, snp_alt_seq, snp_i in r_snp_calls])
         if snps_txt_fp is not None:
             # would involve batching and creating several conversion tables
             # for var strings (read_if and chrms).
             snps_txt_fp.write('\n'.join((
                 '{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
-                    read_id, chrm, strand, pos, score, ref_seq, alt_seq,
+                    read_id, chrm, strand, pos, score, snp_ref_seq, snp_alt_seq,
                     snp_id_tbl[chrm][snp_i])
-                for pos, score, ref_seq, alt_seq, snp_i in r_snp_calls)) + '\n')
+                for pos, score, snp_ref_seq, snp_alt_seq, snp_i in
+                r_snp_calls)) + '\n')
             snps_txt_fp.flush()
+        if pr_refs_fn is not None:
+            if not mapping.read_passes_filters(
+                    pr_ref_filts, read_len, q_st, q_en, cigar):
+                return
+            pr_refs_fp.write('>{}\n{}\n'.format(read_id, annotate_snps(
+                r_start, ref_seq, r_snp_calls, strand)))
+            pr_refs_fp.flush()
         return
 
 
@@ -286,6 +318,9 @@ def _get_snps_queue(
         snps_db.execute(SET_NO_ROLLBACK_MODE)
     snps_db.execute(CREATE_SNPS_TBLS)
     snps_txt_fp = None if snps_txt_fn is None else open(snps_txt_fn, 'w')
+
+    if pr_refs_fn is not None:
+        pr_refs_fp = open(pr_refs_fn, 'w')
 
     while True:
         try:
@@ -299,6 +334,7 @@ def _get_snps_queue(
     while not snps_q.empty():
         get_snp_call()
     if snps_txt_fp is not None: snps_txt_fp.close()
+    if pr_refs_fn is not None: pr_refs_fp.close()
     snps_db.execute(CREATE_SNPS_IDX)
     snps_db.commit()
     snps_db.close()
@@ -342,14 +378,14 @@ class SnpCalibrator(object):
         self.calib_loaded = self.fn is not None
         return
 
-    def calibrate_llr(self, llr, ref_seq, alt_seq):
+    def calibrate_llr(self, llr, snp_ref_seq, snp_alt_seq):
         if not self.calib_loaded:
             return llr
-        if len(ref_seq) == len(alt_seq):
+        if len(snp_ref_seq) == len(snp_alt_seq):
             return self.snp_calib_table[np.around((
                 np.clip(llr, self.snp_llr_range[0], self.snp_llr_range[1]) -
                 self.snp_llr_range[0]) / self.snp_step).astype(int)]
-        elif len(ref_seq) > len(alt_seq):
+        elif len(snp_ref_seq) > len(snp_alt_seq):
             return self.del_calib_table[np.around((
                 np.clip(llr, self.del_llr_range[0], self.del_llr_range[1]) -
                 self.del_llr_range[0]) / self.del_step).astype(int)]
@@ -362,12 +398,13 @@ class SnpData(object):
     def __init__(
             self, snp_fn, do_prepend_chr_vcf, max_snp_size, all_paths,
             write_snps_txt, context_bases, snps_calib_fn=None,
-            call_mode=DIPLOID_MODE):
+            call_mode=DIPLOID_MODE, do_pr_ref_snps=False):
         self.all_paths = all_paths
         self.write_snps_txt = write_snps_txt
         self.calib_table = SnpCalibrator(snps_calib_fn)
         self.context_bases = context_bases
         self.call_mode = call_mode
+        self.do_pr_ref_snps = do_pr_ref_snps
         if snp_fn is None:
             self.snps_to_test = None
             self.snp_id_tbl = None
@@ -382,7 +419,8 @@ class SnpData(object):
             for line in fp:
                 if line.startswith('#'): continue
                 try:
-                    chrm, pos, snp_id, ref_seq, alt_seq = line.split()[:5]
+                    (chrm, pos, snp_id,
+                     snp_ref_seq, snp_alt_seq) = line.split()[:5]
                 except:
                     logger.debug(
                         'Encountered invalid VCF line: "{}"'.format(line))
@@ -395,7 +433,7 @@ class SnpData(object):
 
                 try:
                     ref_es, alt_es, pos = simplify_and_encode_snp(
-                        ref_seq, alt_seq, int(pos), max_snp_size)
+                        snp_ref_seq, snp_alt_seq, int(pos), max_snp_size)
                 except mh.MegaError:
                     n_skipped_snps += 1
                     continue

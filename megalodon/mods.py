@@ -131,33 +131,32 @@ def call_read_mods(
 ##### Per-read Mod Output #####
 ###############################
 
+def annotate_mods(r_start, ref_seq, r_mod_scores, strand):
+    """ Annotate reference sequence with called modified bases.
+
+    Note: Reference sequence is in read orientation and mod calls are in
+    genome coordiates.
+    """
+    mod_seqs = []
+    prev_pos = 0
+    if strand == -1:
+        ref_seq = ref_seq[::-1]
+    for mod_pos, score, _, mod_base in sorted(r_mod_scores):
+        # called canonical
+        # TODO: handle models with more than one mod per canonical base
+        if score >= 0: continue
+        mod_seqs.append(ref_seq[prev_pos:mod_pos - r_start] + mod_base)
+        prev_pos = mod_pos - r_start + 1
+    mod_seqs.append(ref_seq[prev_pos:])
+    mod_seq = ''.join(mod_seqs)
+    if strand == -1:
+        mod_seq = mod_seq[::-1]
+
+    return mod_seq
+
 def _get_mods_queue(
         mods_q, mods_conn, mods_db_fn, mods_txt_fn, db_safety,
         pr_refs_fn, pr_ref_filts):
-    def write_pr_ref(
-            read_id, r_start, ref_seq, r_mod_scores, strand,
-            read_len, q_st, q_en, cigar):
-        if not mapping.read_passes_filters(
-                pr_ref_filts, read_len, q_st, q_en, cigar):
-            return
-        mod_seqs = []
-        prev_pos = 0
-        if strand == -1:
-            ref_seq = ref_seq[::-1]
-        for mod_pos, score, _, mod_base in sorted(r_mod_scores):
-            # called canonical
-            # TODO: handle models with more than one mod per canonical base
-            if score >= 0: continue
-            mod_seqs.append(ref_seq[prev_pos:mod_pos - r_start] + mod_base)
-            prev_pos = mod_pos - r_start + 1
-        mod_seqs.append(ref_seq[prev_pos:])
-        mod_seq = ''.join(mod_seqs)
-        if strand == -1:
-            mod_seq = mod_seq[::-1]
-        pr_refs_fp.write('>{}\n{}\n'.format(read_id, mod_seq))
-        pr_refs_fp.flush()
-        return
-
     def get_mod_call():
         # note strand is +1 for fwd or -1 for rev
         r_mod_scores, (
@@ -175,8 +174,14 @@ def _get_mods_queue(
                 for pos, score, raw_motif, mod_base in r_mod_scores)) + '\n')
             mods_txt_fp.flush()
         if pr_refs_fn is not None:
-            write_pr_ref(read_id, r_start, ref_seq, r_mod_scores, strand,
-                         read_len, q_st, q_en, cigar)
+            if not mapping.read_passes_filters(
+                    pr_ref_filts, read_len, q_st, q_en, cigar):
+                return
+
+            pr_refs_fp.write('>{}\n{}\n'.format(read_id, annotate_mods(
+                r_start, ref_seq, r_mod_scores, strand)))
+            pr_refs_fp.flush()
+
         return
 
 
