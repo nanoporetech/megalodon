@@ -634,6 +634,14 @@ def parse_pr_ref_output(args):
                          'per-read references (remove one of ' +
                          '--refs-include-snps or --refs-include-mods).')
             sys.exit(1)
+        if args.refs_include_snps and not mh.PR_SNP_NAME not in args.outputs:
+            args.outputs.append(mh.PR_SNP_NAME)
+            logger.warning('--refs-include-snps set, so adding ' +
+                           'per_read_snps to --outputs.')
+        if args.refs_include_mods and not mh.PR_MOD_NAME not in args.outputs:
+            args.outputs.append(mh.PR_MOD_NAME)
+            logger.warning('--refs-include-mods set, so adding ' +
+                           'per_read_mods to --outputs.')
     else:
         if args.refs_include_snps:
             logger.warning(
