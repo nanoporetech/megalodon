@@ -323,7 +323,7 @@ def process_all_reads(
         aligner, add_chr_ref, snps_data, num_ps, num_update_errors,
         suppress_progress, alphabet_info, db_safety, edge_buffer, pr_ref_filts):
     logger = logging.get_logger()
-    logger.info('Searching for reads.')
+    logger.info('Searching for reads and extracting read ids.')
     fast5_fns = list(fast5_io.iterate_fast5_reads(
         fast5s_dir, num_reads, recursive))
 
@@ -610,11 +610,11 @@ def mods_validation(args, is_cat_mod):
         sys.exit(1)
     if (is_cat_mod and mh.PR_MOD_NAME not in args.outputs and
         mh.BC_MODS_NAME not in args.outputs):
-        loggger.warning(
+        logger.warning(
             ('Categorical modifications model provided, but neither {} nor ' +
             '{} requested (via --outputs). Modified base output will not be ' +
              'produced.').format( mh.PR_MOD_NAME, mh.BC_MODS_NAME))
-    if len(args.mod_motif) != 0 and mh.PR_MOD_NAME not in args.outputs:
+    if args.mod_motif is not None and mh.PR_MOD_NAME not in args.outputs:
         logger.warning((
             '--mod-motif provided, but {} not requested (via --outputs). ' +
             'Argument will be ignored.').format(mh.PR_MOD_NAME))
@@ -634,11 +634,11 @@ def parse_pr_ref_output(args):
                          'per-read references (remove one of ' +
                          '--refs-include-snps or --refs-include-mods).')
             sys.exit(1)
-        if args.refs_include_snps and not mh.PR_SNP_NAME not in args.outputs:
+        if args.refs_include_snps and mh.PR_SNP_NAME not in args.outputs:
             args.outputs.append(mh.PR_SNP_NAME)
             logger.warning('--refs-include-snps set, so adding ' +
                            'per_read_snps to --outputs.')
-        if args.refs_include_mods and not mh.PR_MOD_NAME not in args.outputs:
+        if args.refs_include_mods and mh.PR_MOD_NAME not in args.outputs:
             args.outputs.append(mh.PR_MOD_NAME)
             logger.warning('--refs-include-mods set, so adding ' +
                            'per_read_mods to --outputs.')
