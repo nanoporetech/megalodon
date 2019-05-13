@@ -516,9 +516,9 @@ class AlphabetInfo(object):
                 'Using canoncical alphabet {}.'.format(self.alphabet))
 
         self.nbase = len(self.alphabet)
+        self.n_can_state = (self.ncan_base + self.ncan_base) * (
+            self.ncan_base + 1)
         if model_info.is_cat_mod:
-            self.n_can_state = (self.ncan_base + self.ncan_base) * (
-                self.ncan_base + 1)
             self.nmod_base = model_info.n_mods
             self.can_base_mods = model_info.can_base_mods
             self.can_mods_offsets = model_info.can_indices
@@ -530,6 +530,11 @@ class AlphabetInfo(object):
                     'do not agree.').format(
                         self.alphabet,
                         model_info.output_size - self.n_can_state - 1)
+        else:
+            self.nmod_base = 0
+            self.can_base_mods = {}
+            self.can_mods_offsets = None
+            self.str_to_int_mod_labels = None
 
         # parse mod motifs or use "swap" base if no motif provided
         self._parse_mod_motifs(all_mod_motifs_raw)
