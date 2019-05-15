@@ -142,11 +142,12 @@ def report_acc_metrics(res_dir, out_fp):
             bc_dat['pct_identity'], 1), return_counts=True)
         mode_bc_acc = uniq_acc[np.argmax(acc_counts)]
         out_fp.write(
-            ('Basecall metrics for {}:\n\t' +
+            ('Basecall metrics for {} ({} mapped reads):\n\t' +
              'Mean Pct. Identity:    {:.4f}\n\t' +
              'Median Pct. Identity:  {:.4f}\n\t' +
              'Mode Pct. Identity:    {:.1f}\n').format(
-                 res_dir, mean_bc_acc, med_bc_acc, mode_bc_acc))
+                 res_dir, bc_dat.shape[0],
+                 mean_bc_acc, med_bc_acc, mode_bc_acc))
     except FileNotFoundError:
         if VERBOSE: sys.stderr.write(
                 '*' * 20 + 'Mappings not found for {}\n'.format(res_dir))
