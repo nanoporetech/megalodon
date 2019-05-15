@@ -21,6 +21,9 @@ MODS_FN = mh.OUTPUT_FNS[mh.PR_MOD_NAME][1]
 
 VERBOSE = False
 
+BANDWIDTH = 0.2
+GRIDSIZE = 1000
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -39,7 +42,7 @@ parser.add_argument(
     'truth modifications. All other sites will be assumed unmodified.')
 parser.add_argument(
     '--out-pdf', default='megalodon_validation.pdf',
-    help='Output pdf filename.')
+    help='Output pdf filename. Default: %(default)s')
 parser.add_argument(
     '--out-filename',
     help='Output filename for text summary. Default: stdout')
@@ -49,32 +52,42 @@ parser.add_argument(
 
 
 def report_mod_metrics(m_dat, args, out_fp):
-    if VERBOSE: sys.stderr.write('Computing PR/ROC\n')
-    # compute roc and presicion recall
-    precision, recall, _ = precision_recall_curve(
-        m_dat['is_mod'], -m_dat['score'])
-    avg_prcn = average_precision_score(m_dat['is_mod'], -m_dat['score'])
+    pdf_fp = PdfPages(args.out_pdf)
 
-    fpr, tpr, _ = roc_curve(m_dat['is_mod'], -m_dat['score'])
-    roc_auc = auc(fpr, tpr)
+    for motif in np.unique(m_dat['motif']):
+        motif_m_dat = m_dat[m_dat['motif'] == motif]
+        if VERBOSE: sys.stderr.write('Computing PR/ROC for {}\n'.format(motif))
+        out_fp.write(('Modified base class distribution for {}:\n\t' +
+                      'Number of modified observations:    {}\n\t' +
+                      'Number of unmodified observations:  {}\n').format(
+                          motif,
+                          sum(motif_m_dat['is_mod']),
+                          sum(~motif_m_dat['is_mod'])))
+        # compute roc and presicion recall
+        precision, recall, _ = precision_recall_curve(
+            motif_m_dat['is_mod'], -motif_m_dat['score'])
+        avg_prcn = average_precision_score(
+            motif_m_dat['is_mod'], -motif_m_dat['score'])
 
-    out_fp.write(('Modified base metrics:\n\t' +
-                  'Average precision:  {:.6f}\n\t' +
-                  'ROC AUC:            {:.6f}\n').format(avg_prcn, roc_auc))
+        fpr, tpr, _ = roc_curve(motif_m_dat['is_mod'], -motif_m_dat['score'])
+        roc_auc = auc(fpr, tpr)
 
-    if VERBOSE: sys.stderr.write('Plotting\n')
-    with PdfPages(args.out_pdf) as pdf:
-        bw = 0.2
-        gs = 1000
+        out_fp.write(('Modified base metrics for {}:\n\t' +
+                      'Average precision:  {:.6f}\n\t' +
+                      'ROC AUC:            {:.6f}\n').format(
+                          motif, avg_prcn, roc_auc))
+
+        if VERBOSE: sys.stderr.write('Plotting {}\n'.format(motif))
         plt.figure(figsize=(11, 7))
-        sns.kdeplot(m_dat[m_dat['is_mod']]['score'], shade=True,
-                    bw=bw, gridsize=gs, label='Yes')
-        sns.kdeplot(m_dat[~m_dat['is_mod']]['score'], shade=True,
-                    bw=bw, gridsize=gs, label='No')
+        sns.kdeplot(motif_m_dat[motif_m_dat['is_mod']]['score'], shade=True,
+                    bw=BANDWIDTH, gridsize=GRIDSIZE, label='Yes')
+        sns.kdeplot(motif_m_dat[~motif_m_dat['is_mod']]['score'], shade=True,
+                    bw=BANDWIDTH, gridsize=GRIDSIZE, label='No')
         plt.legend(prop={'size':16}, title='Is Modified?')
         plt.xlabel('Modified Base Score')
         plt.ylabel('Density')
-        pdf.savefig(bbox_inches='tight')
+        plt.title('Motif: {}'.format(motif))
+        pdf_fp.savefig(bbox_inches='tight')
         plt.close()
 
         plt.figure(figsize=(8, 7))
@@ -83,8 +96,9 @@ def report_mod_metrics(m_dat, args, out_fp):
         plt.xlim([-0.05, 1.05])
         plt.xlabel('Recall')
         plt.ylabel('Precision')
-        plt.title('Precision-Recall curve: AP={0:0.2f}'.format(avg_prcn))
-        pdf.savefig(bbox_inches='tight')
+        plt.title('Motif: {}\tPrecision-Recall curve: AP={:0.2f}'.format(
+            motif, avg_prcn))
+        pdf_fp.savefig(bbox_inches='tight')
         plt.close()
 
         plt.figure(figsize=(8, 7))
@@ -93,9 +107,11 @@ def report_mod_metrics(m_dat, args, out_fp):
         plt.ylim([-0.05, 1.05])
         plt.xlabel('False Positive Rate')
         plt.ylabel('True Positive Rate')
-        plt.title('ROC curve: auc={:0.2f}'.format(roc_auc))
-        pdf.savefig(bbox_inches='tight')
+        plt.title('Motif: {}\tROC curve: auc={:0.2f}'.format(motif, roc_auc))
+        pdf_fp.savefig(bbox_inches='tight')
         plt.close()
+
+    pdf_fp.close()
 
     return
 
@@ -112,10 +128,6 @@ def merge_mods_data(mega_dat, ctrl_dat, gt_dat, mod_chrm_sw, out_fp):
         m_dat = mega_dat
         m_dat['is_mod'] = np.array([
             chrm.startswith(mod_chrm_sw) for chrm in m_dat['chrm']])
-    out_fp.write(('Modified base class distribution:\n\tNumber of ' +
-                  'modified observations:    {}\n\tNumber of ' +
-                  'unmodified observations:  {}\n').format(
-                      sum(m_dat['is_mod']), sum(~m_dat['is_mod'])))
 
     return m_dat
 
