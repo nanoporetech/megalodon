@@ -21,8 +21,11 @@ MODS_FN = mh.OUTPUT_FNS[mh.PR_MOD_NAME][1]
 
 VERBOSE = False
 
-BANDWIDTH = 0.2
-GRIDSIZE = 1000
+PLOT_MIN_BC_ACC = 80
+MOD_BANDWIDTH = 0.2
+MOD_GRIDSIZE = 1000
+BC_BANDWIDTH = 0.2
+BC_GRIDSIZE = 1000
 
 
 parser = argparse.ArgumentParser()
@@ -51,9 +54,7 @@ parser.add_argument(
     help='Suppress progress information.')
 
 
-def report_mod_metrics(m_dat, args, out_fp):
-    pdf_fp = PdfPages(args.out_pdf)
-
+def report_mod_metrics(m_dat, args, out_fp, pdf_fp):
     for motif in np.unique(m_dat['motif']):
         motif_m_dat = m_dat[m_dat['motif'] == motif]
         if VERBOSE: sys.stderr.write('Computing PR/ROC for {}\n'.format(motif))
@@ -80,9 +81,9 @@ def report_mod_metrics(m_dat, args, out_fp):
         if VERBOSE: sys.stderr.write('Plotting {}\n'.format(motif))
         plt.figure(figsize=(11, 7))
         sns.kdeplot(motif_m_dat[motif_m_dat['is_mod']]['score'], shade=True,
-                    bw=BANDWIDTH, gridsize=GRIDSIZE, label='Yes')
+                    bw=MOD_BANDWIDTH, gridsize=MOD_GRIDSIZE, label='Yes')
         sns.kdeplot(motif_m_dat[~motif_m_dat['is_mod']]['score'], shade=True,
-                    bw=BANDWIDTH, gridsize=GRIDSIZE, label='No')
+                    bw=MOD_BANDWIDTH, gridsize=MOD_GRIDSIZE, label='No')
         plt.legend(prop={'size':16}, title='Is Modified?')
         plt.xlabel('Modified Base Score')
         plt.ylabel('Density')
@@ -111,71 +112,96 @@ def report_mod_metrics(m_dat, args, out_fp):
         pdf_fp.savefig(bbox_inches='tight')
         plt.close()
 
-    pdf_fp.close()
-
     return
 
-def merge_mods_data(mega_dat, ctrl_dat, gt_dat, mod_chrm_sw, out_fp):
+def merge_mods_data(mod_dat, ctrl_dat, gt_dat, mod_chrm_sw, out_fp):
     if VERBOSE: sys.stderr.write('Merging modified base data\n')
     # merge scores with known mod sites
     if ctrl_dat is not None:
-        mega_dat['is_mod'] = np.full(mega_dat.shape[0], True)
+        mod_dat['is_mod'] = np.full(mod_dat.shape[0], True)
         ctrl_dat['is_mod'] = np.full(ctrl_dat.shape[0], False)
-        m_dat = mega_dat.append(ctrl_dat)
+        m_dat = mod_dat.append(ctrl_dat)
     elif gt_dat is not None:
-        m_dat = pd.merge(mega_dat, gt_dat, on=['chrm', 'pos'], sort=False)
+        m_dat = pd.merge(mod_dat, gt_dat, on=['chrm', 'pos'], sort=False)
     else:
-        m_dat = mega_dat
+        m_dat = mod_dat
         m_dat['is_mod'] = np.array([
             chrm.startswith(mod_chrm_sw) for chrm in m_dat['chrm']])
 
     return m_dat
 
+def plot_acc(mod_acc, ctrl_acc, pdf_fp):
+    if VERBOSE: sys.stderr.write('Plotting mapping accuracy distribution(s)\n')
+    plt.figure(figsize=(11, 7))
+    sns.kdeplot(mod_acc, shade=True,
+                bw=BC_BANDWIDTH, gridsize=BC_GRIDSIZE, label='Sample')
+    if ctrl_acc is not None:
+        sns.kdeplot(ctrl_acc, shade=True,
+                    bw=BC_BANDWIDTH, gridsize=BC_GRIDSIZE, label='Control')
+    plt.legend(prop={'size':16}, title='Sample')
+    plt.xlabel('Mapping Percent Identity')
+    plt.ylabel('Density')
+    plt.title('Mapping Accuracy')
+    plt.xlim(PLOT_MIN_BC_ACC, 100)
+    pdf_fp.savefig(bbox_inches='tight')
+    plt.close()
+
+    return
+
 def report_acc_metrics(res_dir, out_fp):
     try:
         bc_dat = pd.read_csv(
             os.path.join(res_dir, MAP_FN), sep='\t')
-        mean_bc_acc = np.mean(bc_dat['pct_identity'])
-        med_bc_acc = np.median(bc_dat['pct_identity'])
+        bc_acc = bc_dat['pct_identity']
+        mean_bc_acc = np.mean(bc_acc)
+        med_bc_acc = np.median(bc_acc)
         # crude mode by rounding to 1 decimal
         uniq_acc, acc_counts = np.unique(np.around(
-            bc_dat['pct_identity'], 1), return_counts=True)
+            bc_acc, 1), return_counts=True)
         mode_bc_acc = uniq_acc[np.argmax(acc_counts)]
         out_fp.write(
-            ('Basecall metrics for {} ({} mapped reads):\n\t' +
+            ('Mapping metrics for {} ({} mapped reads):\n\t' +
              'Mean Pct. Identity:    {:.4f}\n\t' +
              'Median Pct. Identity:  {:.4f}\n\t' +
              'Mode Pct. Identity:    {:.1f}\n').format(
                  res_dir, bc_dat.shape[0],
                  mean_bc_acc, med_bc_acc, mode_bc_acc))
     except FileNotFoundError:
+        bc_acc = None
         if VERBOSE: sys.stderr.write(
                 '*' * 20 + 'Mappings not found for {}\n'.format(res_dir))
 
-    return
+    return bc_acc
 
-def parse_mega_data(args, out_fp):
+def parse_mod_data(args, out_fp):
     if VERBOSE: sys.stderr.write('Reading megalodon data\n')
-    mega_dat = pd.read_csv(
-        os.path.join(args.megalodon_results_dir, MODS_FN),
-        sep='\t', header=None,
-        names=['read_id' ,'chrm', 'strand', 'pos', 'score',
-               'motif', 'mod_base'])
+    mod_acc = report_acc_metrics(args.megalodon_results_dir, out_fp)
 
-    report_acc_metrics(args.megalodon_results_dir, out_fp)
-
-    return mega_dat
-
-def parse_control_mods(args, out_fp):
-    ctrl_dat = gt_dat = mod_chrm_sw = None
-    if args.control_megalodon_results_dir is not None:
-        if VERBOSE: sys.stderr.write('Reading control mods data\n')
-        ctrl_dat = pd.read_csv(
-            os.path.join(args.control_megalodon_results_dir, MODS_FN),
+    try:
+        mod_dat = pd.read_csv(
+            os.path.join(args.megalodon_results_dir, MODS_FN),
             sep='\t', header=None,
             names=['read_id' ,'chrm', 'strand', 'pos', 'score',
                    'motif', 'mod_base'])
-        report_acc_metrics(args.control_megalodon_results_dir, out_fp)
+    except FileNotFoundError:
+        mod_dat = None
+
+    return mod_dat, mod_acc
+
+def parse_control_mods(args, out_fp):
+    ctrl_acc = ctrl_dat = gt_dat = mod_chrm_sw = None
+    if args.control_megalodon_results_dir is not None:
+        if VERBOSE: sys.stderr.write('Reading control mods data\n')
+        ctrl_acc = report_acc_metrics(
+            args.control_megalodon_results_dir, out_fp)
+        try:
+            ctrl_dat = pd.read_csv(
+                os.path.join(args.control_megalodon_results_dir, MODS_FN),
+                sep='\t', header=None,
+                names=['read_id' ,'chrm', 'strand', 'pos', 'score',
+                       'motif', 'mod_base'])
+        except FileNotFoundError:
+            ctrl_dat = None
     elif args.ground_truth_data is not None:
         if VERBOSE: sys.stderr.write('Reading ground truth data\n')
         gt_dat = pd.read_csv(
@@ -185,28 +211,32 @@ def parse_control_mods(args, out_fp):
         mod_chrm_sw = args.mod_chrms_startswith
     else:
         sys.stderr.write(
-            '*' * 20 + 'WARNING: No modified base ground truth provided.\n')
+            '*' * 20 + '  WARNING: No modified base ground truth provided.\n')
 
-    return ctrl_dat, gt_dat, mod_chrm_sw
+    return ctrl_acc, ctrl_dat, gt_dat, mod_chrm_sw
 
 def main():
     args = parser.parse_args()
     global VERBOSE
     VERBOSE = not args.quiet
+    pdf_fp = PdfPages(args.out_pdf)
     out_fp = sys.stdout if args.out_filename is None else \
              open(args.out_filename, 'w')
 
-    mega_dat = parse_mega_data(args, out_fp)
+    mod_dat, mod_acc = parse_mod_data(args, out_fp)
 
     # TODO add SNP validation (a bit more complicated)
 
-    ctrl_dat, gt_dat, mod_chrm_sw = parse_control_mods(args, out_fp)
+    ctrl_acc, ctrl_dat, gt_dat, mod_chrm_sw = parse_control_mods(args, out_fp)
+    plot_acc(mod_acc, ctrl_acc, pdf_fp)
     # could just compute mapping metrics
     if all(d is None for d in (ctrl_dat, gt_dat, mod_chrm_sw)):
+        pdf_fp.close()
         if out_fp is not sys.stdout: out_fp.close()
         return
-    m_dat = merge_mods_data(mega_dat, ctrl_dat, gt_dat, mod_chrm_sw, out_fp)
-    report_mod_metrics(m_dat, args, out_fp)
+    m_dat = merge_mods_data(mod_dat, ctrl_dat, gt_dat, mod_chrm_sw, out_fp)
+    report_mod_metrics(m_dat, args, out_fp, pdf_fp)
+    pdf_fp.close()
     if out_fp is not sys.stdout: out_fp.close()
 
     return
