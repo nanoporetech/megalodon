@@ -185,6 +185,8 @@ def main():
 
     mega_dat = parse_mega_data(args, out_fp)
 
+    # TODO add SNP validation (a bit more complicated)
+
     ctrl_dat, gt_dat, mod_chrm_sw = parse_control_mods(args, out_fp)
     # could just compute mapping metrics
     if all(d is None for d in (ctrl_dat, gt_dat, mod_chrm_sw)):
