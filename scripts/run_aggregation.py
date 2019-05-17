@@ -22,7 +22,7 @@ def get_parser():
         '--outputs', nargs='+',
         default=['basecalls',], choices=tuple(mh.OUTPUT_FNS.keys()),
         help='Output type(s) to produce. Default: %(default)s')
-    snp_grp.add_argument(
+    parser.add_argument(
         '--heterozygous-factors', type=float, nargs=2,
         default=[mh.DEFAULT_SNV_HET_FACTOR, mh.DEFAULT_INDEL_HET_FACTOR],
         help='Bayesian prior factor for snv and indel heterozygous calls ' +

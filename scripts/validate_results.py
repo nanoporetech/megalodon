@@ -27,6 +27,14 @@ MOD_GRIDSIZE = 1000
 BC_BANDWIDTH = 0.2
 BC_GRIDSIZE = 1000
 
+BC_LEGEND_LABEL = 'Sample'
+BC_SAMPLE_NAME = 'Sample'
+BC_CONTROL_NAME = 'Control'
+
+#BC_LEGEND_LABEL = 'Model'
+#BC_SAMPLE_NAME = 'Categorical\nModified Bases\nFlip-Flop'
+#BC_CONTROL_NAME = '"High Accuracy"\nFlip-flop'
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -130,18 +138,34 @@ def merge_mods_data(mod_dat, ctrl_dat, gt_dat, mod_chrm_sw, out_fp):
 
     return m_dat
 
-def plot_acc(mod_acc, ctrl_acc, pdf_fp):
+def plot_acc(mod_acc, ctrl_acc, mod_parsim_acc, ctrl_parsim_acc, pdf_fp):
     if VERBOSE: sys.stderr.write('Plotting mapping accuracy distribution(s)\n')
     plt.figure(figsize=(11, 7))
     sns.kdeplot(mod_acc, shade=True,
-                bw=BC_BANDWIDTH, gridsize=BC_GRIDSIZE, label='Sample')
+                bw=BC_BANDWIDTH, gridsize=BC_GRIDSIZE, label=BC_SAMPLE_NAME)
     if ctrl_acc is not None:
         sns.kdeplot(ctrl_acc, shade=True,
-                    bw=BC_BANDWIDTH, gridsize=BC_GRIDSIZE, label='Control')
-    plt.legend(prop={'size':16}, title='Sample')
-    plt.xlabel('Mapping Percent Identity')
+                    bw=BC_BANDWIDTH, gridsize=BC_GRIDSIZE,
+                    label=BC_CONTROL_NAME)
+    plt.legend(prop={'size':16}, title=BC_LEGEND_LABEL)
+    plt.xlabel('Mapping Accuracy')
     plt.ylabel('Density')
     plt.title('Mapping Accuracy')
+    plt.xlim(PLOT_MIN_BC_ACC, 100)
+    pdf_fp.savefig(bbox_inches='tight')
+    plt.close()
+
+    plt.figure(figsize=(11, 7))
+    sns.kdeplot(mod_parsim_acc, shade=True,
+                bw=BC_BANDWIDTH, gridsize=BC_GRIDSIZE, label=BC_SAMPLE_NAME)
+    if ctrl_parsim_acc is not None:
+        sns.kdeplot(ctrl_parsim_acc, shade=True,
+                    bw=BC_BANDWIDTH, gridsize=BC_GRIDSIZE,
+                    label=BC_CONTROL_NAME)
+    plt.legend(prop={'size':16}, title=BC_LEGEND_LABEL)
+    plt.xlabel('Mapping Accuracy')
+    plt.ylabel('Density')
+    plt.title('Mapping Accuracy (Parsimonious: match - ins / ref_len)')
     plt.xlim(PLOT_MIN_BC_ACC, 100)
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
@@ -153,6 +177,8 @@ def report_acc_metrics(res_dir, out_fp):
         bc_dat = pd.read_csv(
             os.path.join(res_dir, MAP_FN), sep='\t')
         bc_acc = bc_dat['pct_identity']
+        parsim_acc = 100 * (bc_dat['num_match'] - bc_dat['num_ins']) / \
+                     (bc_dat['num_align'] - bc_dat['num_ins'])
         mean_bc_acc = np.mean(bc_acc)
         med_bc_acc = np.median(bc_acc)
         # crude mode by rounding to 1 decimal
@@ -171,11 +197,11 @@ def report_acc_metrics(res_dir, out_fp):
         if VERBOSE: sys.stderr.write(
                 '*' * 20 + 'Mappings not found for {}\n'.format(res_dir))
 
-    return bc_acc
+    return bc_acc, parsim_acc
 
 def parse_mod_data(args, out_fp):
     if VERBOSE: sys.stderr.write('Reading megalodon data\n')
-    mod_acc = report_acc_metrics(args.megalodon_results_dir, out_fp)
+    mod_acc, parsim_acc = report_acc_metrics(args.megalodon_results_dir, out_fp)
 
     try:
         mod_dat = pd.read_csv(
@@ -186,13 +212,13 @@ def parse_mod_data(args, out_fp):
     except FileNotFoundError:
         mod_dat = None
 
-    return mod_dat, mod_acc
+    return mod_dat, mod_acc, parsim_acc
 
 def parse_control_mods(args, out_fp):
-    ctrl_acc = ctrl_dat = gt_dat = mod_chrm_sw = None
+    ctrl_acc = ctrl_parsim_acc = ctrl_dat = gt_dat = mod_chrm_sw = None
     if args.control_megalodon_results_dir is not None:
         if VERBOSE: sys.stderr.write('Reading control mods data\n')
-        ctrl_acc = report_acc_metrics(
+        ctrl_acc, ctrl_parsim_acc = report_acc_metrics(
             args.control_megalodon_results_dir, out_fp)
         try:
             ctrl_dat = pd.read_csv(
@@ -213,7 +239,7 @@ def parse_control_mods(args, out_fp):
         sys.stderr.write(
             '*' * 20 + '  WARNING: No modified base ground truth provided.\n')
 
-    return ctrl_acc, ctrl_dat, gt_dat, mod_chrm_sw
+    return ctrl_acc, ctrl_parsim_acc, ctrl_dat, gt_dat, mod_chrm_sw
 
 def main():
     args = parser.parse_args()
@@ -223,12 +249,13 @@ def main():
     out_fp = sys.stdout if args.out_filename is None else \
              open(args.out_filename, 'w')
 
-    mod_dat, mod_acc = parse_mod_data(args, out_fp)
+    mod_dat, mod_acc, mod_parsim_acc = parse_mod_data(args, out_fp)
 
     # TODO add SNP validation (a bit more complicated)
 
-    ctrl_acc, ctrl_dat, gt_dat, mod_chrm_sw = parse_control_mods(args, out_fp)
-    plot_acc(mod_acc, ctrl_acc, pdf_fp)
+    ctrl_acc, ctrl_parsim_acc, ctrl_dat, gt_dat, mod_chrm_sw \
+        = parse_control_mods(args, out_fp)
+    plot_acc(mod_acc, ctrl_acc, mod_parsim_acc, ctrl_parsim_acc, pdf_fp)
     # could just compute mapping metrics
     if all(d is None for d in (ctrl_dat, gt_dat, mod_chrm_sw)):
         pdf_fp.close()
