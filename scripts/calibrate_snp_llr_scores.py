@@ -187,7 +187,7 @@ def get_parser():
     parser.add_argument(
         '--ground-truth-llrs', default='snp_calibration_statistics.txt',
         help='Ground truth log-likelihood ratio statistics (produced by ' +
-        'generate_ground_truth_indel_scores.py). Default: %(default)s')
+        'generate_ground_truth_snp_llr_scores.py). Default: %(default)s')
     parser.add_argument(
         '--max-input-llr', type=int, default=DEFAULT_SMOOTH_MAX,
         help='Maximum log-likelihood ratio to compute calibration. ' +
@@ -236,7 +236,7 @@ def main():
         ins_ref_llrs, ins_alt_llrs, args.max_input_llr,
         args.num_calibration_values, args.smooth_bandwidth, args.min_density)
 
-    # save valibration table for reading into SNP table
+    # save calibration table for reading into SNP table
     sys.stderr.write('Saving calibrations to file.\n')
     np.savez(
         args.out_filename,

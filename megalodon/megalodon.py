@@ -651,11 +651,13 @@ def snps_validation(args, is_cat_mod, output_size):
             'SNP calling from naive modified base flip-flop model is ' +
             'not supported.')
         sys.exit(1)
+    snp_calib_fn = mh.get_snp_calibration_fn(
+        args.snp_calibration_filename, args.disable_snp_calibration)
     # snps data object loads with None snp_fn for easier handling downstream
     snps_data = snps.SnpData(
         args.snp_filename, args.prepend_chr_vcf, args.max_snp_size,
         args.snp_all_paths, args.write_snps_text, args.snp_context_bases,
-        args.snp_calibration_filename,
+        snp_calib_fn,
         snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE,
         args.refs_include_snps)
     if args.snp_filename is not None and mh.PR_SNP_NAME not in args.outputs:
@@ -830,14 +832,15 @@ def get_parser():
         '--snp-filename',
         help='SNPs to call for each read in VCF format (required for output).')
     snp_grp.add_argument(
-        '--snp-calibration-filename',
-        help='File containing emperical calibration for SNP scores. As ' +
-        'created by megalodon/scripts/calibrate_snp_scores.py.')
-    snp_grp.add_argument(
         '--write-snps-text', action='store_true',
         help='Write per-read SNP calls out to a text file. Default: ' +
         'Only ouput to database.')
 
+    snp_grp.add_argument(
+        '--disable-snp-calibration', action='store_true',
+        help=hidden_help('Use raw SNP scores from the network. ' +
+                         'Default: Calibrate score with ' +
+                         '--snp-calibration-filename'))
     snp_grp.add_argument(
         '--heterozygous-factors', type=float, nargs=2,
         default=[mh.DEFAULT_SNV_HET_FACTOR, mh.DEFAULT_INDEL_HET_FACTOR],
@@ -856,6 +859,12 @@ def get_parser():
         '--snp-all-paths', action='store_true',
         help=hidden_help('Compute forwards algorithm all paths score. ' +
                          '(Default: Viterbi best-path score)'))
+    snp_grp.add_argument(
+        '--snp-calibration-filename',
+        help=hidden_help('File containing emperical calibration for ' +
+                         'SNP scores. As created by ' +
+                         'megalodon/scripts/calibrate_snp_llr_scores.py. ' +
+                         'Default: Load default calibration file.'))
     snp_grp.add_argument(
         '--snp-context-bases', type=int, nargs=2, default=[10, 30],
         help=hidden_help('Context bases for single base SNP and indel ' +
@@ -877,11 +886,16 @@ def get_parser():
         help='Write per-read modified bases out to a text file. Default: ' +
         'Only ouput to database.')
 
+    snp_grp.add_argument(
+        '--disable-mod-calibration', action='store_true',
+        help=hidden_help('Use raw modified base scores from the network. ' +
+                         'Default: Calibrate scores as described in ' +
+                         '--mod-calibration-filename'))
     mod_grp.add_argument(
         '--mod-calibration-filename',
         help=hidden_help('File containing emperical calibration for ' +
                          'modified base scores. As created by ' +
-                         'megalodon/scripts/calibrate_mod_scores.py.'))
+                         'megalodon/scripts/calibrate_mod_llr_scores.py.'))
     mod_grp.add_argument(
         '--mod-context-bases', type=int, default=10,
         help=hidden_help(

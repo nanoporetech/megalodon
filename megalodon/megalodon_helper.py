@@ -1,3 +1,5 @@
+import os
+import pkg_resources
 import multiprocessing as mp
 from collections import namedtuple
 from abc import ABC, abstractmethod
@@ -55,6 +57,8 @@ ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, PR_SNP_NAME, SNP_NAME,
 PR_REF_FILTERS = namedtuple(
     'pr_ref_filters', ('pct_idnt', 'pct_cov', 'min_len', 'max_len'))
 
+SNP_CALIBRATION_FN = 'snp_calibration.npz'
+
 
 class MegaError(Exception):
     """ Custom megalodon error for more graceful error handling
@@ -69,6 +73,26 @@ def comp(seq):
 
 def revcomp(seq):
     return seq.translate(COMP_BASES)[::-1]
+
+def resolve_path(fn_path):
+    """Helper function to resolve relative and linked paths that might
+    give other packages problems.
+    """
+    return os.path.realpath(os.path.expanduser(fn_path))
+
+
+####################################
+##### Calibration File Loading #####
+####################################
+
+def get_snp_calibration_fn(snp_calib_fn, disable_snp_calib):
+    if disable_snp_calib:
+        return None
+    elif snp_calib_fn is not None:
+        return resolve_path(snp_calib_fn)
+    # else return default snp calibration file
+    return resolve_path(pkg_resources.resource_filename(
+        'megalodon', os.path.join('calibration_files', SNP_CALIBRATION_FN)))
 
 
 ###################################
