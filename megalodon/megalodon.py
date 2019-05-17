@@ -137,8 +137,13 @@ def _get_bc_queue(
             bc_fp.write('>{}\n{}\n'.format(read_id, r_seq))
             bc_fp.flush()
             if do_output_mods:
-                mods_fp.create_dataset(
-                    'Reads/' + read_id, data=mods_scores, compression="gzip")
+                try:
+                    mods_fp.create_dataset(
+                        'Reads/' + read_id, data=mods_scores,
+                        compression="gzip")
+                except RuntimeError:
+                    # same read_id encountered previously
+                    pass
         except queue.Empty:
             if bc_conn.poll():
                 break
@@ -150,21 +155,17 @@ def _get_bc_queue(
         bc_fp.write('>{}\n{}\n'.format(read_id, r_seq))
         bc_fp.flush()
         if do_output_mods:
-            mods_fp.create_dataset(
-                'Reads/' + read_id, data=mods_scores, compression="gzip")
+            try:
+                mods_fp.create_dataset(
+                    'Reads/' + read_id, data=mods_scores,
+                    compression="gzip")
+            except RuntimeError:
+                # same read_id encountered previously
+                pass
 
     bc_fp.close()
     if do_output_mods:
         mods_fp.close()
-
-    return
-
-def _fill_files_queue(read_file_q, fast5_fns, num_ps):
-    # fill queue with read filename and read id tuples
-    for fast5_fn in fast5_fns:
-        read_file_q.put(fast5_fn)
-    for _ in range(num_ps):
-        read_file_q.put((None, None))
 
     return
 
@@ -219,6 +220,27 @@ if _DO_PROFILE:
 ##### Dynamic error updating #####
 ##################################
 
+def _fill_files_queue(
+        read_file_q, fast5s_dir, num_reads, recursive, num_ps, num_reads_conn):
+    logger = logging.get_logger()
+    read_ids = set()
+    n_reads_added_to_queue = 0
+    # fill queue with read filename and read id tuples
+    for fast5_fn, read_id in fast5_io.iterate_fast5_reads(
+            fast5s_dir, num_reads, recursive):
+        if read_id in read_ids:
+            logger.debug(
+                ('Read ID ({}) found in previous read and will not ' +
+                 'process from {}.').format(read_id, fast5_fn))
+            continue
+        read_file_q.put((fast5_fn, read_id))
+        n_reads_added_to_queue += 1
+    for _ in range(num_ps):
+        read_file_q.put((None, None))
+    num_reads_conn.send(n_reads_added_to_queue)
+
+    return
+
 def format_fail_summ(header, fail_summ=[], num_reads=0, num_errs=None):
     summ_errs = sorted(fail_summ)[::-1]
     if num_errs is not None:
@@ -232,7 +254,8 @@ def format_fail_summ(header, fail_summ=[], num_reads=0, num_errs=None):
         '     -----' for n_fns, err in summ_errs)
     return '\n'.join((header, errs_str))
 
-def prep_errors_bar(num_update_errors, tot_reads, suppress_progress):
+def prep_errors_bar(
+        num_update_errors, tot_reads, suppress_progress, curr_num_reads=0):
     if num_update_errors > 0 and not suppress_progress:
         # add lines for dynamic error messages
         sys.stderr.write(
@@ -241,7 +264,7 @@ def prep_errors_bar(num_update_errors, tot_reads, suppress_progress):
     if suppress_progress:
         num_update_errors = 0
     else:
-        bar = tqdm(total=tot_reads, smoothing=0)
+        bar = tqdm(total=tot_reads, smoothing=0, initial=curr_num_reads)
     if num_update_errors > 0:
         prog_prefix = ''.join(
             [_term_move_up(),] * (num_update_errors + 1)) + '\r'
@@ -254,50 +277,80 @@ def prep_errors_bar(num_update_errors, tot_reads, suppress_progress):
     return bar, prog_prefix, bar_header
 
 def _get_fail_queue(
-        failed_reads_q, f_conn, tot_reads, num_update_errors,
+        failed_reads_q, f_conn, getter_num_reads_conn, num_update_errors,
         suppress_progress):
+    def update_prog(reads_called, unexp_err_fp):
+        if is_err:
+            failed_reads[err_type].append(fast5_fn)
+            if err_type == _UNEXPECTED_ERROR_CODE:
+                if len(failed_reads[_UNEXPECTED_ERROR_CODE]) == 1:
+                    unexp_err_fp = open(_UNEXPECTED_ERROR_FN.format(
+                        np.random.randint(10000)), 'w')
+                if len(failed_reads[err_type]) >= _MAX_NUM_UNEXP_ERRORS:
+                    unexp_err_fp.close()
+                else:
+                    unexp_err_fp.write(
+                        fast5_fn + '\n:::\n' + err_tb + '\n\n\n')
+                    unexp_err_fp.flush()
+        if do_update_prog:
+            if not suppress_progress: bar.update(1)
+            reads_called += 1
+        if num_update_errors > 0:
+            bar.write(prog_prefix + format_fail_summ(
+                bar_header,
+                [(len(fns), err) for err, fns in failed_reads.items()],
+                reads_called, num_update_errors), file=sys.stderr)
+
+        return reads_called, unexp_err_fp
+
+
+    logger = logging.get_logger()
+    logger.info('Starting read processing. Full progress output will ' +
+                'start once all reads are enumerated.')
     reads_called = 0
+    unexp_err_fp = None
     failed_reads = defaultdict(list)
-    bar, prog_prefix, bar_header = prep_errors_bar(
-        num_update_errors, tot_reads, suppress_progress)
+    bar, prog_prefix, bar_header = prep_errors_bar(0, None, suppress_progress)
     while True:
         try:
-            (is_err, update_prog, err_type, fast5_fn,
-             err_tb) = failed_reads_q.get(block=False)
-            if is_err:
-                failed_reads[err_type].append(fast5_fn)
-                if err_type == _UNEXPECTED_ERROR_CODE:
-                    if len(failed_reads[err_type]) == 1:
-                        unexp_err_fp = open(_UNEXPECTED_ERROR_FN.format(
-                            np.random.randint(10000)), 'w')
-                    if len(failed_reads[err_type]) >= _MAX_NUM_UNEXP_ERRORS:
-                        unexp_err_fp.close()
-                    else:
-                        unexp_err_fp.write(
-                            fast5_fn + '\n:::\n' + err_tb + '\n\n\n')
-                        unexp_err_fp.flush()
-
-            if update_prog:
-                if not suppress_progress: bar.update(1)
-                reads_called += 1
-            if num_update_errors > 0:
-                bar.write(prog_prefix + format_fail_summ(
-                    bar_header,
-                    [(len(fns), err) for err, fns in failed_reads.items()],
-                    reads_called, num_update_errors), file=sys.stderr)
-        except queue.Empty:
-            # check if all reads are done signal was sent from main thread
-            if f_conn.poll():
-                break
             try:
+                (is_err, do_update_prog, err_type, fast5_fn,
+                 err_tb) = failed_reads_q.get(block=False)
+                reads_called, unexp_err_fp = update_prog(
+                    reads_called, unexp_err_fp)
+            except queue.Empty:
+                # get total number of reads once all reads are enumerated
+                if getter_num_reads_conn.poll():
+                    num_reads = getter_num_reads_conn.recv()
+                    break
                 sleep(0.1)
-            except KeyboardInterrupt:
-                # exit gracefully on keyboard inturrupt
-                return
-            continue
-
+                continue
+        except KeyboardInterrupt:
+            # exit gracefully on keyboard inturrupt
+            return
     if not suppress_progress: bar.close()
-    logger = logging.get_logger()
+
+    logger.info('All reads enumerated. Starting full progress output.')
+    bar, prog_prefix, bar_header = prep_errors_bar(
+        num_update_errors, num_reads, suppress_progress, reads_called)
+    while True:
+        try:
+            try:
+                (is_err, do_update_prog, err_type, fast5_fn,
+                 err_tb) = failed_reads_q.get(block=False)
+                reads_called, unexp_err_fp = update_prog(
+                    reads_called, unexp_err_fp)
+            except queue.Empty:
+                # check if all reads are done signal was sent from main thread
+                if f_conn.poll():
+                    break
+                sleep(0.1)
+                continue
+        except KeyboardInterrupt:
+            # exit gracefully on keyboard inturrupt
+            return
+    if not suppress_progress: bar.close()
+
     if len(failed_reads[_UNEXPECTED_ERROR_CODE]) >= 1:
         logger.warning((
             'Unexpected errors occured. See full ' +
@@ -309,7 +362,7 @@ def _get_fail_queue(
                 'Unsuccessful processing types:',
                 [(len(fns), err) for err, fns in failed_reads.items()
                  if len(fns) > 0], reads_called))
-    # TODO flag to output failed read names to file
+        # TODO flag to output failed read names to file
 
     return
 
@@ -323,20 +376,21 @@ def process_all_reads(
         aligner, add_chr_ref, snps_data, num_ps, num_update_errors,
         suppress_progress, alphabet_info, db_safety, edge_buffer, pr_ref_filts):
     logger = logging.get_logger()
-    logger.info('Searching for reads and extracting read ids.')
-    fast5_fns = list(fast5_io.iterate_fast5_reads(
-        fast5s_dir, num_reads, recursive))
-
-    logger.info('Preparing workers and calling reads.')
+    logger.info('Preparing workers to process reads.')
     # read filename queue filler
-    read_file_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
+    # Note no maxsize for this queue to compute total number of reads while
+    # also not delaying read processing
+    read_file_q = mp.Queue()
+    num_reads_conn, getter_num_reads_conn = mp.Pipe()
     files_p = mp.Process(
-        target=_fill_files_queue, args=(read_file_q, fast5_fns, num_ps),
+        target=_fill_files_queue, args=(
+            read_file_q, fast5s_dir, num_reads, recursive, num_ps,
+            num_reads_conn),
         daemon=True)
     files_p.start()
     # progress and failed reads getter
     failed_reads_q, f_p, main_f_conn = mh.create_getter_q(
-            _get_fail_queue, (len(fast5_fns), num_update_errors,
+            _get_fail_queue, (getter_num_reads_conn, num_update_errors,
                               suppress_progress))
 
     # start output type getters/writers
@@ -398,6 +452,8 @@ def process_all_reads(
     sleep(0.1)
 
     # perform mapping in threads for mappy shared memory interface
+    # open threads after all processes have started due to python
+    # multiprocess combined with threading instability
     if aligner is None:
         map_read_ts = None
     else:
@@ -412,30 +468,32 @@ def process_all_reads(
 
     try:
         files_p.join()
+        for proc_reads_p in proc_reads_ps:
+            proc_reads_p.join()
+        if map_read_ts is not None:
+            for map_t in map_read_ts:
+                map_t.join()
+        # comm to getter processes to return
+        if f_p.is_alive():
+            main_f_conn.send(True)
+            f_p.join()
+        for on, p, main_conn in (
+                (mh.BC_NAME, bc_p, main_bc_conn),
+                (mh.MAP_NAME, mo_p, main_mo_conn),
+                (mh.PR_SNP_NAME, snps_p, main_snps_conn),
+                (mh.PR_MOD_NAME, mods_p, main_mods_conn)):
+            if on in outputs and p.is_alive():
+                main_conn.send(True)
+                if on == mh.PR_SNP_NAME:
+                    logger.info(
+                        'Waiting for snps database to complete indexing.')
+                elif on ==  mh.PR_MOD_NAME:
+                    logger.info(
+                        'Waiting for mods database to complete indexing.')
+                p.join()
     except KeyboardInterrupt:
         logger.error('Exiting due to keyboard interrupt.')
         sys.exit(1)
-    for proc_reads_p in proc_reads_ps:
-        proc_reads_p.join()
-    if map_read_ts is not None:
-        for map_t in map_read_ts:
-            map_t.join()
-    # comm to getter processes to return
-    if f_p.is_alive():
-        main_f_conn.send(True)
-        f_p.join()
-    for on, p, main_conn in (
-            (mh.BC_NAME, bc_p, main_bc_conn),
-            (mh.MAP_NAME, mo_p, main_mo_conn),
-            (mh.PR_SNP_NAME, snps_p, main_snps_conn),
-            (mh.PR_MOD_NAME, mods_p, main_mods_conn)):
-        if on in outputs and p.is_alive():
-            main_conn.send(True)
-            if on in (mh.PR_SNP_NAME, mh.PR_MOD_NAME):
-                logger.info(
-                    'Waiting for snps and/or mods process to complete ' +
-                    'database indexing.')
-            p.join()
 
     return
 
@@ -444,6 +502,7 @@ def process_all_reads(
 ########## Alphabet Info ##########
 ###################################
 
+# TODO move this to mods.py and likely refactor a bit
 class AlphabetInfo(object):
     single_letter_code = {
         'A':'A', 'C':'C', 'G':'G', 'T':'T', 'B':'[CGT]',
@@ -506,6 +565,7 @@ class AlphabetInfo(object):
         except:
             pass
         if model_info.is_cat_mod:
+            # TODO also output "(alt to C)" for each mod
             logger.info(
                 'Using canoncical alphabet {} and modified bases {}.'.format(
                     self.alphabet, ' '.join(
@@ -569,7 +629,7 @@ def aligner_validation(args):
                 'alignment was requested. Argument will be ignored.')
     return aligner
 
-def snps_validation(args, is_cat_mod):
+def snps_validation(args, is_cat_mod, output_size):
     logger = logging.get_logger()
     if mh.SNP_NAME in args.outputs and not mh.PR_SNP_NAME in args.outputs:
         args.outputs.append(mh.PR_SNP_NAME)
@@ -579,8 +639,7 @@ def snps_validation(args, is_cat_mod):
             'but --snp-filename provided.')
         sys.exit(1)
     if mh.PR_SNP_NAME in args.outputs and not (
-            is_cat_mod or
-            mh.nstate_to_nbase(model_info.output_size) == 4):
+            is_cat_mod or mh.nstate_to_nbase(output_size) == 4):
         logger.error(
             'SNP calling from naive modified base flip-flop model is ' +
             'not supported.')
@@ -926,7 +985,8 @@ def _main():
         args.write_mods_text, args.mod_context_bases,
         mh.BC_MODS_NAME in args.outputs, args.refs_include_mods)
     args = mods_validation(args, model_info.is_cat_mod)
-    args, snps_data = snps_validation(args, model_info.is_cat_mod)
+    args, snps_data = snps_validation(
+        args, model_info.is_cat_mod, model_info.output_size)
     aligner = aligner_validation(args)
 
     process_all_reads(
