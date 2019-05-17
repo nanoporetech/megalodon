@@ -177,17 +177,17 @@ def _process_reads_worker(
 
     while True:
         try:
-            fast5_fn, read_id = read_file_q.get(block=False)
-        except queue.Empty:
-            sleep(0.1)
-            continue
+            try:
+                fast5_fn, read_id = read_file_q.get(block=False)
+            except queue.Empty:
+                sleep(0.1)
+                continue
 
-        if fast5_fn is None:
-            if caller_conn is not None:
-                caller_conn.send(True)
-            break
+            if fast5_fn is None:
+                if caller_conn is not None:
+                    caller_conn.send(True)
+                break
 
-        try:
             raw_sig = fast5_io.get_signal(fast5_fn, read_id, scale=True)
             process_read(
                 raw_sig, read_id, model_info, bc_q, caller_conn, snps_to_test,
@@ -224,7 +224,6 @@ def _fill_files_queue(
         read_file_q, fast5s_dir, num_reads, recursive, num_ps, num_reads_conn):
     logger = logging.get_logger()
     read_ids = set()
-    n_reads_added_to_queue = 0
     # fill queue with read filename and read id tuples
     for fast5_fn, read_id in fast5_io.iterate_fast5_reads(
             fast5s_dir, num_reads, recursive):
@@ -234,10 +233,11 @@ def _fill_files_queue(
                  'process from {}.').format(read_id, fast5_fn))
             continue
         read_file_q.put((fast5_fn, read_id))
-        n_reads_added_to_queue += 1
+        read_ids.add(read_id)
+    # add None to indicate that read processes should return
     for _ in range(num_ps):
         read_file_q.put((None, None))
-    num_reads_conn.send(n_reads_added_to_queue)
+    num_reads_conn.send(len(read_ids))
 
     return
 
@@ -310,7 +310,8 @@ def _get_fail_queue(
     reads_called = 0
     unexp_err_fp = None
     failed_reads = defaultdict(list)
-    bar, prog_prefix, bar_header = prep_errors_bar(0, None, suppress_progress)
+    bar, prog_prefix, bar_header = prep_errors_bar(
+        num_update_errors, None, suppress_progress)
     while True:
         try:
             try:
