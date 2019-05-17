@@ -255,7 +255,8 @@ def format_fail_summ(header, fail_summ=[], num_reads=0, num_errs=None):
     return '\n'.join((header, errs_str))
 
 def prep_errors_bar(
-        num_update_errors, tot_reads, suppress_progress, curr_num_reads=0):
+        num_update_errors, tot_reads, suppress_progress, curr_num_reads=0,
+        start_time=None):
     if num_update_errors > 0 and not suppress_progress:
         # add lines for dynamic error messages
         sys.stderr.write(
@@ -265,6 +266,8 @@ def prep_errors_bar(
         num_update_errors = 0
     else:
         bar = tqdm(total=tot_reads, smoothing=0, initial=curr_num_reads)
+        if start_time is not None:
+            bar.start_t = start_time
     if num_update_errors > 0:
         prog_prefix = ''.join(
             [_term_move_up(),] * (num_update_errors + 1)) + '\r'
@@ -329,11 +332,14 @@ def _get_fail_queue(
         except KeyboardInterrupt:
             # exit gracefully on keyboard inturrupt
             return
+    # pass start time from init progress bar to give accurate eta
+    prev_start_t = bar.start_t
     if not suppress_progress: bar.close()
 
     logger.info('All reads enumerated. Starting full progress output.')
     bar, prog_prefix, bar_header = prep_errors_bar(
-        num_update_errors, num_reads, suppress_progress, reads_called)
+        num_update_errors, num_reads, suppress_progress, reads_called,
+        prev_start_t)
     while True:
         try:
             try:
