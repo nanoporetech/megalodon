@@ -2,7 +2,7 @@ import string
 import numpy as np
 from collections import defaultdict, namedtuple
 
-from megalodon import megalodon_helper as mh
+from megalodon import logging, megalodon_helper as mh
 
 
 # model type specific information
@@ -65,7 +65,8 @@ class ModelInfo(object):
         elif taiyaki_model_fn is not None:
             if any(arg is None for arg in (
                     chunk_size, chunk_overlap, max_concur_chunks)):
-                raise NotImplementedError(
+                logger = logging.get_logger()
+                logger.warning(
                     'Must provide chunk_size, chunk_overlap, ' +
                     'max_concur_chunks in order to run the taiyaki ' +
                     'base calling backend.')

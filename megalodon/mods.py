@@ -41,6 +41,8 @@ SELECT * FROM mods WHERE chrm=? AND strand=? AND pos=?'''
 BIN_THRESH_NAME = 'binary_threshold'
 EM_NAME = 'em'
 PROP_METHOD_NAMES = set((BIN_THRESH_NAME, EM_NAME))
+DEFAULT_BIN_THRESH = [-1, 1]
+#DEFAULT_BIN_THRESH = 0
 
 FIXED_VCF_MI = [
     'INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
@@ -358,7 +360,8 @@ class AggMods(mh.AbstractAggregationClass):
     modified base calls over reads.
     """
     def __init__(
-            self, mods_db_fn, prop_method=BIN_THRESH_NAME, binary_thresh=0):
+            self, mods_db_fn, prop_method=BIN_THRESH_NAME,
+            binary_thresh=DEFAULT_BIN_THRESH):
         # open as read only database
         self.mods_db = sqlite3.connect(mods_db_fn, uri=True)
         self.n_uniq_mods = None

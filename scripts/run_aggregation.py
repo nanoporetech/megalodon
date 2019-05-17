@@ -26,7 +26,7 @@ def get_parser():
         '--heterozygous-factors', type=float, nargs=2,
         default=[mh.DEFAULT_SNV_HET_FACTOR, mh.DEFAULT_INDEL_HET_FACTOR],
         help='Bayesian prior factor for snv and indel heterozygous calls ' +
-        '(compared to 1.0 for hom ref/alt). Default: %(default)f')
+        '(compared to 1.0 for hom ref/alt). Default: %(default)s')
     parser.add_argument(
         '--output-directory',
         default='megalodon_results',
@@ -46,12 +46,12 @@ def get_parser():
 def main():
     args = get_parser().parse_args()
     model_info = backends.ModelInfo(
-        args.flappie_model_name, args.taiyaki_model_filename, None)
+        args.flappie_model_name, args.taiyaki_model_filename)
     mod_names = (model_info.mod_long_names
                  if mh.MOD_NAME in args.outputs else [])
     aggregate.aggregate_stats(
         args.outputs, args.output_directory, args.processes,
-        args.write_vcf_llr, args.heterozygous_factors, mod_names,
+        args.write_vcf_llr, args.heterozygous_factors, None, mod_names,
         args.suppress_progress)
 
     return
