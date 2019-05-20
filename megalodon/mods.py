@@ -41,17 +41,19 @@ SELECT * FROM mods WHERE chrm=? AND strand=? AND pos=?'''
 BIN_THRESH_NAME = 'binary_threshold'
 EM_NAME = 'em'
 PROP_METHOD_NAMES = set((BIN_THRESH_NAME, EM_NAME))
-DEFAULT_BIN_THRESH = [-1, 1]
+# TODO add these parameters to the command line
+DEFAULT_BIN_THRESH = [1, 4]
 #DEFAULT_BIN_THRESH = 0
 
 FIXED_VCF_MI = [
     'INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
     'INFO=<ID=SN,Number=1,Type=String,Description="Strand">',
-    'FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read Depth">',
 ]
-MOD_MI_TMPLT = (
-    'FORMAT=<ID={},Number=1,Type=Float,Description='+
-    '"{} Modified Base Proportion">')
+MOD_MI_TMPLTS = [
+    'FORMAT=<ID={0}DP,Number=1,Type=Integer,Description=' +
+    '"Valid Read Depth for {1}">',
+    'FORMAT=<ID={0},Number=1,Type=Float,Description='+
+    '"{1} Modified Base Proportion">']
 
 
 ################################
@@ -282,7 +284,7 @@ class ModSite(object):
             can_pl = -10 * np.log10(1 - sum((x[1] for x in mod_props)))
         self.qual = '{:.0f}'.format(
             np.abs(np.around(np.minimum(can_pl, mh.MAX_PL_VALUE))))
-        for mod_name, mod_prop in mod_props:
+        for mod_name, mod_prop, _ in mod_props:
             self.add_sample_field(mod_name, '{:.4f}'.format(mod_prop))
         return
 
@@ -329,7 +331,8 @@ class ModVcfWriter(object):
                 datetime.date.today().strftime("%Y%m%d")),
             mh.SOURCE_MI.format(MEGALODON_VERSION),
             mh.REF_MI.format(ref_fn)] + extra_meta_info + [
-                MOD_MI_TMPLT.format(*mod_info) for mod_info in self.mods]
+                mod_tmplt.format(*mod_info) for mod_info in self.mods
+                for mod_tmplt in MOD_MI_TMPLTS]
 
         self.handle = open(self.filename, self.mode, encoding='utf-8')
         self.handle.write('\n'.join('##' + line for line in self.meta) + '\n')
@@ -449,7 +452,7 @@ class AggMods(mh.AbstractAggregationClass):
                 prop_est, valid_cov = self.est_binary_thresh(mt_llrs)
             else:
                 prop_est, valid_cov = self.est_em_prop(mt_llrs)
-            mt_stats.append((mod_base, prop_est))
+            mt_stats.append((mod_base, prop_est, valid_cov))
         r0_stats = pr_mod_stats[0]
         strand = '+' if r0_stats.strand == 1 else '-'
         site_motifs = ','.join(sorted(set(rs.motif for rs in pr_mod_stats)))
@@ -459,7 +462,9 @@ class AggMods(mh.AbstractAggregationClass):
             id='_'.join(map(str, (r0_stats.chrm, r0_stats.pos, strand))))
         mod_site.add_mod_props(mt_stats)
         mod_site.add_tag('DP', '{}'.format(len(pr_mod_stats)))
-        mod_site.add_sample_field('DP', '{}'.format(len(pr_mod_stats)))
+        for mod_base, _, valid_cov in mt_stats:
+            mod_site.add_sample_field(
+                '{}DP'.format(mod_base), '{}'.format(int(valid_cov)))
         return mod_site
 
     def close(self):
