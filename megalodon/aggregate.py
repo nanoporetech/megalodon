@@ -73,8 +73,9 @@ def _get_snp_stats_queue(snp_stats_q, snp_conn, out_dir, do_sort=False):
 
     return
 
-def _agg_mods_worker(locs_q, mod_stats_q, mod_prog_q, mods_db_fn):
-    agg_mods = mods.AggMods(mods_db_fn)
+def _agg_mods_worker(
+        locs_q, mod_stats_q, mod_prog_q, mods_db_fn, mod_agg_info):
+    agg_mods = mods.AggMods(mods_db_fn, mod_agg_info)
 
     while True:
         try:
@@ -139,19 +140,22 @@ def _agg_prog_worker(
             snp_bar = tqdm(desc='SNPs', total=num_snps, position=0, smoothing=0)
     elif num_mods > 0 and  not suppress_progress:
         mod_bar = tqdm(desc='Mods', total=num_mods, position=0, smoothing=0)
-    else:
-        return
 
+    logger = logging.get_logger()
     while True:
         try:
             snp_prog_q.get(block=False)
-            if not suppress_progress: snp_bar.update(1)
+            if not suppress_progress:
+                snp_bar.update(1)
+                mod_bar.update(0)
         except queue.Empty:
             try:
                 mod_prog_q.get(block=False)
-                if not suppress_progress: mod_bar.update(1)
+                if not suppress_progress:
+                    snp_bar.update(0)
+                    mod_bar.update(1)
             except queue.Empty:
-                sleep(0.1)
+                sleep(0.01)
                 if prog_conn.poll():
                     break
                 continue
@@ -162,12 +166,12 @@ def _agg_prog_worker(
     while not mod_prog_q.empty():
         mod_prog_q.get(block=False)
         if not suppress_progress: mod_bar.update(1)
-    if mod_bar is not None:
-        mod_bar.close()
     if snp_bar is not None:
         snp_bar.close()
+    if mod_bar is not None:
+        mod_bar.close()
     if num_mods > 0 and num_snps > 0 and not suppress_progress:
-        sys.stderr.write('\n')
+        sys.stderr.write('\n\n')
 
     return
 
@@ -182,9 +186,9 @@ def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps):
 
 def aggregate_stats(
         outputs, out_dir, num_ps, write_vcf_llr, het_factors, call_mode,
-        mod_names, suppress_progress):
+        mod_names, mod_agg_info, suppress_progress):
     if mh.SNP_NAME in outputs and mh.MOD_NAME in outputs:
-        num_ps = num_ps // 2
+        num_ps = max(num_ps // 2, 1)
 
     num_snps, num_mods, snp_prog_q, mod_prog_q = (
         0, 0, queue.Queue(), queue.Queue())
@@ -229,7 +233,8 @@ def aggregate_stats(
         for _ in range(num_ps):
             p = mp.Process(
                 target=_agg_mods_worker,
-                args=(mod_filler_q, mod_stats_q, mod_prog_q, mods_db_fn),
+                args=(mod_filler_q, mod_stats_q, mod_prog_q, mods_db_fn,
+                      mod_agg_info),
                 daemon=True)
             p.start()
             agg_mods_ps.append(p)

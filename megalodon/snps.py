@@ -700,7 +700,7 @@ class AggSnps(mh.AbstractAggregationClass):
 
     def compute_snp_stats(self, snp_loc, het_factors, call_mode=DIPLOID_MODE):
         assert call_mode in (HAPLIOD_MODE, DIPLOID_MODE), (
-            'Invalid SNP aggregation call mode.')
+            'Invalid SNP aggregation ploidy call mode: {}.'.format(call_mode))
 
         pr_snp_stats = self.get_per_read_snp_stats(snp_loc)
         llrs = np.array([r_stats.score for r_stats in pr_snp_stats])

@@ -7,7 +7,7 @@ os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
 import argparse
 
-from megalodon import aggregate, backends, megalodon_helper as mh
+from megalodon import aggregate, backends, mods, snps, megalodon_helper as mh
 
 
 def get_parser():
@@ -20,13 +20,21 @@ def get_parser():
         help='Flappie model name.')
     parser.add_argument(
         '--outputs', nargs='+',
-        default=['basecalls',], choices=tuple(mh.OUTPUT_FNS.keys()),
+        default=[mh.SNP_NAME, mh.MOD_NAME],
+        choices=[mh.SNP_NAME, mh.MOD_NAME],
         help='Output type(s) to produce. Default: %(default)s')
+    parser.add_argument(
+        '--haploid', action='store_true',
+        help='Compute SNP aggregation for haploid genotypes. Default: diploid')
     parser.add_argument(
         '--heterozygous-factors', type=float, nargs=2,
         default=[mh.DEFAULT_SNV_HET_FACTOR, mh.DEFAULT_INDEL_HET_FACTOR],
         help='Bayesian prior factor for snv and indel heterozygous calls ' +
         '(compared to 1.0 for hom ref/alt). Default: %(default)s')
+    parser.add_argument(
+        '--mod-binary-threshold', type=float, nargs=2,
+        default=mods.DEFAULT_AGG_INFO.binary_threshold,
+        help='Thresholds for modified base aggregation. Default: %(default)s')
     parser.add_argument(
         '--output-directory',
         default='megalodon_results',
@@ -49,10 +57,13 @@ def main():
         args.flappie_model_name, args.taiyaki_model_filename)
     mod_names = (model_info.mod_long_names
                  if mh.MOD_NAME in args.outputs else [])
+    mod_agg_info = mods.AGG_INFO(
+        mods.BIN_THRESH_NAME, args.mod_binary_threshold)
     aggregate.aggregate_stats(
         args.outputs, args.output_directory, args.processes,
-        args.write_vcf_llr, args.heterozygous_factors, None, mod_names,
-        args.suppress_progress)
+        args.write_vcf_llr, args.heterozygous_factors,
+        snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE,
+        mod_names, mod_agg_info, args.suppress_progress)
 
     return
 

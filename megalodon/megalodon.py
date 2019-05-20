@@ -308,8 +308,7 @@ def _get_fail_queue(
 
 
     logger = logging.get_logger()
-    logger.info('Starting read processing. Full progress output will ' +
-                'start once all reads are enumerated.')
+    logger.info('Processing reads.')
     reads_called = 0
     unexp_err_fp = None
     failed_reads = defaultdict(list)
@@ -324,33 +323,13 @@ def _get_fail_queue(
                     reads_called, unexp_err_fp)
             except queue.Empty:
                 # get total number of reads once all reads are enumerated
-                if getter_num_reads_conn.poll():
-                    num_reads = getter_num_reads_conn.recv()
-                    break
-                sleep(0.1)
-                continue
-        except KeyboardInterrupt:
-            # exit gracefully on keyboard inturrupt
-            return
-    # pass start time from init progress bar to give accurate eta
-    prev_start_t = bar.start_t
-    if not suppress_progress: bar.close()
-
-    logger.info('All reads enumerated. Starting full progress output.')
-    bar, prog_prefix, bar_header = prep_errors_bar(
-        num_update_errors, num_reads, suppress_progress, reads_called,
-        prev_start_t)
-    while True:
-        try:
-            try:
-                (is_err, do_update_prog, err_type, fast5_fn,
-                 err_tb) = failed_reads_q.get(block=False)
-                reads_called, unexp_err_fp = update_prog(
-                    reads_called, unexp_err_fp)
-            except queue.Empty:
-                # check if all reads are done signal was sent from main thread
-                if f_conn.poll():
-                    break
+                if bar is not None and bar.total is None:
+                    if getter_num_reads_conn.poll():
+                        bar.total = getter_num_reads_conn.recv()
+                else:
+                    # if all reads are done signal was sent from main thread
+                    if f_conn.poll():
+                        break
                 sleep(0.1)
                 continue
         except KeyboardInterrupt:
@@ -892,6 +871,11 @@ def get_parser():
                          'Default: Calibrate scores as described in ' +
                          '--mod-calibration-filename'))
     mod_grp.add_argument(
+        '--mod-binary-threshold', type=float, nargs=2,
+        default=mods.DEFAULT_AGG_INFO.binary_threshold,
+        help=hidden_help('Thresholds for modified base aggregation. ' +
+                         'Default: %(default)s'))
+    mod_grp.add_argument(
         '--mod-calibration-filename',
         help=hidden_help('File containing emperical calibration for ' +
                          'modified base scores. As created by ' +
@@ -1020,10 +1004,12 @@ def _main():
     if mh.SNP_NAME in args.outputs or mh.MOD_NAME in args.outputs:
         mod_names = (alphabet_info.mod_long_names
                      if mh.MOD_NAME in args.outputs else [])
+        mod_agg_info = mods.AGG_INFO(
+            mods.BIN_THRESH_NAME, args.mod_binary_threshold)
         aggregate.aggregate_stats(
             args.outputs, args.output_directory, args.processes,
             args.write_vcf_llr, args.heterozygous_factors, snps_data.call_mode,
-            mod_names, args.suppress_progress)
+            mod_names, mod_agg_info, args.suppress_progress)
 
     return
 

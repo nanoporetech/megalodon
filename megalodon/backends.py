@@ -66,7 +66,7 @@ class ModelInfo(object):
             if any(arg is None for arg in (
                     chunk_size, chunk_overlap, max_concur_chunks)):
                 logger = logging.get_logger()
-                logger.warning(
+                logger.debug(
                     'Must provide chunk_size, chunk_overlap, ' +
                     'max_concur_chunks in order to run the taiyaki ' +
                     'base calling backend.')
@@ -177,6 +177,14 @@ class ModelInfo(object):
             # flappy will return split bc and mods based on model
             trans_weights = self.flappy.run_network(rt, self.name)
         elif self.model_type == TAI_NAME:
+            if any(arg is None for arg in (
+                    self.chunk_size, self.chunk_overlap,
+                    self.max_concur_chunks)):
+                logger = logging.get_logger()
+                logger.error(
+                    'Must provide chunk_size, chunk_overlap, ' +
+                    'max_concur_chunks in order to run the taiyaki ' +
+                    'base calling backend.')
             try:
                 trans_weights = self.tai_run_model(
                     raw_sig, self.model, self.chunk_size, self.chunk_overlap,

@@ -40,10 +40,9 @@ SELECT * FROM mods WHERE chrm=? AND strand=? AND pos=?'''
 
 BIN_THRESH_NAME = 'binary_threshold'
 EM_NAME = 'em'
-PROP_METHOD_NAMES = set((BIN_THRESH_NAME, EM_NAME))
-# TODO add these parameters to the command line
-DEFAULT_BIN_THRESH = [1, 4]
-#DEFAULT_BIN_THRESH = 0
+AGG_METHOD_NAMES = set((BIN_THRESH_NAME, EM_NAME))
+AGG_INFO = namedtuple('AGG_INFO', ('method', 'binary_threshold'))
+DEFAULT_AGG_INFO = AGG_INFO(BIN_THRESH_NAME, [0, 2.5])
 
 FIXED_VCF_MI = [
     'INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
@@ -362,17 +361,15 @@ class AggMods(mh.AbstractAggregationClass):
     """ Class to assist in database queries for per-site aggregation of
     modified base calls over reads.
     """
-    def __init__(
-            self, mods_db_fn, prop_method=BIN_THRESH_NAME,
-            binary_thresh=DEFAULT_BIN_THRESH):
+    def __init__(self, mods_db_fn, agg_info=DEFAULT_AGG_INFO):
         # open as read only database
         self.mods_db = sqlite3.connect(mods_db_fn, uri=True)
         self.n_uniq_mods = None
-        assert prop_method in PROP_METHOD_NAMES
-        self.prop_method = prop_method
-        self.binary_thresh = binary_thresh
+        assert agg_info.method in AGG_METHOD_NAMES
+        self.agg_method = agg_info.method
+        self.binary_thresh = agg_info.binary_threshold
         if type(self.binary_thresh) in (float, int):
-            self.binary_thresh = [binary_thresh, binary_thresh]
+            self.binary_thresh = [self.binary_thresh, self.binary_thresh]
         return
 
     def num_uniq(self):
@@ -402,6 +399,9 @@ class AggMods(mh.AbstractAggregationClass):
     def est_em_prop(
             self, pos_scores, max_iters=5, conv_tol=0.005,
             init_thresh=0, min_prop=0.01, max_prop=0.99):
+        """ Estimate proportion of modified bases at a position via EM
+        computation
+        """
         curr_mix_prop = np.clip(np.mean(pos_scores < init_thresh),
                                 min_prop, max_prop)
         for _ in range(max_iters):
@@ -433,13 +433,13 @@ class AggMods(mh.AbstractAggregationClass):
 
         return curr_mix_prop, pos_scores.shape[0]
 
-    def compute_mod_stats(self, mod_loc, prop_method=None):
-        if prop_method is None:
-            prop_method = self.prop_method
-        if prop_method not in PROP_METHOD_NAMES:
+    def compute_mod_stats(self, mod_loc, agg_method=None):
+        if agg_method is None:
+            agg_method = self.agg_method
+        if agg_method not in AGG_METHOD_NAMES:
             raise NotImplementedError(
                 'No modified base proportion estimation method: {}'.format(
-                    prop_method))
+                    agg_method))
 
         pr_mod_stats = self.get_per_read_mod_stats(mod_loc)
         mod_type_stats = defaultdict(list)
@@ -448,7 +448,7 @@ class AggMods(mh.AbstractAggregationClass):
         mt_stats = []
         for mod_base, mt_reads in mod_type_stats.items():
             mt_llrs = np.array([r_stats.score for r_stats in mt_reads])
-            if prop_method == BIN_THRESH_NAME:
+            if agg_method == BIN_THRESH_NAME:
                 prop_est, valid_cov = self.est_binary_thresh(mt_llrs)
             else:
                 prop_est, valid_cov = self.est_em_prop(mt_llrs)
