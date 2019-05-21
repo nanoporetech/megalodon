@@ -82,7 +82,7 @@ setup(
 
     packages=find_packages(exclude=[
         "*.test", "*.test.*", "test.*", "test", "bin"]),
-    package_data={'configs': 'data/configs/*'},
+    package_data={'configs': 'data/configs/*', __pkg_name__: ['calibration_files/*']},
     exclude_package_data={'': ['*.hdf', '*.c', '*.h']},
     ext_modules=extensions,
     install_requires=install_requires,
