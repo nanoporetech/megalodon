@@ -8,14 +8,14 @@ Megalodon
 
 Megalodon provides "basecalling augmentation" for raw nanopore sequencing reads, including direct, reference-guided SNP and modified base calling.
 
-Megalodon anchors the information rich neural network basecalling output to a reference genome. Variants, either modified bases or alternative bases, are then proposed and scored in order to produce highly-accurate reference anchored calls.
+Megalodon anchors the information rich neural network basecalling output to a reference genome. Variants, modified bases or alternative canonical bases, are then proposed and scored in order to produce highly-accurate reference anchored modified base or SNP calls.
 
 Detailed documentation for all ``megalodon`` arguments and algorithms can be found on the `megalodon documentation page <https://nanoporetech.github.io/megalodon/>`_.
 
 Installation
 ------------
 
-Requires taiyaki installation for basecalling backend.
+Requires `taiyaki <https://github.com/nanoporetech/taiyaki>`_ installation for basecalling backend.
 
 ::
 
@@ -26,7 +26,7 @@ Requires taiyaki installation for basecalling backend.
 Getting Started
 ---------------
 
-Megalodon is accessed via the command line interface, ``megalodon`` command.
+Megalodon is accessed via the command line interface ``megalodon`` command.
 
 ::
 
@@ -41,37 +41,90 @@ Megalodon is accessed via the command line interface, ``megalodon`` command.
         --reference reference.fa --snp-filename variants.vcf \
         --mod-motif Z CG 0 --devices 0 1 --processes 8 --verbose-read-progress 3
 
-This command produces the ``megalodon_results`` output directory with the following files present: ``basecalls.fasta``, ``mappings.bam``, ``mappings.summary.txt``, ``per_read_snp_calls.db``, ``snps.vcf``, ``per_read_modified_base_calls.db`` and ``mods.mvcf``.
+This command produces the ``megalodon_results`` output directory containing basecall, mapping, SNP and modified base results. The format for each output is described below.
 
-Simple Command Interface
-------------------------
+Inputs
+------
 
-- Inputs
+- Raw reads
 
-  - Raw reads
-  - Sequence reference
-  - Optionally
+  - Directory containing raw read FAST5 files
+  - By default the directory will be searched recursively for read files (ending in ``.fast5``)
+- Reference
 
-    - Variants VCF (required for SNP calling)
-- Outputs
+  - Genome or transcriptome sequence reference file in FASTA format
+- Variants VCF (optional, but required for SNP calling)
 
-  - Basecalls
+  - Megalodon requires a set of candidate variants in order to call SNPs. These should be provided in the VCF format.
+  - Only small simple indels (default ``5``) are included in testing. Larger indels can be processed using the ``--max-snp-size`` argument.
 
-    - Including basecalls with annotated modified bases
-    - Or separate HDF5 modified base scores
-  - Mappings (via minimap2 python interface mappy)
+    - For larger indels the ``--snp-context-bases`` option may need to be increased.
+  - Multiple alternative allele SNPs are not currently supported.
 
-    - In either SAM, BAM or CRAM format
-  - Modified base calls
+Outputs
+-------
 
-    - Per-read modified base calls (either database or text)
-    - Aggregated calls (modVCF TODO: add description)
-  - Sequence variant calls
+- Basecalls
 
-    - Per-read sequence variant calls (either database or text)
-    - Aggregated calls (VCF)
-    - Future additions:
+  - Format: FASTA
 
-      - Phased read calls
-      - Improved phase-aware per-read sequence variants calls
-      - Phased VCF output
+    - FASTQ format output is not currently available
+  - Basecalls with annotated modified bases (TODO describe this output behavior)
+  - Or separate HDF5 modified base scores
+- Mappings
+
+  - Format: SAM, BAM (default), or CRAM
+  - A tab-separated mapping summary is produced
+
+    - Columns: ``read_id``, ``percent_identity``, ``num_aligned_bases``, ``num_matched_bases``, ``num_deleted_bases``, ``num_inserted_bases``
+
+      - ``percent_identity`` is defined as ``num_matched_bases`` / ``num_align_bases``
+- Modified Base Calls
+
+  - Per-read modified base calls
+
+    - Per-read SQL DB containing scores at each tested reference location
+
+      - Contains a single ``mods`` table indexed by reference position
+    - Tab-delimited output can be produced by adding the ``--write-mods-text`` flag
+
+      - Columns: ``read_id``, ``chromosome``, ``strand``, ``position``, ``score``, ``motif``, ``modified_base``
+
+        - Position is 0-based
+        - Motif is as described by ``--mod-motif`` argument
+
+          - If ``--mod-motif`` is not provided, all applicable positions for a modification are tested
+  - Aggregated calls
+
+    - Aggregated calls are output in a variant of the VCF format, as no current format allows the output of mulitple types of modifications to the same file.
+
+      - This format treats modified bases as a variant. As opposed to SNP calls (as in VCF format) which output the probability of a particular genotype, this format outputs the estimated proportion of reads modified at the specified genomic location.
+- SNP Variant Calls
+
+    - Per-read SQL DB containing scores at each tested reference location
+
+      - Contains a single ``snps`` table indexed by reference position
+    - Tab-delimited output can be produced by adding the ``--write-snps-text`` flag
+
+      - Columns: ``read_id``, ``chromosome``, ``strand``, ``position``, ``score``, ``ref_seq``, ``alt_seq``, and ``snp_id``
+
+        - Position is 0-based
+  - Aggregated calls
+
+    - Format: VCF
+    - VCF file contains ``GT``, ``GQ``, and ``PL``
+    - Default run mode is diploid. To run in haploid mode, set ``--haploid`` flag.
+  - Future additions:
+
+    - Phased read calls
+    - Improved phase-aware per-read sequence variants calls
+    - Phased VCF output
+
+Computing
+---------
+
+Megalodon processes reads from a queue using a pool of workers. The number of workers is set using the ``--processes`` argument. Each process is linked to a taiyaki basecalling backend.
+
+In order to use GPU resources the ``--devices`` argument can be set. If ``--devices`` is set, the taiyaki backends will be distribured evenly over the specified ``--devices``. In order to control the GPU memory usage, the ``--max_concurrent_chunks`` argument allows a user to restrict the maximum number of chunks to process concurrently (per ``--process``).
+
+The ``--chunk_size`` and ``--chunk_overlap`` arguments allow users to specify read chunking, but signal normalization is always carried out over the entire read.
