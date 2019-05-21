@@ -101,7 +101,9 @@ Outputs
       - This format treats modified bases as a variant. As opposed to SNP calls (as in VCF format) which output the probability of a particular genotype, this format outputs the estimated proportion of reads modified at the specified genomic location.
 - SNP Variant Calls
 
-    - Per-read SQL DB containing scores at each tested reference location
+  - Per-read SNP Calls
+
+    - SQL DB containing scores at each tested reference location
 
       - Contains a single ``snps`` table indexed by reference position
     - Tab-delimited output can be produced by adding the ``--write-snps-text`` flag
@@ -112,7 +114,7 @@ Outputs
   - Aggregated calls
 
     - Format: VCF
-    - VCF file contains ``GT``, ``GQ``, and ``PL``
+    - VCF file contains ``GT``, ``GQ``, and ``PL`` sample fields
     - Default run mode is diploid. To run in haploid mode, set ``--haploid`` flag.
   - Future additions:
 
