@@ -53,6 +53,7 @@ FIXED_VCF_MI = [
     'FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
     'FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype Quality">',
     'FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read Depth">',
+    'FORMAT=<ID=PL,Number=G,Type=Integer,Description="Normalized, Phred-scaled likelihoods for genotypes as defined in the VCF specification">'
 ]
 
 
