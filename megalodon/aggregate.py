@@ -146,14 +146,14 @@ def _agg_prog_worker(
         try:
             snp_prog_q.get(block=False)
             if not suppress_progress:
-                snp_bar.update(1)
-                mod_bar.update(0)
+                if snp_bar is not None: snp_bar.update(1)
+                if mod_bar is not None: mod_bar.update(0)
         except queue.Empty:
             try:
                 mod_prog_q.get(block=False)
                 if not suppress_progress:
-                    snp_bar.update(0)
-                    mod_bar.update(1)
+                    if snp_bar is not None: snp_bar.update(0)
+                    if mod_bar is not None: mod_bar.update(1)
             except queue.Empty:
                 sleep(0.01)
                 if prog_conn.poll():
