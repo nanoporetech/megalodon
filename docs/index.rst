@@ -1,21 +1,19 @@
-.. image:: /ONT_logo.png
-  :width: 800
-
-******************
-
-Megalodon
-"""""""""
+*************************************
+Welcome to Megalodon's documentation!
+*************************************
 
 Megalodon provides "basecalling augmentation" for raw nanopore sequencing reads, including direct, reference-guided SNP and modified base calling.
 
 Megalodon anchors the information rich neural network basecalling output to a reference genome. Variants, either modified bases or alternative bases, are then proposed and scored in order to produce highly-accurate reference anchored calls.
 
-Detailed documentation for all ``megalodon`` arguments and algorithms can be found on the `megalodon documentation page <https://nanoporetech.github.io/megalodon/>`_.
-
+------------
 Installation
 ------------
 
-Requires taiyaki installation for basecalling backend.
+.. |pypi_badge| image:: https://badge.fury.io/py/ont-megalodon.svg
+    :target: https://badge.fury.io/py/ont-megalodon
+
+Basic megalodon installation (python 3 support only)
 
 ::
 
@@ -23,8 +21,11 @@ Requires taiyaki installation for basecalling backend.
     cd megalodon
     pip install .
 
-Getting Started
----------------
+See :doc:`tutorials` for common workflows.
+
+===========
+Quick Start
+===========
 
 Megalodon is accessed via the command line interface, ``megalodon`` command.
 
@@ -43,35 +44,17 @@ Megalodon is accessed via the command line interface, ``megalodon`` command.
 
 This command produces the ``megalodon_results`` output directory with the following files present: ``basecalls.fasta``, ``mappings.bam``, ``mappings.summary.txt``, ``per_read_snp_calls.db``, ``snps.vcf``, ``per_read_modified_base_calls.db`` and ``mods.mvcf``.
 
-Simple Command Interface
-------------------------
+The majority of megalodon's functionality is accessed via the ``megalodon`` command. A small number of additional scripts are found in the ``scripts`` directory of the code repository, including independent modified base or SNP aggregation (much faster than per-read calls), result validation, and model statistic calibration.
 
-- Inputs
+--------
+Contents
+--------
 
-  - Raw reads
-  - Sequence reference
-  - Optionally
+.. toctree::
+   :maxdepth: 2
 
-    - Variants VCF (required for SNP calling)
-- Outputs
-
-  - Basecalls
-
-    - Including basecalls with annotated modified bases
-    - Or separate HDF5 modified base scores
-  - Mappings (via minimap2 python interface mappy)
-
-    - In either SAM, BAM or CRAM format
-  - Modified base calls
-
-    - Per-read modified base calls (either database or text)
-    - Aggregated calls (modVCF TODO: add description)
-  - Sequence variant calls
-
-    - Per-read sequence variant calls (either database or text)
-    - Aggregated calls (VCF)
-    - Future additions:
-
-      - Phased read calls
-      - Improved phase-aware per-read sequence variants calls
-      - Phased VCF output
+   reference_anchoring
+   modified_base_calling
+   snp_calling
+   common_arguments
+   advanced_arguments
