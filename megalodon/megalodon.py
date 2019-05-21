@@ -865,7 +865,7 @@ def get_parser():
         help='Write per-read modified bases out to a text file. Default: ' +
         'Only ouput to database.')
 
-    snp_grp.add_argument(
+    mod_grp.add_argument(
         '--disable-mod-calibration', action='store_true',
         help=hidden_help('Use raw modified base scores from the network. ' +
                          'Default: Calibrate scores as described in ' +

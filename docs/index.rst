@@ -42,9 +42,9 @@ Megalodon is accessed via the command line interface, ``megalodon`` command.
         --reference reference.fa --snp-filename variants.vcf \
         --mod-motif Z CG 0 --devices 0 1 --processes 8 --verbose-read-progress 3
 
-This command produces the ``megalodon_results`` output directory with the following files present: ``basecalls.fasta``, ``mappings.bam``, ``mappings.summary.txt``, ``per_read_snp_calls.db``, ``snps.vcf``, ``per_read_modified_base_calls.db`` and ``mods.mvcf``.
+This command produces the ``megalodon_results`` output directory containing basecall, mapping, SNP and modified base results.
 
-The majority of megalodon's functionality is accessed via the ``megalodon`` command. A small number of additional scripts are found in the ``scripts`` directory of the code repository, including independent modified base or SNP aggregation (much faster than per-read calls), result validation, and model statistic calibration.
+The majority of megalodon's functionality is accessed via the ``megalodon`` command (exemplified above), though a small number of additional scripts are found in the ``scripts`` directory of the code repository. These including independent modified base or SNP aggregation (much faster than per-read calls), result validation, and model statistic calibration.
 
 --------
 Contents
@@ -53,8 +53,7 @@ Contents
 .. toctree::
    :maxdepth: 2
 
-   reference_anchoring
-   modified_base_calling
-   snp_calling
+   algorithm_details
    common_arguments
    advanced_arguments
+   computing_considerations
