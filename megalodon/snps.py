@@ -421,7 +421,7 @@ class SnpData(object):
                 if line.startswith('#'): continue
                 try:
                     (chrm, pos, snp_id,
-                     snp_ref_seq, snp_alt_seq) = line.split()[:5]
+                     snp_ref_seq, raw_snp_alt_seq) = line.split()[:5]
                 except:
                     logger.debug(
                         'Encountered invalid VCF line: "{}"'.format(line))
@@ -432,13 +432,15 @@ class SnpData(object):
                                 line))
                     warned_invalid_line = True
 
-                try:
-                    ref_es, alt_es, pos = simplify_and_encode_snp(
-                        snp_ref_seq, snp_alt_seq, int(pos), max_snp_size)
-                except mh.MegaError:
-                    n_skipped_snps += 1
-                    continue
-                raw_snps_to_test[chrm][(pos, ref_es, alt_es)].append(snp_id)
+                # split multi-allelic sites into separate biallelic sites
+                for snp_alt_seq in raw_snp_alt_seq.split(','):
+                    try:
+                        ref_es, alt_es, pos = simplify_and_encode_snp(
+                            snp_ref_seq, snp_alt_seq, int(pos), max_snp_size)
+                        raw_snps_to_test[chrm][(pos, ref_es, alt_es)].append(
+                            snp_id)
+                    except mh.MegaError:
+                        n_skipped_snps += 1
 
         # re-organize parsed data
         self.snps_to_test = {}
