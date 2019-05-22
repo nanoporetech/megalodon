@@ -19,7 +19,8 @@ mo = re.search(vsre, verstrline)
 if mo:
     __version__ = mo.group(1)
 else:
-    raise RuntimeError('Unable to find version string in "megalodon/_version.py".')
+    raise RuntimeError(
+        'Unable to find version string in "megalodon/_version.py".')
 
 
 install_requires = [
