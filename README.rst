@@ -8,7 +8,8 @@ Megalodon
 
 Megalodon provides "basecalling augmentation" for raw nanopore sequencing reads, including direct, reference-guided SNP and modified base calling.
 
-Megalodon anchors the information rich neural network basecalling output to a reference genome. Variants, modified bases or alternative canonical bases, are then proposed and scored in order to produce highly-accurate reference anchored modified base or SNP calls.
+Megalodon anchors the information rich neural network basecalling output to a reference genome.
+Variants, modified bases or alternative canonical bases, are then proposed and scored in order to produce highly-accurate reference anchored modified base or SNP calls.
 
 Detailed documentation for all ``megalodon`` arguments and algorithms can be found on the `megalodon documentation page <https://nanoporetech.github.io/megalodon/>`_.
 
@@ -41,7 +42,8 @@ Megalodon is accessed via the command line interface ``megalodon`` command.
         --reference reference.fa --snp-filename variants.vcf \
         --mod-motif Z CG 0 --devices 0 1 --processes 8 --verbose-read-progress 3
 
-This command produces the ``megalodon_results`` output directory containing basecall, mapping, SNP and modified base results. The format for each output is described below.
+This command produces the ``megalodon_results`` output directory containing basecall, mapping, SNP and modified base results.
+The format for each output is described below.
 
 Inputs
 ------
@@ -125,8 +127,12 @@ Outputs
 Computing
 ---------
 
-Megalodon processes reads from a queue using a pool of workers. The number of workers is set using the ``--processes`` argument. Each process is linked to a taiyaki basecalling backend.
+Megalodon processes reads from a queue using a pool of workers.
+The number of workers is set using the ``--processes`` argument.
+Each process is linked to a taiyaki basecalling backend.
 
-In order to use GPU resources the ``--devices`` argument can be set. If ``--devices`` is set, the taiyaki backends will be distribured evenly over the specified ``--devices``. In order to control the GPU memory usage, the ``--max_concurrent_chunks`` argument allows a user to restrict the maximum number of chunks to process concurrently (per ``--process``).
+In order to use GPU resources the ``--devices`` argument can be set.
+If ``--devices`` is set, the taiyaki backends will be distribured evenly over the specified ``--devices``.
+In order to control the GPU memory usage, the ``--max_concurrent_chunks`` argument allows a user to restrict the maximum number of chunks to process concurrently (per ``--process``).
 
 The ``--chunk_size`` and ``--chunk_overlap`` arguments allow users to specify read chunking, but signal normalization is always carried out over the entire read.

@@ -44,7 +44,8 @@ Megalodon is accessed via the command line interface, ``megalodon`` command.
 
 This command produces the ``megalodon_results`` output directory containing basecall, mapping, SNP and modified base results.
 
-The majority of megalodon's functionality is accessed via the ``megalodon`` command (exemplified above), though a small number of additional scripts are found in the ``scripts`` directory of the code repository. These including independent modified base or SNP aggregation (much faster than per-read calls), result validation, and model statistic calibration.
+The majority of megalodon's functionality is accessed via the ``megalodon`` command (exemplified above), though a small number of additional scripts are found in the ``scripts`` directory of the code repository.
+These including independent modified base or SNP aggregation (much faster than per-read calls), result validation, and model statistic calibration.
 
 --------
 Contents
