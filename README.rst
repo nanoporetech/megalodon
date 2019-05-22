@@ -147,3 +147,14 @@ The included model contains 5mC and 6mA capabilities.
 5mC was trained only in the E. coli (CCWGG) and human (CpG) contexts while the 6mA was trained only on the E. coli (GATC) context.
 Modified base detection outside of these contexts has not been tested and may produce sub-par results.
 As noted above newly trained models using taiyaki can be used with megalodon, but calibration files should be reproduced for each new model.
+
+
+Licence and Copyright
+---------------------
+
+(c) 2018 Oxford Nanopore Technologies Ltd.
+
+Flappie is distributed under the terms of the Oxford Nanopore
+Technologies, Ltd.  Public License, v. 1.0.  If a copy of the License
+was not distributed with this file, You can obtain one at
+http://nanoporetech.com
