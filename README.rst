@@ -136,3 +136,14 @@ If ``--devices`` is set, the taiyaki backends will be distribured evenly over th
 In order to control the GPU memory usage, the ``--max_concurrent_chunks`` argument allows a user to restrict the maximum number of chunks to process concurrently (per ``--process``).
 
 The ``--chunk_size`` and ``--chunk_overlap`` arguments allow users to specify read chunking, but signal normalization is always carried out over the entire read.
+
+Compatibility
+-------------
+
+The model and calibration files included with megalodon are applicable only to MinION or GridION R9.4.1 flowcells.
+New models trained with taiyaki can be used with megalodon, but in order to obtain the highest performance the megalodon (SNP and modified base) calibration files should be reproduced for any new model.
+
+The included model contains 5mC and 6mA capabilities.
+5mC was trained only in the E. coli (CCWGG) and human (CpG) contexts while the 6mA was trained only on the E. coli (GATC) context.
+Modified base detection outside of these contexts has not been tested and may produce sub-par results.
+As noted above newly trained models using taiyaki can be used with megalodon, but calibration files should be reproduced for each new model.
