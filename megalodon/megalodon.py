@@ -633,6 +633,11 @@ def snps_validation(args, is_cat_mod, output_size):
     snp_calib_fn = mh.get_snp_calibration_fn(
         args.snp_calibration_filename, args.disable_snp_calibration)
     # snps data object loads with None snp_fn for easier handling downstream
+    if args.max_snp_size > snps.HARD_MAX_SNP_SIZE:
+        logger.warning((
+            'Cannot process SNPs larger than {} bases. Re-setting max '+
+            'SNP size.').format(snps.HARD_MAX_SNP_SIZE))
+        args.max_snp_size = snps.HARD_MAX_SNP_SIZE
     snps_data = snps.SnpData(
         args.snp_filename, args.prepend_chr_vcf, args.max_snp_size,
         args.snp_all_paths, args.write_snps_text, args.snp_context_bases,
@@ -829,7 +834,9 @@ def get_parser():
     snp_grp.add_argument(
         '--max-snp-size', type=int, default=5,
         help=hidden_help('Maximum difference in number of reference and ' +
-                         'alternate bases. Default: %(default)d'))
+                         'alternate bases. Cannot exceed {}. '.format(
+                             snps.HARD_MAX_SNP_SIZE) +
+                         'Default: %(default)d'))
     snp_grp.add_argument(
         '--prepend-chr-vcf', action='store_true',
         help=hidden_help('Prepend "chr" to chromosome names from VCF to ' +

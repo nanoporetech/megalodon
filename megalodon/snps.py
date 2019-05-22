@@ -12,6 +12,9 @@ from megalodon import decode, logging, mapping, megalodon_helper as mh
 from megalodon._version import MEGALODON_VERSION
 
 
+# hard threshold on SNP size due to unsigned long encoding
+HARD_MAX_SNP_SIZE = 27
+
 DIPLOID_MODE = 'diploid'
 HAPLIOD_MODE = 'haploid'
 AMBIG_LLRS_THRESH = None
@@ -400,6 +403,12 @@ class SnpData(object):
             self, snp_fn, do_prepend_chr_vcf, max_snp_size, all_paths,
             write_snps_txt, context_bases, snps_calib_fn=None,
             call_mode=DIPLOID_MODE, do_pr_ref_snps=False):
+        logger = logging.get_logger('snps')
+        if max_snp_size > HARD_MAX_SNP_SIZE:
+            logger.warning((
+                'Cannot process SNPs larger than {} bases. Re-setting max '+
+                'SNP size.'.format(HARD_MAX_SNP_SIZE)))
+            max_snp_size = HARD_MAX_SNP_SIZE
         self.all_paths = all_paths
         self.write_snps_txt = write_snps_txt
         self.calib_table = SnpCalibrator(snps_calib_fn)
@@ -411,7 +420,6 @@ class SnpData(object):
             self.snp_id_tbl = None
             return
 
-        logger = logging.get_logger('snps')
         logger.info('Loading SNPs.')
         raw_snps_to_test = defaultdict(lambda: defaultdict(list))
         warned_invalid_line = False
@@ -456,15 +464,24 @@ class SnpData(object):
             self.snp_id_tbl[chrm] = s_snp_ids
             # note lock=False makes the non-safe, but they are read-only
             s_poss = mp.Array('i', s_poss, lock=False)
-            s_ref_es = mp.Array('I', s_ref_es, lock=False)
-            s_alt_es = mp.Array('I', s_alt_es, lock=False)
+            # TODO this limits the size of a SNP to 27 bases
+            # need to think of another way to transfer this information
+            # across all processes efficiently without exploding memory
+            # previous solution involved holding a dictionary with the
+            # SNP seq for each loc, but this was too large for reasonable RAM
+            # and number of processes
+            # potential workaround to set both ref and alt encoded seqs to 0
+            # as a flag to use a supplementary dictionary holding only the
+            # very long SNPs
+            s_ref_es = mp.Array('L', s_ref_es, lock=False)
+            s_alt_es = mp.Array('L', s_alt_es, lock=False)
             # numpy array to search sorted more efficiently
             self.snps_to_test[chrm] = (s_poss, s_ref_es, s_alt_es)
 
         n_uniq_snps = sum(len(cs_snps) for cs_snps in raw_snps_to_test.values())
         logger.info((
             ('Loaded {} SNPs. (Skipped {} entries due to incompatible ' +
-             'SNP type)')).format(n_uniq_snps, n_skipped_snps))
+             'SNP type or length)')).format(n_uniq_snps, n_skipped_snps))
 
         return
 
