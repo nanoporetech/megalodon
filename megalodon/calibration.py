@@ -70,16 +70,7 @@ def compute_smooth_mono_density(llrs, num_calib_vals, smooth_bw, smooth_ls):
 
 def compute_calibration(
         ref_llrs, alt_llrs, max_input_llr, num_calib_vals, smooth_bw,
-        min_dens_val, do_plot=False):
-    if do_plot:
-        # TODO convert this to an option to return plot data and actually
-        # perform plotting in scripts/ to avoid deps confusion
-        import matplotlib
-        if sys.platform == 'darwin':
-            matplotlib.use("TkAgg")
-        import matplotlib.pyplot as plt
-        #plt.ion()
-
+        min_dens_val, return_plot_info=False):
     smooth_ls = np.linspace(-max_input_llr, max_input_llr,
                             num_calib_vals, endpoint=True)
     sys.stderr.write('\tComputing reference emperical density.\n')
@@ -119,21 +110,12 @@ def compute_calibration(
         np.maximum.accumulate(prob_alt[:prob_mp][::-1])[::-1],
         np.minimum.accumulate(prob_alt[prob_mp:])])
 
-    if do_plot:
-        sys.stderr.write('\tPlotting.\n')
-        f, axarr = plt.subplots(3, sharex=True)
-        axarr[0].plot(smooth_ls, s_ref, color='orange')
-        axarr[0].plot(smooth_ls, sm_ref, color='red')
-        axarr[0].plot(smooth_ls, s_alt, color='grey')
-        axarr[0].plot(smooth_ls, sm_alt, color='blue')
-        axarr[1].plot(smooth_ls, mono_prob, color='orange')
-        axarr[1].plot(smooth_ls, 1 / (np.exp(smooth_ls) + 1), color='purple')
-        axarr[2].plot(smooth_ls, np.log((1 - prob_alt) / prob_alt), color='red')
-        axarr[2].plot(smooth_ls, np.log((1 - mono_prob) / mono_prob),
-                      color='orange')
-        plt.show()
+    plot_data = None
+    if return_plot_info:
+        plot_data = (smooth_ls, s_ref, sm_ref, s_alt, sm_alt, mono_prob,
+                     prob_alt)
 
-    return np.log((1 - mono_prob) / mono_prob), new_input_llr_range
+    return np.log((1 - mono_prob) / mono_prob), new_input_llr_range, plot_data
 
 
 ###############################

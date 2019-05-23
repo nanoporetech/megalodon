@@ -2,14 +2,42 @@ import os
 import sys
 import argparse
 
+import matplotlib
+if sys.platform == 'darwin':
+    matplotlib.use("TkAgg")
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
+
 import numpy as np
 
 from megalodon import calibration
 
 
-# TODO add this as a command line option as in validate script to save plots
-DO_PLOT = False
-
+def plot_calib(
+        pdf_fp, snp_type, smooth_ls, s_ref, sm_ref, s_alt, sm_alt,
+        mono_prob, prob_alt):
+    f, axarr = plt.subplots(3, sharex=True, figsize=(11, 7))
+    axarr[0].plot(smooth_ls, s_ref, color='orange')
+    axarr[0].plot(smooth_ls, sm_ref, color='red')
+    axarr[0].plot(smooth_ls, s_alt, color='grey')
+    axarr[0].plot(smooth_ls, sm_alt, color='blue')
+    axarr[0].set_ylabel(
+        'Probability Density\nred/orange=canonical\nblue/grey=modified')
+    axarr[0].set_title(snp_type + ' Calibration')
+    axarr[1].plot(smooth_ls, mono_prob, color='orange')
+    axarr[1].plot(
+        smooth_ls, 1 / (np.exp(smooth_ls) + 1), color='purple')
+    axarr[1].set_ylabel(
+        'Emperical Modified\nProbability\norange=calibrated\npurple=raw')
+    axarr[2].plot(
+        smooth_ls, np.log((1 - prob_alt) / prob_alt), color='red')
+    axarr[2].plot(
+        smooth_ls, np.log((1 - mono_prob) / mono_prob), color='orange')
+    axarr[2].set_ylabel('Calibrated LLR\norage=monotonic')
+    axarr[2].set_xlabel('Theoretical LLR (NN Score)')
+    pdf_fp.savefig(bbox_inches='tight')
+    plt.close()
+    return
 
 def extract_llrs(llr_fn, max_indel_len=None):
     (snp_ref_llrs, snp_alt_llrs, ins_ref_llrs, ins_alt_llrs,
@@ -90,6 +118,10 @@ def get_parser():
         '--out-filename', default='megalodon_snp_calibration.npz',
         help='Filename to output calibration values. Default: %(default)s')
     parser.add_argument(
+        '--out-pdf',
+        help='Output pdf filename for modified base calibration ' +
+        'visualization. Default: Do not produce plot.')
+    parser.add_argument(
         '--overwrite', action='store_true',
         help='Overwrite --out-filename if it exists.')
 
@@ -105,21 +137,29 @@ def main():
     (snp_ref_llrs, snp_alt_llrs, ins_ref_llrs, ins_alt_llrs,
      del_ref_llrs, del_alt_llrs) = extract_llrs(args.ground_truth_llrs)
 
+    pdf_fp = None if args.out_pdf is None else PdfPages(args.out_pdf)
     sys.stderr.write('Computing single-base SNP calibration.\n')
-    snp_calib, snp_llr_range = calibration.compute_calibration(
+    snp_calib, snp_llr_range, plot_data = calibration.compute_calibration(
         snp_ref_llrs, snp_alt_llrs, args.max_input_llr,
         args.num_calibration_values, args.smooth_bandwidth, args.min_density,
-        DO_PLOT)
+        pdf_fp is not None)
+    if pdf_fp is not None:
+        plot_calib(pdf_fp, 'SNP', *plot_data)
     sys.stderr.write('Computing deletion calibration.\n')
-    del_calib, del_llr_range = calibration.compute_calibration(
+    del_calib, del_llr_range, plot_data = calibration.compute_calibration(
         del_ref_llrs, del_alt_llrs, args.max_input_llr,
         args.num_calibration_values, args.smooth_bandwidth, args.min_density,
-        DO_PLOT)
+        pdf_fp is not None)
+    if pdf_fp is not None:
+        plot_calib(pdf_fp, 'Deletion', *plot_data)
     sys.stderr.write('Computing insertion calibration.\n')
-    ins_calib, ins_llr_range = calibration.compute_calibration(
+    ins_calib, ins_llr_range, plot_data = calibration.compute_calibration(
         ins_ref_llrs, ins_alt_llrs, args.max_input_llr,
         args.num_calibration_values, args.smooth_bandwidth, args.min_density,
-        DO_PLOT)
+        pdf_fp is not None)
+    if pdf_fp is not None:
+        plot_calib(pdf_fp, 'Insertion', *plot_data)
+        pdf_fp.close()
 
     # save calibration table for reading into SNP table
     sys.stderr.write('Saving calibrations to file.\n')
