@@ -5,13 +5,15 @@ import threading
 from time import sleep
 from random import choice
 import multiprocessing as mp
+from collections import defaultdict
 
 import mappy
 import numpy as np
 from tqdm import tqdm
 
 from megalodon import (
-    decode, megalodon_helper as mh, megalodon, backends, mapping, snps)
+    decode, fast5_io, megalodon_helper as mh,
+    megalodon, backends, mapping, snps)
 
 
 CONTEXT_BASES = [10, 30]
@@ -139,7 +141,7 @@ def process_read(
     r_seq, score, rl_cumsum, _ = decode.decode_post(
         r_post, alphabet_info.alphabet)
 
-    r_ref_seq, r_to_q_poss, r_ref_pos = mapping.map_read(
+    r_ref_seq, r_to_q_poss, r_ref_pos, _ = mapping.map_read(
         r_seq, read_id, caller_conn)
     np_ref_seq = np.array([
         mh.ALPHABET.find(b) for b in r_ref_seq], dtype=np.uintp)
@@ -228,9 +230,9 @@ def _process_reads_worker(
 
     while True:
         try:
-            fast5_fn = fast5_q.get(block=False)
+            fast5_fn, read_id = fast5_q.get(block=False)
         except queue.Empty:
-            sleep(0.1)
+            sleep(0.01)
             continue
 
         if fast5_fn is None:
@@ -239,13 +241,13 @@ def _process_reads_worker(
             break
 
         try:
-            raw_sig, read_id = mh.extract_read_data(fast5_fn)
+            raw_sig = fast5_io.get_signal(fast5_fn, read_id)
             read_snp_calls = process_read(
                 raw_sig, read_id, model_info, alphabet_info, caller_conn,
                 map_thr_buf)
-            snp_calls_q.put(read_snp_calls)
-        except:
-            #raise
+            snp_calls_q.put((True, read_snp_calls))
+        except Exception as e:
+            snp_calls_q.put((False, str(e)))
             pass
 
     return
@@ -260,35 +262,54 @@ if _DO_PROFILE:
 
 
 def _get_snp_calls(
-        snp_calls_q, snp_calls_conn, out_fn, total_reads, suppress_progress):
+        snp_calls_q, snp_calls_conn, out_fn, getter_num_reads_conn,
+        suppress_progress):
     out_fp = open(out_fn, 'w')
+    bar = None
     if not suppress_progress:
-        bar = tqdm(total=total_reads, smoothing=0)
+        bar = tqdm(smoothing=0)
 
+    err_types = defaultdict(int)
     while True:
         try:
-            read_snp_calls = snp_calls_q.get(block=False)
-            for snp_call in read_snp_calls:
-                out_fp.write('{}\t{}\t{}\t{}\n'.format(*snp_call))
-            out_fp.flush()
+            valid_res, read_snp_calls = snp_calls_q.get(block=False)
+            if valid_res:
+                for snp_call in read_snp_calls:
+                    out_fp.write('{}\t{}\t{}\t{}\n'.format(*snp_call))
+                out_fp.flush()
+            else:
+                err_types[read_snp_calls] += 1
             if not suppress_progress:
                 bar.update(1)
         except queue.Empty:
-            if snp_calls_conn.poll():
-                break
-            sleep(0.1)
+            if bar is not None and bar.total is None:
+                if getter_num_reads_conn.poll():
+                    bar.total = getter_num_reads_conn.recv()
+            else:
+                if snp_calls_conn.poll():
+                    break
+            sleep(0.01)
             continue
 
     while not snp_calls_q.empty():
-        read_snp_calls = snp_calls_q.get(block=False)
-        for snp_call in read_snp_calls:
-            out_fp.write('{}\t{}\t{}\t{}\n'.format(*snp_call))
-        out_fp.flush()
+        valid_res, read_snp_calls = snp_calls_q.get(block=False)
+        if valid_res:
+            for snp_call in read_snp_calls:
+                out_fp.write('{}\t{}\t{}\t{}\n'.format(*snp_call))
+            out_fp.flush()
+        else:
+            err_types[str(e)] += 1
         if not suppress_progress:
             bar.update(1)
     out_fp.close()
     if not suppress_progress:
         bar.close()
+
+    if len(err_types) > 0:
+        sys.stderr.write('Failed reads summary:\n')
+        for n_errs, err_str in sorted(
+                (v, k) for k, v in err_types.items())[::-1]:
+            sys.stderr.write('\t{} : {} reads\n'.format(err_str, n_errs))
 
     return
 
@@ -296,22 +317,18 @@ def _get_snp_calls(
 def process_all_reads(
         fast5s_dir, num_reads, model_info, aligner, num_ps, alphabet_info,
         out_fn, suppress_progress):
-    sys.stderr.write('Searching for reads.\n')
-    fast5_fns = megalodon.get_read_files(fast5s_dir)
-    if num_reads is not None:
-        fast5_fns = fast5_fns[:num_reads]
-
-
     sys.stderr.write('Preparing workers and calling reads.\n')
     # read filename queue filler
     fast5_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
+    num_reads_conn, getter_num_reads_conn = mp.Pipe()
     files_p = mp.Process(
-        target=megalodon._fill_files_queue, args=(fast5_q, fast5_fns, num_ps),
+        target=megalodon._fill_files_queue, args=(
+            fast5_q, fast5s_dir, num_reads, True, num_ps, num_reads_conn),
         daemon=True)
     files_p.start()
 
     snp_calls_q, snp_calls_p, main_sc_conn = mh.create_getter_q(
-            _get_snp_calls, (out_fn, len(fast5_fns), suppress_progress))
+            _get_snp_calls, (out_fn, getter_num_reads_conn, suppress_progress))
 
     proc_reads_ps, map_conns = [], []
     for device in model_info.process_devices:
@@ -406,12 +423,13 @@ def get_parser():
 def main():
     args = get_parser().parse_args()
 
+    sys.stderr.write('Loading model.\n')
     model_info = backends.ModelInfo(
         args.flappie_model_name, args.taiyaki_model_filename, args.devices,
         args.processes, args.chunk_size, args.chunk_overlap,
         args.max_concurrent_chunks)
-    alphabet_info = megalodon.AlphabetInfo(
-        model_info, None, False, None, None)
+    alphabet_info = megalodon.AlphabetInfo(model_info)
+    sys.stderr.write('Loading reference.\n')
     aligner = mapping.alignerPlus(
         str(args.reference), preset=str('map-ont'), best_n=1)
 

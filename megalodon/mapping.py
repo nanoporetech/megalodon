@@ -103,6 +103,7 @@ def map_read(q_seq, read_id, caller_conn):
     1) reference sequence (endcoded as int labels)
     2) mapping from reference to read positions (after trimming)
     3) reference mapping position (including read trimming positions)
+    4) cigar as produced by mappy
     """
     # send seq to _map_read_worker and receive mapped seq and pos
     caller_conn.send((q_seq, read_id))

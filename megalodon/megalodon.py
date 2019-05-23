@@ -530,8 +530,9 @@ class AlphabetInfo(object):
         return
 
     def __init__(
-            self, model_info, all_mod_motifs_raw, mod_all_paths,
-            write_mods_txt, mod_context_bases, do_output_mods, do_pr_ref_mods):
+            self, model_info, all_mod_motifs_raw=None, mod_all_paths=False,
+            write_mods_txt=None, mod_context_bases=None,
+            do_output_mods=False, do_pr_ref_mods=False):
         logger = logging.get_logger()
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other alphabet info

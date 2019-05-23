@@ -6,7 +6,7 @@ from ont_fast5_api.fast5_interface import get_fast5_file
 from megalodon import megalodon_helper as mh
 
 
-def iterate_fast5_filenames(input_path, recursive):
+def iterate_fast5_filenames(input_path, recursive=True):
     if recursive:
         for root, _, fns in os.walk(input_path, followlinks=True):
             for fn in fns:
