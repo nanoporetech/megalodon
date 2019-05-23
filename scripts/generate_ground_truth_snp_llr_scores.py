@@ -14,6 +14,13 @@ from megalodon import (
     decode, megalodon_helper as mh, megalodon, backends, mapping, snps)
 
 
+CONTEXT_BASES = [10, 30]
+EDGE_BUFFER = 100
+MAX_INDEL_LEN = 3
+ALL_PATHS = False
+TEST_EVERY_N_LOCS = 5
+MAX_POS_PER_READ = 400
+
 CAN_BASES = "ACGT"
 CAN_BASES_SET = set(CAN_BASES)
 
@@ -69,7 +76,15 @@ def call_alt_true_indel(
                 str(r_seq), buf=map_thr_buf))
 
 
-    if indel_size > 0:
+    if indel_size == 0:
+        false_base = choice(
+            list(set(CAN_BASES).difference(true_ref_seq[r_snp_pos])))
+        false_ref_seq = (
+            true_ref_seq[:r_snp_pos] + false_base +
+            true_ref_seq[r_snp_pos + 1:])
+        snp_ref_seq = false_base
+        snp_alt_seq = true_ref_seq[r_snp_pos]
+    elif indel_size > 0:
         # test alt truth reference insertion
         false_ref_seq = (
             true_ref_seq[:r_snp_pos + 1] +
@@ -110,9 +125,10 @@ def call_alt_true_indel(
     return score, snp_ref_seq, snp_alt_seq
 
 def process_read(
-        raw_sig, read_id, model_info, alphabet_info, caller_conn,
-        map_thr_buf, context_bases=[10,30], edge_buffer=100, max_indel_len=3,
-        all_paths=False, every_n=5, max_pos_per_read=400):
+        raw_sig, read_id, model_info, alphabet_info, caller_conn, map_thr_buf,
+        context_bases=CONTEXT_BASES, edge_buffer=EDGE_BUFFER,
+        max_indel_len=MAX_INDEL_LEN, all_paths=ALL_PATHS,
+        every_n=TEST_EVERY_N_LOCS, max_pos_per_read=MAX_POS_PER_READ):
     if model_info.is_cat_mod:
         bc_weights, mod_weights = model_info.run_model(
             raw_sig, n_can_state=alphabet_info.n_can_state)
@@ -130,12 +146,31 @@ def process_read(
     if np_ref_seq.shape[0] < edge_buffer * 2:
         raise NotImplementedError(
             'Mapping too short for calibration statistic computation.')
+    # get mapped start in post and run len to mapped bit of output
+    post_mapped_start = rl_cumsum[r_ref_pos.q_trim_start]
+    mapped_rl_cumsum = rl_cumsum[
+        r_ref_pos.q_trim_start:r_ref_pos.q_trim_end + 1] - post_mapped_start
 
+    # candidate SNP locations within a read
     snp_poss = list(range(
         edge_buffer, np_ref_seq.shape[0] - edge_buffer,
         every_n))[:max_pos_per_read]
     read_snp_calls = []
+
+    # first process reference false calls (need to spoof an incorrect reference
+    # for mapping and signal remapping)
     for r_snp_pos in snp_poss:
+        # first test single base swap SNPs
+        try:
+            score, snp_ref_seq, snp_alt_seq = call_alt_true_indel(
+                0, r_snp_pos, r_ref_seq, r_seq, map_thr_buf,
+                context_bases, r_post, rl_cumsum, all_paths)
+            read_snp_calls.append((False, score, snp_ref_seq, snp_alt_seq))
+        except mh.MegaError:
+            # introduced error either causes read not to map or
+            # mapping trims the location of interest
+            pass
+        # then test small indels
         for indel_size in range(1, max_indel_len + 1):
             try:
                 score, snp_ref_seq, snp_alt_seq = call_alt_true_indel(
@@ -152,11 +187,7 @@ def process_read(
             except mh.MegaError:
                 pass
 
-    # get mapped start in post and run len to mapped bit of output
-    post_mapped_start = rl_cumsum[r_ref_pos.q_trim_start]
-    mapped_rl_cumsum = rl_cumsum[
-        r_ref_pos.q_trim_start:r_ref_pos.q_trim_end + 1] - post_mapped_start
-
+    # now test reference correct SNPs
     for r_snp_pos in snp_poss:
         # test simple SNP first
         snp_ref_seq = r_ref_seq[r_snp_pos]
