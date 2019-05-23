@@ -8,7 +8,8 @@ from collections import defaultdict, namedtuple, OrderedDict
 
 import numpy as np
 
-from megalodon import decode, logging, mapping, megalodon_helper as mh
+from megalodon import (calibration, decode, logging, mapping,
+                       megalodon_helper as mh)
 from megalodon._version import MEGALODON_VERSION
 
 
@@ -350,54 +351,6 @@ def _get_snps_queue(
 ##### VCF Reader #####
 ######################
 
-class SnpCalibrator(object):
-    def _load_calibration(self):
-        calib_data = np.load(self.fn)
-        self.stratify_type = str(calib_data['stratify_type'])
-        assert self.stratify_type == 'snp_ins_del'
-
-        self.num_calib_vals = np.int(calib_data['smooth_nvals'])
-
-        self.snp_llr_range = calib_data['snp_llr_range'].copy()
-        self.snp_step = (self.snp_llr_range[1] - self.snp_llr_range[0]) / (
-            self.num_calib_vals - 1)
-        self.snp_calib_table = calib_data['snp_calibration_table'].copy()
-
-        self.del_llr_range = calib_data['deletion_llr_range'].copy()
-        self.del_step = (self.del_llr_range[1] - self.del_llr_range[0]) / (
-            self.num_calib_vals - 1)
-        self.del_calib_table = calib_data['deletion_calibration_table'].copy()
-
-        self.ins_llr_range = calib_data['insertion_llr_range'].copy()
-        self.ins_step = (self.ins_llr_range[1] - self.ins_llr_range[0]) / (
-            self.num_calib_vals - 1)
-        self.ins_calib_table = calib_data['insertion_calibration_table'].copy()
-
-        return
-
-    def __init__(self, snps_calib_fn):
-        self.fn = snps_calib_fn
-        if self.fn is not None:
-            self._load_calibration()
-        self.calib_loaded = self.fn is not None
-        return
-
-    def calibrate_llr(self, llr, snp_ref_seq, snp_alt_seq):
-        if not self.calib_loaded:
-            return llr
-        if len(snp_ref_seq) == len(snp_alt_seq):
-            return self.snp_calib_table[np.around((
-                np.clip(llr, self.snp_llr_range[0], self.snp_llr_range[1]) -
-                self.snp_llr_range[0]) / self.snp_step).astype(int)]
-        elif len(snp_ref_seq) > len(snp_alt_seq):
-            return self.del_calib_table[np.around((
-                np.clip(llr, self.del_llr_range[0], self.del_llr_range[1]) -
-                self.del_llr_range[0]) / self.del_step).astype(int)]
-        return self.ins_calib_table[np.around((
-            np.clip(llr, self.ins_llr_range[0], self.ins_llr_range[1]) -
-            self.ins_llr_range[0]) / self.ins_step).astype(int)]
-
-
 class SnpData(object):
     def __init__(
             self, snp_fn, do_prepend_chr_vcf, max_snp_size, all_paths,
@@ -411,7 +364,7 @@ class SnpData(object):
             max_snp_size = HARD_MAX_SNP_SIZE
         self.all_paths = all_paths
         self.write_snps_txt = write_snps_txt
-        self.calib_table = SnpCalibrator(snps_calib_fn)
+        self.calib_table = calibration.SnpCalibrator(snps_calib_fn)
         self.context_bases = context_bases
         self.call_mode = call_mode
         self.do_pr_ref_snps = do_pr_ref_snps

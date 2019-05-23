@@ -42,7 +42,7 @@ BIN_THRESH_NAME = 'binary_threshold'
 EM_NAME = 'em'
 AGG_METHOD_NAMES = set((BIN_THRESH_NAME, EM_NAME))
 AGG_INFO = namedtuple('AGG_INFO', ('method', 'binary_threshold'))
-DEFAULT_AGG_INFO = AGG_INFO(BIN_THRESH_NAME, [0, 2.5])
+DEFAULT_AGG_INFO = AGG_INFO(BIN_THRESH_NAME, [-1, 1])
 
 FIXED_VCF_MI = [
     'INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
@@ -82,10 +82,10 @@ def score_mod_seq(
 
 def call_read_mods(
         r_ref_pos, edge_buffer, r_ref_seq, np_ref_seq, rl_cumsum,
-        r_to_q_poss, r_post, post_mapped_start, alphabet_info):
+        r_to_q_poss, r_post, post_mapped_start, mods_info):
     def iter_motif_sites(r_ref_seq):
         max_pos = len(r_ref_seq) - edge_buffer
-        for motif, rel_pos, mod_base, raw_motif in alphabet_info.all_mod_motifs:
+        for motif, rel_pos, mod_base, raw_motif in mods_info.all_mod_motifs:
             for m_pos in [
                     m.start() + rel_pos for m in motif.finditer(r_ref_seq)]:
                 if m_pos < edge_buffer: continue
@@ -97,35 +97,37 @@ def call_read_mods(
     # call all mods overlapping this read
     r_mod_scores = []
     for pos, mod_base, raw_motif in iter_motif_sites(r_ref_seq):
-        pos_bb, pos_ab = min(alphabet_info.mod_context_bases, pos), min(
-            alphabet_info.mod_context_bases, np_ref_seq.shape[0] - pos - 1)
+        pos_bb, pos_ab = min(mods_info.mod_context_bases, pos), min(
+            mods_info.mod_context_bases, np_ref_seq.shape[0] - pos - 1)
         pos_ref_seq = np_ref_seq[pos - pos_bb:pos + pos_ab + 1]
         pos_ref_mods = np.zeros_like(pos_ref_seq)
         pos_alt_mods = pos_ref_mods.copy()
-        pos_alt_mods[pos_bb] = alphabet_info.str_to_int_mod_labels[mod_base]
+        pos_alt_mods[pos_bb] = mods_info.str_to_int_mod_labels[mod_base]
 
         blk_start, blk_end = (rl_cumsum[r_to_q_poss[pos - pos_bb]],
                               rl_cumsum[r_to_q_poss[pos + pos_ab]])
-        if blk_end - blk_start < (alphabet_info.mod_context_bases * 2) + 1:
+        if blk_end - blk_start < (mods_info.mod_context_bases * 2) + 1:
             # no valid mapping over large inserted query bases
             # i.e. need as many "events/strides" as bases for valid mapping
             continue
 
         loc_ref_score = score_mod_seq(
-            r_post, pos_ref_seq, pos_ref_mods, alphabet_info.can_mods_offsets,
+            r_post, pos_ref_seq, pos_ref_mods, mods_info.can_mods_offsets,
             post_mapped_start + blk_start, post_mapped_start + blk_end,
-            alphabet_info.mod_all_paths)
+            mods_info.mod_all_paths)
         loc_alt_score = score_mod_seq(
-            r_post, pos_ref_seq, pos_alt_mods, alphabet_info.can_mods_offsets,
+            r_post, pos_ref_seq, pos_alt_mods, mods_info.can_mods_offsets,
             post_mapped_start + blk_start, post_mapped_start + blk_end,
-            alphabet_info.mod_all_paths)
+            mods_info.mod_all_paths)
         if loc_ref_score is None or loc_alt_score is None:
             raise mh.MegaError('Score computation error (memory error)')
 
         m_ref_pos = (pos + r_ref_pos.start if r_ref_pos.strand == 1 else
                      r_ref_pos.end - pos - 1)
-        r_mod_scores.append((
-            m_ref_pos, loc_ref_score - loc_alt_score, raw_motif, mod_base))
+        # calibrate llr scores
+        calib_llr = mods_info.calib_tbl.calibrate_llr(
+            loc_ref_score - loc_alt_score, mod_base)
+        r_mod_scores.append((m_ref_pos, calib_llr, raw_motif, mod_base))
 
     return r_mod_scores
 
@@ -217,6 +219,111 @@ def _get_mods_queue(
     mods_db.close()
 
     return
+
+
+####################
+##### Mod Info #####
+####################
+
+class ModInfo(object):
+    single_letter_code = {
+        'A':'A', 'C':'C', 'G':'G', 'T':'T', 'B':'[CGT]',
+        'D':'[AGT]', 'H':'[ACT]', 'K':'[GT]', 'M':'[AC]',
+        'N':'[ACGT]', 'R':'[AG]', 'S':'[CG]', 'V':'[ACG]',
+        'W':'[AT]', 'Y':'[CT]'}
+
+    def _parse_mod_motifs(self, all_mod_motifs_raw):
+        # note only works for mod_refactor models currently
+        self.all_mod_motifs = []
+        if all_mod_motifs_raw is None or len(all_mod_motifs_raw) == 0:
+            for can_base, mod_bases in self.can_base_mods.items():
+                for mod_base in mod_bases:
+                    self.all_mod_motifs.append((
+                        re.compile(can_base), 0, mod_base, can_base))
+        else:
+            # parse detection motifs
+            for mod_base, raw_motif, pos in all_mod_motifs_raw:
+                assert len(mod_base) == 1, (
+                    'Modfied base must be a single character. Got {}'.format(
+                        mod_base))
+                assert mod_base in self.str_to_int_mod_labels, (
+                    'Modified base label ({}) not found in model ' +
+                    'alphabet ({}).').format(
+                        mod_base, list(self.str_to_int_mod_labels.keys()))
+                pos = int(pos)
+                can_base = next(
+                    can_base for can_base, can_mods in
+                    self.can_base_mods.items() if mod_base in can_mods)
+                assert (can_base == raw_motif[pos]), (
+                    'Invalid modified base motif. Raw motif modified ' +
+                    'position ({}) base ({}) does not match ' +
+                    'collapsed alphabet value ({}).').format(
+                        pos, raw_motif[pos], can_base)
+                motif = re.compile(''.join(
+                    self.single_letter_code[letter] for letter in raw_motif))
+                self.all_mod_motifs.append((motif, pos, mod_base, raw_motif))
+
+        return
+
+    def __init__(
+            self, model_info, all_mod_motifs_raw=None, mod_all_paths=False,
+            write_mods_txt=None, mod_context_bases=None,
+            do_output_mods=False, do_pr_ref_mods=False, mods_calib_fn=None):
+        logger = logging.get_logger()
+        # this is pretty hacky, but these attributes are stored here as
+        # they are generally needed alongside other alphabet info
+        # don't want to pass all of these parameters around individually though
+        # as this would make function signatures too complicated
+        self.mod_all_paths = mod_all_paths
+        self.write_mods_txt = write_mods_txt
+        self.mod_context_bases = mod_context_bases
+        self.do_output_mods = do_output_mods
+        self.do_pr_ref_mods = do_pr_ref_mods
+        self.mod_long_names = model_info.mod_long_names
+        self.calib_table = calibration.ModCalibrator(mods_calib_fn)
+
+        self.alphabet = model_info.can_alphabet
+        self.ncan_base = len(self.alphabet)
+        try:
+            self.alphabet = self.alphabet.decode()
+        except:
+            pass
+        if model_info.is_cat_mod:
+            # TODO also output "(alt to C)" for each mod
+            logger.info(
+                'Using canoncical alphabet {} and modified bases {}.'.format(
+                    self.alphabet, ' '.join(
+                        '{}={}'.format(*mod_b)
+                        for mod_b in model_info.mod_long_names)))
+        else:
+            logger.info(
+                'Using canoncical alphabet {}.'.format(self.alphabet))
+
+        self.nbase = len(self.alphabet)
+        self.n_can_state = (self.ncan_base + self.ncan_base) * (
+            self.ncan_base + 1)
+        if model_info.is_cat_mod:
+            self.nmod_base = model_info.n_mods
+            self.can_base_mods = model_info.can_base_mods
+            self.can_mods_offsets = model_info.can_indices
+            self.str_to_int_mod_labels = model_info.str_to_int_mod_labels
+            assert (
+                model_info.output_size - self.n_can_state ==
+                self.nmod_base + 1), (
+                    'Alphabet ({}) and model number of modified bases ({}) ' +
+                    'do not agree.').format(
+                        self.alphabet,
+                        model_info.output_size - self.n_can_state - 1)
+        else:
+            self.nmod_base = 0
+            self.can_base_mods = {}
+            self.can_mods_offsets = None
+            self.str_to_int_mod_labels = None
+
+        # parse mod motifs or use "swap" base if no motif provided
+        self._parse_mod_motifs(all_mod_motifs_raw)
+
+        return
 
 
 #########################
@@ -330,7 +437,7 @@ class ModVcfWriter(object):
                 datetime.date.today().strftime("%Y%m%d")),
             mh.SOURCE_MI.format(MEGALODON_VERSION),
             mh.REF_MI.format(ref_fn)] + extra_meta_info + [
-                mod_tmplt.format(*mod_info) for mod_info in self.mods
+                mod_tmplt.format(*mod_name) for mod_name in self.mods
                 for mod_tmplt in MOD_MI_TMPLTS]
 
         self.handle = open(self.filename, self.mode, encoding='utf-8')

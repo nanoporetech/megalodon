@@ -157,6 +157,11 @@ class ModelInfo(object):
 
         return
 
+    @property
+    def n_can_state(self):
+        ncan_base = len(self.can_alphabet)
+        return (ncan_base + ncan_base) * (ncan_base + 1)
+
     def prep_model_worker(self, device):
         if self.model_type == TAI_NAME:
             # setup for taiyaki model

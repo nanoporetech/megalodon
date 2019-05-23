@@ -7,15 +7,13 @@ import numpy as np
 from megalodon import calibration
 
 
-DEFAULT_SMOOTH_BW = 0.8
-DEFAULT_SMOOTH_MAX = 200
-DEFAULT_SMOOTH_NVALS = 1001
-DEFAULT_MIN_DENSITY = 1e-5
+# TODO add this as a command line option as in validate script to save plots
+DO_PLOT = False
 
 
 def extract_llrs(llr_fn, max_indel_len=None):
-    snp_llrs, ins_ref_llrs, ins_alt_llrs, del_ref_llrs, del_alt_llrs = (
-        [], [], [], [], [])
+    (snp_ref_llrs, snp_alt_llrs, ins_ref_llrs, ins_alt_llrs,
+     del_ref_llrs, del_alt_llrs) = ([], [], [], [], [], [])
     with open(llr_fn) as llr_fp:
         for line in llr_fp:
             is_ref_correct, llr, ref_seq, alt_seq = line.split()
@@ -25,7 +23,10 @@ def extract_llrs(llr_fn, max_indel_len=None):
                 np.abs(len(ref_seq) - len(alt_seq)) > max_indel_len):
                 continue
             if len(ref_seq) == 1 and len(alt_seq) == 1:
-                snp_llrs.append(llr)
+                if is_ref_correct == 'True':
+                    snp_ref_llrs.append(llr)
+                else:
+                    snp_alt_llrs.append(llr)
             else:
                 if len(ref_seq) > len(alt_seq):
                     if is_ref_correct == 'True':
@@ -38,7 +39,8 @@ def extract_llrs(llr_fn, max_indel_len=None):
                     else:
                         ins_alt_llrs.append(llr)
 
-    return map(np.array, (snp_llrs, ins_ref_llrs, ins_alt_llrs,
+    return map(np.array, (snp_ref_llrs, snp_alt_llrs,
+                          ins_ref_llrs, ins_alt_llrs,
                           del_ref_llrs, del_alt_llrs))
 
 
@@ -68,18 +70,19 @@ def get_parser():
         help='Ground truth log-likelihood ratio statistics (produced by ' +
         'generate_ground_truth_snp_llr_scores.py). Default: %(default)s')
     parser.add_argument(
-        '--max-input-llr', type=int, default=DEFAULT_SMOOTH_MAX,
+        '--max-input-llr', type=int, default=calibration.DEFAULT_SMOOTH_MAX,
         help='Maximum log-likelihood ratio to compute calibration. ' +
         'Default: %(default)d')
     parser.add_argument(
-        '--num-calibration-values', type=int, default=DEFAULT_SMOOTH_NVALS,
+        '--num-calibration-values', type=int,
+        default=calibration.DEFAULT_SMOOTH_NVALS,
         help='Number of discrete calibration values to compute. ' +
         'Default: %(default)d')
     parser.add_argument(
-        '--smooth-bandwidth', type=float, default=DEFAULT_SMOOTH_BW,
+        '--smooth-bandwidth', type=float, default=calibration.DEFAULT_SMOOTH_BW,
         help='Smoothing bandwidth. Default: %(default)f')
     parser.add_argument(
-        '--min-density', type=float, default=DEFAULT_MIN_DENSITY,
+        '--min-density', type=float, default=calibration.DEFAULT_MIN_DENSITY,
         help='Minimum density value to compute calibration. This value ' +
         'dynamically adjusts [--max-input-llr] when it is too large. ' +
         'Default: %(default)f')
@@ -99,13 +102,14 @@ def main():
     prep_out(args.out_filename, args.overwrite)
 
     sys.stderr.write('Parsing log-likelihood ratios\n')
-    (snp_llrs, ins_ref_llrs, ins_alt_llrs,
+    (snp_ref_llrs, snp_alt_llrs, ins_ref_llrs, ins_alt_llrs,
      del_ref_llrs, del_alt_llrs) = extract_llrs(args.ground_truth_llrs)
 
     sys.stderr.write('Computing single-base SNP calibration.\n')
     snp_calib, snp_llr_range = calibration.compute_calibration(
-        snp_llrs, -snp_llrs, args.max_input_llr, args.num_calibration_values,
-        args.smooth_bandwidth, args.min_density, DO_PLOT)
+        snp_ref_llrs, snp_alt_llrs, args.max_input_llr,
+        args.num_calibration_values, args.smooth_bandwidth, args.min_density,
+        DO_PLOT)
     sys.stderr.write('Computing deletion calibration.\n')
     del_calib, del_llr_range = calibration.compute_calibration(
         del_ref_llrs, del_alt_llrs, args.max_input_llr,

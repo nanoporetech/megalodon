@@ -57,7 +57,10 @@ ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, PR_SNP_NAME, SNP_NAME,
 PR_REF_FILTERS = namedtuple(
     'pr_ref_filters', ('pct_idnt', 'pct_cov', 'min_len', 'max_len'))
 
+CALIBRATION_DIR_NAME = 'calibration_files'
 SNP_CALIBRATION_FN = 'snp_calibration.npz'
+# TODO actually add this file once created
+MOD_CALIBRATION_FN = 'mod_calibration.npz'
 
 
 class MegaError(Exception):
@@ -85,6 +88,7 @@ def resolve_path(fn_path):
 ##### Calibration File Loading #####
 ####################################
 
+# TODO make these functions work with a preset string R941, R10, etc
 def get_snp_calibration_fn(snp_calib_fn, disable_snp_calib):
     if disable_snp_calib:
         return None
@@ -92,7 +96,16 @@ def get_snp_calibration_fn(snp_calib_fn, disable_snp_calib):
         return resolve_path(snp_calib_fn)
     # else return default snp calibration file
     return resolve_path(pkg_resources.resource_filename(
-        'megalodon', os.path.join('calibration_files', SNP_CALIBRATION_FN)))
+        'megalodon', os.path.join(CALIBRATION_DIR_NAME, SNP_CALIBRATION_FN)))
+
+def get_mod_calibration_fn(mod_calib_fn, disable_mod_calib):
+    if disable_mod_calib:
+        return None
+    elif mod_calib_fn is not None:
+        return resolve_path(mod_calib_fn)
+    # else return default snp calibration file
+    return resolve_path(pkg_resources.resource_filename(
+        'megalodon', os.path.join(CALIBRATION_DIR_NAME, MOD_CALIBRATION_FN)))
 
 
 ###################################

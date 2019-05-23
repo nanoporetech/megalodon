@@ -4,6 +4,16 @@ import numpy as np
 from tqdm import tqdm
 
 
+DEFAULT_SMOOTH_BW = 0.8
+DEFAULT_SMOOTH_MAX = 200
+DEFAULT_SMOOTH_NVALS = 1001
+DEFAULT_MIN_DENSITY = 1e-5
+
+
+##################################
+##### Calibration Estimation #####
+##################################
+
 def determine_min_dens_edge(
         sm_ref, sm_alt, num_calib_vals, min_dens_val, smooth_ls):
     """ Compute positions where the density values are too small to produce
@@ -62,6 +72,8 @@ def compute_calibration(
         ref_llrs, alt_llrs, max_input_llr, num_calib_vals, smooth_bw,
         min_dens_val, do_plot=False):
     if do_plot:
+        # TODO convert this to an option to return plot data and actually
+        # perform plotting in scripts/ to avoid deps confusion
         import matplotlib
         if sys.platform == 'darwin':
             matplotlib.use("TkAgg")
@@ -122,6 +134,93 @@ def compute_calibration(
         plt.show()
 
     return np.log((1 - mono_prob) / mono_prob), new_input_llr_range
+
+
+###############################
+##### Calibration Readers #####
+###############################
+
+class SnpCalibrator(object):
+    def _load_calibration(self):
+        calib_data = np.load(self.fn)
+        self.stratify_type = str(calib_data['stratify_type'])
+        assert self.stratify_type == 'snp_ins_del'
+
+        self.num_calib_vals = np.int(calib_data['smooth_nvals'])
+
+        self.snp_llr_range = calib_data['snp_llr_range'].copy()
+        self.snp_step = (self.snp_llr_range[1] - self.snp_llr_range[0]) / (
+            self.num_calib_vals - 1)
+        self.snp_calib_table = calib_data['snp_calibration_table'].copy()
+
+        self.del_llr_range = calib_data['deletion_llr_range'].copy()
+        self.del_step = (self.del_llr_range[1] - self.del_llr_range[0]) / (
+            self.num_calib_vals - 1)
+        self.del_calib_table = calib_data['deletion_calibration_table'].copy()
+
+        self.ins_llr_range = calib_data['insertion_llr_range'].copy()
+        self.ins_step = (self.ins_llr_range[1] - self.ins_llr_range[0]) / (
+            self.num_calib_vals - 1)
+        self.ins_calib_table = calib_data['insertion_calibration_table'].copy()
+
+        return
+
+    def __init__(self, snps_calib_fn):
+        self.fn = snps_calib_fn
+        if self.fn is not None:
+            self._load_calibration()
+        self.calib_loaded = self.fn is not None
+        return
+
+    def calibrate_llr(self, llr, snp_ref_seq, snp_alt_seq):
+        if not self.calib_loaded:
+            return llr
+        if len(snp_ref_seq) == len(snp_alt_seq):
+            return self.snp_calib_table[np.around((
+                np.clip(llr, self.snp_llr_range[0], self.snp_llr_range[1]) -
+                self.snp_llr_range[0]) / self.snp_step).astype(int)]
+        elif len(snp_ref_seq) > len(snp_alt_seq):
+            return self.del_calib_table[np.around((
+                np.clip(llr, self.del_llr_range[0], self.del_llr_range[1]) -
+                self.del_llr_range[0]) / self.del_step).astype(int)]
+        return self.ins_calib_table[np.around((
+            np.clip(llr, self.ins_llr_range[0], self.ins_llr_range[1]) -
+            self.ins_llr_range[0]) / self.ins_step).astype(int)]
+
+class ModCalibrator(object):
+    def _load_calibration(self):
+        calib_data = np.load(self.fn)
+        self.stratify_type = str(calib_data['stratify_type'])
+        assert self.stratify_type == 'mod_base'
+
+        self.num_calib_vals = np.int(calib_data['smooth_nvals'])
+        self.mod_bases = calib_data['mod_bases']
+        self.mod_base_calibs = {}
+        for mod_base in self.mod_bases:
+            mod_llr_range = calib_data[mod_base + '_llr_range'].copy()
+            mod_step = (mod_llr_range[1] - mod_llr_range[0]) / (
+                self.num_calib_vals - 1)
+            mod_calib_table = calib_data[mod_base + '_calibration_table'].copy()
+            self.mod_base_calibs[mod_base] = (
+                mod_llr_range, mod_step, mod_calib_table)
+
+        return
+
+    def __init__(self, mods_calib_fn):
+        self.fn = mods_calib_fn
+        if self.fn is not None:
+            self._load_calibration()
+        self.calib_loaded = self.fn is not None
+        return
+
+    def calibrate_llr(self, llr, mod_base):
+        if not self.calib_loaded or mod_base not in self.mod_base_calibs:
+            return llr
+
+        llr_range, step, calib_table = self.mod_base_calibs[mod_base]
+        return calib_table[np.around((
+            np.clip(llr, llr_range[0], llr_range[1]) -
+            llr_range[0]) / step).astype(int)]
 
 
 if __name__ == '__main__':

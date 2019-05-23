@@ -55,12 +55,12 @@ def handle_errors(func, args, r_vals, out_q, fast5_fn, failed_reads_q):
 def process_read(
         raw_sig, read_id, model_info, bc_q, caller_conn, snps_to_test,
         snp_all_paths, snp_calib_tbl, snp_context_bases, snps_q, mods_q,
-        alphabet_info, fast5_fn, failed_reads_q, edge_buffer):
+        mods_info, fast5_fn, failed_reads_q, edge_buffer):
     """ Workhorse per-read megalodon function (connects all the parts)
     """
     if model_info.is_cat_mod:
         bc_weights, mod_weights = model_info.run_model(
-            raw_sig, alphabet_info.n_can_state)
+            raw_sig, mods_info.n_can_state)
         can_nmods = model_info.can_nmods
     else:
         mod_weights, can_nmods = None, None
@@ -69,10 +69,10 @@ def process_read(
     r_post = decode.crf_flipflop_trans_post(bc_weights, log=True)
     if mods_q is not None:
         r_post_w_mods = np.concatenate([r_post, mod_weights], axis=1)
-    if not alphabet_info.do_output_mods:
+    if not mods_info.do_output_mods:
         mod_weights = None
     r_seq, score, rl_cumsum, mods_scores = decode.decode_post(
-        r_post, alphabet_info.alphabet, mod_weights, can_nmods)
+        r_post, mods_info.alphabet, mod_weights, can_nmods)
     if bc_q is not None:
         bc_q.put((read_id, r_seq, mods_scores))
 
@@ -105,7 +105,7 @@ def process_read(
             func=mods.call_read_mods,
             args=(r_ref_pos, edge_buffer, r_ref_seq, np_ref_seq,
                   mapped_rl_cumsum, r_to_q_poss, r_post_w_mods,
-                  post_mapped_start, alphabet_info),
+                  post_mapped_start, mods_info),
             r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
@@ -172,7 +172,7 @@ def _get_bc_queue(
 def _process_reads_worker(
         read_file_q, bc_q, snps_q, failed_reads_q, mods_q, caller_conn,
         model_info, snps_to_test, snp_all_paths, snp_calib_tbl,
-        snp_context_bases, alphabet_info, edge_buffer, device):
+        snp_context_bases, mods_info, edge_buffer, device):
     model_info.prep_model_worker(device)
 
     while True:
@@ -192,7 +192,7 @@ def _process_reads_worker(
             process_read(
                 raw_sig, read_id, model_info, bc_q, caller_conn, snps_to_test,
                 snp_all_paths, snp_calib_tbl, snp_context_bases, snps_q, mods_q,
-                alphabet_info, fast5_fn, failed_reads_q, edge_buffer)
+                mods_info, fast5_fn, failed_reads_q, edge_buffer)
             failed_reads_q.put((False, True, None, None, None))
         except KeyboardInterrupt:
             failed_reads_q.put((
@@ -360,7 +360,7 @@ def _get_fail_queue(
 def process_all_reads(
         fast5s_dir, recursive, num_reads, model_info, outputs, out_dir, bc_fmt,
         aligner, add_chr_ref, snps_data, num_ps, num_update_errors,
-        suppress_progress, alphabet_info, db_safety, edge_buffer, pr_ref_filts):
+        suppress_progress, mods_info, db_safety, edge_buffer, pr_ref_filts):
     logger = logging.get_logger()
     logger.info('Preparing workers to process reads.')
     # read filename queue filler
@@ -386,11 +386,11 @@ def process_all_reads(
         if mh.BC_NAME not in outputs:
             outputs.append(mh.BC_NAME)
         bc_q, bc_p, main_bc_conn = mh.create_getter_q(
-            _get_bc_queue, (out_dir, bc_fmt, alphabet_info.do_output_mods,
-                            alphabet_info.mod_long_names))
+            _get_bc_queue, (out_dir, bc_fmt, mods_info.do_output_mods,
+                            mods_info.mod_long_names))
     if mh.MAP_NAME in outputs:
         do_output_pr_refs = (mh.PR_REF_NAME in outputs and
-                             not alphabet_info.do_pr_ref_mods and
+                             not mods_info.do_pr_ref_mods and
                              not snps_data.do_pr_ref_snps)
         mo_q, mo_p, main_mo_conn = mh.create_getter_q(
             mapping._get_map_queue, (
@@ -410,10 +410,10 @@ def process_all_reads(
     if mh.PR_MOD_NAME in outputs:
         pr_refs_fn = os.path.join(out_dir, mh.PR_REF_FN) if (
             mh.PR_REF_NAME in outputs and
-            alphabet_info.do_pr_ref_mods) else None
+            mods_info.do_pr_ref_mods) else None
         mods_db_fn, mods_txt_fn = mh.OUTPUT_FNS[mh.PR_MOD_NAME]
         mods_txt_fn = (os.path.join(out_dir, mods_txt_fn)
-                       if alphabet_info.write_mods_txt else None)
+                       if mods_info.write_mods_txt else None)
         mods_q, mods_p, main_mods_conn = mh.create_getter_q(
             mods._get_mods_queue, (
                 os.path.join(out_dir, mods_db_fn), mods_txt_fn, db_safety,
@@ -431,7 +431,7 @@ def process_all_reads(
                 read_file_q, bc_q, snps_q, failed_reads_q, mods_q,
                 caller_conn, model_info, snps_data.snps_to_test,
                 snps_data.all_paths, snps_data.calib_table,
-                snps_data.context_bases, alphabet_info, edge_buffer, device))
+                snps_data.context_bases, mods_info, edge_buffer, device))
         p.daemon = True
         p.start()
         proc_reads_ps.append(p)
@@ -482,111 +482,6 @@ def process_all_reads(
         sys.exit(1)
 
     return
-
-
-###################################
-########## Alphabet Info ##########
-###################################
-
-# TODO move this to mods.py and likely refactor a bit
-class AlphabetInfo(object):
-    single_letter_code = {
-        'A':'A', 'C':'C', 'G':'G', 'T':'T', 'B':'[CGT]',
-        'D':'[AGT]', 'H':'[ACT]', 'K':'[GT]', 'M':'[AC]',
-        'N':'[ACGT]', 'R':'[AG]', 'S':'[CG]', 'V':'[ACG]',
-        'W':'[AT]', 'Y':'[CT]'}
-
-    def _parse_mod_motifs(self, all_mod_motifs_raw):
-        # note only works for mod_refactor models currently
-        self.all_mod_motifs = []
-        if all_mod_motifs_raw is None or len(all_mod_motifs_raw) == 0:
-            for can_base, mod_bases in self.can_base_mods.items():
-                for mod_base in mod_bases:
-                    self.all_mod_motifs.append((
-                        re.compile(can_base), 0, mod_base, can_base))
-        else:
-            # parse detection motifs
-            for mod_base, raw_motif, pos in all_mod_motifs_raw:
-                assert len(mod_base) == 1, (
-                    'Modfied base must be a single character. Got {}'.format(
-                        mod_base))
-                assert mod_base in self.str_to_int_mod_labels, (
-                    'Modified base label ({}) not found in model ' +
-                    'alphabet ({}).').format(
-                        mod_base, list(self.str_to_int_mod_labels.keys()))
-                pos = int(pos)
-                can_base = next(
-                    can_base for can_base, can_mods in
-                    self.can_base_mods.items() if mod_base in can_mods)
-                assert (can_base == raw_motif[pos]), (
-                    'Invalid modified base motif. Raw motif modified ' +
-                    'position ({}) base ({}) does not match ' +
-                    'collapsed alphabet value ({}).').format(
-                        pos, raw_motif[pos], can_base)
-                motif = re.compile(''.join(
-                    self.single_letter_code[letter] for letter in raw_motif))
-                self.all_mod_motifs.append((motif, pos, mod_base, raw_motif))
-
-        return
-
-    def __init__(
-            self, model_info, all_mod_motifs_raw=None, mod_all_paths=False,
-            write_mods_txt=None, mod_context_bases=None,
-            do_output_mods=False, do_pr_ref_mods=False):
-        logger = logging.get_logger()
-        # this is pretty hacky, but these attributes are stored here as
-        # they are generally needed alongside other alphabet info
-        # don't want to pass all of these parameters around individually though
-        # as this would make function signatures too complicated
-        self.mod_all_paths = mod_all_paths
-        self.write_mods_txt = write_mods_txt
-        self.mod_context_bases = mod_context_bases
-        self.do_output_mods = do_output_mods
-        self.do_pr_ref_mods = do_pr_ref_mods
-        self.mod_long_names = model_info.mod_long_names
-
-        self.alphabet = model_info.can_alphabet
-        self.ncan_base = len(self.alphabet)
-        try:
-            self.alphabet = self.alphabet.decode()
-        except:
-            pass
-        if model_info.is_cat_mod:
-            # TODO also output "(alt to C)" for each mod
-            logger.info(
-                'Using canoncical alphabet {} and modified bases {}.'.format(
-                    self.alphabet, ' '.join(
-                        '{}={}'.format(*mod_b)
-                        for mod_b in model_info.mod_long_names)))
-        else:
-            logger.info(
-                'Using canoncical alphabet {}.'.format(self.alphabet))
-
-        self.nbase = len(self.alphabet)
-        self.n_can_state = (self.ncan_base + self.ncan_base) * (
-            self.ncan_base + 1)
-        if model_info.is_cat_mod:
-            self.nmod_base = model_info.n_mods
-            self.can_base_mods = model_info.can_base_mods
-            self.can_mods_offsets = model_info.can_indices
-            self.str_to_int_mod_labels = model_info.str_to_int_mod_labels
-            assert (
-                model_info.output_size - self.n_can_state ==
-                self.nmod_base + 1), (
-                    'Alphabet ({}) and model number of modified bases ({}) ' +
-                    'do not agree.').format(
-                        self.alphabet,
-                        model_info.output_size - self.n_can_state - 1)
-        else:
-            self.nmod_base = 0
-            self.can_base_mods = {}
-            self.can_mods_offsets = None
-            self.str_to_int_mod_labels = None
-
-        # parse mod motifs or use "swap" base if no motif provided
-        self._parse_mod_motifs(all_mod_motifs_raw)
-
-        return
 
 
 ######################################
@@ -651,7 +546,7 @@ def snps_validation(args, is_cat_mod, output_size):
             '(via --outputs). Argument will be ignored.')
     return args, snps_data
 
-def mods_validation(args, is_cat_mod):
+def mods_validation(args, model_info):
     logger = logging.get_logger()
     if args.refs_include_mods and mh.PR_MOD_NAME not in args.outputs:
         # TODO don't really have to output this data, but have to compute it
@@ -659,14 +554,14 @@ def mods_validation(args, is_cat_mod):
         args.outputs.append(mh.PR_MOD_NAME)
     if mh.PR_MOD_NAME not in args.outputs and mh.MOD_NAME in args.outputs:
         args.outputs.append(mh.PR_MOD_NAME)
-    if mh.PR_MOD_NAME in args.outputs and not is_cat_mod:
+    if mh.PR_MOD_NAME in args.outputs and not model_info.is_cat_mod:
         logger.error(
             '{} output requested, '.format(mh.PR_MOD_NAME) +
             'but model provided is not a categotical modified base model.\n' +
             'Note that modified base calling from naive modified base ' +
             'model is not currently supported.')
         sys.exit(1)
-    if (is_cat_mod and mh.PR_MOD_NAME not in args.outputs and
+    if (model_info.is_cat_mod and mh.PR_MOD_NAME not in args.outputs and
         mh.BC_MODS_NAME not in args.outputs):
         logger.warning(
             ('Categorical modifications model provided, but neither {} nor ' +
@@ -681,7 +576,13 @@ def mods_validation(args, is_cat_mod):
             '--refs-include-mods provided, but {} not requested ' +
             '(via --outputs). Argument will be ignored.').format(
                 mh.PR_REF_NAME))
-    return args
+    mod_calib_fn = mh.get_mod_calibration_fn(
+        args.mod_calibration_filename, args.disable_mod_calibration)
+    mods_info = mods.ModInfo(
+        model_info, args.mod_motif, args.mod_all_paths,
+        args.write_mods_text, args.mod_context_bases,
+        mh.BC_MODS_NAME in args.outputs, args.refs_include_mods, mod_calib_fn)
+    return args, mods_info
 
 def parse_pr_ref_output(args):
     logger = logging.get_logger()
@@ -887,11 +788,12 @@ def get_parser():
         '--mod-calibration-filename',
         help=hidden_help('File containing emperical calibration for ' +
                          'modified base scores. As created by ' +
-                         'megalodon/scripts/calibrate_mod_llr_scores.py.'))
+                         'megalodon/scripts/calibrate_mod_llr_scores.py. ' +
+                         'Default: Load default calibration file.'))
     mod_grp.add_argument(
         '--mod-context-bases', type=int, default=10,
-        help=hidden_help(
-            'Context bases for modified base calling. Default: %(default)d'))
+        help=hidden_help('Context bases for modified base calling. ' +
+                         'Default: %(default)d'))
     mod_grp.add_argument(
         '--mod-all-paths', action='store_true',
         help=hidden_help('Compute forwards algorithm all paths score for ' +
@@ -993,11 +895,7 @@ def _main():
         args.flappie_model_name, args.taiyaki_model_filename, args.devices,
         args.processes, args.chunk_size, args.chunk_overlap,
         args.max_concurrent_chunks)
-    alphabet_info = AlphabetInfo(
-        model_info, args.mod_motif, args.mod_all_paths,
-        args.write_mods_text, args.mod_context_bases,
-        mh.BC_MODS_NAME in args.outputs, args.refs_include_mods)
-    args = mods_validation(args, model_info.is_cat_mod)
+    args, mods_info = mods_validation(args, model_info)
     args, snps_data = snps_validation(
         args, model_info.is_cat_mod, model_info.output_size)
     aligner = aligner_validation(args)
@@ -1007,10 +905,10 @@ def _main():
         args.outputs, args.output_directory, args.basecalls_format, aligner,
         args.prepend_chr_ref, snps_data, args.processes,
         args.verbose_read_progress, args.suppress_progress,
-        alphabet_info, args.database_safety, args.edge_buffer, pr_ref_filts)
+        mods_info, args.database_safety, args.edge_buffer, pr_ref_filts)
 
     if mh.SNP_NAME in args.outputs or mh.MOD_NAME in args.outputs:
-        mod_names = (alphabet_info.mod_long_names
+        mod_names = (mods_info.mod_long_names
                      if mh.MOD_NAME in args.outputs else [])
         mod_agg_info = mods.AGG_INFO(
             mods.BIN_THRESH_NAME, args.mod_binary_threshold)

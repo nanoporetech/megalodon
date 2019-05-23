@@ -127,19 +127,18 @@ def call_alt_true_indel(
     return score, snp_ref_seq, snp_alt_seq
 
 def process_read(
-        raw_sig, read_id, model_info, alphabet_info, caller_conn, map_thr_buf,
+        raw_sig, read_id, model_info, caller_conn, map_thr_buf,
         context_bases=CONTEXT_BASES, edge_buffer=EDGE_BUFFER,
         max_indel_len=MAX_INDEL_LEN, all_paths=ALL_PATHS,
         every_n=TEST_EVERY_N_LOCS, max_pos_per_read=MAX_POS_PER_READ):
     if model_info.is_cat_mod:
         bc_weights, mod_weights = model_info.run_model(
-            raw_sig, n_can_state=alphabet_info.n_can_state)
+            raw_sig, n_can_state=model_info.n_can_state)
     else:
         bc_weights = model_info.run_model(raw_sig)
 
     r_post = decode.crf_flipflop_trans_post(bc_weights, log=True)
-    r_seq, score, rl_cumsum, _ = decode.decode_post(
-        r_post, alphabet_info.alphabet)
+    r_seq, score, rl_cumsum, _ = decode.decode_post(r_post, mh.ALPHABET)
 
     r_ref_seq, r_to_q_poss, r_ref_pos, _ = mapping.map_read(
         r_seq, read_id, caller_conn)
@@ -224,7 +223,7 @@ def process_read(
     return read_snp_calls
 
 def _process_reads_worker(
-        fast5_q, snp_calls_q, caller_conn, model_info, alphabet_info, device):
+        fast5_q, snp_calls_q, caller_conn, model_info, device):
     model_info.prep_model_worker(device)
     map_thr_buf = mappy.ThreadBuffer()
 
@@ -243,8 +242,7 @@ def _process_reads_worker(
         try:
             raw_sig = fast5_io.get_signal(fast5_fn, read_id)
             read_snp_calls = process_read(
-                raw_sig, read_id, model_info, alphabet_info, caller_conn,
-                map_thr_buf)
+                raw_sig, read_id, model_info, caller_conn, map_thr_buf)
             snp_calls_q.put((True, read_snp_calls))
         except Exception as e:
             snp_calls_q.put((False, str(e)))
@@ -315,11 +313,11 @@ def _get_snp_calls(
 
 
 def process_all_reads(
-        fast5s_dir, num_reads, model_info, aligner, num_ps, alphabet_info,
-        out_fn, suppress_progress):
+        fast5s_dir, num_reads, model_info, aligner, num_ps, out_fn,
+        suppress_progress):
     sys.stderr.write('Preparing workers and calling reads.\n')
     # read filename queue filler
-    fast5_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
+    fast5_q = mp.Queue()
     num_reads_conn, getter_num_reads_conn = mp.Pipe()
     files_p = mp.Process(
         target=megalodon._fill_files_queue, args=(
@@ -339,8 +337,7 @@ def process_all_reads(
         map_conns.append(map_conn)
         p = mp.Process(
             target=_process_reads_worker, args=(
-                fast5_q, snp_calls_q, caller_conn, model_info, alphabet_info,
-                device))
+                fast5_q, snp_calls_q, caller_conn, model_info, device))
         p.daemon = True
         p.start()
         proc_reads_ps.append(p)
@@ -428,14 +425,13 @@ def main():
         args.flappie_model_name, args.taiyaki_model_filename, args.devices,
         args.processes, args.chunk_size, args.chunk_overlap,
         args.max_concurrent_chunks)
-    alphabet_info = megalodon.AlphabetInfo(model_info)
     sys.stderr.write('Loading reference.\n')
     aligner = mapping.alignerPlus(
         str(args.reference), preset=str('map-ont'), best_n=1)
 
     process_all_reads(
         args.fast5s_dir, args.num_reads, model_info, aligner, args.processes,
-        alphabet_info, args.output, args.suppress_progress)
+        args.output, args.suppress_progress)
 
     return
 
