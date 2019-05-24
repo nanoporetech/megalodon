@@ -1,3 +1,4 @@
+import re
 import sys
 import queue
 import sqlite3
@@ -7,7 +8,8 @@ from collections import defaultdict, namedtuple, OrderedDict
 
 import numpy as np
 
-from megalodon import decode, mapping, megalodon_helper as mh
+from megalodon import (
+    calibration, decode, logging, mapping, megalodon_helper as mh)
 from megalodon._version import MEGALODON_VERSION
 
 
@@ -125,7 +127,7 @@ def call_read_mods(
         m_ref_pos = (pos + r_ref_pos.start if r_ref_pos.strand == 1 else
                      r_ref_pos.end - pos - 1)
         # calibrate llr scores
-        calib_llr = mods_info.calib_tbl.calibrate_llr(
+        calib_llr = mods_info.calibrate_llr(
             loc_ref_score - loc_alt_score, mod_base)
         r_mod_scores.append((m_ref_pos, calib_llr, raw_motif, mod_base))
 
@@ -324,6 +326,9 @@ class ModInfo(object):
         self._parse_mod_motifs(all_mod_motifs_raw)
 
         return
+
+    def calibrate_llr(self, score, mod_base):
+        return self.calib_table.calibrate_llr(score, mod_base)
 
 
 #########################
