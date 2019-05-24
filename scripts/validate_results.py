@@ -193,9 +193,9 @@ def report_acc_metrics(res_dir, out_fp):
                  res_dir, bc_dat.shape[0],
                  mean_bc_acc, med_bc_acc, mode_bc_acc))
     except FileNotFoundError:
-        bc_acc = None
+        bc_acc = parsim_acc = None
         if VERBOSE: sys.stderr.write(
-                '*' * 20 + 'Mappings not found for {}\n'.format(res_dir))
+                'WARNING: Mappings not found for {}\n'.format(res_dir))
 
     return bc_acc, parsim_acc
 
@@ -255,7 +255,8 @@ def main():
 
     ctrl_acc, ctrl_parsim_acc, ctrl_dat, gt_dat, mod_chrm_sw \
         = parse_control_mods(args, out_fp)
-    plot_acc(mod_acc, ctrl_acc, mod_parsim_acc, ctrl_parsim_acc, pdf_fp)
+    if mod_acc is not None:
+        plot_acc(mod_acc, ctrl_acc, mod_parsim_acc, ctrl_parsim_acc, pdf_fp)
     # could just compute mapping metrics
     if all(d is None for d in (ctrl_dat, gt_dat, mod_chrm_sw)):
         pdf_fp.close()
