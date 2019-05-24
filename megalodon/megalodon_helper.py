@@ -10,8 +10,8 @@ import numpy as np
 # TODO move these values into model specific files as they may change from
 # model to model. Need to create script to automate HET_FACTOR optimization
 # process first
-DEFAULT_SNV_HET_FACTOR = 0.58
-DEFAULT_INDEL_HET_FACTOR = 1.3
+DEFAULT_SNV_HET_FACTOR = 1.08
+DEFAULT_INDEL_HET_FACTOR = 1.25
 
 MED_NORM_FACTOR = 1.4826
 
