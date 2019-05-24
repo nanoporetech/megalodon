@@ -667,7 +667,8 @@ def get_parser():
     mdl_grp = parser.add_argument_group('Model Arguments')
     mdl_grp.add_argument(
         '--taiyaki-model-filename',
-        help='Taiyaki model checkpoint file.')
+        help='Taiyaki model checkpoint file. Default: Load default model ' +
+        '({})'.format(mh.MODEL_PRESET_DESC))
 
     mdl_grp.add_argument(
         '--flappie-model-name',
@@ -758,8 +759,8 @@ def get_parser():
                          'calling. Default: %(default)s'))
     snp_grp.add_argument(
         '--write-vcf-llr', action='store_true',
-        help=hidden_help('Write log-likelihood ratios out in non-standard ' +
-                         'VCF field.'))
+        help=hidden_help('Write per-read log-likelihood ratios out in ' +
+                         'non-standard VCF field.'))
 
     mod_grp = parser.add_argument_group('Modified Base Arguments')
     mod_grp.add_argument(
@@ -801,17 +802,17 @@ def get_parser():
 
     tai_grp = parser.add_argument_group('Taiyaki Signal Chunking Arguments')
     tai_grp.add_argument(
-        '--chunk_size', type=int, default=1000,
+        '--chunk-size', type=int, default=1000,
         help='Chunk length for base calling. Default: %(default)d')
     tai_grp.add_argument(
-        '--chunk_overlap', type=int, default=100,
+        '--chunk-overlap', type=int, default=100,
         help='Overlap between chunks to be stitched together. ' +
         'Default: %(default)d')
     tai_grp.add_argument(
         '--devices', type=int, nargs='+',
         help='CUDA GPU devices to use (only valid for taiyaki), default: CPU')
     tai_grp.add_argument(
-        '--max_concurrent_chunks', type=int, default=50,
+        '--max-concurrent-chunks', type=int, default=50,
         help='Only process N chunks concurrently per-read (to avoid GPU ' +
         'memory errors). Default: %(default)d')
 
@@ -890,8 +891,9 @@ def _main():
         args = profile_validation(args)
 
     args, pr_ref_filts = parse_pr_ref_output(args)
+    tai_model_fn = mh.get_model_fn(args.taiyaki_model_filename)
     model_info = backends.ModelInfo(
-        args.flappie_model_name, args.taiyaki_model_filename, args.devices,
+        args.flappie_model_name, tai_model_fn, args.devices,
         args.processes, args.chunk_size, args.chunk_overlap,
         args.max_concurrent_chunks)
     args, mods_info = mods_validation(args, model_info)

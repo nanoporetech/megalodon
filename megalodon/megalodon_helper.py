@@ -7,6 +7,9 @@ from abc import ABC, abstractmethod
 import numpy as np
 
 
+# TODO move these values into model specific files as they may change from
+# model to model. Need to create script to automate HET_FACTOR optimization
+# process first
 DEFAULT_SNV_HET_FACTOR = 0.58
 DEFAULT_INDEL_HET_FACTOR = 1.3
 
@@ -57,10 +60,17 @@ ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, PR_SNP_NAME, SNP_NAME,
 PR_REF_FILTERS = namedtuple(
     'pr_ref_filters', ('pct_idnt', 'pct_cov', 'min_len', 'max_len'))
 
-CALIBRATION_DIR_NAME = 'calibration_files'
-SNP_CALIBRATION_FN = 'snp_calibration.npz'
-# TODO actually add this file once created
-MOD_CALIBRATION_FN = 'mod_calibration.npz'
+# directory names define model preset string
+# currently only one model trained
+MODEL_PRESETS = ['R941.min.high_acc.5mC_6mA_bio_cntxt']
+MODEL_PRESET_DESC = (
+    'R9.4.1, MinION/GridION, High Accuracy, 5mC(Z) and 6mA(Y) ' +
+    'in biological context model')
+DEFAULT_MODEL_PRESET = MODEL_PRESETS[0]
+MODEL_DATA_DIR_NAME =  'model_data'
+MODEL_FN = 'model.checkpoint'
+SNP_CALIBRATION_FN = 'megalodon_snp_calibration.npz'
+MOD_CALIBRATION_FN = 'megalodon_mod_calibration.npz'
 
 
 class MegaError(Exception):
@@ -88,24 +98,53 @@ def resolve_path(fn_path):
 ##### Calibration File Loading #####
 ####################################
 
-# TODO make these functions work with a preset string R941, R10, etc
-def get_snp_calibration_fn(snp_calib_fn, disable_snp_calib):
+def get_snp_calibration_fn(
+        snp_calib_fn=None, disable_snp_calib=False, preset_str=None):
     if disable_snp_calib:
         return None
     elif snp_calib_fn is not None:
         return resolve_path(snp_calib_fn)
+    elif preset_str is not None:
+        if preset_str not in MODEL_PRESETS:
+            raise MegaError('Invalid model preset: {}'.format(preset_str))
+        resolve_path(pkg_resources.resource_filename(
+            'megalodon', os.path.join(
+                MODEL_DATA_DIR_NAME, preset_str, SNP_CALIBRATION_FN)))
     # else return default snp calibration file
     return resolve_path(pkg_resources.resource_filename(
-        'megalodon', os.path.join(CALIBRATION_DIR_NAME, SNP_CALIBRATION_FN)))
+        'megalodon', os.path.join(
+            MODEL_DATA_DIR_NAME, DEFAULT_MODEL_PRESET, SNP_CALIBRATION_FN)))
 
-def get_mod_calibration_fn(mod_calib_fn, disable_mod_calib):
+def get_mod_calibration_fn(
+        mod_calib_fn=None, disable_mod_calib=False, preset_str=None):
     if disable_mod_calib:
         return None
     elif mod_calib_fn is not None:
         return resolve_path(mod_calib_fn)
+    elif preset_str is not None:
+        if preset_str not in MODEL_PRESETS:
+            raise MegaError('Invalid model preset: {}'.format(preset_str))
+        resolve_path(pkg_resources.resource_filename(
+            'megalodon', os.path.join(
+                MODEL_DATA_DIR_NAME, preset_str, SNP_CALIBRATION_FN)))
     # else return default snp calibration file
     return resolve_path(pkg_resources.resource_filename(
-        'megalodon', os.path.join(CALIBRATION_DIR_NAME, MOD_CALIBRATION_FN)))
+        'megalodon', os.path.join(
+            MODEL_DATA_DIR_NAME, DEFAULT_MODEL_PRESET, MOD_CALIBRATION_FN)))
+
+def get_model_fn(model_fn, preset_str=None):
+    if model_fn is not None:
+        return resolve_path(model_fn)
+    elif preset_str is not None:
+        if preset_str not in MODEL_PRESETS:
+            raise MegaError('Invalid model preset: {}'.format(preset_str))
+        resolve_path(pkg_resources.resource_filename(
+            'megalodon', os.path.join(
+                MODEL_DATA_DIR_NAME, preset_str, MODEL_FN)))
+    # else return default snp calibration file
+    return resolve_path(pkg_resources.resource_filename(
+        'megalodon', os.path.join(
+            MODEL_DATA_DIR_NAME, DEFAULT_MODEL_PRESET, MODEL_FN)))
 
 
 ###################################

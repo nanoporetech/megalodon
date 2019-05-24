@@ -16,7 +16,7 @@ Detailed documentation for all ``megalodon`` arguments and algorithms can be fou
 Installation
 ------------
 
-Requires `taiyaki <https://github.com/nanoporetech/taiyaki>`_ installation for basecalling backend.
+Megalodon currently requires `taiyaki <https://github.com/nanoporetech/taiyaki>`_ installation for basecalling backend.
 
 ::
 
@@ -36,14 +36,21 @@ Megalodon is accessed via the command line interface ``megalodon`` command.
     # megalodon help (all args)
     megalodon --help-long
 
-    # example command calling variants and CpG methylation (on GPU devices 0 and 1)
-    megalodon raw_fast5s/ --taiyaki-model-filename taiyaki/models/mGru_flipflop_remapping_model_r9_DNA.checkpoint \
+    # Example command calling variants and CpG methylation
+    #   Compute settings: GPU devices 0 and 1 with 8 CPU cores
+    megalodon raw_fast5s/ \
         --outputs basecalls mappings snps mods \
         --reference reference.fa --snp-filename variants.vcf \
         --mod-motif Z CG 0 --devices 0 1 --processes 8 --verbose-read-progress 3
 
 This command produces the ``megalodon_results`` output directory containing basecall, mapping, SNP and modified base results.
 The format for each output is described below.
+
+.. note::
+
+   The default basecalling model (used in this example command) is for R9.4.1, MinION/GridION reads.
+   This is equivalent to the guppy/MinKNOW high accuracy model in terms of basecall accuracy and run speed (though using taiyaki backend is slower than guppy).
+   This model contains 5mC (encoded as a ``Z`` base) and 6mA (encoded as a ``Y`` base) trained in biological contexts only (5mC in human CpG and E. coli CCWGG and 6mA in E. coli GATC).
 
 Inputs
 ------
@@ -55,8 +62,9 @@ Inputs
 - Reference
 
   - Genome or transcriptome sequence reference file in FASTA format
-- Variants VCF (optional, but required for SNP calling)
+- Variants VCF
 
+  - Optional, but required for SNP calling
   - Megalodon requires a set of candidate variants in order to call SNPs. These should be provided in the VCF format.
   - Only small simple indels (default ``5``) are included in testing. Larger indels can be processed using the ``--max-snp-size`` argument.
 
@@ -120,41 +128,48 @@ Outputs
     - Default run mode is diploid. To run in haploid mode, set ``--haploid`` flag.
   - Future additions:
 
+    - Phased VCF output
     - Phased read calls
     - Improved phase-aware per-read sequence variants calls
-    - Phased VCF output
 
 Computing
 ---------
 
 Megalodon processes reads from a queue using a pool of workers.
 The number of workers is set using the ``--processes`` argument.
-Each process is linked to a taiyaki basecalling backend.
+Each process is linked to a taiyaki basecalling backend and a separate thread for reference mapping.
+The threaded mapping interface allows megalodon to load the reference (via ``mappy``) into shared memory.
 
 In order to use GPU resources the ``--devices`` argument can be set.
 If ``--devices`` is set, the taiyaki backends will be distribured evenly over the specified ``--devices``.
-In order to control the GPU memory usage, the ``--max_concurrent_chunks`` argument allows a user to restrict the maximum number of chunks to process concurrently (per ``--process``).
+In order to control the GPU memory usage, the ``--max-concurrent-chunks`` argument allows a user to restrict the maximum number of chunks to process concurrently (per ``--process``).
+Note that the model parameters must (currently) be loaded into each GPU process and thus limits the number of GPU processes that can be spawned per GPU.
 
-The ``--chunk_size`` and ``--chunk_overlap`` arguments allow users to specify read chunking, but signal normalization is always carried out over the entire read.
+The ``--chunk-size`` and ``--chunk-overlap`` arguments allow users to specify read chunking, but signal normalization is always carried out over the entire read.
+
+A number of helper processes will be spawned in order to perform more minor tasks, which should take minimal compute resources.
+These include enumerating read ids and files, collecting and reporting progress information and getting data from read processing queues and writing outputs (basecalls, mappings, SNPs and modified bases).
 
 Compatibility
 -------------
 
 The model and calibration files included with megalodon are applicable only to MinION or GridION R9.4.1 flowcells.
-New models trained with taiyaki can be used with megalodon, but in order to obtain the highest performance the megalodon (SNP and modified base) calibration files should be reproduced for any new model.
+New models trained with taiyaki can be used with megalodon, but in order to obtain the highest performance the megalodon (SNP and modified base) calibration files should be reproduced for any new model (TODO provide walkthrough).
 
 The included model contains 5mC and 6mA capabilities.
-5mC was trained only in the E. coli (CCWGG) and human (CpG) contexts while the 6mA was trained only on the E. coli (GATC) context.
-Modified base detection outside of these contexts has not been tested and may produce sub-par results.
+5mC was trained only in the human (CpG) and E. coli (CCWGG) contexts while the 6mA was trained only on the E. coli (GATC) context.
+Modified base detection outside of these contexts has not been tested and may produce sub-optimal results.
 As noted above newly trained models using taiyaki can be used with megalodon, but calibration files should be reproduced for each new model.
 
 
 Licence and Copyright
 ---------------------
 
-(c) 2018 Oxford Nanopore Technologies Ltd.
+|copy| 2019 Oxford Nanopore Technologies Ltd.
 
-Flappie is distributed under the terms of the Oxford Nanopore
+.. |copy| unicode:: 0xA9 .. copyright sign
+
+Megalodon is distributed under the terms of the Oxford Nanopore
 Technologies, Ltd.  Public License, v. 1.0.  If a copy of the License
 was not distributed with this file, You can obtain one at
 http://nanoporetech.com
