@@ -19,11 +19,12 @@ class alignerPlus(mappy.Aligner):
     out_fmt = None
     ref_fn = None
 
-    def add_ref_names(self, ref_fn):
-        # extract reference names and lengths
-        with pysam.FastaFile(ref_fn) as ref:
-            self.ref_names_and_lens = (
-                ref.references, ref.lengths)
+    def add_ref_lens(self):
+        ref_names, ref_lens = [], []
+        for ref_name in self.seq_names:
+            ref_names.append(ref_name)
+            ref_lens.append(len(self.seq(ref_name)))
+        self.ref_names_and_lens = (ref_names, ref_lens)
 
         return
 

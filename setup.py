@@ -27,7 +27,7 @@ install_requires = [
     "h5py >= 2.2.1",
     "numpy >= 1.9.0",
     "Cython >= 0.25.2",
-    "mappy >= 2.15",
+    "mappy >= 2.16",
     "pysam >= 0.15",
     "ont_fast5_api >= 1.1",
     "tqdm",

@@ -501,7 +501,7 @@ def aligner_validation(args):
             str(args.reference), preset=str('map-ont'), best_n=1)
         setattr(aligner, 'out_fmt', args.mappings_format)
         setattr(aligner, 'ref_fn', args.reference)
-        aligner.add_ref_names(args.reference)
+        aligner.add_ref_lens()
     else:
         aligner = None
         if args.reference is not None:
@@ -703,7 +703,8 @@ def get_parser():
             ', '.join(mh.MAP_OUT_FMTS)))
     map_grp.add_argument(
         '--reference',
-        help='Reference FASTA file used for mapping called reads.')
+        help='Reference FASTA or minimap2 index file used for mapping ' +
+        'called reads.')
 
     map_grp.add_argument(
         '--prepend-chr-ref', action='store_true',
