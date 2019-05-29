@@ -44,13 +44,14 @@ with open(sys.argv[1]) as fp:
         calls.append((gt, mega_call_txt))
         calls_full.append((gt, mega_call_txt, ref, alt))
 
+        # TODO convert to read log probs instead of llrs
         llrs_idx = next(i for i, fmt in enumerate(m_fmt.split(':')) if fmt == 'LLRS')
         pos_llrs = list(map(float, mega_call.split(':')[llrs_idx].split(',')))
-        pos_mean_llhr = np.mean(pos_llrs)
-        for llhr in pos_llrs:
+        pos_mean_llr = np.mean(pos_llrs)
+        for llr in pos_llrs:
             llrs_fp.write('\t'.join(map(
                 str,
-                (llhr, chrm + '_' + pos, pos_mean_llhr, gt, mega_call_txt))) + '\n')
+                (llr, chrm + '_' + pos, pos_mean_llr, gt, mega_call_txt))) + '\n')
 llrs_fp.close()
 
 

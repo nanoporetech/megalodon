@@ -40,7 +40,7 @@ Megalodon is accessed via the command line interface ``megalodon`` command.
     #   Compute settings: GPU devices 0 and 1 with 8 CPU cores
     megalodon raw_fast5s/ \
         --outputs basecalls mappings snps mods \
-        --reference reference.fa --snp-filename variants.vcf \
+        --reference reference.fa --variant-filename variants.vcf.gz \
         --mod-motif Z CG 0 --devices 0 1 --processes 8 --verbose-read-progress 3
 
 This command produces the ``megalodon_results`` output directory containing basecall, mapping, SNP and modified base results.
@@ -62,14 +62,15 @@ Inputs
 - Reference
 
   - Genome or transcriptome sequence reference file in FASTA format
-- Variants VCF
+- Variants File
 
+  - Format: indexed VCF or BCF
   - Optional, but required for SNP calling
-  - Megalodon requires a set of candidate variants in order to call SNPs. These should be provided in the VCF format.
-  - Only small simple indels (default ``5``) are included in testing. Larger indels can be processed using the ``--max-snp-size`` argument.
+  - Megalodon currently requires a set of candidate variants in order to call SNPs.
+  - Only small indels (default less than ``50`` bases) are included in testing.
 
-    - For larger indels the ``--snp-context-bases`` option may need to be increased.
-  - Multiple alternative allele SNPs are not currently supported.
+    - Specify the ``--max-indel-size`` argument to process larger indels
+    - The ``--variant-context-bases`` argument may need to be increased for larger indels.
 
 Outputs
 -------
