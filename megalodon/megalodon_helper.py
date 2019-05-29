@@ -26,6 +26,7 @@ VCF_VERSION_MI = 'fileformat=VCFv{}'
 FILE_DATE_MI = 'fileDate={}'
 SOURCE_MI = 'source=ont-megalodon.v{}'
 REF_MI = "reference={}"
+CONTIG_MI = "contig=<ID={},length={}>"
 
 # outputs specification
 BC_NAME = 'basecalls'

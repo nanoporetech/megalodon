@@ -34,12 +34,14 @@ def _agg_snps_worker(
 
     return
 
-def _get_snp_stats_queue(snp_stats_q, snp_conn, out_dir, do_sort=False):
+def _get_snp_stats_queue(
+        snp_stats_q, snp_conn, out_dir, ref_names_and_lens, do_sort=False):
     agg_snp_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.SNP_NAME])
     if do_sort:
         all_snp_vars = []
     else:
-        agg_snp_fp = snps.VcfWriter(agg_snp_fn, 'w')
+        agg_snp_fp = snps.VcfWriter(
+            agg_snp_fn, 'w', ref_names_and_lens=ref_names_and_lens)
 
     while True:
         try:
@@ -65,7 +67,9 @@ def _get_snp_stats_queue(snp_stats_q, snp_conn, out_dir, do_sort=False):
     if do_sort:
         # sort variants and write to file (requires adding __lt__, __gt__
         # methods to variant class
-        with snps.VcfWriter(agg_snp_fn, 'w') as agg_snp_fp:
+        with snps.VcfWriter(
+                agg_snp_fn, 'w',
+                ref_names_and_lens=ref_names_and_lens) as agg_snp_fp:
             for snp_var in sorted(all_snp_vars):
                 agg_snp_fp.write_variant(snp_var)
     else:
@@ -93,12 +97,14 @@ def _agg_mods_worker(
     return
 
 def _get_mod_stats_queue(
-        mod_stats_q, mod_conn, out_dir, mod_names, do_sort=False):
+        mod_stats_q, mod_conn, out_dir, mod_names, ref_names_and_lens,
+        do_sort=False):
     agg_mod_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.MOD_NAME])
     if do_sort:
         all_mods = []
     else:
-        agg_mod_fp = mods.ModVcfWriter(agg_mod_fn, mod_names, 'w')
+        agg_mod_fp = mods.ModVcfWriter(
+            agg_mod_fn, mod_names, 'w', ref_names_and_lens=ref_names_and_lens)
 
     while True:
         try:
@@ -120,7 +126,9 @@ def _get_mod_stats_queue(
         else:
             agg_mod_fp.write_mod_site(mod_site)
     if do_sort:
-        with mods.ModVcfWriter(agg_mod_fn, mod_names, 'w') as agg_mod_fp:
+        with mods.ModVcfWriter(
+                agg_mod_fn, mod_names, 'w',
+                ref_names_and_lens=ref_names_and_lens) as agg_mod_fp:
             for mod_site in sorted(all_mods):
                 agg_mod_fp.write_mod_site(mod_site)
     else:
@@ -186,7 +194,7 @@ def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps):
 
 def aggregate_stats(
         outputs, out_dir, num_ps, write_vcf_llr, het_factors, call_mode,
-        mod_names, mod_agg_info, suppress_progress):
+        mod_names, mod_agg_info, suppress_progress, ref_names_and_lens):
     if mh.SNP_NAME in outputs and mh.MOD_NAME in outputs:
         num_ps = max(num_ps // 2, 1)
 
@@ -197,7 +205,7 @@ def aggregate_stats(
         num_snps = snps.AggSnps(snps_db_fn).num_uniq()
         # create process to collect snp stats from workers
         snp_stats_q, snp_stats_p, main_snp_stats_conn = mh.create_getter_q(
-            _get_snp_stats_queue, (out_dir,))
+            _get_snp_stats_queue, (out_dir, ref_names_and_lens))
         # create process to fill snp locs queue
         snp_filler_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
         snp_filler_p = mp.Process(
@@ -220,7 +228,7 @@ def aggregate_stats(
         num_mods = mods.AggMods(mods_db_fn).num_uniq()
         # create process to collect mods stats from workers
         mod_stats_q, mod_stats_p, main_mod_stats_conn = mh.create_getter_q(
-            _get_mod_stats_queue, (out_dir, mod_names))
+            _get_mod_stats_queue, (out_dir, mod_names, ref_names_and_lens))
         # create process to fill mod locs queue
         mod_filler_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
         mod_filler_p = mp.Process(

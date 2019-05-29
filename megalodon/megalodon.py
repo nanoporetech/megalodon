@@ -497,6 +497,11 @@ def aligner_validation(args):
                     mh.ALIGN_OUTPUTS.intersection(args.outputs))))
             sys.exit(1)
         logger.info('Loading reference.')
+        if not (os.path.exists(args.reference) and
+                os.path.isfile(args.reference)):
+            logger.error('Provided reference file does not exist or is ' +
+                         'not a file.')
+            sys.exit(1)
         aligner = mapping.alignerPlus(
             str(args.reference), preset=str('map-ont'), best_n=1)
         setattr(aligner, 'out_fmt', args.mappings_format)
@@ -917,7 +922,8 @@ def _main():
         aggregate.aggregate_stats(
             args.outputs, args.output_directory, args.processes,
             args.write_vcf_llr, args.heterozygous_factors, snps_data.call_mode,
-            mod_names, mod_agg_info, args.suppress_progress)
+            mod_names, mod_agg_info, args.suppress_progress,
+            aligner.ref_names_and_lens)
 
     return
 

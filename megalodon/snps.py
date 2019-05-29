@@ -571,7 +571,8 @@ class VcfWriter(object):
             self, filename, mode='w',
             header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER',
                     'INFO', 'FORMAT', 'SAMPLE'),
-            extra_meta_info=FIXED_VCF_MI, version='4.2', ref_fn=None):
+            extra_meta_info=FIXED_VCF_MI, version='4.2', ref_fn=None,
+            ref_names_and_lens=None):
         self.filename = filename
         self.mode = mode
         self.header = header
@@ -579,11 +580,14 @@ class VcfWriter(object):
             raise ValueError('version must be one of {}'.format(
                 self.version_options))
         self.version = version
+        contig_mis = [] if ref_names_and_lens is None else [
+            mh.CONTIG_MI.format(ref_name, ref_len)
+            for ref_name, ref_len in zip(*ref_names_and_lens)]
         self.meta = [
             mh.VCF_VERSION_MI.format(self.version),
             mh.FILE_DATE_MI.format(datetime.date.today().strftime("%Y%m%d")),
             mh.SOURCE_MI.format(MEGALODON_VERSION),
-            mh.REF_MI.format(ref_fn)] + extra_meta_info
+            mh.REF_MI.format(ref_fn)] + contig_mis + extra_meta_info
 
         self.handle = open(self.filename, self.mode, encoding='utf-8')
         self.handle.write('\n'.join('##' + line for line in self.meta) + '\n')
