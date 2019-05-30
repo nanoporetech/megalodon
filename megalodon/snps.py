@@ -333,6 +333,8 @@ class SnpData(object):
 
         SNPs within edge buffer of the end of the mapping will be ignored.
         """
+        if r_ref_pos.end - r_ref_pos.start <= 2 * edge_buffer:
+            mh.MegaError('Mapped region too short for SNP calling.')
         for variant in self.variants_idx.fetch(
                 r_ref_pos.chrm, r_ref_pos.start + edge_buffer,
                 r_ref_pos.end - edge_buffer):
@@ -604,7 +606,8 @@ class AggSnps(mh.AbstractAggregationClass):
                     mh.MegaError(
                         'Alternative SNP seqence must exist for all reads.')
         alts_lps = np.stack(alt_seq_lps, axis=0)
-        ref_lps = np.log1p(-np.exp(alts_lps).sum(axis=0))
+        with np.errstate(all='ignore'):
+            ref_lps = np.log1p(-np.exp(alts_lps).sum(axis=0))
 
         r0_stats = pr_snp_stats[0]
         snp_var = Variant(
