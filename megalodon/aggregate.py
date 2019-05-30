@@ -142,12 +142,16 @@ def _agg_prog_worker(
     snp_bar, mod_bar = None, None
     if num_snps > 0:
         if num_mods > 0 and not suppress_progress:
-            mod_bar = tqdm(desc='Mods', total=num_mods, position=1, smoothing=0)
-            snp_bar = tqdm(desc='SNPs', total=num_snps, position=0, smoothing=0)
+            mod_bar = tqdm(desc='Mods', unit=' sites', total=num_mods,
+                           position=1, smoothing=0)
+            snp_bar = tqdm(desc='SNPs', unit=' sites', total=num_snps,
+                           position=0, smoothing=0)
         elif not suppress_progress:
-            snp_bar = tqdm(desc='SNPs', total=num_snps, position=0, smoothing=0)
+            snp_bar = tqdm(desc='SNPs', unit=' sites', total=num_snps,
+                           position=0, smoothing=0)
     elif num_mods > 0 and  not suppress_progress:
-        mod_bar = tqdm(desc='Mods', total=num_mods, position=0, smoothing=0)
+        mod_bar = tqdm(desc='Mods', unit=' sites', total=num_mods,
+                       position=0, smoothing=0)
 
     logger = logging.get_logger()
     while True:

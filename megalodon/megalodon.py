@@ -271,7 +271,8 @@ def prep_errors_bar(
     if suppress_progress:
         num_update_errors = 0
     else:
-        bar = tqdm(total=tot_reads, smoothing=0, initial=curr_num_reads)
+        bar = tqdm(total=tot_reads, smoothing=0, initial=curr_num_reads,
+                   unit=' reads')
         if start_time is not None:
             bar.start_t = start_time
     if num_update_errors > 0:
