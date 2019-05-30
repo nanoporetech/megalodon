@@ -119,16 +119,18 @@ def call_read_snps(
         if DEBUG and any(
                 pos_ref_seq[pos_bb:pos_bb + len(snp_ref_seq)] !=
                 np.array([mh.ALPHABET.find(b) for b in read_ref_seq])):
-            """print('*'*10 + 'Refernce seq at {} expected {}[{}]{} got "{}"'.format(
-                snp_ref_pos,
-                ''.join(mh.ALPHABET[b] for b in
-                        pos_ref_seq[pos_bb-3:pos_bb]),
-                ''.join(mh.ALPHABET[b] for b in
-                        pos_ref_seq[pos_bb:pos_bb + len(snp_ref_seq)]),
-                ''.join(mh.ALPHABET[b] for b in
-                        pos_ref_seq[pos_bb + len(snp_ref_seq):
-                                    pos_bb + len(snp_ref_seq) + 3]),
-                read_ref_seq, ) + '*' * 10)"""
+            logger = logging.get_logger()
+            logger.debug(
+                '*'*10 + 'Refernce seq at {} expected {}[{}]{} got "{}"'.format(
+                    snp_ref_pos,
+                    ''.join(mh.ALPHABET[b] for b in
+                            pos_ref_seq[pos_bb-3:pos_bb]),
+                    ''.join(mh.ALPHABET[b] for b in
+                            pos_ref_seq[pos_bb:pos_bb + len(snp_ref_seq)]),
+                    ''.join(mh.ALPHABET[b] for b in
+                            pos_ref_seq[pos_bb + len(snp_ref_seq):
+                                        pos_bb + len(snp_ref_seq) + 3]),
+                    read_ref_seq, ) + '*' * 10)
             raise mh.MegaError(
                 'Reference SNP sequence does not match reference FASTA.')
         blk_start  = rl_cumsum[r_to_q_poss[read_pos - pos_bb]]
@@ -142,9 +144,7 @@ def call_read_snps(
         loc_ref_score = score_seq(
             r_post, pos_ref_seq, post_mapped_start + blk_start,
             post_mapped_start + blk_end, snps_data.all_paths)
-        loc_ref_log_p = snps_data.calibrate_log_prob(
-            loc_ref_score, is_snp, is_del)
-        loc_alt_log_ps = []
+        loc_alt_llrs = []
         for read_alt_seq in read_alt_seqs:
             pos_alt_seq = np.concatenate([
                 pos_ref_seq[:pos_bb],
@@ -155,14 +155,13 @@ def call_read_snps(
                 r_post, pos_alt_seq, post_mapped_start + blk_start,
                 post_mapped_start + blk_end, snps_data.all_paths)
             # calibrate log probs
-            loc_alt_log_ps.append(snps_data.calibrate_log_prob(
-                loc_alt_score, is_snp, is_del))
+            loc_alt_llrs.append(snps_data.calibrate_llr(
+                loc_ref_score - loc_alt_score, snp_ref_seq, pos_alt_seq))
 
-        loc_alt_log_ps = np.array(loc_alt_log_ps)
         # due to calibration mutli-allelic log likelihoods could result in
         # inferred negative reference likelihood, so re-normalize her
-        loc_ref_log_p, loc_alt_log_ps = calibration.renormalize_log_probs(
-            loc_ref_log_p, loc_alt_log_ps)
+        loc_alt_log_ps = calibration.compute_alt_log_probs(
+            np.array(loc_alt_llrs))
 
         r_snp_calls.append((
             snp_ref_pos, loc_alt_log_ps, snp_ref_seq, snp_alt_seqs, snp_id))
@@ -184,10 +183,14 @@ def annotate_snps(r_start, ref_seq, r_snp_calls, strand):
     prev_pos = 0
     if strand == -1:
         ref_seq = ref_seq[::-1]
-    for snp_pos, score, snp_ref_seq, snp_alt_seq, _ in sorted(r_snp_calls):
+    for snp_pos, alt_lps, snp_ref_seq, snp_alt_seqs, _ in sorted(r_snp_calls):
+        ref_lp = np.log1p(-np.exp(alt_lps).sum())
         # called canonical
-        if score >= 0: continue
-        snp_seqs.append(ref_seq[prev_pos:snp_pos - r_start] + snp_alt_seq)
+        if ref_lp >= min(alt_lps): continue
+        alt_seq = snp_alt_seqs[np.argmax(alt_lps)]
+        if strand == -1:
+            alt_seq = mh.revcomp(alt_seq)
+        snp_seqs.append(ref_seq[prev_pos:snp_pos - r_start] + alt_seq)
         prev_pos = snp_pos - r_start + len(snp_ref_seq)
     snp_seqs.append(ref_seq[prev_pos:])
     snp_seq = ''.join(snp_seqs)
@@ -313,7 +316,6 @@ class SnpData(object):
 
         return
 
-
     @property
     def snp_context(self):
         return self.context_bases[0]
@@ -321,11 +323,9 @@ class SnpData(object):
     def indel_context(self):
         return self.context_bases[1]
 
-
     def reopen_variant_index(self):
         self.variants_idx = pysam.VariantFile(self.variant_fn)
         return
-
 
     def iter_overlapping_snps(self, r_ref_pos, edge_buffer):
         """Iterator over SNPs overlapping the read mapped position.
@@ -346,13 +346,8 @@ class SnpData(object):
 
         return
 
-
     def calibrate_llr(self, llr, snp_ref_seq, snp_alt_seq):
         return self.calib_table.calibrate_llr(llr, snp_ref_seq, snp_alt_seq)
-
-
-    def calibrate_log_prob(self, score, is_snp, is_del):
-        return self.calib_table.calibrate_log_prob(score, is_snp, is_del)
 
 
 ######################
@@ -491,6 +486,7 @@ class VcfWriter(object):
             mh.FILE_DATE_MI.format(datetime.date.today().strftime("%Y%m%d")),
             mh.SOURCE_MI.format(MEGALODON_VERSION),
             mh.REF_MI.format(ref_fn)] + contig_mis + extra_meta_info
+        # TODO add meta info for LOG_PROBS to make field valid VCF
 
         self.handle = open(self.filename, self.mode, encoding='utf-8')
         self.handle.write('\n'.join('##' + line for line in self.meta) + '\n')
@@ -551,7 +547,7 @@ class AggSnps(mh.AbstractAggregationClass):
         return [SNP_DATA(*snp_stats) for snp_stats in self.snps_db.execute(
             SEL_SNP_STATS, snp_loc)]
 
-    def compute_diploid_probs(self, ref_lps, alt_lps, het_factor=1.0):
+    def compute_diploid_probs(self, ref_lps, alts_lps, het_factor=1.0):
         def compute_het_lp(a1, a2):
             a1_lps = all_lps[a1]
             a2_lps = all_lps[a2]
@@ -564,7 +560,7 @@ class AggSnps(mh.AbstractAggregationClass):
                 for i in range(all_lps.shape[1] + 1)))
 
 
-        all_lps = np.concatenate([ref_lps.reshape(1, -1), alt_lps], axis=0)
+        all_lps = np.concatenate([ref_lps.reshape(1, -1), alts_lps], axis=0)
         genotype_lps, het_gts, gts = [], [], []
         for a2 in range(all_lps.shape[0]):
             for a1 in range(a2 + 1):
@@ -618,8 +614,8 @@ class AggSnps(mh.AbstractAggregationClass):
 
         if self.write_vcf_log_probs:
             snp_var.add_sample_field('LOG_PROBS', ';'.join(
-                ','.join('{:.2f}'.format(lp) for lp in sorted(alt_i_lps))
-                for alt_i_lps in alts_lps.T))
+                ','.join('{:.2f}'.format(lp) for lp in alt_i_lps)
+                for alt_i_lps in alts_lps))
 
         if call_mode == DIPLOID_MODE:
             het_factor = (

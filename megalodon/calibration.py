@@ -118,20 +118,16 @@ def compute_calibration(
     return np.log((1 - mono_prob) / mono_prob), new_input_llr_range, plot_data
 
 
-################################
-##### LLR Re-normalization #####
-################################
+#####################
+##### LLR Stats #####
+#####################
 
-def renormalize_log_probs(ref_log_p, alt_log_ps):
-    """ Log softmax over ref and alt log probabilities
-
-    Necessary after calibrating over multi-allelic sites. Bi-allelic sites
-    remain unchanged
+def compute_alt_log_probs(alt_llrs):
+    """ Compute log probabilities from a set of log likelihood ratios all
+    against the reference allele
     """
-    lps = np.concatenate([[ref_log_p], alt_log_ps])
-    e_lps = np.exp(lps - np.max(lps))
-    lsm_lps = np.log(e_lps / e_lps.sum())
-    return lsm_lps[0], lsm_lps[1:]
+    ref_lp = np.log(1) - np.log1p(np.sum(1 / np.exp(alt_llrs)))
+    return ref_lp - alt_llrs
 
 
 ###############################
@@ -185,36 +181,6 @@ class SnpCalibrator(object):
             np.clip(llr, self.ins_llr_range[0], self.ins_llr_range[1]) -
             self.ins_llr_range[0]) / self.ins_step).astype(int)]
 
-    def calibrate_log_prob(self, log_p, is_snp, is_del):
-        """ Calibrate log probability using log-likelihood ratio table from
-        bi-allelic calibration.
-        """
-        if not self.calib_loaded:
-            return log_p
-        # get bi-allelic likelihood ratio
-        with np.errstate(over='ignore'):
-            p = np.exp(log_p)
-        llr = log_p - np.log1p(-p)
-        # get appropriate normalization table
-        if is_snp:
-            calib_table = self.snp_calib_table
-            llr_range = self.snp_llr_range
-            step = self.snp_step
-        elif is_del:
-            calib_table = self.del_calib_table
-            llr_range = self.del_llr_range
-            step = self.del_step
-        else:
-            calib_table = self.ins_calib_table
-            llr_range = self.ins_llr_range
-            step = self.ins_step
-        calib_llr = calib_table[np.around((
-            np.clip(llr, llr_range[0], llr_range[1]) -
-            llr_range[0]) / step).astype(int)]
-        # convert back to log prob
-        with np.errstate(over='ignore'):
-            exp_calib_llr = np.exp(calib_llr)
-        return np.log(1) - np.log1p(exp_calib_llr)
 
 class ModCalibrator(object):
     def _load_calibration(self):
