@@ -16,9 +16,6 @@ def get_parser():
         '--taiyaki-model-filename',
         help='Taiyaki model checkpoint file.')
     parser.add_argument(
-        '--flappie-model-name',
-        help='Flappie model name.')
-    parser.add_argument(
         '--outputs', nargs='+',
         default=[mh.SNP_NAME, mh.MOD_NAME],
         choices=[mh.SNP_NAME, mh.MOD_NAME],
@@ -53,8 +50,7 @@ def get_parser():
 
 def main():
     args = get_parser().parse_args()
-    model_info = backends.ModelInfo(
-        args.flappie_model_name, args.taiyaki_model_filename)
+    model_info = backends.ModelInfo(args.taiyaki_model_filename)
     mod_names = (model_info.mod_long_names
                  if mh.MOD_NAME in args.outputs else [])
     mod_agg_info = mods.AGG_INFO(

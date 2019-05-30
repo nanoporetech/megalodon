@@ -29,7 +29,7 @@ class alignerPlus(mappy.Aligner):
         return
 
 
-def align_read(q_seq, aligner, map_thr_buf, read_id=None, add_chr_ref=False):
+def align_read(q_seq, aligner, map_thr_buf, read_id=None):
     try:
         r_algn = next(aligner.map(str(q_seq), buf=map_thr_buf))
     except StopIteration:
@@ -39,16 +39,15 @@ def align_read(q_seq, aligner, map_thr_buf, read_id=None, add_chr_ref=False):
     ref_seq = aligner.seq(r_algn.ctg, r_algn.r_st, r_algn.r_en)
     if r_algn.strand == -1:
         ref_seq = mh.revcomp(ref_seq)
-    chrm = 'chr' + r_algn.ctg if add_chr_ref else r_algn.ctg
     r_algn_data = [
-        chrm, r_algn.strand, r_algn.r_st, r_algn.r_en,
+        r_algn.ctg, r_algn.strand, r_algn.r_st, r_algn.r_en,
         r_algn.q_st, r_algn.q_en, r_algn.cigar]
     return [ref_seq, r_algn_data], (
         read_id, q_seq, r_algn.ctg, r_algn.strand, r_algn.r_st,
         r_algn.q_st, r_algn.q_en, r_algn.cigar)
 
 
-def _map_read_worker(aligner, map_conn, mo_q, add_chr_ref):
+def _map_read_worker(aligner, map_conn, mo_q):
     # get mappy aligner thread buffer
     map_thr_buf = mappy.ThreadBuffer()
 
@@ -61,7 +60,7 @@ def _map_read_worker(aligner, map_conn, mo_q, add_chr_ref):
         if q_seq is None:
             break
         map_res, full_res = align_read(
-            q_seq, aligner, map_thr_buf, read_id, add_chr_ref)
+            q_seq, aligner, map_thr_buf, read_id)
         map_conn.send(map_res)
 
         if mo_q is not None and full_res is not None:

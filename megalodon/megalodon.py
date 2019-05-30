@@ -41,14 +41,14 @@ def handle_errors(func, args, r_vals, out_q, fast5_fn, failed_reads_q):
         out_q.put((func(*args), r_vals))
     except KeyboardInterrupt:
         failed_reads_q.put(
-            (True, False, 'Keyboard interrupt', fast5_fn, None))
+            (True, False, 'Keyboard interrupt', fast5_fn, None, 0))
         return
     except mh.MegaError as e:
-        failed_reads_q.put((True, False, str(e), fast5_fn, None))
+        failed_reads_q.put((True, False, str(e), fast5_fn, None, 0))
     except:
         failed_reads_q.put((
             True, False, _UNEXPECTED_ERROR_CODE, fast5_fn,
-            traceback.format_exc()))
+            traceback.format_exc(), 0))
     return
 
 def process_read(
@@ -190,17 +190,19 @@ def _process_reads_worker(
                 raw_sig, read_id, model_info, bc_q, caller_conn, snps_data,
                 snps_q, mods_q, mods_info, fast5_fn, failed_reads_q,
                 edge_buffer)
-            failed_reads_q.put((False, True, None, None, None))
+            failed_reads_q.put((
+                False, True, None, None, None, raw_sig.shape[0]))
         except KeyboardInterrupt:
             failed_reads_q.put((
-                True, True, 'Keyboard interrupt', fast5_fn, None))
+                True, True, 'Keyboard interrupt', fast5_fn, None, 0))
             return
         except mh.MegaError as e:
-            failed_reads_q.put((True, True, str(e), fast5_fn, None))
+            failed_reads_q.put((
+                True, True, str(e), fast5_fn, None, raw_sig.shape[0]))
         except:
             failed_reads_q.put((
                 True, True, _UNEXPECTED_ERROR_CODE, fast5_fn,
-                traceback.format_exc()))
+                traceback.format_exc(), 0))
 
     return
 
@@ -218,27 +220,34 @@ if _DO_PROFILE:
 ##################################
 
 def _fill_files_queue(
-        read_file_q, fast5s_dir, num_reads, recursive, num_ps, num_reads_conn):
+        read_file_q, fast5s_dir, num_reads, read_ids_fn, recursive, num_ps,
+        num_reads_conn):
     logger = logging.get_logger()
-    read_ids = set()
+    valid_read_ids = None
+    if read_ids_fn is not None:
+        with open(read_ids_fn) as read_ids_fp:
+            valid_read_ids = set(line.strip() for line in read_ids_fp)
+    used_read_ids = set()
     # fill queue with read filename and read id tuples
     for fast5_fn, read_id in fast5_io.iterate_fast5_reads(
             fast5s_dir, num_reads, recursive):
-        if read_id in read_ids:
+        if valid_read_ids is not None and read_id not in valid_read_ids:
+            continue
+        if read_id in used_read_ids:
             logger.debug(
                 ('Read ID ({}) found in previous read and will not ' +
                  'process from {}.').format(read_id, fast5_fn))
             continue
         read_file_q.put((fast5_fn, read_id))
-        read_ids.add(read_id)
+        used_read_ids.add(read_id)
     # add None to indicate that read processes should return
     for _ in range(num_ps):
         read_file_q.put((None, None))
-    num_reads_conn.send(len(read_ids))
+    num_reads_conn.send(len(used_read_ids))
 
     return
 
-def format_fail_summ(header, fail_summ=[], num_reads=0, num_errs=None):
+def format_fail_summ(header, fail_summ=[], reads_called=0, num_errs=None):
     summ_errs = sorted(fail_summ)[::-1]
     if num_errs is not None:
         summ_errs = summ_errs[:num_errs]
@@ -246,8 +255,8 @@ def format_fail_summ(header, fail_summ=[], num_reads=0, num_errs=None):
             summ_errs.extend([(None, '') for _ in range(
                 num_errs - len(summ_errs))])
     errs_str = '\n'.join("{:8.1f}% ({:>7} reads)".format(
-        100 * n_fns / float(num_reads), n_fns) + " : " + '{:<80}'.format(err)
-        if (n_fns is not None and num_reads > 0) else
+        100 * n_fns / float(reads_called), n_fns) + " : " + '{:<80}'.format(err)
+        if (n_fns is not None and reads_called > 0) else
         '     -----' for n_fns, err in summ_errs)
     return '\n'.join((header, errs_str))
 
@@ -279,7 +288,7 @@ def prep_errors_bar(
 def _get_fail_queue(
         failed_reads_q, f_conn, getter_num_reads_conn, num_update_errors,
         suppress_progress):
-    def update_prog(reads_called, unexp_err_fp):
+    def update_prog(reads_called, sig_called, unexp_err_fp):
         if is_err:
             failed_reads[err_type].append(fast5_fn)
             if err_type == _UNEXPECTED_ERROR_CODE:
@@ -293,7 +302,11 @@ def _get_fail_queue(
                         fast5_fn + '\n:::\n' + err_tb + '\n\n\n')
                     unexp_err_fp.flush()
         if do_update_prog:
-            if not suppress_progress: bar.update(1)
+            if not suppress_progress:
+                bar.set_postfix({
+                    'ksample/s':(sig_called / 1000) /
+                    bar.format_dict['elapsed']})
+                bar.update(1)
             reads_called += 1
         if num_update_errors > 0:
             bar.write(prog_prefix + format_fail_summ(
@@ -306,7 +319,7 @@ def _get_fail_queue(
 
     logger = logging.get_logger()
     logger.info('Processing reads.')
-    reads_called = 0
+    reads_called, sig_called = 0, 0
     unexp_err_fp = None
     failed_reads = defaultdict(list)
     bar, prog_prefix, bar_header = prep_errors_bar(
@@ -315,9 +328,10 @@ def _get_fail_queue(
         try:
             try:
                 (is_err, do_update_prog, err_type, fast5_fn,
-                 err_tb) = failed_reads_q.get(block=False)
+                 err_tb, n_sig) = failed_reads_q.get(block=False)
+                sig_called += n_sig
                 reads_called, unexp_err_fp = update_prog(
-                    reads_called, unexp_err_fp)
+                    reads_called, sig_called, unexp_err_fp)
             except queue.Empty:
                 # get total number of reads once all reads are enumerated
                 if bar is not None and bar.total is None:
@@ -355,8 +369,8 @@ def _get_fail_queue(
 ###############################
 
 def process_all_reads(
-        fast5s_dir, recursive, num_reads, model_info, outputs, out_dir, bc_fmt,
-        aligner, add_chr_ref, snps_data, num_ps, num_update_errors,
+        fast5s_dir, recursive, num_reads, read_ids_fn, model_info, outputs,
+        out_dir, bc_fmt, aligner, snps_data, num_ps, num_update_errors,
         suppress_progress, mods_info, db_safety, edge_buffer, pr_ref_filts):
     logger = logging.get_logger()
     logger.info('Preparing workers to process reads.')
@@ -367,8 +381,8 @@ def process_all_reads(
     num_reads_conn, getter_num_reads_conn = mp.Pipe()
     files_p = mp.Process(
         target=_fill_files_queue, args=(
-            read_file_q, fast5s_dir, num_reads, recursive, num_ps,
-            num_reads_conn),
+            read_file_q, fast5s_dir, num_reads, read_ids_fn, recursive,
+            num_ps, num_reads_conn),
         daemon=True)
     files_p.start()
     # progress and failed reads getter
@@ -443,7 +457,7 @@ def process_all_reads(
         for map_conn in map_conns:
             t = threading.Thread(
                 target=mapping._map_read_worker,
-                args=(aligner, map_conn, mo_q, add_chr_ref))
+                args=(aligner, map_conn, mo_q))
             t.daemon = True
             t.start()
             map_read_ts.append(t)
@@ -519,7 +533,7 @@ def snps_validation(args, is_cat_mod, output_size, aligner):
     if mh.PR_SNP_NAME in args.outputs and args.variant_filename is None:
         logger.error(
             '{} output requested, '.format(mh.PR_SNP_NAME) +
-            'but --snp-filename provided.')
+            'but --variant-filename provided.')
         sys.exit(1)
     if mh.PR_SNP_NAME in args.outputs and not (
             is_cat_mod or mh.nstate_to_nbase(output_size) == 4):
@@ -531,7 +545,7 @@ def snps_validation(args, is_cat_mod, output_size, aligner):
         args.snp_calibration_filename, args.disable_snp_calibration)
     try:
         snps_data = snps.SnpData(
-            args.variant_filename, args.prepend_chr_vcf, args.max_indel_size,
+            args.variant_filename, args.max_indel_size,
             args.snp_all_paths, args.write_snps_text,
             args.variant_context_bases, snp_calib_fn,
             snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE,
@@ -670,10 +684,6 @@ def get_parser():
         help='Taiyaki model checkpoint file. Default: Load default model ' +
         '({})'.format(mh.MODEL_PRESET_DESC))
 
-    mdl_grp.add_argument(
-        '--flappie-model-name',
-        help=hidden_help('Flappie model name.'))
-
     out_grp = parser.add_argument_group('Output Arguments')
     out_grp.add_argument(
         '--outputs', nargs='+',
@@ -694,6 +704,10 @@ def get_parser():
     out_grp.add_argument(
         '--num-reads', type=int,
         help=hidden_help('Number of reads to process. Default: All reads'))
+    out_grp.add_argument(
+        '--read-ids-filename',
+        help=hidden_help('File containing read ids to process (one per ' +
+                         'line). Default: All reads'))
 
     map_grp = parser.add_argument_group('Mapping Arguments')
     map_grp.add_argument(
@@ -705,11 +719,6 @@ def get_parser():
         '--reference',
         help='Reference FASTA or minimap2 index file used for mapping ' +
         'called reads.')
-
-    map_grp.add_argument(
-        '--prepend-chr-ref', action='store_true',
-        help=hidden_help('Prepend "chr" to chromosome names from reference ' +
-                         'to match VCF names.'))
 
     snp_grp = parser.add_argument_group('SNP Arguments')
     snp_grp.add_argument(
@@ -739,10 +748,6 @@ def get_parser():
         '--max-indel-size', type=int, default=50,
         help=hidden_help('Maximum difference in number of reference and ' +
                          'alternate bases. Default: %(default)d'))
-    snp_grp.add_argument(
-        '--prepend-chr-vcf', action='store_true',
-        help=hidden_help('Prepend "chr" to chromosome names from VCF to ' +
-                         'match reference names.'))
     snp_grp.add_argument(
         '--snp-all-paths', action='store_true',
         help=hidden_help('Compute forwards algorithm all paths score. ' +
@@ -893,7 +898,7 @@ def _main():
     args, pr_ref_filts = parse_pr_ref_output(args)
     tai_model_fn = mh.get_model_fn(args.taiyaki_model_filename)
     model_info = backends.ModelInfo(
-        args.flappie_model_name, tai_model_fn, args.devices,
+        tai_model_fn, args.devices,
         args.processes, args.chunk_size, args.chunk_overlap,
         args.max_concurrent_chunks)
     args, mods_info = mods_validation(args, model_info)
@@ -902,10 +907,10 @@ def _main():
         args, model_info.is_cat_mod, model_info.output_size, aligner)
 
     process_all_reads(
-        args.fast5s_dir, not args.not_recursive, args.num_reads, model_info,
-        args.outputs, args.output_directory, args.basecalls_format, aligner,
-        args.prepend_chr_ref, snps_data, args.processes,
-        args.verbose_read_progress, args.suppress_progress,
+        args.fast5s_dir, not args.not_recursive, args.num_reads,
+        args.read_ids_filename, model_info, args.outputs,
+        args.output_directory, args.basecalls_format, aligner, snps_data,
+        args.processes, args.verbose_read_progress, args.suppress_progress,
         mods_info, args.database_safety, args.edge_buffer, pr_ref_filts)
 
     if mh.SNP_NAME in args.outputs or mh.MOD_NAME in args.outputs:

@@ -268,7 +268,7 @@ def _get_snps_queue(
 
 class SnpData(object):
     def __init__(
-            self, variant_fn, do_prepend_chr_vcf, max_indel_size, all_paths,
+            self, variant_fn, max_indel_size, all_paths,
             write_snps_txt, context_bases, snps_calib_fn=None,
             call_mode=DIPLOID_MODE, do_pr_ref_snps=False, aligner=None,
             keep_snp_fp_open=False):
@@ -302,6 +302,7 @@ class SnpData(object):
             self.variants_idx = vars_idx
         else:
             vars_idx.close()
+            self.variants_idx = None
 
         if aligner is None:
             raise mh.MegaError(

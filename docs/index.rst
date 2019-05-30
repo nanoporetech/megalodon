@@ -39,7 +39,7 @@ Megalodon is accessed via the command line interface, ``megalodon`` command.
     # example command calling variants and CpG methylation (on GPU devices 0 and 1)
     megalodon raw_fast5s/ --taiyaki-model-filename taiyaki/models/mGru_flipflop_remapping_model_r9_DNA.checkpoint \
         --outputs basecalls mappings snps mods \
-        --reference reference.fa --snp-filename variants.vcf \
+        --reference reference.fa --variant-filename variants.vcf \
         --mod-motif Z CG 0 --devices 0 1 --processes 8 --verbose-read-progress 3
 
 This command produces the ``megalodon_results`` output directory containing basecall, mapping, SNP and modified base results.
