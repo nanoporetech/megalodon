@@ -313,7 +313,7 @@ def _get_snp_calls(
 
 
 def process_all_reads(
-        fast5s_dir, num_reads, model_info, aligner, num_ps, out_fn,
+        fast5s_dir, num_reads, read_ids_fn, model_info, aligner, num_ps, out_fn,
         suppress_progress):
     sys.stderr.write('Preparing workers and calling reads.\n')
     # read filename queue filler
@@ -321,7 +321,8 @@ def process_all_reads(
     num_reads_conn, getter_num_reads_conn = mp.Pipe()
     files_p = mp.Process(
         target=megalodon._fill_files_queue, args=(
-            fast5_q, fast5s_dir, num_reads, True, num_ps, num_reads_conn),
+            fast5_q, fast5s_dir, num_reads, read_ids_fn, True, num_ps,
+            num_reads_conn),
         daemon=True)
     files_p.start()
 
@@ -387,6 +388,10 @@ def get_parser():
     out_grp.add_argument(
         '--num-reads', type=int,
         help='Number of reads to process. Default: All reads')
+    out_grp.add_argument(
+        '--read-ids-filename',
+        help='File containing read ids to process (one per ' +
+        'line). Default: All reads')
 
     tai_grp = parser.add_argument_group('Taiyaki Signal Chunking Arguments')
     tai_grp.add_argument(
@@ -427,8 +432,8 @@ def main():
         str(args.reference), preset=str('map-ont'), best_n=1)
 
     process_all_reads(
-        args.fast5s_dir, args.num_reads, model_info, aligner, args.processes,
-        args.output, args.suppress_progress)
+        args.fast5s_dir, args.num_reads, args.read_ids_filename, model_info,
+        aligner, args.processes, args.output, args.suppress_progress)
 
     return
 

@@ -220,23 +220,30 @@ if _DO_PROFILE:
 ##################################
 
 def _fill_files_queue(
-        read_file_q, fast5s_dir, num_reads, recursive, num_ps, num_reads_conn):
+        read_file_q, fast5s_dir, num_reads, read_ids_fn, recursive, num_ps,
+        num_reads_conn):
     logger = logging.get_logger()
-    read_ids = set()
+    valid_read_ids = None
+    if read_ids_fn is not None:
+        with open(read_ids_fn) as read_ids_fp:
+            valid_read_ids = set(line.strip() for line in read_ids_fp)
+    used_read_ids = set()
     # fill queue with read filename and read id tuples
     for fast5_fn, read_id in fast5_io.iterate_fast5_reads(
             fast5s_dir, num_reads, recursive):
-        if read_id in read_ids:
+        if valid_read_ids is not None and read_id not in valid_read_ids:
+            continue
+        if read_id in used_read_ids:
             logger.debug(
                 ('Read ID ({}) found in previous read and will not ' +
                  'process from {}.').format(read_id, fast5_fn))
             continue
         read_file_q.put((fast5_fn, read_id))
-        read_ids.add(read_id)
+        used_read_ids.add(read_id)
     # add None to indicate that read processes should return
     for _ in range(num_ps):
         read_file_q.put((None, None))
-    num_reads_conn.send(len(read_ids))
+    num_reads_conn.send(len(used_read_ids))
 
     return
 
@@ -362,8 +369,8 @@ def _get_fail_queue(
 ###############################
 
 def process_all_reads(
-        fast5s_dir, recursive, num_reads, model_info, outputs, out_dir, bc_fmt,
-        aligner, snps_data, num_ps, num_update_errors,
+        fast5s_dir, recursive, num_reads, read_ids_fn, model_info, outputs,
+        out_dir, bc_fmt, aligner, snps_data, num_ps, num_update_errors,
         suppress_progress, mods_info, db_safety, edge_buffer, pr_ref_filts):
     logger = logging.get_logger()
     logger.info('Preparing workers to process reads.')
@@ -374,8 +381,8 @@ def process_all_reads(
     num_reads_conn, getter_num_reads_conn = mp.Pipe()
     files_p = mp.Process(
         target=_fill_files_queue, args=(
-            read_file_q, fast5s_dir, num_reads, recursive, num_ps,
-            num_reads_conn),
+            read_file_q, fast5s_dir, num_reads, read_ids_fn, recursive,
+            num_ps, num_reads_conn),
         daemon=True)
     files_p.start()
     # progress and failed reads getter
@@ -697,6 +704,10 @@ def get_parser():
     out_grp.add_argument(
         '--num-reads', type=int,
         help=hidden_help('Number of reads to process. Default: All reads'))
+    out_grp.add_argument(
+        '--read-ids-filename',
+        help=hidden_help('File containing read ids to process (one per ' +
+                         'line). Default: All reads'))
 
     map_grp = parser.add_argument_group('Mapping Arguments')
     map_grp.add_argument(
@@ -896,10 +907,10 @@ def _main():
         args, model_info.is_cat_mod, model_info.output_size, aligner)
 
     process_all_reads(
-        args.fast5s_dir, not args.not_recursive, args.num_reads, model_info,
-        args.outputs, args.output_directory, args.basecalls_format, aligner,
-        snps_data, args.processes,
-        args.verbose_read_progress, args.suppress_progress,
+        args.fast5s_dir, not args.not_recursive, args.num_reads,
+        args.read_ids_filename, model_info, args.outputs,
+        args.output_directory, args.basecalls_format, aligner, snps_data,
+        args.processes, args.verbose_read_progress, args.suppress_progress,
         mods_info, args.database_safety, args.edge_buffer, pr_ref_filts)
 
     if mh.SNP_NAME in args.outputs or mh.MOD_NAME in args.outputs:

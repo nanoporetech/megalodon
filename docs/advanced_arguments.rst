@@ -9,10 +9,12 @@ Output Arguments
 - ``--basecalls-format``
 
   - Currently only FASTA format is supported, but the option is provided for potential future capacity for alternative formats.
-
 - ``--num-reads``
 
   - Number of reads to process. Intended for test runs on a subset of a dataset.
+- ``--read-ids-filename``
+
+  -
 
 -------------
 SNP Arguments
