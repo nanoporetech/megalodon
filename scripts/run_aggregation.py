@@ -43,8 +43,8 @@ def get_parser():
         '--processes', type=int, default=1,
         help='Number of parallel processes. Default: %(default)d')
     parser.add_argument(
-        '--write-vcf-llr', action='store_true',
-        help='Write log-likelihood ratios out in non-standard VCF field.')
+        '--write-vcf-log-probs', action='store_true',
+        help='Write alt log prbabilities out in non-standard VCF field.')
     parser.add_argument(
         '--suppress-progress', action='store_true',
         help='Suppress progress bar output.')
@@ -61,7 +61,7 @@ def main():
         mods.BIN_THRESH_NAME, args.mod_binary_threshold)
     aggregate.aggregate_stats(
         args.outputs, args.output_directory, args.processes,
-        args.write_vcf_llr, args.heterozygous_factors,
+        args.write_vcf_log_probs, args.heterozygous_factors,
         snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE,
         mod_names, mod_agg_info, args.suppress_progress)
 
