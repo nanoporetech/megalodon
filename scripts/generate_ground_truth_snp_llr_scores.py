@@ -374,9 +374,6 @@ def get_parser():
     mdl_grp.add_argument(
         '--taiyaki-model-filename',
         help='Taiyaki model checkpoint file.')
-    mdl_grp.add_argument(
-        '--flappie-model-name',
-        help='Flappie model name.')
 
     map_grp = parser.add_argument_group('Mapping Arguments')
     map_grp.add_argument(
@@ -422,7 +419,7 @@ def main():
 
     sys.stderr.write('Loading model.\n')
     model_info = backends.ModelInfo(
-        args.flappie_model_name, args.taiyaki_model_filename, args.devices,
+        args.taiyaki_model_filename, args.devices,
         args.processes, args.chunk_size, args.chunk_overlap,
         args.max_concurrent_chunks)
     sys.stderr.write('Loading reference.\n')

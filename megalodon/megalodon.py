@@ -238,7 +238,7 @@ def _fill_files_queue(
 
     return
 
-def format_fail_summ(header, fail_summ=[], num_reads=0, num_errs=None):
+def format_fail_summ(header, fail_summ=[], reads_called=0, num_errs=None):
     summ_errs = sorted(fail_summ)[::-1]
     if num_errs is not None:
         summ_errs = summ_errs[:num_errs]
@@ -246,8 +246,8 @@ def format_fail_summ(header, fail_summ=[], num_reads=0, num_errs=None):
             summ_errs.extend([(None, '') for _ in range(
                 num_errs - len(summ_errs))])
     errs_str = '\n'.join("{:8.1f}% ({:>7} reads)".format(
-        100 * n_fns / float(num_reads), n_fns) + " : " + '{:<80}'.format(err)
-        if (n_fns is not None and num_reads > 0) else
+        100 * n_fns / float(reads_called), n_fns) + " : " + '{:<80}'.format(err)
+        if (n_fns is not None and reads_called > 0) else
         '     -----' for n_fns, err in summ_errs)
     return '\n'.join((header, errs_str))
 
@@ -356,7 +356,7 @@ def _get_fail_queue(
 
 def process_all_reads(
         fast5s_dir, recursive, num_reads, model_info, outputs, out_dir, bc_fmt,
-        aligner, add_chr_ref, snps_data, num_ps, num_update_errors,
+        aligner, snps_data, num_ps, num_update_errors,
         suppress_progress, mods_info, db_safety, edge_buffer, pr_ref_filts):
     logger = logging.get_logger()
     logger.info('Preparing workers to process reads.')
@@ -443,7 +443,7 @@ def process_all_reads(
         for map_conn in map_conns:
             t = threading.Thread(
                 target=mapping._map_read_worker,
-                args=(aligner, map_conn, mo_q, add_chr_ref))
+                args=(aligner, map_conn, mo_q))
             t.daemon = True
             t.start()
             map_read_ts.append(t)
@@ -519,7 +519,7 @@ def snps_validation(args, is_cat_mod, output_size, aligner):
     if mh.PR_SNP_NAME in args.outputs and args.variant_filename is None:
         logger.error(
             '{} output requested, '.format(mh.PR_SNP_NAME) +
-            'but --snp-filename provided.')
+            'but --variant-filename provided.')
         sys.exit(1)
     if mh.PR_SNP_NAME in args.outputs and not (
             is_cat_mod or mh.nstate_to_nbase(output_size) == 4):
@@ -531,7 +531,7 @@ def snps_validation(args, is_cat_mod, output_size, aligner):
         args.snp_calibration_filename, args.disable_snp_calibration)
     try:
         snps_data = snps.SnpData(
-            args.variant_filename, args.prepend_chr_vcf, args.max_indel_size,
+            args.variant_filename, args.max_indel_size,
             args.snp_all_paths, args.write_snps_text,
             args.variant_context_bases, snp_calib_fn,
             snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE,
@@ -670,10 +670,6 @@ def get_parser():
         help='Taiyaki model checkpoint file. Default: Load default model ' +
         '({})'.format(mh.MODEL_PRESET_DESC))
 
-    mdl_grp.add_argument(
-        '--flappie-model-name',
-        help=hidden_help('Flappie model name.'))
-
     out_grp = parser.add_argument_group('Output Arguments')
     out_grp.add_argument(
         '--outputs', nargs='+',
@@ -706,11 +702,6 @@ def get_parser():
         help='Reference FASTA or minimap2 index file used for mapping ' +
         'called reads.')
 
-    map_grp.add_argument(
-        '--prepend-chr-ref', action='store_true',
-        help=hidden_help('Prepend "chr" to chromosome names from reference ' +
-                         'to match VCF names.'))
-
     snp_grp = parser.add_argument_group('SNP Arguments')
     snp_grp.add_argument(
         '--haploid', action='store_true',
@@ -739,10 +730,6 @@ def get_parser():
         '--max-indel-size', type=int, default=50,
         help=hidden_help('Maximum difference in number of reference and ' +
                          'alternate bases. Default: %(default)d'))
-    snp_grp.add_argument(
-        '--prepend-chr-vcf', action='store_true',
-        help=hidden_help('Prepend "chr" to chromosome names from VCF to ' +
-                         'match reference names.'))
     snp_grp.add_argument(
         '--snp-all-paths', action='store_true',
         help=hidden_help('Compute forwards algorithm all paths score. ' +
@@ -893,7 +880,7 @@ def _main():
     args, pr_ref_filts = parse_pr_ref_output(args)
     tai_model_fn = mh.get_model_fn(args.taiyaki_model_filename)
     model_info = backends.ModelInfo(
-        args.flappie_model_name, tai_model_fn, args.devices,
+        tai_model_fn, args.devices,
         args.processes, args.chunk_size, args.chunk_overlap,
         args.max_concurrent_chunks)
     args, mods_info = mods_validation(args, model_info)
@@ -904,7 +891,7 @@ def _main():
     process_all_reads(
         args.fast5s_dir, not args.not_recursive, args.num_reads, model_info,
         args.outputs, args.output_directory, args.basecalls_format, aligner,
-        args.prepend_chr_ref, snps_data, args.processes,
+        snps_data, args.processes,
         args.verbose_read_progress, args.suppress_progress,
         mods_info, args.database_safety, args.edge_buffer, pr_ref_filts)
 

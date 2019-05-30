@@ -47,7 +47,7 @@ SNP Arguments
 - ``--haploid``
 
   -
-- ``--snp-filename``
+- ``--variant-filename``
 
   -
 - ``--write-snps-text``

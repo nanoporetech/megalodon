@@ -2,14 +2,6 @@
 Advanced Megalodon Arguments
 ****************************
 
----------------
-Model Arguments
----------------
-
-- ``--flappie-model-name``
-
-  -
-
 ----------------
 Output Arguments
 ----------------
@@ -22,14 +14,6 @@ Output Arguments
 
   - Number of reads to process. Intended for test runs on a subset of a dataset.
 
------------------
-Mapping Arguments
------------------
-
-- ``--prepend-chr-ref``
-
-  - Prepend the ``chr`` string to reference chromosome names. Generally used for matching with VCF reference names.
-
 -------------
 SNP Arguments
 -------------
@@ -41,9 +25,6 @@ SNP Arguments
 
   -
 - ``--max-snp-size``
-
-  -
-- ``--prepend-chr-vcf``
 
   -
 - ``--snp-all-paths``
@@ -83,7 +64,7 @@ Modified Base Arguments
 Reference Output
 ----------------
 
-This output category is intended for use in creating modified base training dataset for taiyaki training.
+This output category is intended for use in generating reference sequences for taiyaki basecall training.
 
 - ``--output-per-read-references``
 
