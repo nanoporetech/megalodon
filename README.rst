@@ -13,14 +13,23 @@ Variants, modified bases or alternative canonical bases, are then proposed and s
 
 Detailed documentation for all ``megalodon`` arguments and algorithms can be found on the `megalodon documentation page <https://nanoporetech.github.io/megalodon/>`_.
 
+Prerequisites
+-------------
+
+Megalodon requires `taiyaki <https://github.com/nanoporetech/taiyaki>`_ installation for basecalling backend.
+Megalodon requires only a minimal taiyaki installation via ``pip install git+git://github.com/nanoporetech/taiyaki.git``.
+Full installation via ``git clone https://github.com/nanoporetech/taiyaki && cd taiyaki && make install`` is not necessary for megalodon functionality.
+
+Megalodon requires `pytorch <https://pytorch.org/>`_ to support the ``taiyaki`` basecalling backend.
+For megalodon GPU support, pytorch must be installed with GPU support (and ``--devices`` to use provided at run time).
+If pytorch is not installed before megalodon, pip will install the defualt pytorch (possibly CPU only).
+
 Installation
 ------------
 
-Megalodon currently requires `taiyaki <https://github.com/nanoporetech/taiyaki>`_ installation for basecalling backend.
-
 ::
 
-    git clone https://git.oxfordnanolabs.local/algorithm/megalodon
+    git clone https://github.com/nanoporetech/megalodon
     cd megalodon
     pip install .
 
@@ -43,7 +52,7 @@ Megalodon is accessed via the command line interface ``megalodon`` command.
         --reference reference.fa --variant-filename variants.vcf.gz \
         --mod-motif Z CG 0 --devices 0 1 --processes 8 --verbose-read-progress 3
 
-This command produces the ``megalodon_results`` output directory containing basecall, mapping, SNP and modified base results.
+This command produces the ``megalodon_results`` output directory containing basecalls, mappings, SNP and modified base results.
 The format for each output is described below.
 
 .. note::
