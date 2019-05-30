@@ -52,9 +52,8 @@ def handle_errors(func, args, r_vals, out_q, fast5_fn, failed_reads_q):
     return
 
 def process_read(
-        raw_sig, read_id, model_info, bc_q, caller_conn, snps_to_test,
-        snp_all_paths, snp_calib_tbl, snp_context_bases, snps_q, mods_q,
-        mods_info, fast5_fn, failed_reads_q, edge_buffer):
+        raw_sig, read_id, model_info, bc_q, caller_conn, snps_data, snps_q,
+        mods_q, mods_info, fast5_fn, failed_reads_q, edge_buffer):
     """ Workhorse per-read megalodon function (connects all the parts)
     """
     if model_info.is_cat_mod:
@@ -92,9 +91,8 @@ def process_read(
     if snps_q is not None:
         handle_errors(
             func=snps.call_read_snps,
-            args=(r_ref_pos, snps_to_test, edge_buffer, snp_context_bases,
-                  np_ref_seq, mapped_rl_cumsum, r_to_q_poss, r_post,
-                  post_mapped_start, snp_all_paths, snp_calib_tbl),
+            args=(snps_data, r_ref_pos, edge_buffer, np_ref_seq,
+                  mapped_rl_cumsum, r_to_q_poss, r_post, post_mapped_start),
             r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
@@ -170,9 +168,9 @@ def _get_bc_queue(
 
 def _process_reads_worker(
         read_file_q, bc_q, snps_q, failed_reads_q, mods_q, caller_conn,
-        model_info, snps_to_test, snp_all_paths, snp_calib_tbl,
-        snp_context_bases, mods_info, edge_buffer, device):
+        model_info, snps_data, mods_info, edge_buffer, device):
     model_info.prep_model_worker(device)
+    snps_data.reopen_variant_index()
 
     while True:
         try:
@@ -189,9 +187,9 @@ def _process_reads_worker(
 
             raw_sig = fast5_io.get_signal(fast5_fn, read_id, scale=True)
             process_read(
-                raw_sig, read_id, model_info, bc_q, caller_conn, snps_to_test,
-                snp_all_paths, snp_calib_tbl, snp_context_bases, snps_q, mods_q,
-                mods_info, fast5_fn, failed_reads_q, edge_buffer)
+                raw_sig, read_id, model_info, bc_q, caller_conn, snps_data,
+                snps_q, mods_q, mods_info, fast5_fn, failed_reads_q,
+                edge_buffer)
             failed_reads_q.put((False, True, None, None, None))
         except KeyboardInterrupt:
             failed_reads_q.put((
@@ -404,7 +402,7 @@ def process_all_reads(
                        if snps_data.write_snps_txt else None)
         snps_q, snps_p, main_snps_conn = mh.create_getter_q(
             snps._get_snps_queue, (
-                snps_data.snp_id_tbl, os.path.join(out_dir, snps_db_fn),
+                os.path.join(out_dir, snps_db_fn),
                 snps_txt_fn, db_safety, pr_refs_fn, pr_ref_filts))
     if mh.PR_MOD_NAME in outputs:
         pr_refs_fn = os.path.join(out_dir, mh.PR_REF_FN) if (
@@ -428,9 +426,8 @@ def process_all_reads(
         p = mp.Process(
             target=_process_reads_worker, args=(
                 read_file_q, bc_q, snps_q, failed_reads_q, mods_q,
-                caller_conn, model_info, snps_data.snps_to_test,
-                snps_data.all_paths, snps_data.calib_table,
-                snps_data.context_bases, mods_info, edge_buffer, device))
+                caller_conn, model_info, snps_data, mods_info, edge_buffer,
+                device))
         p.daemon = True
         p.start()
         proc_reads_ps.append(p)
@@ -515,11 +512,11 @@ def aligner_validation(args):
                 'alignment was requested. Argument will be ignored.')
     return aligner
 
-def snps_validation(args, is_cat_mod, output_size):
+def snps_validation(args, is_cat_mod, output_size, aligner):
     logger = logging.get_logger()
     if mh.SNP_NAME in args.outputs and not mh.PR_SNP_NAME in args.outputs:
         args.outputs.append(mh.PR_SNP_NAME)
-    if mh.PR_SNP_NAME in args.outputs and args.snp_filename is None:
+    if mh.PR_SNP_NAME in args.outputs and args.variant_filename is None:
         logger.error(
             '{} output requested, '.format(mh.PR_SNP_NAME) +
             'but --snp-filename provided.')
@@ -532,19 +529,17 @@ def snps_validation(args, is_cat_mod, output_size):
         sys.exit(1)
     snp_calib_fn = mh.get_snp_calibration_fn(
         args.snp_calibration_filename, args.disable_snp_calibration)
-    # snps data object loads with None snp_fn for easier handling downstream
-    if args.max_snp_size > snps.HARD_MAX_SNP_SIZE:
-        logger.warning((
-            'Cannot process SNPs larger than {} bases. Re-setting max '+
-            'SNP size.').format(snps.HARD_MAX_SNP_SIZE))
-        args.max_snp_size = snps.HARD_MAX_SNP_SIZE
-    snps_data = snps.SnpData(
-        args.snp_filename, args.prepend_chr_vcf, args.max_snp_size,
-        args.snp_all_paths, args.write_snps_text, args.snp_context_bases,
-        snp_calib_fn,
-        snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE,
-        args.refs_include_snps)
-    if args.snp_filename is not None and mh.PR_SNP_NAME not in args.outputs:
+    try:
+        snps_data = snps.SnpData(
+            args.variant_filename, args.prepend_chr_vcf, args.max_indel_size,
+            args.snp_all_paths, args.write_snps_text,
+            args.variant_context_bases, snp_calib_fn,
+            snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE,
+            args.refs_include_snps, aligner)
+    except mh.MegaError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    if args.variant_filename is not None and mh.PR_SNP_NAME not in args.outputs:
         logger.warning(
             '--snps-filename provided, but SNP output not requested ' +
             '(via --outputs). Argument will be ignored.')
@@ -721,8 +716,9 @@ def get_parser():
         '--haploid', action='store_true',
         help='Compute SNP aggregation for haploid genotypes. Default: diploid')
     snp_grp.add_argument(
-        '--snp-filename',
-        help='SNPs to call for each read in VCF format (required for output).')
+        '--variant-filename',
+        help='Sequence variants to call for each read in VCF/BCF format ' +
+        '(required for variant output).')
     snp_grp.add_argument(
         '--write-snps-text', action='store_true',
         help='Write per-read SNP calls out to a text file. Default: ' +
@@ -740,11 +736,9 @@ def get_parser():
                          'heterozygous calls (compared to 1.0 for hom ' +
                          'ref/alt). Default: %(default)s'))
     snp_grp.add_argument(
-        '--max-snp-size', type=int, default=5,
+        '--max-indel-size', type=int, default=50,
         help=hidden_help('Maximum difference in number of reference and ' +
-                         'alternate bases. Cannot exceed {}. '.format(
-                             snps.HARD_MAX_SNP_SIZE) +
-                         'Default: %(default)d'))
+                         'alternate bases. Default: %(default)d'))
     snp_grp.add_argument(
         '--prepend-chr-vcf', action='store_true',
         help=hidden_help('Prepend "chr" to chromosome names from VCF to ' +
@@ -760,12 +754,12 @@ def get_parser():
                          'megalodon/scripts/calibrate_snp_llr_scores.py. ' +
                          'Default: Load default calibration file.'))
     snp_grp.add_argument(
-        '--snp-context-bases', type=int, nargs=2, default=[10, 30],
+        '--variant-context-bases', type=int, nargs=2, default=[10, 30],
         help=hidden_help('Context bases for single base SNP and indel ' +
                          'calling. Default: %(default)s'))
     snp_grp.add_argument(
-        '--write-vcf-llr', action='store_true',
-        help=hidden_help('Write per-read log-likelihood ratios out in ' +
+        '--write-vcf-log-probs', action='store_true',
+        help=hidden_help('Write per-read alt log probabilities out in ' +
                          'non-standard VCF field.'))
 
     mod_grp = parser.add_argument_group('Modified Base Arguments')
@@ -903,9 +897,9 @@ def _main():
         args.processes, args.chunk_size, args.chunk_overlap,
         args.max_concurrent_chunks)
     args, mods_info = mods_validation(args, model_info)
-    args, snps_data = snps_validation(
-        args, model_info.is_cat_mod, model_info.output_size)
     aligner = aligner_validation(args)
+    args, snps_data = snps_validation(
+        args, model_info.is_cat_mod, model_info.output_size, aligner)
 
     process_all_reads(
         args.fast5s_dir, not args.not_recursive, args.num_reads, model_info,
@@ -921,9 +915,9 @@ def _main():
             mods.BIN_THRESH_NAME, args.mod_binary_threshold)
         aggregate.aggregate_stats(
             args.outputs, args.output_directory, args.processes,
-            args.write_vcf_llr, args.heterozygous_factors, snps_data.call_mode,
-            mod_names, mod_agg_info, args.suppress_progress,
-            aligner.ref_names_and_lens)
+            args.write_vcf_log_probs, args.heterozygous_factors,
+            snps_data.call_mode, mod_names, mod_agg_info,
+            args.suppress_progress, aligner.ref_names_and_lens)
 
     return
 

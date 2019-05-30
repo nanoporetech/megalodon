@@ -118,6 +118,18 @@ def compute_calibration(
     return np.log((1 - mono_prob) / mono_prob), new_input_llr_range, plot_data
 
 
+#####################
+##### LLR Stats #####
+#####################
+
+def compute_alt_log_probs(alt_llrs):
+    """ Compute log probabilities from a set of log likelihood ratios all
+    against the reference allele
+    """
+    ref_lp = np.log(1) - np.log1p(np.sum(1 / np.exp(alt_llrs)))
+    return ref_lp - alt_llrs
+
+
 ###############################
 ##### Calibration Readers #####
 ###############################
@@ -168,6 +180,7 @@ class SnpCalibrator(object):
         return self.ins_calib_table[np.around((
             np.clip(llr, self.ins_llr_range[0], self.ins_llr_range[1]) -
             self.ins_llr_range[0]) / self.ins_step).astype(int)]
+
 
 class ModCalibrator(object):
     def _load_calibration(self):
