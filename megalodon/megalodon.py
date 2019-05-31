@@ -674,7 +674,8 @@ def get_parser():
             return argparse.SUPPRESS
         return help_msg
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument(
         'fast5s_dir',
         help='Directory containing raw fast5 (will be searched recursively).')
@@ -689,7 +690,10 @@ def get_parser():
     out_grp.add_argument(
         '--outputs', nargs='+',
         default=['basecalls',], choices=tuple(mh.OUTPUT_FNS.keys()),
-        help='Output type(s) to produce. Default: %(default)s')
+        help='Desired output(s).\nOptions:\n' +
+        '\n'.join(('\t{}: {}'.format(*out_desc)
+                   for out_desc in mh.OUTPUT_DESCS)) +
+        '\nDefault: %(default)s')
     out_grp.add_argument(
         '--output-directory',
         default='megalodon_results',

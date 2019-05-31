@@ -52,6 +52,15 @@ OUTPUT_FNS = {
                  'per_read_modified_base_calls.txt'],
     MOD_NAME:'modified_bases.mvcf'
 }
+OUTPUT_DESCS = [
+    (BC_NAME, 'Called bases (FASTA)'),
+    (BC_MODS_NAME, 'Basecall-anchored modified base scores (HDF5)'),
+    (MAP_NAME, 'Mapped reads (BAM/CRAM/SAM)'),
+    (PR_SNP_NAME, 'Per-read, per-site SNP scores database'),
+    (SNP_NAME, 'Sample-level aggregated SNP calls (VCF)'),
+    (PR_MOD_NAME, 'Per-read, per-site modified base scores database'),
+    (MOD_NAME, 'Sample-level aggregated modified base calls (modVCF)')
+]
 LOG_FILENAME = 'log.txt'
 # special output type, not included in standard --outputs (since it is
 # used only in special circumstances)
