@@ -552,15 +552,16 @@ class AggSnps(mh.AbstractAggregationClass):
 
     def compute_diploid_probs(self, ref_lps, alts_lps, het_factor=1.0):
         def compute_het_lp(a1, a2):
-            a1_lps = all_lps[a1]
-            a2_lps = all_lps[a2]
-            lp_ord = np.argsort(a1_lps - a2_lps)
-            s_a1_lps = a1_lps[lp_ord]
-            s_a2_lps = a2_lps[lp_ord]
-            return np.log(np.sum(
-                np.exp(np.log(binom_pmf(i, all_lps.shape[1], 0.5)) +
-                       np.sum(s_a1_lps[:i]) + np.sum(s_a2_lps[i:]))
-                for i in range(all_lps.shape[1] + 1)))
+            # order by the inverse log likelihood ratio
+            llr_ord = np.argsort(all_lps[a2] - all_lps[a1])
+            s_a1_lps = all_lps[a1][llr_ord]
+            s_a2_lps = all_lps[a2][llr_ord]
+            # compute log probability of heterozygous genotype by binomial
+            # weighted sum of maximum likelihoods
+            return logsumexp(np.array([
+                np.log(binom_pmf(i, all_lps.shape[1], 0.5)) +
+                np.sum(s_a1_lps[:i]) + np.sum(s_a2_lps[i:])
+                for i in range(all_lps.shape[1] + 1)]))
 
 
         all_lps = np.concatenate([ref_lps.reshape(1, -1), alts_lps], axis=0)
