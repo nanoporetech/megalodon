@@ -16,7 +16,9 @@ Detailed documentation for all ``megalodon`` arguments and algorithms can be fou
 Prerequisites
 -------------
 
-Megalodon requires `taiyaki <https://github.com/nanoporetech/taiyaki>`_ installation for basecalling backend.
+Megalodon requires ``numpy`` and ``cython`` to be installed before running megalodon installation command.
+
+Megalodon requires `taiyaki <https://github.com/nanoporetech/taiyaki>`_ installation for basecalling backend at run time.
 Megalodon requires only a minimal taiyaki installation via ``pip install git+git://github.com/nanoporetech/taiyaki.git``.
 Full installation via ``git clone https://github.com/nanoporetech/taiyaki && cd taiyaki && make install`` is not necessary for megalodon functionality.
 
@@ -29,9 +31,10 @@ Installation
 
 ::
 
-    git clone https://github.com/nanoporetech/megalodon
-    cd megalodon
-    pip install .
+   pip install numpy cython
+   git clone https://github.com/nanoporetech/megalodon
+   cd megalodon
+   pip install .
 
 Getting Started
 ---------------

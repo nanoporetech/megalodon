@@ -324,7 +324,8 @@ class SnpData(object):
         return self.context_bases[1]
 
     def reopen_variant_index(self):
-        self.variants_idx = pysam.VariantFile(self.variant_fn)
+        if self.variants_fn is not None:
+            self.variants_idx = pysam.VariantFile(self.variant_fn)
         return
 
     def iter_overlapping_snps(self, r_ref_pos, edge_buffer):

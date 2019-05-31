@@ -49,12 +49,13 @@ try:
                   extra_link_args=["-fopenmp"]),
     ])
 except ImportError:
-    extensions = []
-    sys.stderr.write("WARNING: Numpy and Cython are required to build " +
-                     "megalodon extensions\n")
-    if any([cmd in sys.argv for cmd in [
-            "install", "build", "build_clib", "build_ext", "bdist_wheel"]]):
-        raise
+    sys.stderr.write(
+        '*' * 60 + '\nINSTALLATION ERROR:\n'
+        '\tNeed to install numpy and cython before megalodon installation.\n' +
+        '\tThis is required in order to get maximum efficincy from ' +
+        'cython code optimizations.\nTo install run:\n$ pip install numpy cython\n' +
+        '*' * 60 + '\n')
+    sys.exit(1)
 
 
 setup(
