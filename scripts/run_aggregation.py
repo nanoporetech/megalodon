@@ -7,7 +7,8 @@ os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
 import argparse
 
-from megalodon import aggregate, backends, mods, snps, megalodon_helper as mh
+from megalodon import (
+    aggregate, backends, mapping, mods, snps, megalodon_helper as mh)
 
 
 def get_parser():
@@ -40,11 +41,15 @@ def get_parser():
         '--processes', type=int, default=1,
         help='Number of parallel processes. Default: %(default)d')
     parser.add_argument(
-        '--write-vcf-log-probs', action='store_true',
-        help='Write alt log prbabilities out in non-standard VCF field.')
+        '--reference',
+        help='Reference FASTA or minimap2 index file used for mapping ' +
+        'called reads.')
     parser.add_argument(
         '--suppress-progress', action='store_true',
         help='Suppress progress bar output.')
+    parser.add_argument(
+        '--write-vcf-log-probs', action='store_true',
+        help='Write alt log prbabilities out in non-standard VCF field.')
 
     return parser
 
@@ -55,11 +60,15 @@ def main():
                  if mh.MOD_NAME in args.outputs else [])
     mod_agg_info = mods.AGG_INFO(
         mods.BIN_THRESH_NAME, args.mod_binary_threshold)
+    aligner = mapping.alignerPlus(
+        str(args.reference), preset=str('map-ont'), best_n=1)
+    aligner.add_ref_lens()
     aggregate.aggregate_stats(
         args.outputs, args.output_directory, args.processes,
         args.write_vcf_log_probs, args.heterozygous_factors,
         snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE,
-        mod_names, mod_agg_info, args.suppress_progress)
+        mod_names, mod_agg_info, args.suppress_progress,
+        aligner.ref_names_and_lens)
 
     return
 

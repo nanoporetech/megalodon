@@ -14,8 +14,6 @@ from megalodon import (calibration, decode, logging, mapping,
 from megalodon._version import MEGALODON_VERSION
 
 
-DEBUG = False
-
 DIPLOID_MODE = 'diploid'
 HAPLIOD_MODE = 'haploid'
 
@@ -47,8 +45,8 @@ SELECT DISTINCT chrm, pos, snp_id, ref_seq FROM snps)"""
 SEL_UNIQ_SNP_ID = '''
 SELECT DISTINCT chrm, pos, snp_id, ref_seq FROM snps'''
 SEL_SNP_STATS = '''
-SELECT * FROM snps WHERE chrm=? AND pos=? AND
-snp_id=? AND ref_seq=?'''
+SELECT * FROM snps WHERE chrm IS ? AND pos IS ? AND
+snp_id IS ? AND ref_seq IS ?'''
 
 FIXED_VCF_MI = [
     'phasing=none',
@@ -97,11 +95,11 @@ def call_read_snps(
              r_ref_pos, edge_buffer):
 
         if r_ref_pos.strand == 1:
-            read_pos = snp_ref_pos - 1 - r_ref_pos.start
+            read_pos = snp_ref_pos - r_ref_pos.start
             read_ref_seq = snp_ref_seq
             read_alt_seqs = snp_alt_seqs
         else:
-            read_pos = r_ref_pos.end - snp_ref_pos + 1 - len(snp_ref_seq)
+            read_pos = r_ref_pos.end - snp_ref_pos - len(snp_ref_seq)
             read_ref_seq = mh.revcomp(snp_ref_seq)
             read_alt_seqs = [mh.revcomp(alt_seq) for alt_seq in snp_alt_seqs]
 
@@ -116,9 +114,11 @@ def call_read_snps(
                      r_ref_seq.shape[0] - read_pos - len(read_ref_seq))
         pos_ref_seq = r_ref_seq[read_pos - pos_bb:
                                 read_pos + pos_ab + len(read_ref_seq)]
-        if DEBUG and any(
-                pos_ref_seq[pos_bb:pos_bb + len(snp_ref_seq)] !=
-                np.array([mh.ALPHABET.find(b) for b in read_ref_seq])):
+        # TODO move this to an initial check of a small number of variants
+        # against the reference
+        if any(pos_ref_seq[pos_bb:pos_bb + len(snp_ref_seq)] !=
+               np.array([mh.ALPHABET.find(b) for b in read_ref_seq])):
+            # variant reference sequence does not match fasta reference
             logger = logging.get_logger()
             logger.debug(
                 '*'*10 + 'Refernce seq at {} expected {}[{}]{} got "{}"'.format(
@@ -131,8 +131,7 @@ def call_read_snps(
                             pos_ref_seq[pos_bb + len(snp_ref_seq):
                                         pos_bb + len(snp_ref_seq) + 3]),
                     read_ref_seq, ) + '*' * 10)
-            raise mh.MegaError(
-                'Reference SNP sequence does not match reference FASTA.')
+            continue
         blk_start  = rl_cumsum[r_to_q_poss[read_pos - pos_bb]]
         blk_end = rl_cumsum[r_to_q_poss[read_pos + pos_ab] + 1]
         if blk_end - blk_start < max(len(pos_ref_seq), max(
@@ -334,7 +333,7 @@ class SnpData(object):
         SNPs within edge buffer of the end of the mapping will be ignored.
         """
         if r_ref_pos.end - r_ref_pos.start <= 2 * edge_buffer:
-            mh.MegaError('Mapped region too short for SNP calling.')
+            raise mh.MegaError('Mapped region too short for SNP calling.')
         for variant in self.variants_idx.fetch(
                 r_ref_pos.chrm, r_ref_pos.start + edge_buffer,
                 r_ref_pos.end - edge_buffer):
@@ -345,7 +344,8 @@ class SnpData(object):
                     np.abs(len(snp_ref_seq) - len(snp_alt_seq))
                     for snp_alt_seq in snp_alt_seqs) > self.max_indel_size:
                 continue
-            yield snp_ref_seq, snp_alt_seqs, variant.id, variant.pos
+            # convert to 0-based coordinates
+            yield snp_ref_seq, snp_alt_seqs, variant.id, variant.pos - 1
 
         return
 
@@ -369,7 +369,7 @@ class Variant(object):
         self.ref = ref.upper()
         self.alts = [alt.upper() for alt in alts]
         self.alt = ','.join(self.alts)
-        self.id = str(id)
+        self.id = '' if id is None else str(id)
         self.qual = qual
         self.filter = str(filter)
         if info is None:
@@ -603,7 +603,7 @@ class AggSnps(mh.AbstractAggregationClass):
                 try:
                     alt_seq_lps[i].append(read_lps[alt_seq])
                 except KeyError:
-                    mh.MegaError(
+                    raise mh.MegaError(
                         'Alternative SNP seqence must exist for all reads.')
         alts_lps = np.stack(alt_seq_lps, axis=0)
         with np.errstate(all='ignore'):

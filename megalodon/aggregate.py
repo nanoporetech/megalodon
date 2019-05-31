@@ -28,8 +28,13 @@ def _agg_snps_worker(
         if snp_loc is None:
             break
 
-        snp_var = agg_snps.compute_snp_stats(snp_loc, het_factors, call_mode)
-        snp_stats_q.put(snp_var)
+        try:
+            snp_var = agg_snps.compute_snp_stats(
+                snp_loc, het_factors, call_mode)
+            snp_stats_q.put(snp_var)
+        except mh.MegaError:
+            # something not right with the stats at this loc
+            pass
         snp_prog_q.put(1)
 
     return
