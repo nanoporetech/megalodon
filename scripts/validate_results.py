@@ -251,8 +251,6 @@ def main():
 
     mod_dat, mod_acc, mod_parsim_acc = parse_mod_data(args, out_fp)
 
-    # TODO add SNP validation (a bit more complicated)
-
     ctrl_acc, ctrl_parsim_acc, ctrl_dat, gt_dat, mod_chrm_sw \
         = parse_control_mods(args, out_fp)
     if mod_acc is not None:

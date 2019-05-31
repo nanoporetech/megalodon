@@ -89,8 +89,7 @@ Outputs
   - Format: FASTA
 
     - FASTQ format output is not currently available
-  - Basecalls with annotated modified bases (TODO describe this output behavior)
-  - Or separate HDF5 modified base scores
+  - Basecall-anchored modified base scores are also available (via HDF5 output)
 - Mappings
 
   - Format: SAM, BAM (default), or CRAM

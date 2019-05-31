@@ -86,17 +86,16 @@ def main():
     for variant in pysam.VariantFile(args.megalodon_variants).fetch():
         # skip mutli-allelic sites
         if len(variant.alts) > 1: continue
-        # TODO remove minus one from previous off-by-one bug
         if len(variant.ref) == len(variant.alts[0]):
-            mega_calls[SNP_TXT][(variant.contig, variant.pos - 1, variant.ref,
+            mega_calls[SNP_TXT][(variant.contig, variant.pos, variant.ref,
                                  variant.alts[0])] = conv_call_str(
                                      variant.samples.values()[0]['GT'])
         elif len(variant.ref) > len(variant.alts[0]):
-            mega_calls[DEL_TXT][(variant.contig, variant.pos - 1, variant.ref,
+            mega_calls[DEL_TXT][(variant.contig, variant.pos, variant.ref,
                                  variant.alts[0])] = conv_call_str(
                                      variant.samples.values()[0]['GT'])
         else:
-            mega_calls[INS_TXT][(variant.contig, variant.pos - 1, variant.ref,
+            mega_calls[INS_TXT][(variant.contig, variant.pos, variant.ref,
                                  variant.alts[0])] = conv_call_str(
                                      variant.samples.values()[0]['GT'])
 
