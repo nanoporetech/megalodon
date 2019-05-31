@@ -64,7 +64,10 @@ SNP Arguments
   - Output per-read SNPs in text format.
 
     - Output includes columns: ``read_id``, ``chrm``, ``strand``, ``pos``, ``score``, ``snp_ref_seq``, ``snp_alt_seq``, ``snp_id``
-    - Scores are calibrated to match emperical log-likelihood scores (higher score supports reference allele, lower score supports alternative allele)
+    - Scores are log probabilities of the alternative allele.
+
+      - Probabilities are calibrated to match observed log-likelihood ratios from ground truth samples.
+      - Note that for multi-allelic sites all alternative alleles must be extracted in order to obtain the reference probability.
     - Position is 0-based
 
 -----------------------
@@ -80,7 +83,9 @@ Modified Base Arguments
   - Output per-read modified bases in text format.
 
     - Output includes columns: ``read_id``, ``chrm``, ``strand``, ``pos``, ``score``, ``raw_motif``, ``mod_base``
-    - Scores are calibrated to match emperical log-likelihood scores (higher score supports canonical base, lower score supports modified base)
+    - Scores are log-likelihoods (higher score supports canonical base, lower score supports modified base)
+
+      - Scores are calibrated to match observed log likelihood ratios.
     - Position is 0-based
 
 -----------------------
