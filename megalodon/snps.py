@@ -324,7 +324,7 @@ class SnpData(object):
         return self.context_bases[1]
 
     def reopen_variant_index(self):
-        if self.variants_fn is not None:
+        if self.variant_fn is not None:
             self.variants_idx = pysam.VariantFile(self.variant_fn)
         return
 
