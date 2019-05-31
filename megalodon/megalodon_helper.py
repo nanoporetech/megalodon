@@ -37,6 +37,7 @@ MAP_OUT_FMTS = ('bam', 'cram', 'sam')
 PR_SNP_NAME = 'per_read_snps'
 SNP_NAME = 'snps'
 PR_MOD_NAME = 'per_read_mods'
+# TOOD add wig/bedgraph modified base output
 MOD_NAME = 'mods'
 OUTPUT_FNS = {
     BC_NAME:'basecalls',
@@ -44,10 +45,10 @@ OUTPUT_FNS = {
     MAP_NAME:['mappings', 'mappings.summary.txt'],
     PR_SNP_NAME:['per_read_snp_calls.db',
                  'per_read_snp_calls.txt'],
-    SNP_NAME:'snps.vcf',
+    SNP_NAME:'variants.vcf',
     PR_MOD_NAME:['per_read_modified_base_calls.db',
                  'per_read_modified_base_calls.txt'],
-    MOD_NAME:'mods.mvcf'
+    MOD_NAME:'modified_bases.mvcf'
 }
 LOG_FILENAME = 'log.txt'
 # special output type, not included in standard --outputs (since it is
