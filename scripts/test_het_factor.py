@@ -14,9 +14,37 @@ SNP_TXT = 'SNP'
 DEL_TXT = 'DEL'
 INS_TXT = 'INS'
 
+STAT_WIDTH = 12
+STATS_FMT_STR = '{:<' + str(STAT_WIDTH) + '}'
+FLOAT_FMT_STR = '{:<' + str(STAT_WIDTH) + '.4f}'
+STAT_NAMES = ('HomRef', 'Het', 'HomAlt', 'F1', 'Precision', 'Recall')
+N_STATS = len(STAT_NAMES)
+N_INT_STATS = 3
+N_FLOAT_STATS = N_STATS - N_INT_STATS
+HEADER_TMPLT = STATS_FMT_STR * (N_STATS + 1) + '\n'
+STATS_TMPLT = STATS_FMT_STR * (N_INT_STATS + 1) + \
+              FLOAT_FMT_STR * N_FLOAT_STATS + '\n'
+
 
 def get_parser():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="""
+        Given ground truth variants ground_truth.vcf and per_read_snp_calls.db from completed validation run:
+        Example command line het testing:
+
+        snp_h_fact=0.85
+        indel_h_fact=0.78
+        mkdir -p het_factor.$snp_h_fact.$indel_h_fact
+        cp per_read_snp_calls.db het_factor.$snp_h_fact.$indel_h_fact/
+        python megalodon/scripts/run_aggregation.py
+            --taiyaki-model-filename megalodon/megalodon/model_data/R941.min.high_acc.5mC_6mA_bio_cntxt/model.checkpoint
+            --output-directory het_factor.$snp_h_fact.$indel_h_fact/
+            --outputs snps --heterozygous-factor $snp_h_fact $indel_h_fact
+            --processes 8 --write-vcf-log-prob --reference reference.fa
+        python ../../megalodon/scripts/test_het_factor.py
+            ground_truth.vcf het_factor.$snp_h_fact.$indel_h_fact/variants.vcf
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
         'ground_truth_variants',
         help='VCF file containing ground truth diploid variant calls.')
@@ -78,15 +106,38 @@ def main():
                 mega_calls[var_type]):
             counts[(gt_calls[var_type][chrm_pos_ref_alt],
                     mega_calls[var_type][chrm_pos_ref_alt])] += 1
+
+        # compute F1 stat
+        vt_stats = []
+        for truth_type in (HOM_REF_TXT, HET_TXT, HOM_ALT_TXT):
+            gt_count = sum(
+                counts[(truth_type, mega_call)]
+                for mega_call in (HOM_REF_TXT, HET_TXT, HOM_ALT_TXT))
+            mega_count = sum(
+                counts[(gt_call, truth_type)]
+                for gt_call in (HOM_REF_TXT, HET_TXT, HOM_ALT_TXT))
+            if gt_count == 0 or mega_count == 0:
+                vt_stats.append((np.NAN, np.NAN, np.NAN))
+            else:
+                prec = counts[(truth_type, truth_type)] / mega_count
+                recall = counts[(truth_type, truth_type)] / gt_count
+                vt_stats.append((
+                    2 * (prec * recall) / (prec + recall), prec, recall))
+
+        # print output
         sys.stdout.write(var_type + '\n')
-        sys.stdout.write('{:25}{:<10}{:<10}{:<10}\n'.format(
-            'Truth\Calls', 'HomRef', 'Het', 'HomAlt'))
-        for truth in (HOM_REF_TXT, HET_TXT, HOM_ALT_TXT):
-            sys.stdout.write('{:25}{:<10}{:<10}{:<10}\n'.format(
-                truth, *map(str, (
-                    counts[(truth, mega_call)]
-                    for mega_call in (HOM_REF_TXT, HET_TXT, HOM_ALT_TXT)))))
-        sys.stdout.write('\n\n')
+        sys.stdout.write(HEADER_TMPLT.format('Truth\Calls', *STAT_NAMES))
+        for truth, (f1, prec, recall) in zip(
+                (HOM_REF_TXT, HET_TXT, HOM_ALT_TXT),
+                vt_stats):
+            sys.stdout.write(STATS_TMPLT.format(
+                truth, counts[(truth, HOM_REF_TXT)], counts[(truth, HET_TXT)],
+                counts[(truth, HOM_ALT_TXT)], f1, prec, recall))
+        mean_f1_fmt = ('{:>' + str(STAT_WIDTH * (N_STATS - 2)) + '}' +
+                       FLOAT_FMT_STR * N_FLOAT_STATS + '\n')
+        mean_stats = map(np.nanmean, zip(*vt_stats))
+        sys.stdout.write(mean_f1_fmt.format('Mean Stats:   ', *mean_stats))
+        sys.stdout.write('\n')
 
     return
 
