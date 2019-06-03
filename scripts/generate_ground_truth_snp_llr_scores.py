@@ -18,7 +18,7 @@ from megalodon import (
 
 CONTEXT_BASES = [10, 30]
 EDGE_BUFFER = 100
-MAX_INDEL_LEN = 3
+MAX_INDEL_LEN = 5
 ALL_PATHS = False
 TEST_EVERY_N_LOCS = 5
 MAX_POS_PER_READ = 400
@@ -195,12 +195,12 @@ def process_read(
     for r_snp_pos in snp_poss:
         # test simple SNP first
         snp_ref_seq = r_ref_seq[r_snp_pos]
-        snp_alt_seq = choice(list(CAN_BASES_SET.difference(snp_ref_seq)))
-        score = call_snp(
-            r_post, post_mapped_start, r_snp_pos, mapped_rl_cumsum,
-            r_to_q_poss, snp_ref_seq, snp_alt_seq, context_bases, all_paths,
-            np_ref_seq=np_ref_seq)
-        read_snp_calls.append((True, score, snp_ref_seq, snp_alt_seq))
+        for snp_alt_seq in CAN_BASES_SET.difference(snp_ref_seq):
+            score = call_snp(
+                r_post, post_mapped_start, r_snp_pos, mapped_rl_cumsum,
+                r_to_q_poss, snp_ref_seq, snp_alt_seq, context_bases, all_paths,
+                np_ref_seq=np_ref_seq)
+            read_snp_calls.append((True, score, snp_ref_seq, snp_alt_seq))
 
         # then test indels
         for indel_size in range(1, max_indel_len + 1):

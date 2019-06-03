@@ -199,7 +199,7 @@ def main():
             'ins_{}_llr_range'.format(ins_len)] = ins_llr_range
     np.savez(
         args.out_filename,
-        stratify_type='snp_type_indel_len',
+        stratify_type=calibration.SNP_CALIB_TYPE,
         smooth_nvals=args.num_calibration_values,
         max_indel_len=max_indel_len,
         **snp_calib_save_data,

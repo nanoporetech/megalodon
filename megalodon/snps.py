@@ -350,9 +350,9 @@ class SnpData(object):
 
         return
 
-    def calibrate_llr(self, llr, snp_ref_seq, snp_alt_seq, strand):
+    def calibrate_llr(self, llr, snp_ref_seq, snp_alt_seq):
         return self.calib_table.calibrate_llr(
-            llr, snp_ref_seq, snp_alt_seq, strand)
+            llr, snp_ref_seq, snp_alt_seq)
 
 
 ######################

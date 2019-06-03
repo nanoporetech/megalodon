@@ -3,11 +3,15 @@ import sys
 import numpy as np
 from tqdm import tqdm
 
+from megalodon import megalodon_helper as mh
+
 
 DEFAULT_SMOOTH_BW = 0.8
 DEFAULT_SMOOTH_MAX = 200
 DEFAULT_SMOOTH_NVALS = 1001
 DEFAULT_MIN_DENSITY = 1e-5
+
+SNP_CALIB_TYPE = 'snp_type_indel_len'
 
 
 ##################################
@@ -184,24 +188,42 @@ class SnpCalibrator(object):
     def _load_calibration(self):
         calib_data = np.load(self.fn)
         self.stratify_type = str(calib_data['stratify_type'])
-        assert self.stratify_type == 'snp_ins_del'
+        assert self.stratify_type == SNP_CALIB_TYPE
 
         self.num_calib_vals = np.int(calib_data['smooth_nvals'])
+        self.max_indel_len = np.int(calib_data['max_indel_len'])
 
-        self.snp_llr_range = calib_data['snp_llr_range'].copy()
-        self.snp_step = (self.snp_llr_range[1] - self.snp_llr_range[0]) / (
-            self.num_calib_vals - 1)
-        self.snp_calib_table = calib_data['snp_calibration_table'].copy()
-
-        self.del_llr_range = calib_data['deletion_llr_range'].copy()
-        self.del_step = (self.del_llr_range[1] - self.del_llr_range[0]) / (
-            self.num_calib_vals - 1)
-        self.del_calib_table = calib_data['deletion_calibration_table'].copy()
-
-        self.ins_llr_range = calib_data['insertion_llr_range'].copy()
-        self.ins_step = (self.ins_llr_range[1] - self.ins_llr_range[0]) / (
-            self.num_calib_vals - 1)
-        self.ins_calib_table = calib_data['insertion_calibration_table'].copy()
+        (self.snp_llr_ranges, self.snp_steps, self.snp_calib_tables,
+         self.del_llr_ranges, self.del_steps, self.del_calib_tables,
+         self.ins_llr_ranges, self.ins_steps, self.ins_calib_tables) = (
+             {} for _ in range(9))
+        for ref_base in mh.ALPHABET:
+            for alt_base in set(mh.ALPHABET).difference(ref_base):
+                snp_type_llr_range = calib_data[
+                    'snp_{}_{}_llr_range'.format(ref_base, alt_base)].copy()
+                self.snp_llr_ranges[(ref_base, alt_base)] = snp_type_llr_range
+                self.snp_steps[(ref_base, alt_base)] = (
+                    snp_type_llr_range[1] - snp_type_llr_range[0]) / (
+                        self.num_calib_vals - 1)
+                self.snp_calib_tables[(ref_base, alt_base)] = calib_data[
+                    'snp_{}_{}_calibration'.format(ref_base, alt_base)].copy()
+        for indel_len in range(1, self.max_indel_len + 1):
+            del_type_llr_range = calib_data[
+                'del_{}_llr_range'.format(indel_len)].copy()
+            self.del_llr_ranges[indel_len] = del_type_llr_range
+            self.del_steps[indel_len] = (
+                del_type_llr_range[1] - del_type_llr_range[0]) / (
+                    self.num_calib_vals - 1)
+            self.del_calib_tables[indel_len] = calib_data[
+                'del_{}_calibration'.format(indel_len)].copy()
+            ins_type_llr_range = calib_data[
+                'ins_{}_llr_range'.format(indel_len)].copy()
+            self.ins_llr_ranges[indel_len] = ins_type_llr_range
+            self.ins_steps[indel_len] = (
+                ins_type_llr_range[1] - ins_type_llr_range[0]) / (
+                    self.num_calib_vals - 1)
+            self.ins_calib_tables[indel_len] = calib_data[
+                'ins_{}_calibration'.format(indel_len)].copy()
 
         return
 
@@ -216,16 +238,25 @@ class SnpCalibrator(object):
         if not self.calib_loaded:
             return llr
         if len(read_ref_seq) == len(read_alt_seq):
-            return self.snp_calib_table[np.around((
-                np.clip(llr, self.snp_llr_range[0], self.snp_llr_range[1]) -
-                self.snp_llr_range[0]) / self.snp_step).astype(int)]
+            calib_table = self.snp_calib_tables[(read_ref_seq, read_alt_seq)]
+            step = self.snp_steps[(read_ref_seq, read_alt_seq)]
+            llr_range = self.snp_llr_ranges[(read_ref_seq, read_alt_seq)]
         elif len(read_ref_seq) > len(read_alt_seq):
-            return self.del_calib_table[np.around((
-                np.clip(llr, self.del_llr_range[0], self.del_llr_range[1]) -
-                self.del_llr_range[0]) / self.del_step).astype(int)]
-        return self.ins_calib_table[np.around((
-            np.clip(llr, self.ins_llr_range[0], self.ins_llr_range[1]) -
-            self.ins_llr_range[0]) / self.ins_step).astype(int)]
+            calib_table = self.del_calib_tables[
+                len(read_ref_seq) - len(read_alt_seq)]
+            step = self.del_steps[len(read_ref_seq) - len(read_alt_seq)]
+            llr_range = self.del_llr_ranges[
+                len(read_ref_seq) - len(read_alt_seq)]
+        else:
+            calib_table = self.ins_calib_tables[
+                len(read_alt_seq) - len(read_ref_seq)]
+            step = self.ins_steps[len(read_alt_seq) - len(read_ref_seq)]
+            llr_range = self.ins_llr_ranges[
+                len(read_alt_seq) - len(read_ref_seq)]
+
+        return calib_table[np.around((
+            np.clip(llr, llr_range[0], llr_range[1]) -
+            llr_range[0]) / step).astype(int)]
 
 
 class ModCalibrator(object):
