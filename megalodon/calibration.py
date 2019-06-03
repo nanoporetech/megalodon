@@ -118,6 +118,52 @@ def compute_calibration(
     return np.log((1 - mono_prob) / mono_prob), new_input_llr_range, plot_data
 
 
+def compute_mirrored_calibration(
+        ref_llrs, max_input_llr, num_calib_vals, smooth_bw,
+        min_dens_val, return_plot_info=False):
+    smooth_ls = np.linspace(-max_input_llr, max_input_llr,
+                            num_calib_vals, endpoint=True)
+
+    sys.stderr.write('\tComputing reference emperical density.\n')
+    sm_ref, s_ref = compute_smooth_mono_density(
+        ref_llrs, num_calib_vals, smooth_bw, smooth_ls)
+
+    # the ratio of very small density values can cause invalid or inaccurate
+    # calibration values, so check that the max_input_llr is valid or
+    # find a valid clipping location according to min_dens_val
+    # then recompute smooth values
+    new_input_llr_range = determine_min_dens_edge(
+        sm_ref, sm_ref[::-1], num_calib_vals, min_dens_val, smooth_ls)
+    assert new_input_llr_range[0] == -new_input_llr_range[1]
+    if (new_input_llr_range[0] != -max_input_llr or
+        new_input_llr_range[1] != max_input_llr):
+        sys.stderr.write(
+            '\tSetting new input llr range for more robust calibration ' +
+            '({}, {})\n'.format(*new_input_llr_range))
+        smooth_ls = np.linspace(new_input_llr_range[0], new_input_llr_range[1],
+                                num_calib_vals, endpoint=True)
+        sys.stderr.write('\tComputing new reference emperical density.\n')
+        sm_ref, s_ref = compute_smooth_mono_density(
+            ref_llrs, num_calib_vals, smooth_bw, smooth_ls)
+
+
+    prob_alt = sm_ref[::-1] / (sm_ref + sm_ref[::-1])
+    # compute probability mid-point (llr=0 for mirrored)
+    prob_mp = int(np.around(num_calib_vals / 2))
+    # force monotonic decreasing with reverse maximum before p=0.5 and
+    # forward minimum after p=0.5
+    mono_prob = np.concatenate([
+        np.maximum.accumulate(prob_alt[:prob_mp][::-1])[::-1],
+        np.minimum.accumulate(prob_alt[prob_mp:])])
+
+    plot_data = None
+    if return_plot_info:
+        plot_data = (smooth_ls, s_ref, sm_ref, s_ref[::-1], sm_ref[::-1],
+                     mono_prob, prob_alt)
+
+    return np.log((1 - mono_prob) / mono_prob), new_input_llr_range, plot_data
+
+
 #####################
 ##### LLR Stats #####
 #####################
