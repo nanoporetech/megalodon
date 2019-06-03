@@ -235,24 +235,40 @@ class SnpCalibrator(object):
         return
 
     def calibrate_llr(self, llr, read_ref_seq, read_alt_seq):
+        def simplify_snp_seq(ref_seq, alt_seq):
+            while (len(ref_seq) > 0 and len(alt_seq) > 0 and
+                   ref_seq[0] == alt_seq[0]):
+                ref_seq = ref_seq[1:]
+                alt_seq = alt_seq[1:]
+            while (len(ref_seq) > 0 and len(alt_seq) > 0 and
+                   ref_seq[-1] == alt_seq[-1]):
+                ref_seq = ref_seq[:-1]
+                alt_seq = alt_seq[:-1]
+            return ref_seq, alt_seq
+
         if not self.calib_loaded:
             return llr
         if len(read_ref_seq) == len(read_alt_seq):
-            calib_table = self.snp_calib_tables[(read_ref_seq, read_alt_seq)]
-            step = self.snp_steps[(read_ref_seq, read_alt_seq)]
-            llr_range = self.snp_llr_ranges[(read_ref_seq, read_alt_seq)]
+            ref_seq, alt_seq = simplify_snp_seq(read_ref_seq, read_alt_seq)
+            # TODO default should be a "complex" SNP type that is the total of
+            # all SNP types
+            snp_type = (ref_seq, alt_seq) if (ref_seq, alt_seq) \
+                       in self.snp_calib_tables else ('G', 'A')
+            calib_table = self.snp_calib_tables[snp_type]
+            step = self.snp_steps[snp_type]
+            llr_range = self.snp_llr_ranges[snp_type]
         elif len(read_ref_seq) > len(read_alt_seq):
-            calib_table = self.del_calib_tables[
-                len(read_ref_seq) - len(read_alt_seq)]
-            step = self.del_steps[len(read_ref_seq) - len(read_alt_seq)]
-            llr_range = self.del_llr_ranges[
-                len(read_ref_seq) - len(read_alt_seq)]
+            del_len = min(
+                len(read_ref_seq) - len(read_alt_seq), self.max_indel_len)
+            calib_table = self.del_calib_tables[del_len]
+            step = self.del_steps[del_len]
+            llr_range = self.del_llr_ranges[del_len]
         else:
-            calib_table = self.ins_calib_tables[
-                len(read_alt_seq) - len(read_ref_seq)]
-            step = self.ins_steps[len(read_alt_seq) - len(read_ref_seq)]
-            llr_range = self.ins_llr_ranges[
-                len(read_alt_seq) - len(read_ref_seq)]
+            ins_len = min(
+                len(read_alt_seq) - len(read_ref_seq), self.max_indel_len)
+            calib_table = self.ins_calib_tables[ins_len]
+            step = self.ins_steps[ins_len]
+            llr_range = self.ins_llr_ranges[ins_len]
 
         return calib_table[np.around((
             np.clip(llr, llr_range[0], llr_range[1]) -
