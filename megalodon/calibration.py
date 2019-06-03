@@ -212,14 +212,14 @@ class SnpCalibrator(object):
         self.calib_loaded = self.fn is not None
         return
 
-    def calibrate_llr(self, llr, snp_ref_seq, snp_alt_seq):
+    def calibrate_llr(self, llr, read_ref_seq, read_alt_seq):
         if not self.calib_loaded:
             return llr
-        if len(snp_ref_seq) == len(snp_alt_seq):
+        if len(read_ref_seq) == len(read_alt_seq):
             return self.snp_calib_table[np.around((
                 np.clip(llr, self.snp_llr_range[0], self.snp_llr_range[1]) -
                 self.snp_llr_range[0]) / self.snp_step).astype(int)]
-        elif len(snp_ref_seq) > len(snp_alt_seq):
+        elif len(read_ref_seq) > len(read_alt_seq):
             return self.del_calib_table[np.around((
                 np.clip(llr, self.del_llr_range[0], self.del_llr_range[1]) -
                 self.del_llr_range[0]) / self.del_step).astype(int)]

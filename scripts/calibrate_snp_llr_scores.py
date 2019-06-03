@@ -170,7 +170,7 @@ def main():
                 np.array(ins_llrs), args.max_input_llr,
                 args.num_calibration_values, args.smooth_bandwidth,
                 args.min_density, pdf_fp is not None)
-        ins_calibs[del_len] = (del_calib, del_llr_range)
+        ins_calibs[ins_len] = (ins_calib, ins_llr_range)
         if pdf_fp is not None:
             plot_calib(pdf_fp, 'Insertion Length ' + str(ins_len), *plot_data)
 
