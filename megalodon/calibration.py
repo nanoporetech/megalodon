@@ -9,7 +9,7 @@ from megalodon import megalodon_helper as mh
 DEFAULT_SMOOTH_BW = 0.8
 DEFAULT_SMOOTH_MAX = 200
 DEFAULT_SMOOTH_NVALS = 1001
-DEFAULT_MIN_DENSITY = 1e-5
+DEFAULT_MIN_DENSITY = 5e-6
 
 SNP_CALIB_TYPE = 'snp_type_indel_len'
 GENERIC_BASE = 'N'
@@ -204,6 +204,17 @@ class SnpCalibrator(object):
          self.del_llr_ranges, self.del_steps, self.del_calib_tables,
          self.ins_llr_ranges, self.ins_steps, self.ins_calib_tables) = (
              {} for _ in range(9))
+        # load generic snp
+        ref_base, alt_base = GENERIC_BASE, GENERIC_BASE
+        snp_type_llr_range = calib_data[
+            SNP_LLR_RNG_TMPLT.format(ref_base, alt_base)].copy()
+        self.snp_llr_ranges[(ref_base, alt_base)] = snp_type_llr_range
+        self.snp_steps[(ref_base, alt_base)] = (
+            snp_type_llr_range[1] - snp_type_llr_range[0]) / (
+                self.num_calib_vals - 1)
+        self.snp_calib_tables[(ref_base, alt_base)] = calib_data[
+            SNP_CALIB_TMPLT.format(ref_base, alt_base)].copy()
+        # load other base combinations
         for ref_base in mh.ALPHABET:
             for alt_base in set(mh.ALPHABET).difference(ref_base):
                 snp_type_llr_range = calib_data[

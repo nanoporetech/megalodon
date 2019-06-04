@@ -134,8 +134,8 @@ def main():
     # downsample to same level as other snp types
     snp_ref_llrs[
         (calibration.GENERIC_BASE,
-         calibration.GENERIC_BASE)] = numpy.random.choice(
-             generic_snp_llrs, len(generic_snp_llrs) / 12, replace=False)
+         calibration.GENERIC_BASE)] = np.random.choice(
+             generic_snp_llrs, int(len(generic_snp_llrs) / 12), replace=False)
     max_indel_len = max(ins_ref_llrs)
     assert set(ins_ref_llrs) == set(del_ref_llrs), (
             'Must test same range of lengths for insertions and deletions')
@@ -204,7 +204,7 @@ def main():
     ins_llr_range_save_data, ins_calib_save_data = {}, {}
     for ins_len, (ins_calib, ins_llr_range) in ins_calibs.items():
         ins_calib_save_data[
-            calibration.SNP_CALIB_TMPLT.format(ins_len)] = ins_calib
+            calibration.INS_CALIB_TMPLT.format(ins_len)] = ins_calib
         ins_llr_range_save_data[
             calibration.INS_LLR_RNG_TMPLT.format(ins_len)] = ins_llr_range
     np.savez(
