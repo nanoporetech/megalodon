@@ -352,7 +352,7 @@ def process_all_reads(
     for map_conn in map_conns:
         t = threading.Thread(
             target=mapping._map_read_worker,
-            args=(aligner, map_conn, None, False))
+            args=(aligner, map_conn, None))
         t.daemon = True
         t.start()
         map_read_ts.append(t)

@@ -127,6 +127,15 @@ def main():
     sys.stderr.write('Parsing log-likelihood ratios\n')
     snp_ref_llrs, ins_ref_llrs, del_ref_llrs = extract_llrs(
         args.ground_truth_llrs)
+    # add calibration for a generic SNP (mostly multiple SNPs
+    # as single variant; but not an indel)
+    generic_snp_llrs = [llr for snp_type_llrs in snp_ref_llrs.values()
+                        for llr in snp_type_llrs]
+    # downsample to same level as other snp types
+    snp_ref_llrs[
+        (calibration.GENERIC_BASE,
+         calibration.GENERIC_BASE)] = numpy.random.choice(
+             generic_snp_llrs, len(generic_snp_llrs) / 12, replace=False)
     max_indel_len = max(ins_ref_llrs)
     assert set(ins_ref_llrs) == set(del_ref_llrs), (
             'Must test same range of lengths for insertions and deletions')
@@ -182,21 +191,22 @@ def main():
     snp_llr_range_save_data, snp_calib_save_data = {}, {}
     for (ref_seq, alt_seq), (snp_calib, snp_llr_range) in snp_calibs.items():
         snp_calib_save_data[
-            'snp_{}_{}_calibration'.format(ref_seq, alt_seq)] = snp_calib
+            calibration.SNP_CALIB_TMPLT.format(ref_seq, alt_seq)] = snp_calib
         snp_llr_range_save_data[
-            'snp_{}_{}_llr_range'.format(ref_seq, alt_seq)] = snp_llr_range
+            calibration.SNP_LLR_RNG_TMPLT.format(
+                ref_seq, alt_seq)] = snp_llr_range
     del_llr_range_save_data, del_calib_save_data = {}, {}
     for del_len, (del_calib, del_llr_range) in del_calibs.items():
         del_calib_save_data[
-            'del_{}_calibration'.format(del_len)] = del_calib
+            calibration.DEL_CALIB_TMPLT.format(del_len)] = del_calib
         del_llr_range_save_data[
-            'del_{}_llr_range'.format(del_len)] = del_llr_range
+            calibration.DEL_LLR_RNG_TMPLT.format(del_len)] = del_llr_range
     ins_llr_range_save_data, ins_calib_save_data = {}, {}
     for ins_len, (ins_calib, ins_llr_range) in ins_calibs.items():
         ins_calib_save_data[
-            'ins_{}_calibration'.format(ins_len)] = ins_calib
+            calibration.SNP_CALIB_TMPLT.format(ins_len)] = ins_calib
         ins_llr_range_save_data[
-            'ins_{}_llr_range'.format(ins_len)] = ins_llr_range
+            calibration.INS_LLR_RNG_TMPLT.format(ins_len)] = ins_llr_range
     np.savez(
         args.out_filename,
         stratify_type=calibration.SNP_CALIB_TYPE,

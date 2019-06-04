@@ -12,6 +12,13 @@ DEFAULT_SMOOTH_NVALS = 1001
 DEFAULT_MIN_DENSITY = 1e-5
 
 SNP_CALIB_TYPE = 'snp_type_indel_len'
+GENERIC_BASE = 'N'
+SNP_CALIB_TMPLT = 'snp_{}_{}_calibration'
+SNP_LLR_RNG_TMPLT = 'snp_{}_{}_llr_range'
+DEL_CALIB_TMPLT = 'del_{}_calibration'
+DEL_LLR_RNG_TMPLT = 'del_{}_llr_range'
+INS_CALIB_TMPLT = 'ins_{}_calibration'
+INS_LLR_RNG_TMPLT = 'ins_{}_llr_range'
 
 
 ##################################
@@ -200,30 +207,30 @@ class SnpCalibrator(object):
         for ref_base in mh.ALPHABET:
             for alt_base in set(mh.ALPHABET).difference(ref_base):
                 snp_type_llr_range = calib_data[
-                    'snp_{}_{}_llr_range'.format(ref_base, alt_base)].copy()
+                    SNP_LLR_RNG_TMPLT.format(ref_base, alt_base)].copy()
                 self.snp_llr_ranges[(ref_base, alt_base)] = snp_type_llr_range
                 self.snp_steps[(ref_base, alt_base)] = (
                     snp_type_llr_range[1] - snp_type_llr_range[0]) / (
                         self.num_calib_vals - 1)
                 self.snp_calib_tables[(ref_base, alt_base)] = calib_data[
-                    'snp_{}_{}_calibration'.format(ref_base, alt_base)].copy()
+                    SNP_CALIB_TMPLT.format(ref_base, alt_base)].copy()
         for indel_len in range(1, self.max_indel_len + 1):
             del_type_llr_range = calib_data[
-                'del_{}_llr_range'.format(indel_len)].copy()
+                DEL_LLR_RNG_TMPLT.format(indel_len)].copy()
             self.del_llr_ranges[indel_len] = del_type_llr_range
             self.del_steps[indel_len] = (
                 del_type_llr_range[1] - del_type_llr_range[0]) / (
                     self.num_calib_vals - 1)
             self.del_calib_tables[indel_len] = calib_data[
-                'del_{}_calibration'.format(indel_len)].copy()
+                DEL_CALIB_TMPLT.format(indel_len)].copy()
             ins_type_llr_range = calib_data[
-                'ins_{}_llr_range'.format(indel_len)].copy()
+                INS_LLR_RNG_TMPLT.format(indel_len)].copy()
             self.ins_llr_ranges[indel_len] = ins_type_llr_range
             self.ins_steps[indel_len] = (
                 ins_type_llr_range[1] - ins_type_llr_range[0]) / (
                     self.num_calib_vals - 1)
             self.ins_calib_tables[indel_len] = calib_data[
-                'ins_{}_calibration'.format(indel_len)].copy()
+                INS_CALIB_TMPLT.format(indel_len)].copy()
 
         return
 
@@ -250,10 +257,10 @@ class SnpCalibrator(object):
             return llr
         if len(read_ref_seq) == len(read_alt_seq):
             ref_seq, alt_seq = simplify_snp_seq(read_ref_seq, read_alt_seq)
-            # TODO default should be a "complex" SNP type that is the total of
-            # all SNP types
-            snp_type = (ref_seq, alt_seq) if (ref_seq, alt_seq) \
-                       in self.snp_calib_tables else ('G', 'A')
+            # default to a "generic" SNP type that is the total of all SNP types
+            snp_type = ((ref_seq, alt_seq) if (ref_seq, alt_seq)
+                        in self.snp_calib_tables else
+                        (GENERIC_BASE, GENERIC_BASE))
             calib_table = self.snp_calib_tables[snp_type]
             step = self.snp_steps[snp_type]
             llr_range = self.snp_llr_ranges[snp_type]
