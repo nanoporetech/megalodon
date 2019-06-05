@@ -3,11 +3,22 @@ import sys
 import numpy as np
 from tqdm import tqdm
 
+from megalodon import megalodon_helper as mh
+
 
 DEFAULT_SMOOTH_BW = 0.8
 DEFAULT_SMOOTH_MAX = 200
 DEFAULT_SMOOTH_NVALS = 1001
-DEFAULT_MIN_DENSITY = 1e-5
+DEFAULT_MIN_DENSITY = 5e-6
+
+SNP_CALIB_TYPE = 'snp_type_indel_len'
+GENERIC_BASE = 'N'
+SNP_CALIB_TMPLT = 'snp_{}_{}_calibration'
+SNP_LLR_RNG_TMPLT = 'snp_{}_{}_llr_range'
+DEL_CALIB_TMPLT = 'del_{}_calibration'
+DEL_LLR_RNG_TMPLT = 'del_{}_llr_range'
+INS_CALIB_TMPLT = 'ins_{}_calibration'
+INS_LLR_RNG_TMPLT = 'ins_{}_llr_range'
 
 
 ##################################
@@ -118,6 +129,52 @@ def compute_calibration(
     return np.log((1 - mono_prob) / mono_prob), new_input_llr_range, plot_data
 
 
+def compute_mirrored_calibration(
+        ref_llrs, max_input_llr, num_calib_vals, smooth_bw,
+        min_dens_val, return_plot_info=False):
+    smooth_ls = np.linspace(-max_input_llr, max_input_llr,
+                            num_calib_vals, endpoint=True)
+
+    sys.stderr.write('\tComputing reference emperical density.\n')
+    sm_ref, s_ref = compute_smooth_mono_density(
+        ref_llrs, num_calib_vals, smooth_bw, smooth_ls)
+
+    # the ratio of very small density values can cause invalid or inaccurate
+    # calibration values, so check that the max_input_llr is valid or
+    # find a valid clipping location according to min_dens_val
+    # then recompute smooth values
+    new_input_llr_range = determine_min_dens_edge(
+        sm_ref, sm_ref[::-1], num_calib_vals, min_dens_val, smooth_ls)
+    assert new_input_llr_range[0] == -new_input_llr_range[1]
+    if (new_input_llr_range[0] != -max_input_llr or
+        new_input_llr_range[1] != max_input_llr):
+        sys.stderr.write(
+            '\tSetting new input llr range for more robust calibration ' +
+            '({}, {})\n'.format(*new_input_llr_range))
+        smooth_ls = np.linspace(new_input_llr_range[0], new_input_llr_range[1],
+                                num_calib_vals, endpoint=True)
+        sys.stderr.write('\tComputing new reference emperical density.\n')
+        sm_ref, s_ref = compute_smooth_mono_density(
+            ref_llrs, num_calib_vals, smooth_bw, smooth_ls)
+
+
+    prob_alt = sm_ref[::-1] / (sm_ref + sm_ref[::-1])
+    # compute probability mid-point (llr=0 for mirrored)
+    prob_mp = int(np.around(num_calib_vals / 2))
+    # force monotonic decreasing with reverse maximum before p=0.5 and
+    # forward minimum after p=0.5
+    mono_prob = np.concatenate([
+        np.maximum.accumulate(prob_alt[:prob_mp][::-1])[::-1],
+        np.minimum.accumulate(prob_alt[prob_mp:])])
+
+    plot_data = None
+    if return_plot_info:
+        plot_data = (smooth_ls, s_ref, sm_ref, s_ref[::-1], sm_ref[::-1],
+                     mono_prob, prob_alt)
+
+    return np.log((1 - mono_prob) / mono_prob), new_input_llr_range, plot_data
+
+
 #####################
 ##### LLR Stats #####
 #####################
@@ -138,24 +195,53 @@ class SnpCalibrator(object):
     def _load_calibration(self):
         calib_data = np.load(self.fn)
         self.stratify_type = str(calib_data['stratify_type'])
-        assert self.stratify_type == 'snp_ins_del'
+        assert self.stratify_type == SNP_CALIB_TYPE
 
         self.num_calib_vals = np.int(calib_data['smooth_nvals'])
+        self.max_indel_len = np.int(calib_data['max_indel_len'])
 
-        self.snp_llr_range = calib_data['snp_llr_range'].copy()
-        self.snp_step = (self.snp_llr_range[1] - self.snp_llr_range[0]) / (
-            self.num_calib_vals - 1)
-        self.snp_calib_table = calib_data['snp_calibration_table'].copy()
-
-        self.del_llr_range = calib_data['deletion_llr_range'].copy()
-        self.del_step = (self.del_llr_range[1] - self.del_llr_range[0]) / (
-            self.num_calib_vals - 1)
-        self.del_calib_table = calib_data['deletion_calibration_table'].copy()
-
-        self.ins_llr_range = calib_data['insertion_llr_range'].copy()
-        self.ins_step = (self.ins_llr_range[1] - self.ins_llr_range[0]) / (
-            self.num_calib_vals - 1)
-        self.ins_calib_table = calib_data['insertion_calibration_table'].copy()
+        (self.snp_llr_ranges, self.snp_steps, self.snp_calib_tables,
+         self.del_llr_ranges, self.del_steps, self.del_calib_tables,
+         self.ins_llr_ranges, self.ins_steps, self.ins_calib_tables) = (
+             {} for _ in range(9))
+        # load generic snp
+        ref_base, alt_base = GENERIC_BASE, GENERIC_BASE
+        snp_type_llr_range = calib_data[
+            SNP_LLR_RNG_TMPLT.format(ref_base, alt_base)].copy()
+        self.snp_llr_ranges[(ref_base, alt_base)] = snp_type_llr_range
+        self.snp_steps[(ref_base, alt_base)] = (
+            snp_type_llr_range[1] - snp_type_llr_range[0]) / (
+                self.num_calib_vals - 1)
+        self.snp_calib_tables[(ref_base, alt_base)] = calib_data[
+            SNP_CALIB_TMPLT.format(ref_base, alt_base)].copy()
+        # load other base combinations
+        for ref_base in mh.ALPHABET:
+            for alt_base in set(mh.ALPHABET).difference(ref_base):
+                snp_type_llr_range = calib_data[
+                    SNP_LLR_RNG_TMPLT.format(ref_base, alt_base)].copy()
+                self.snp_llr_ranges[(ref_base, alt_base)] = snp_type_llr_range
+                self.snp_steps[(ref_base, alt_base)] = (
+                    snp_type_llr_range[1] - snp_type_llr_range[0]) / (
+                        self.num_calib_vals - 1)
+                self.snp_calib_tables[(ref_base, alt_base)] = calib_data[
+                    SNP_CALIB_TMPLT.format(ref_base, alt_base)].copy()
+        for indel_len in range(1, self.max_indel_len + 1):
+            del_type_llr_range = calib_data[
+                DEL_LLR_RNG_TMPLT.format(indel_len)].copy()
+            self.del_llr_ranges[indel_len] = del_type_llr_range
+            self.del_steps[indel_len] = (
+                del_type_llr_range[1] - del_type_llr_range[0]) / (
+                    self.num_calib_vals - 1)
+            self.del_calib_tables[indel_len] = calib_data[
+                DEL_CALIB_TMPLT.format(indel_len)].copy()
+            ins_type_llr_range = calib_data[
+                INS_LLR_RNG_TMPLT.format(indel_len)].copy()
+            self.ins_llr_ranges[indel_len] = ins_type_llr_range
+            self.ins_steps[indel_len] = (
+                ins_type_llr_range[1] - ins_type_llr_range[0]) / (
+                    self.num_calib_vals - 1)
+            self.ins_calib_tables[indel_len] = calib_data[
+                INS_CALIB_TMPLT.format(indel_len)].copy()
 
         return
 
@@ -166,20 +252,45 @@ class SnpCalibrator(object):
         self.calib_loaded = self.fn is not None
         return
 
-    def calibrate_llr(self, llr, snp_ref_seq, snp_alt_seq):
+    def calibrate_llr(self, llr, read_ref_seq, read_alt_seq):
+        def simplify_snp_seq(ref_seq, alt_seq):
+            while (len(ref_seq) > 0 and len(alt_seq) > 0 and
+                   ref_seq[0] == alt_seq[0]):
+                ref_seq = ref_seq[1:]
+                alt_seq = alt_seq[1:]
+            while (len(ref_seq) > 0 and len(alt_seq) > 0 and
+                   ref_seq[-1] == alt_seq[-1]):
+                ref_seq = ref_seq[:-1]
+                alt_seq = alt_seq[:-1]
+            return ref_seq, alt_seq
+
         if not self.calib_loaded:
             return llr
-        if len(snp_ref_seq) == len(snp_alt_seq):
-            return self.snp_calib_table[np.around((
-                np.clip(llr, self.snp_llr_range[0], self.snp_llr_range[1]) -
-                self.snp_llr_range[0]) / self.snp_step).astype(int)]
-        elif len(snp_ref_seq) > len(snp_alt_seq):
-            return self.del_calib_table[np.around((
-                np.clip(llr, self.del_llr_range[0], self.del_llr_range[1]) -
-                self.del_llr_range[0]) / self.del_step).astype(int)]
-        return self.ins_calib_table[np.around((
-            np.clip(llr, self.ins_llr_range[0], self.ins_llr_range[1]) -
-            self.ins_llr_range[0]) / self.ins_step).astype(int)]
+        if len(read_ref_seq) == len(read_alt_seq):
+            ref_seq, alt_seq = simplify_snp_seq(read_ref_seq, read_alt_seq)
+            # default to a "generic" SNP type that is the total of all SNP types
+            snp_type = ((ref_seq, alt_seq) if (ref_seq, alt_seq)
+                        in self.snp_calib_tables else
+                        (GENERIC_BASE, GENERIC_BASE))
+            calib_table = self.snp_calib_tables[snp_type]
+            step = self.snp_steps[snp_type]
+            llr_range = self.snp_llr_ranges[snp_type]
+        elif len(read_ref_seq) > len(read_alt_seq):
+            del_len = min(
+                len(read_ref_seq) - len(read_alt_seq), self.max_indel_len)
+            calib_table = self.del_calib_tables[del_len]
+            step = self.del_steps[del_len]
+            llr_range = self.del_llr_ranges[del_len]
+        else:
+            ins_len = min(
+                len(read_alt_seq) - len(read_ref_seq), self.max_indel_len)
+            calib_table = self.ins_calib_tables[ins_len]
+            step = self.ins_steps[ins_len]
+            llr_range = self.ins_llr_ranges[ins_len]
+
+        return calib_table[np.around((
+            np.clip(llr, llr_range[0], llr_range[1]) -
+            llr_range[0]) / step).astype(int)]
 
 
 class ModCalibrator(object):

@@ -12,8 +12,8 @@ import numpy as np
 # process first
 # Also potentially use sepatate insertion and deletion factor
 # determine necessity from larger validation run
-DEFAULT_SNV_HET_FACTOR = 0.85
-DEFAULT_INDEL_HET_FACTOR = 0.78
+DEFAULT_SNV_HET_FACTOR = 2.1
+DEFAULT_INDEL_HET_FACTOR = 1.6
 
 MED_NORM_FACTOR = 1.4826
 

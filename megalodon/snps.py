@@ -155,7 +155,7 @@ def call_read_snps(
                 post_mapped_start + blk_end, snps_data.all_paths)
             # calibrate log probs
             loc_alt_llrs.append(snps_data.calibrate_llr(
-                loc_ref_score - loc_alt_score, snp_ref_seq, pos_alt_seq))
+                loc_ref_score - loc_alt_score, read_ref_seq, read_alt_seq))
 
         # due to calibration mutli-allelic log likelihoods could result in
         # inferred negative reference likelihood, so re-normalize her
@@ -351,7 +351,8 @@ class SnpData(object):
         return
 
     def calibrate_llr(self, llr, snp_ref_seq, snp_alt_seq):
-        return self.calib_table.calibrate_llr(llr, snp_ref_seq, snp_alt_seq)
+        return self.calib_table.calibrate_llr(
+            llr, snp_ref_seq, snp_alt_seq)
 
 
 ######################

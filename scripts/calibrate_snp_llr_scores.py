@@ -1,6 +1,7 @@
 import os
 import sys
 import argparse
+from collections import defaultdict
 
 import matplotlib
 if sys.platform == 'darwin':
@@ -40,36 +41,26 @@ def plot_calib(
     return
 
 def extract_llrs(llr_fn, max_indel_len=None):
-    (snp_ref_llrs, snp_alt_llrs, ins_ref_llrs, ins_alt_llrs,
-     del_ref_llrs, del_alt_llrs) = ([], [], [], [], [], [])
+    snp_ref_llrs, ins_ref_llrs, del_ref_llrs = (
+        defaultdict(list) for _ in range(3))
     with open(llr_fn) as llr_fp:
         for line in llr_fp:
             is_ref_correct, llr, ref_seq, alt_seq = line.split()
             llr = float(llr)
+            if is_ref_correct != 'True': continue
             if np.isnan(llr): continue
             if (max_indel_len is not None and
                 np.abs(len(ref_seq) - len(alt_seq)) > max_indel_len):
                 continue
             if len(ref_seq) == 1 and len(alt_seq) == 1:
-                if is_ref_correct == 'True':
-                    snp_ref_llrs.append(llr)
-                else:
-                    snp_alt_llrs.append(llr)
+                snp_ref_llrs[(ref_seq, alt_seq)].append(llr)
             else:
                 if len(ref_seq) > len(alt_seq):
-                    if is_ref_correct == 'True':
-                        del_ref_llrs.append(llr)
-                    else:
-                        del_alt_llrs.append(llr)
+                    del_ref_llrs[len(ref_seq) - len(alt_seq)].append(llr)
                 else:
-                    if is_ref_correct == 'True':
-                        ins_ref_llrs.append(llr)
-                    else:
-                        ins_alt_llrs.append(llr)
+                    ins_ref_llrs[len(alt_seq) - len(ref_seq)].append(llr)
 
-    return map(np.array, (snp_ref_llrs, snp_alt_llrs,
-                          ins_ref_llrs, ins_alt_llrs,
-                          del_ref_llrs, del_alt_llrs))
+    return snp_ref_llrs, ins_ref_llrs, del_ref_llrs
 
 
 def prep_out(out_fn, overwrite):
@@ -134,45 +125,99 @@ def main():
     prep_out(args.out_filename, args.overwrite)
 
     sys.stderr.write('Parsing log-likelihood ratios\n')
-    (snp_ref_llrs, snp_alt_llrs, ins_ref_llrs, ins_alt_llrs,
-     del_ref_llrs, del_alt_llrs) = extract_llrs(args.ground_truth_llrs)
+    snp_ref_llrs, ins_ref_llrs, del_ref_llrs = extract_llrs(
+        args.ground_truth_llrs)
+    # add calibration for a generic SNP (mostly multiple SNPs
+    # as single variant; but not an indel)
+    generic_snp_llrs = [llr for snp_type_llrs in snp_ref_llrs.values()
+                        for llr in snp_type_llrs]
+    # downsample to same level as other snp types
+    snp_ref_llrs[
+        (calibration.GENERIC_BASE,
+         calibration.GENERIC_BASE)] = np.random.choice(
+             generic_snp_llrs, int(len(generic_snp_llrs) / 12), replace=False)
+    max_indel_len = max(ins_ref_llrs)
+    assert set(ins_ref_llrs) == set(del_ref_llrs), (
+            'Must test same range of lengths for insertions and deletions')
+    assert set(ins_ref_llrs) == set(range(1, max_indel_len + 1)), (
+        'Must test every length in length range for indels')
 
     pdf_fp = None if args.out_pdf is None else PdfPages(args.out_pdf)
-    sys.stderr.write('Computing single-base SNP calibration.\n')
-    snp_calib, snp_llr_range, plot_data = calibration.compute_calibration(
-        snp_ref_llrs, snp_alt_llrs, args.max_input_llr,
-        args.num_calibration_values, args.smooth_bandwidth, args.min_density,
-        pdf_fp is not None)
-    if pdf_fp is not None:
-        plot_calib(pdf_fp, 'SNP', *plot_data)
+    sys.stderr.write('Computing stratified single-base SNP calibration.\n')
+    snp_calibs = {}
+    for (ref_seq, alt_seq), snp_llrs in sorted(snp_ref_llrs.items()):
+        sys.stderr.write('Computing ' + ref_seq + ' -> ' + alt_seq +
+                         ' SNP calibration.\n')
+        snp_calib, snp_llr_range, plot_data \
+            = calibration.compute_mirrored_calibration(
+                np.array(snp_llrs), args.max_input_llr,
+                args.num_calibration_values, args.smooth_bandwidth,
+                args.min_density, pdf_fp is not None)
+        snp_calibs[(ref_seq, alt_seq)] = (snp_calib, snp_llr_range)
+        if pdf_fp is not None:
+            plot_calib(pdf_fp, 'SNP: ' + ref_seq + ' -> ' + alt_seq, *plot_data)
     sys.stderr.write('Computing deletion calibration.\n')
-    del_calib, del_llr_range, plot_data = calibration.compute_calibration(
-        del_ref_llrs, del_alt_llrs, args.max_input_llr,
-        args.num_calibration_values, args.smooth_bandwidth, args.min_density,
-        pdf_fp is not None)
-    if pdf_fp is not None:
-        plot_calib(pdf_fp, 'Deletion', *plot_data)
+    del_calibs = {}
+    for del_len, del_llrs in sorted(del_ref_llrs.items()):
+        sys.stderr.write('Computing deletion length {} calibration.\n'.format(
+            del_len))
+        del_calib, del_llr_range, plot_data \
+            = calibration.compute_mirrored_calibration(
+                np.array(del_llrs), args.max_input_llr,
+                args.num_calibration_values, args.smooth_bandwidth,
+                args.min_density, pdf_fp is not None)
+        del_calibs[del_len] = (del_calib, del_llr_range)
+        if pdf_fp is not None:
+            plot_calib(pdf_fp, 'Deletion Length ' + str(del_len), *plot_data)
     sys.stderr.write('Computing insertion calibration.\n')
-    ins_calib, ins_llr_range, plot_data = calibration.compute_calibration(
-        ins_ref_llrs, ins_alt_llrs, args.max_input_llr,
-        args.num_calibration_values, args.smooth_bandwidth, args.min_density,
-        pdf_fp is not None)
+    ins_calibs = {}
+    for ins_len, ins_llrs in sorted(ins_ref_llrs.items()):
+        sys.stderr.write('Computing insertion length {} calibration.\n'.format(
+            ins_len))
+        ins_calib, ins_llr_range, plot_data \
+            = calibration.compute_mirrored_calibration(
+                np.array(ins_llrs), args.max_input_llr,
+                args.num_calibration_values, args.smooth_bandwidth,
+                args.min_density, pdf_fp is not None)
+        ins_calibs[ins_len] = (ins_calib, ins_llr_range)
+        if pdf_fp is not None:
+            plot_calib(pdf_fp, 'Insertion Length ' + str(ins_len), *plot_data)
+
     if pdf_fp is not None:
-        plot_calib(pdf_fp, 'Insertion', *plot_data)
         pdf_fp.close()
 
     # save calibration table for reading into SNP table
     sys.stderr.write('Saving calibrations to file.\n')
+    snp_llr_range_save_data, snp_calib_save_data = {}, {}
+    for (ref_seq, alt_seq), (snp_calib, snp_llr_range) in snp_calibs.items():
+        snp_calib_save_data[
+            calibration.SNP_CALIB_TMPLT.format(ref_seq, alt_seq)] = snp_calib
+        snp_llr_range_save_data[
+            calibration.SNP_LLR_RNG_TMPLT.format(
+                ref_seq, alt_seq)] = snp_llr_range
+    del_llr_range_save_data, del_calib_save_data = {}, {}
+    for del_len, (del_calib, del_llr_range) in del_calibs.items():
+        del_calib_save_data[
+            calibration.DEL_CALIB_TMPLT.format(del_len)] = del_calib
+        del_llr_range_save_data[
+            calibration.DEL_LLR_RNG_TMPLT.format(del_len)] = del_llr_range
+    ins_llr_range_save_data, ins_calib_save_data = {}, {}
+    for ins_len, (ins_calib, ins_llr_range) in ins_calibs.items():
+        ins_calib_save_data[
+            calibration.INS_CALIB_TMPLT.format(ins_len)] = ins_calib
+        ins_llr_range_save_data[
+            calibration.INS_LLR_RNG_TMPLT.format(ins_len)] = ins_llr_range
     np.savez(
         args.out_filename,
-        stratify_type='snp_ins_del',
+        stratify_type=calibration.SNP_CALIB_TYPE,
         smooth_nvals=args.num_calibration_values,
-        snp_llr_range=snp_llr_range,
-        snp_calibration_table=snp_calib,
-        deletion_llr_range=del_llr_range,
-        deletion_calibration_table=del_calib,
-        insertion_llr_range=ins_llr_range,
-        insertion_calibration_table=ins_calib
+        max_indel_len=max_indel_len,
+        **snp_calib_save_data,
+        **snp_llr_range_save_data,
+        **del_calib_save_data,
+        **del_llr_range_save_data,
+        **ins_calib_save_data,
+        **ins_llr_range_save_data
     )
 
     return

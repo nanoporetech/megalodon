@@ -18,7 +18,7 @@ from megalodon import (
 
 CONTEXT_BASES = [10, 30]
 EDGE_BUFFER = 100
-MAX_INDEL_LEN = 3
+MAX_INDEL_LEN = 5
 ALL_PATHS = False
 TEST_EVERY_N_LOCS = 5
 MAX_POS_PER_READ = 400
@@ -127,7 +127,7 @@ def call_alt_true_indel(
     return score, snp_ref_seq, snp_alt_seq
 
 def process_read(
-        raw_sig, read_id, model_info, caller_conn, map_thr_buf,
+        raw_sig, read_id, model_info, caller_conn, map_thr_buf, do_false_ref,
         context_bases=CONTEXT_BASES, edge_buffer=EDGE_BUFFER,
         max_indel_len=MAX_INDEL_LEN, all_paths=ALL_PATHS,
         every_n=TEST_EVERY_N_LOCS, max_pos_per_read=MAX_POS_PER_READ):
@@ -158,46 +158,49 @@ def process_read(
         every_n))[:max_pos_per_read]
     read_snp_calls = []
 
-    # first process reference false calls (need to spoof an incorrect reference
-    # for mapping and signal remapping)
-    for r_snp_pos in snp_poss:
-        # first test single base swap SNPs
-        try:
-            score, snp_ref_seq, snp_alt_seq = call_alt_true_indel(
-                0, r_snp_pos, r_ref_seq, r_seq, map_thr_buf,
-                context_bases, r_post, rl_cumsum, all_paths)
-            read_snp_calls.append((False, score, snp_ref_seq, snp_alt_seq))
-        except mh.MegaError:
-            # introduced error either causes read not to map or
-            # mapping trims the location of interest
-            pass
-        # then test small indels
-        for indel_size in range(1, max_indel_len + 1):
+    if do_false_ref:
+        # first process reference false calls (need to spoof an incorrect
+        # reference for mapping and signal remapping)
+        for r_snp_pos in snp_poss:
+            # first test single base swap SNPs
             try:
                 score, snp_ref_seq, snp_alt_seq = call_alt_true_indel(
-                    indel_size, r_snp_pos, r_ref_seq, r_seq, map_thr_buf,
+                    0, r_snp_pos, r_ref_seq, r_seq, map_thr_buf,
                     context_bases, r_post, rl_cumsum, all_paths)
                 read_snp_calls.append((False, score, snp_ref_seq, snp_alt_seq))
             except mh.MegaError:
+                # introduced error either causes read not to map or
+                # mapping trims the location of interest
                 pass
-            try:
-                score, snp_ref_seq, snp_alt_seq = call_alt_true_indel(
-                    -indel_size, r_snp_pos, r_ref_seq, r_seq, map_thr_buf,
-                    context_bases, r_post, rl_cumsum, all_paths)
-                read_snp_calls.append((False, score, snp_ref_seq, snp_alt_seq))
-            except mh.MegaError:
-                pass
+            # then test small indels
+            for indel_size in range(1, max_indel_len + 1):
+                try:
+                    score, snp_ref_seq, snp_alt_seq = call_alt_true_indel(
+                        indel_size, r_snp_pos, r_ref_seq, r_seq, map_thr_buf,
+                        context_bases, r_post, rl_cumsum, all_paths)
+                    read_snp_calls.append((
+                        False, score, snp_ref_seq, snp_alt_seq))
+                except mh.MegaError:
+                    pass
+                try:
+                    score, snp_ref_seq, snp_alt_seq = call_alt_true_indel(
+                        -indel_size, r_snp_pos, r_ref_seq, r_seq, map_thr_buf,
+                        context_bases, r_post, rl_cumsum, all_paths)
+                    read_snp_calls.append((
+                        False, score, snp_ref_seq, snp_alt_seq))
+                except mh.MegaError:
+                    pass
 
     # now test reference correct SNPs
     for r_snp_pos in snp_poss:
         # test simple SNP first
         snp_ref_seq = r_ref_seq[r_snp_pos]
-        snp_alt_seq = choice(list(CAN_BASES_SET.difference(snp_ref_seq)))
-        score = call_snp(
-            r_post, post_mapped_start, r_snp_pos, mapped_rl_cumsum,
-            r_to_q_poss, snp_ref_seq, snp_alt_seq, context_bases, all_paths,
-            np_ref_seq=np_ref_seq)
-        read_snp_calls.append((True, score, snp_ref_seq, snp_alt_seq))
+        for snp_alt_seq in CAN_BASES_SET.difference(snp_ref_seq):
+            score = call_snp(
+                r_post, post_mapped_start, r_snp_pos, mapped_rl_cumsum,
+                r_to_q_poss, snp_ref_seq, snp_alt_seq, context_bases, all_paths,
+                np_ref_seq=np_ref_seq)
+            read_snp_calls.append((True, score, snp_ref_seq, snp_alt_seq))
 
         # then test indels
         for indel_size in range(1, max_indel_len + 1):
@@ -223,7 +226,7 @@ def process_read(
     return read_snp_calls
 
 def _process_reads_worker(
-        fast5_q, snp_calls_q, caller_conn, model_info, device):
+        fast5_q, snp_calls_q, caller_conn, model_info, device, do_false_ref):
     model_info.prep_model_worker(device)
     map_thr_buf = mappy.ThreadBuffer()
 
@@ -242,7 +245,8 @@ def _process_reads_worker(
         try:
             raw_sig = fast5_io.get_signal(fast5_fn, read_id)
             read_snp_calls = process_read(
-                raw_sig, read_id, model_info, caller_conn, map_thr_buf)
+                raw_sig, read_id, model_info, caller_conn, map_thr_buf,
+                do_false_ref)
             snp_calls_q.put((True, read_snp_calls))
         except Exception as e:
             snp_calls_q.put((False, str(e)))
@@ -314,7 +318,7 @@ def _get_snp_calls(
 
 def process_all_reads(
         fast5s_dir, num_reads, read_ids_fn, model_info, aligner, num_ps, out_fn,
-        suppress_progress):
+        suppress_progress, do_false_ref):
     sys.stderr.write('Preparing workers and calling reads.\n')
     # read filename queue filler
     fast5_q = mp.Queue()
@@ -338,7 +342,8 @@ def process_all_reads(
         map_conns.append(map_conn)
         p = mp.Process(
             target=_process_reads_worker, args=(
-                fast5_q, snp_calls_q, caller_conn, model_info, device))
+                fast5_q, snp_calls_q, caller_conn, model_info, device,
+                do_false_ref))
         p.daemon = True
         p.start()
         proc_reads_ps.append(p)
@@ -347,7 +352,7 @@ def process_all_reads(
     for map_conn in map_conns:
         t = threading.Thread(
             target=mapping._map_read_worker,
-            args=(aligner, map_conn, None, False))
+            args=(aligner, map_conn, None))
         t.daemon = True
         t.start()
         map_read_ts.append(t)
@@ -416,6 +421,11 @@ def get_parser():
     misc_grp.add_argument(
         '--suppress-progress', action='store_true',
         help='Suppress progress bar.')
+    misc_grp.add_argument(
+        '--compute-false-reference-scores', action='store_true',
+        help='Compute scores given a false reference. Default: compute ' +
+        'all scores with ground truth correct reference.' +
+        '***** Experimental feature, may contain bugs *****.')
 
     return parser
 
@@ -433,7 +443,8 @@ def main():
 
     process_all_reads(
         args.fast5s_dir, args.num_reads, args.read_ids_filename, model_info,
-        aligner, args.processes, args.output, args.suppress_progress)
+        aligner, args.processes, args.output, args.suppress_progress,
+        args.compute_false_reference_scores)
 
     return
 
