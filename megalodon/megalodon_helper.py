@@ -4,6 +4,7 @@ import multiprocessing as mp
 from collections import namedtuple
 from abc import ABC, abstractmethod
 
+import pysam
 import numpy as np
 
 
@@ -217,6 +218,17 @@ def med_mad(data, factor=None, axis=None, keepdims=False):
         dmed = dmed.squeeze(axis)
         dmad = dmad.squeeze(axis)
     return dmed, dmad
+
+
+############################
+##### Samtools wrapper #####
+############################
+
+def sort_and_index_mapping(map_fn, out_basename):
+    out_fn = out_basename + '.bam'
+    pysam.sort('-O', 'BAM', '-o', out_fn, map_fn)
+    pysam.index(out_fn)
+    return
 
 
 if __name__ == '__main__':

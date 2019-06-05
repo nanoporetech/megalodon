@@ -270,6 +270,7 @@ def _get_snps_queue(
         a.reference_id = whatshap_map_fp.get_tid(chrm)
         a.reference_start = r_st
         a.template_length = len(snp_seq)
+        a.set_tags([('RG', '1')])
 
         # convert to reference based sequence
         if strand == -1:
@@ -338,7 +339,7 @@ def _get_snps_queue(
         else:
             raise mh.MegaError('Invalid mapping output format')
         header = {
-            'HD': {'VN': '1.0'},
+            'HD': {'VN': '1.4'},
             'SQ': [{'LN': ref_len, 'SN': ref_name}
                    for ref_name, ref_len in sorted(zip(*ref_names_and_lens))],
             'RG': [{'ID':1, 'SM':SAMPLE_NAME},]}
@@ -360,6 +361,7 @@ def _get_snps_queue(
         get_snp_call()
     if snps_txt_fp is not None: snps_txt_fp.close()
     if pr_refs_fn is not None: pr_refs_fp.close()
+    if whatshap_map_fn is not None: whatshap_map_fp.close()
     snps_db.execute(CREATE_SNPS_IDX)
     snps_db.commit()
     snps_db.close()
@@ -550,8 +552,8 @@ class Variant(object):
 
         # add sample tags
         self.add_sample_field('GT', gts[np.argmax(probs)])
-        self.qual = '{:.0f}'.format(
-            np.around(np.minimum(raw_pl[0], mh.MAX_PL_VALUE)))
+        qual = int(np.around(np.minimum(raw_pl[0], mh.MAX_PL_VALUE)))
+        self.qual = '{:.0f}'.format(qual) if qual > 0 else '.'
         self.add_sample_field('GQ', '{:.0f}'.format(np.around(s_pl[1])))
         self.add_sample_field(
             'PL', ','.join('{:.0f}' for _ in range(probs.shape[0])).format(
@@ -575,7 +577,7 @@ class Variant(object):
 class VcfWriter(object):
     """ VCF writer class
     """
-    version_options = set(['4.2',])
+    version_options = set(['4.1',])
     def __init__(
             self, filename, mode='w',
             header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER',
@@ -747,6 +749,32 @@ class AggSnps(mh.AbstractAggregationClass):
     def close(self):
         self.snps_db.close()
         return
+
+
+#########################################
+##### Whatshap Mapping Post-process #####
+#########################################
+
+def sort_whatshap_mappings(out_dir, map_fmt):
+    whatshap_map_fn = os.path.join(
+        out_dir, mh.OUTPUT_FNS[mh.WHATSHAP_MAP_NAME] + '.' + map_fmt)
+    whatshap_sorted_basename = os.path.join(
+        out_dir, mh.OUTPUT_FNS[mh.WHATSHAP_MAP_NAME] + '.sorted')
+    whatshap_p = mp.Process(
+        target=mh.sort_and_index_mapping,
+        args=(whatshap_map_fn, whatshap_sorted_basename), daemon=True)
+    whatshap_p.start()
+    return whatshap_p
+
+def get_whatshap_command(out_dir):
+    agg_snp_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.SNP_NAME])
+    agg_snps_bn, _ = os.path.splitext(agg_snp_fn)
+    phase_fn = agg_snps_bn + '.phased.vcf'
+    map_sort_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.WHATSHAP_MAP_NAME] +
+                               '.sorted.bam')
+    return ('Run following command to obtain phased variants:\n\t\t' +
+            'whatshap phase --indels --distrust-genotypes -o {} {} {}').format(
+                phase_fn, agg_snp_fn, map_sort_fn)
 
 
 if __name__ == '__main__':

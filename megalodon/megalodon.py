@@ -924,6 +924,11 @@ def _main():
         args.processes, args.verbose_read_progress, args.suppress_progress,
         mods_info, args.database_safety, args.edge_buffer, pr_ref_filts)
 
+    if mh.WHATSHAP_MAP_NAME in args.outputs:
+        logger.info('Spawning process to sort and index whatshap mappings')
+        whatshap_p = snps.sort_whatshap_mappings(
+            args.output_directory, aligner.out_fmt)
+
     if mh.SNP_NAME in args.outputs or mh.MOD_NAME in args.outputs:
         mod_names = (mods_info.mod_long_names
                      if mh.MOD_NAME in args.outputs else [])
@@ -934,6 +939,13 @@ def _main():
             args.write_vcf_log_probs, args.heterozygous_factors,
             snps_data.call_mode, mod_names, mod_agg_info,
             args.suppress_progress, aligner.ref_names_and_lens)
+
+    if mh.WHATSHAP_MAP_NAME in args.outputs:
+        if whatshap_p.is_alive():
+            logger.info('Waiting for whatshap mappings sort and index')
+            while whatshap_p.is_alive():
+                sleep(0.1)
+        logger.info(snps.get_whatshap_command(args.output_directory))
 
     return
 
