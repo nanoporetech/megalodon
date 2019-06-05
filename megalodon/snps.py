@@ -582,7 +582,7 @@ class VcfWriter(object):
             self, filename, mode='w',
             header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER',
                     'INFO', 'FORMAT', SAMPLE_NAME),
-            extra_meta_info=FIXED_VCF_MI, version='4.2', ref_fn=None,
+            extra_meta_info=FIXED_VCF_MI, version='4.1', ref_fn=None,
             ref_names_and_lens=None):
         self.filename = filename
         self.mode = mode
