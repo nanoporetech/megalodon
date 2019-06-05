@@ -412,13 +412,17 @@ def process_all_reads(
         pr_refs_fn = os.path.join(out_dir, mh.PR_REF_FN) if (
             mh.PR_REF_NAME in outputs and
             snps_data.do_pr_ref_snps) else None
+        whatshap_map_fn = os.path.join(
+            out_dir, mh.OUTPUT_FNS[mh.WHATSHAP_MAP_NAME] + '.' +
+            aligner.out_fmt) if mh.WHATSHAP_MAP_NAME in outputs else None
         snps_db_fn, snps_txt_fn = mh.OUTPUT_FNS[mh.PR_SNP_NAME]
         snps_txt_fn = (os.path.join(out_dir, snps_txt_fn)
                        if snps_data.write_snps_txt else None)
         snps_q, snps_p, main_snps_conn = mh.create_getter_q(
             snps._get_snps_queue, (
                 os.path.join(out_dir, snps_db_fn),
-                snps_txt_fn, db_safety, pr_refs_fn, pr_ref_filts))
+                snps_txt_fn, db_safety, pr_refs_fn, pr_ref_filts,
+                whatshap_map_fn, aligner.ref_names_and_lens, aligner.ref_fn))
     if mh.PR_MOD_NAME in outputs:
         pr_refs_fn = os.path.join(out_dir, mh.PR_REF_FN) if (
             mh.PR_REF_NAME in outputs and
@@ -529,6 +533,8 @@ def aligner_validation(args):
 
 def snps_validation(args, is_cat_mod, output_size, aligner):
     logger = logging.get_logger()
+    if mh.WHATSHAP_MAP_NAME in args.outputs and not mh.SNP_NAME in args.outputs:
+        args.outputs.append(mh.SNP_NAME)
     if mh.SNP_NAME in args.outputs and not mh.PR_SNP_NAME in args.outputs:
         args.outputs.append(mh.PR_SNP_NAME)
     if mh.PR_SNP_NAME in args.outputs and args.variant_filename is None:

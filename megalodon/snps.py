@@ -1,8 +1,10 @@
+import os
 import sys
 import queue
 import sqlite3
 import datetime
 from time import sleep
+from array import array
 import multiprocessing as mp
 from collections import defaultdict, namedtuple, OrderedDict
 
@@ -48,6 +50,9 @@ SEL_SNP_STATS = '''
 SELECT * FROM snps WHERE chrm IS ? AND pos IS ? AND
 snp_id IS ? AND ref_seq IS ?'''
 
+SAMPLE_NAME = 'SAMPLE'
+# specified by sam format spec
+MAX_BASE_QUAL = 93
 FIXED_VCF_MI = [
     'phasing=none',
     'INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
@@ -104,11 +109,9 @@ def call_read_snps(
             read_alt_seqs = [mh.revcomp(alt_seq) for alt_seq in snp_alt_seqs]
 
         # select single base SNP or indel context width
-        is_snp = all(len(snp_ref_seq) == len(snp_alt_seq)
-                     for snp_alt_seq in snp_alt_seqs)
-        is_del = not is_snp and len(snp_ref_seq) > len(snp_alt_seqs[0])
-        snp_context_bases = snps_data.indel_context if is_snp else \
-                            snps_data.snp_context
+        snp_context_bases = snps_data.indel_context if all(
+            len(snp_ref_seq) == len(snp_alt_seq)
+            for snp_alt_seq in snp_alt_seqs) else snps_data.snp_context
         pos_bb = min(snp_context_bases, read_pos)
         pos_ab = min(snp_context_bases,
                      r_ref_seq.shape[0] - read_pos - len(read_ref_seq))
@@ -172,35 +175,114 @@ def call_read_snps(
 ##### Per-read SNP Output #####
 ###############################
 
+def log_prob_to_phred(log_prob):
+    return -10 * np.log10(1 - np.exp(log_prob))
+
+def simplify_snp_seq(ref_seq, alt_seq):
+    trim_before = trim_after = 0
+    while (len(ref_seq) > 0 and len(alt_seq) > 0 and
+           ref_seq[0] == alt_seq[0]):
+        trim_before += 1
+        ref_seq = ref_seq[1:]
+        alt_seq = alt_seq[1:]
+    while (len(ref_seq) > 0 and len(alt_seq) > 0 and
+           ref_seq[-1] == alt_seq[-1]):
+        trim_after += 1
+        ref_seq = ref_seq[:-1]
+        alt_seq = alt_seq[:-1]
+
+    return ref_seq, alt_seq, trim_before, trim_after
+
 def annotate_snps(r_start, ref_seq, r_snp_calls, strand):
     """ Annotate reference sequence with called snps.
 
     Note: Reference sequence is in read orientation and snp calls are in
     genome coordiates.
     """
-    snp_seqs = []
-    prev_pos = 0
+    snp_seqs, snp_quals, snp_cigar = [], [], []
+    prev_pos, curr_match = 0, 0
     if strand == -1:
         ref_seq = ref_seq[::-1]
     for snp_pos, alt_lps, snp_ref_seq, snp_alt_seqs, _ in sorted(r_snp_calls):
+        prev_len = snp_pos - r_start - prev_pos
         ref_lp = np.log1p(-np.exp(alt_lps).sum())
         # called canonical
-        if ref_lp >= min(alt_lps): continue
-        alt_seq = snp_alt_seqs[np.argmax(alt_lps)]
-        if strand == -1:
-            alt_seq = mh.revcomp(alt_seq)
-        snp_seqs.append(ref_seq[prev_pos:snp_pos - r_start] + alt_seq)
+        if ref_lp >= max(alt_lps):
+            snp_seqs.append(
+                ref_seq[prev_pos:snp_pos - r_start + len(snp_ref_seq)])
+            snp_quals.extend(
+                ([MAX_BASE_QUAL] * prev_len) +
+                ([min(log_prob_to_phred(ref_lp), MAX_BASE_QUAL)] *
+                 len(snp_ref_seq)))
+            curr_match += prev_len + len(snp_ref_seq)
+        else:
+            alt_seq = snp_alt_seqs[np.argmax(alt_lps)]
+            read_alt_seq = alt_seq if strand == 1 else mh.comp(alt_seq)
+            snp_seqs.append(ref_seq[prev_pos:snp_pos - r_start] + read_alt_seq)
+            snp_quals.extend(
+                ([MAX_BASE_QUAL] * prev_len) +
+                ([min(log_prob_to_phred(max(alt_lps)), MAX_BASE_QUAL)] *
+                 len(alt_seq)))
+
+            # add cigar information for snp or indel
+            t_ref_seq, t_alt_seq, t_before, t_after = simplify_snp_seq(
+                snp_ref_seq, alt_seq)
+            curr_match += t_before
+            snp_cigar.append((7, curr_match + prev_len))
+            if len(t_alt_seq) == len(t_ref_seq):
+                snp_cigar.append((8, len(t_alt_seq)))
+            elif len(t_alt_seq) > len(t_ref_seq):
+                # left justify mismatch bases in complex insertion
+                if len(t_ref_seq) != 0:
+                    snp_cigar.append((8, len(t_ref_seq)))
+                snp_cigar.append((1, len(t_alt_seq) - len(t_ref_seq)))
+            else:
+                # left justify mismatch bases in complex deletion
+                if len(t_alt_seq) != 0:
+                    snp_cigar.append((8, len(t_alt_seq)))
+                snp_cigar.append((2, len(t_ref_seq) - len(t_alt_seq)))
+            curr_match = t_after
         prev_pos = snp_pos - r_start + len(snp_ref_seq)
+
     snp_seqs.append(ref_seq[prev_pos:])
     snp_seq = ''.join(snp_seqs)
     if strand == -1:
         snp_seq = snp_seq[::-1]
+    len_remain = len(ref_seq) - prev_pos
+    snp_quals.extend([MAX_BASE_QUAL] * len_remain)
+    if strand == -1:
+        snp_quals = snp_quals[::-1]
+    snp_quals = list(map(int, snp_quals))
+    snp_cigar.append((7, len_remain + curr_match))
+    if strand == -1:
+        snp_cigar = snp_cigar[::-1]
 
-    return snp_seq
+    return snp_seq, snp_quals, snp_cigar
 
 def _get_snps_queue(
-        snps_q, snps_conn, snps_db_fn, snps_txt_fn, db_safety,
-        pr_refs_fn, pr_ref_filts):
+        snps_q, snps_conn, snps_db_fn, snps_txt_fn, db_safety, pr_refs_fn,
+        pr_ref_filts, whatshap_map_fn, ref_names_and_lens, ref_fn):
+    def write_whatshap_alignment(
+            read_id, snp_seq, snp_quals, chrm, strand, r_st, snp_cigar):
+        a = pysam.AlignedSegment()
+        a.query_name = read_id
+        a.flag = 0 if strand == 1 else 16
+        a.reference_id = whatshap_map_fp.get_tid(chrm)
+        a.reference_start = r_st
+        a.template_length = len(snp_seq)
+
+        # convert to reference based sequence
+        if strand == -1:
+            snp_seq = mh.revcomp(snp_seq)
+            snp_quals = snp_quals[::-1]
+            snp_cigar = snp_cigar[::-1]
+        a.query_sequence = snp_seq
+        a.query_qualities = array('B', snp_quals)
+        a.cigartuples = snp_cigar
+        whatshap_map_fp.write(a)
+
+        return
+
     def get_snp_call():
         # note strand is +1 for fwd or -1 for rev
         r_snp_calls, (read_id, chrm, strand, r_start, ref_seq, read_len,
@@ -220,13 +302,20 @@ def _get_snps_queue(
                 for pos, score, snp_ref_seq, snp_alt_seq, snp_id in
                 r_snp_calls)) + '\n')
             snps_txt_fp.flush()
-        if pr_refs_fn is not None:
+        if do_ann_snps:
             if not mapping.read_passes_filters(
                     pr_ref_filts, read_len, q_st, q_en, cigar):
                 return
-            pr_refs_fp.write('>{}\n{}\n'.format(read_id, annotate_snps(
-                r_start, ref_seq, r_snp_calls, strand)))
-            pr_refs_fp.flush()
+            snp_seq, snp_quals, snp_cigar = annotate_snps(
+                r_start, ref_seq, r_snp_calls, strand)
+            if pr_refs_fn is not None:
+                pr_refs_fp.write('>{}\n{}\n'.format(read_id, snp_seq))
+                pr_refs_fp.flush()
+            if whatshap_map_fn is not None:
+                write_whatshap_alignment(
+                    read_id, snp_seq, snp_quals, chrm, strand, r_start,
+                    snp_cigar)
+
         return
 
 
@@ -240,6 +329,23 @@ def _get_snps_queue(
 
     if pr_refs_fn is not None:
         pr_refs_fp = open(pr_refs_fn, 'w')
+
+    if whatshap_map_fn is not None:
+        _, map_fmt = os.path.splitext(whatshap_map_fn)
+        if map_fmt == '.bam': w_mode = 'wb'
+        elif map_fmt == '.cram': w_mode = 'wc'
+        elif map_fmt == '.sam': w_mode = 'w'
+        else:
+            raise mh.MegaError('Invalid mapping output format')
+        header = {
+            'HD': {'VN': '1.0'},
+            'SQ': [{'LN': ref_len, 'SN': ref_name}
+                   for ref_name, ref_len in sorted(zip(*ref_names_and_lens))],
+            'RG': [{'ID':1, 'SM':SAMPLE_NAME},]}
+        whatshap_map_fp = pysam.AlignmentFile(
+            whatshap_map_fn, w_mode, header=header, reference_filename=ref_fn)
+
+    do_ann_snps = whatshap_map_fn is not None or pr_refs_fn is not None
 
     while True:
         try:
@@ -473,7 +579,7 @@ class VcfWriter(object):
     def __init__(
             self, filename, mode='w',
             header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER',
-                    'INFO', 'FORMAT', 'SAMPLE'),
+                    'INFO', 'FORMAT', SAMPLE_NAME),
             extra_meta_info=FIXED_VCF_MI, version='4.2', ref_fn=None,
             ref_names_and_lens=None):
         self.filename = filename

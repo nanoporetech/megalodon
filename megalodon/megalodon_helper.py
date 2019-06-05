@@ -37,6 +37,7 @@ BC_MODS_NAME = 'mod_basecalls'
 MAP_NAME = 'mappings'
 MAP_OUT_FMTS = ('bam', 'cram', 'sam')
 PR_SNP_NAME = 'per_read_snps'
+WHATSHAP_MAP_NAME = 'whatshap_mappings'
 SNP_NAME = 'snps'
 PR_MOD_NAME = 'per_read_mods'
 # TOOD add wig/bedgraph modified base output
@@ -48,6 +49,7 @@ OUTPUT_FNS = {
     PR_SNP_NAME:['per_read_snp_calls.db',
                  'per_read_snp_calls.txt'],
     SNP_NAME:'variants.vcf',
+    WHATSHAP_MAP_NAME:'whatshap_mappings',
     PR_MOD_NAME:['per_read_modified_base_calls.db',
                  'per_read_modified_base_calls.txt'],
     MOD_NAME:'modified_bases.mvcf'
@@ -58,6 +60,7 @@ OUTPUT_DESCS = [
     (MAP_NAME, 'Mapped reads (BAM/CRAM/SAM)'),
     (PR_SNP_NAME, 'Per-read, per-site SNP scores database'),
     (SNP_NAME, 'Sample-level aggregated SNP calls (VCF)'),
+    (WHATSHAP_MAP_NAME, 'SNP annotated mappings for use with whatshap'),
     (PR_MOD_NAME, 'Per-read, per-site modified base scores database'),
     (MOD_NAME, 'Sample-level aggregated modified base calls (modVCF)')
 ]
@@ -68,7 +71,7 @@ PR_REF_NAME = 'per_read_ref'
 PR_REF_FN = 'per_read_references.fasta'
 
 ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, PR_SNP_NAME, SNP_NAME,
-                     PR_MOD_NAME, MOD_NAME))
+                     WHATSHAP_MAP_NAME, PR_MOD_NAME, MOD_NAME))
 
 PR_REF_FILTERS = namedtuple(
     'pr_ref_filters', ('pct_idnt', 'pct_cov', 'min_len', 'max_len'))
