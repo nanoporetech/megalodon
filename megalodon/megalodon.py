@@ -272,7 +272,7 @@ def prep_errors_bar(
         num_update_errors = 0
     else:
         bar = tqdm(total=tot_reads, smoothing=0, initial=curr_num_reads,
-                   unit=' reads')
+                   unit='read')
         if start_time is not None:
             bar.start_t = start_time
     if num_update_errors > 0:
@@ -939,6 +939,12 @@ def _main():
             args.write_vcf_log_probs, args.heterozygous_factors,
             snps_data.call_mode, mod_names, mod_agg_info,
             args.suppress_progress, aligner.ref_names_and_lens)
+
+    if mh.SNP_NAME in args.outputs:
+        logger.info('Sorting output variant file')
+        sort_var_p = snps.sort_variants(args.output_directory)
+        while sort_var_p.is_alive():
+            sleep(0.1)
 
     if mh.WHATSHAP_MAP_NAME in args.outputs:
         if whatshap_p.is_alive():

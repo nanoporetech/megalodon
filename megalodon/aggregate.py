@@ -39,23 +39,16 @@ def _agg_snps_worker(
 
     return
 
-def _get_snp_stats_queue(
-        snp_stats_q, snp_conn, out_dir, ref_names_and_lens, do_sort=False):
+def _get_snp_stats_queue(snp_stats_q, snp_conn, out_dir, ref_names_and_lens):
     agg_snp_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.SNP_NAME])
-    if do_sort:
-        all_snp_vars = []
-    else:
-        agg_snp_fp = snps.VcfWriter(
-            agg_snp_fn, 'w', ref_names_and_lens=ref_names_and_lens)
+    agg_snp_fp = snps.VcfWriter(
+        agg_snp_fn, 'w', ref_names_and_lens=ref_names_and_lens)
 
     while True:
         try:
             snp_var = snp_stats_q.get(block=False)
             if snp_var is None: continue
-            if do_sort:
-                all_snp_vars.append(snp_var)
-            else:
-                agg_snp_fp.write_variant(snp_var)
+            agg_snp_fp.write_variant(snp_var)
         except queue.Empty:
             if snp_conn.poll():
                 break
@@ -64,21 +57,9 @@ def _get_snp_stats_queue(
 
     while not snp_stats_q.empty():
         snp_var = snp_stats_q.get(block=False)
-        if do_sort:
-            all_snp_vars.append(snp_var)
-        else:
-            agg_snp_fp.write_variant(snp_var)
+        agg_snp_fp.write_variant(snp_var)
 
-    if do_sort:
-        # sort variants and write to file (requires adding __lt__, __gt__
-        # methods to variant class
-        with snps.VcfWriter(
-                agg_snp_fn, 'w',
-                ref_names_and_lens=ref_names_and_lens) as agg_snp_fp:
-            for snp_var in sorted(all_snp_vars):
-                agg_snp_fp.write_variant(snp_var)
-    else:
-        agg_snp_fp.close()
+    agg_snp_fp.close()
 
     return
 
