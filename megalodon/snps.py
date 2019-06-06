@@ -194,6 +194,50 @@ def simplify_snp_seq(ref_seq, alt_seq):
 
     return ref_seq, alt_seq, trim_before, trim_after
 
+def iter_non_overlapping_snps(snp_calls):
+    def get_max_prob_allele_snp(snp_grp):
+        """ For overlapping SNPs return the snp with the highest probability
+        single allele as this one will be added to the reference sequence.
+
+        More complex chained SNPs could be handled, but are not here.
+        For example, a 5 base deletion covering 2 single base swap SNPs could
+        validly result in 2 alternative single base swap alleles, but the
+        logic here would only allow one of those alternatives since they
+        are covered by the same reference deletion. There are certainly many
+        more edge cases than this and each one would require specific logic.
+        This likely covers the majority of valid cases and limiting to
+        50 base indels by default limits the scope of this issue.
+        """
+        most_prob_snp = None
+        for snp_data in snp_grp:
+            ref_lp = np.log1p(-np.exp(snp_data[1]).sum())
+            snp_max_lp = max(ref_lp, snp_data[1].max())
+            if most_prob_snp is None or snp_max_lp > most_prob_snp[0]:
+                most_prob_snp = (snp_max_lp, ref_lp, snp_data)
+
+        _, ref_lp, (snp_pos, alt_lps, snp_ref_seq,
+                    snp_alt_seqs, _) = most_prob_snp
+        return snp_pos, alt_lps, snp_ref_seq, snp_alt_seqs, ref_lp
+
+
+    snp_calls_iter = iter(snp_calls)
+    # initialize snp_grp with first snp
+    snp_data = next(snp_calls_iter)
+    prev_snp_end = snp_data[0] + len(snp_data[2])
+    snp_grp = [snp_data]
+    for snp_data in sorted(snp_calls):
+        if snp_data[0] < prev_snp_end:
+            prev_snp_end = max(snp_data[0] + len(snp_data[2]), prev_snp_end)
+            snp_grp.append(snp_data)
+        else:
+            yield get_max_prob_allele_snp(snp_grp)
+            prev_snp_end = snp_data[0] + len(snp_data[2])
+            snp_grp = [snp_data]
+
+    # yeild last snp grp data
+    yield get_max_prob_allele_snp(snp_grp)
+    return
+
 def annotate_snps(r_start, ref_seq, r_snp_calls, strand):
     """ Annotate reference sequence with called snps.
 
@@ -202,11 +246,12 @@ def annotate_snps(r_start, ref_seq, r_snp_calls, strand):
     """
     snp_seqs, snp_quals, snp_cigar = [], [], []
     prev_pos, curr_match = 0, 0
+    # ref_seq is read-centric so flop order to process snps in genomic order
     if strand == -1:
         ref_seq = ref_seq[::-1]
-    for snp_pos, alt_lps, snp_ref_seq, snp_alt_seqs, _ in sorted(r_snp_calls):
+    for (snp_pos, alt_lps, snp_ref_seq, snp_alt_seqs,
+         ref_lp) in iter_non_overlapping_snps(r_snp_calls):
         prev_len = snp_pos - r_start - prev_pos
-        ref_lp = np.log1p(-np.exp(alt_lps).sum())
         # called canonical
         if ref_lp >= max(alt_lps):
             snp_seqs.append(
@@ -218,6 +263,8 @@ def annotate_snps(r_start, ref_seq, r_snp_calls, strand):
             curr_match += prev_len + len(snp_ref_seq)
         else:
             alt_seq = snp_alt_seqs[np.argmax(alt_lps)]
+            # complement since ref_seq is complement seq
+            # (not reversed; see loop init)
             read_alt_seq = alt_seq if strand == 1 else mh.comp(alt_seq)
             snp_seqs.append(ref_seq[prev_pos:snp_pos - r_start] + read_alt_seq)
             snp_quals.extend(
