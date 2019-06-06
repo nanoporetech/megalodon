@@ -52,7 +52,8 @@ snp_id IS ? AND ref_seq IS ?'''
 
 SAMPLE_NAME = 'SAMPLE'
 # specified by sam format spec
-MAX_BASE_QUAL = 93
+WHATSHAP_MAX_QUAL = 40
+WHATSHAP_RG_ID = '1'
 FIXED_VCF_MI = [
     'phasing=none',
     'INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
@@ -211,8 +212,8 @@ def annotate_snps(r_start, ref_seq, r_snp_calls, strand):
             snp_seqs.append(
                 ref_seq[prev_pos:snp_pos - r_start + len(snp_ref_seq)])
             snp_quals.extend(
-                ([MAX_BASE_QUAL] * prev_len) +
-                ([min(log_prob_to_phred(ref_lp), MAX_BASE_QUAL)] *
+                ([WHATSHAP_MAX_QUAL] * prev_len) +
+                ([min(log_prob_to_phred(ref_lp), WHATSHAP_MAX_QUAL)] *
                  len(snp_ref_seq)))
             curr_match += prev_len + len(snp_ref_seq)
         else:
@@ -220,8 +221,8 @@ def annotate_snps(r_start, ref_seq, r_snp_calls, strand):
             read_alt_seq = alt_seq if strand == 1 else mh.comp(alt_seq)
             snp_seqs.append(ref_seq[prev_pos:snp_pos - r_start] + read_alt_seq)
             snp_quals.extend(
-                ([MAX_BASE_QUAL] * prev_len) +
-                ([min(log_prob_to_phred(max(alt_lps)), MAX_BASE_QUAL)] *
+                ([WHATSHAP_MAX_QUAL] * prev_len) +
+                ([min(log_prob_to_phred(max(alt_lps)), WHATSHAP_MAX_QUAL)] *
                  len(alt_seq)))
 
             # add cigar information for snp or indel
@@ -249,7 +250,7 @@ def annotate_snps(r_start, ref_seq, r_snp_calls, strand):
     if strand == -1:
         snp_seq = snp_seq[::-1]
     len_remain = len(ref_seq) - prev_pos
-    snp_quals.extend([MAX_BASE_QUAL] * len_remain)
+    snp_quals.extend([WHATSHAP_MAX_QUAL] * len_remain)
     if strand == -1:
         snp_quals = snp_quals[::-1]
     snp_quals = list(map(int, snp_quals))
@@ -270,7 +271,8 @@ def _get_snps_queue(
         a.reference_id = whatshap_map_fp.get_tid(chrm)
         a.reference_start = r_st
         a.template_length = len(snp_seq)
-        a.set_tags([('RG', '1')])
+        a.mapping_quality = WHATSHAP_MAX_QUAL
+        a.set_tags([('RG', WHATSHAP_RG_ID)])
 
         # convert to reference based sequence
         if strand == -1:
@@ -342,7 +344,7 @@ def _get_snps_queue(
             'HD': {'VN': '1.4'},
             'SQ': [{'LN': ref_len, 'SN': ref_name}
                    for ref_name, ref_len in sorted(zip(*ref_names_and_lens))],
-            'RG': [{'ID':1, 'SM':SAMPLE_NAME},]}
+            'RG': [{'ID':WHATSHAP_RG_ID, 'SM':SAMPLE_NAME},]}
         whatshap_map_fp = pysam.AlignmentFile(
             whatshap_map_fn, w_mode, header=header, reference_filename=ref_fn)
 
