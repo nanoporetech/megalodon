@@ -6,6 +6,7 @@ import datetime
 from time import sleep
 from array import array
 import multiprocessing as mp
+from operator import itemgetter
 from collections import defaultdict, namedtuple, OrderedDict
 
 import pysam
@@ -225,7 +226,7 @@ def iter_non_overlapping_snps(snp_calls):
     snp_data = next(snp_calls_iter)
     prev_snp_end = snp_data[0] + len(snp_data[2])
     snp_grp = [snp_data]
-    for snp_data in sorted(snp_calls):
+    for snp_data in sorted(snp_calls, key=itemgetter(0)):
         if snp_data[0] < prev_snp_end:
             prev_snp_end = max(snp_data[0] + len(snp_data[2]), prev_snp_end)
             snp_grp.append(snp_data)
