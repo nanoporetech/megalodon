@@ -572,7 +572,7 @@ class Variant(object):
     def add_sample_field(self, tag, value=None):
         self.sample_dict[tag] = value
 
-    def add_haploid_probs(self, probs):
+    def add_haploid_probs(self, probs, gts):
         # phred scaled likelihoods
         with np.errstate(divide='ignore'):
             raw_pl = -10 * np.log10(probs)
@@ -749,7 +749,9 @@ class AggSnps(mh.AbstractAggregationClass):
         post_snp_lps = snp_lps - logsumexp(snp_lps)
         return np.exp(post_snp_lps), list(map(str, range(snp_lps.shape[0])))
 
-    def compute_snp_stats(self, snp_loc, het_factors, call_mode=DIPLOID_MODE):
+    def compute_snp_stats(
+            self, snp_loc, het_factors, call_mode=DIPLOID_MODE,
+            valid_read_ids=None):
         assert call_mode in (HAPLIOD_MODE, DIPLOID_MODE), (
             'Invalid SNP aggregation ploidy call mode: {}.'.format(call_mode))
 
@@ -757,7 +759,13 @@ class AggSnps(mh.AbstractAggregationClass):
         alt_seqs = sorted(set(r_stats.alt_seq for r_stats in pr_snp_stats))
         pr_alt_lps = defaultdict(dict)
         for r_stats in pr_snp_stats:
+            if (valid_read_ids is not None and
+                r_stats.read_id not in valid_read_ids):
+                continue
             pr_alt_lps[r_stats.read_id][r_stats.alt_seq] = r_stats.score
+        if len(pr_alt_lps) == 0:
+            raise mh.MegaError('No valid reads cover SNP')
+
         alt_seq_lps = [[] for _ in range(len(alt_seqs))]
         for read_lps in pr_alt_lps.values():
             for i, alt_seq in enumerate(alt_seqs):

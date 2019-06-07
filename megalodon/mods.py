@@ -549,7 +549,7 @@ class AggMods(mh.AbstractAggregationClass):
 
         return curr_mix_prop, pos_scores.shape[0]
 
-    def compute_mod_stats(self, mod_loc, agg_method=None):
+    def compute_mod_stats(self, mod_loc, agg_method=None, valid_read_ids=None):
         if agg_method is None:
             agg_method = self.agg_method
         if agg_method not in AGG_METHOD_NAMES:
@@ -560,7 +560,12 @@ class AggMods(mh.AbstractAggregationClass):
         pr_mod_stats = self.get_per_read_mod_stats(mod_loc)
         mod_type_stats = defaultdict(list)
         for r_stats in pr_mod_stats:
+            if (valid_read_ids is not None and
+                r_stats.read_id not in valid_read_ids):
+                continue
             mod_type_stats[r_stats.mod_base].append(r_stats)
+        if len(mod_type_stats) == 0:
+            raise mh.MegaError('No valid reads cover modified base location')
         mt_stats = []
         for mod_base, mt_reads in mod_type_stats.items():
             mt_llrs = np.array([r_stats.score for r_stats in mt_reads])

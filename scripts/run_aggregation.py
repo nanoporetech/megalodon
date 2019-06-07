@@ -8,7 +8,7 @@ os.environ['OPENBLAS_NUM_THREADS'] = '1'
 import argparse
 
 from megalodon import (
-    aggregate, backends, mapping, mods, snps, megalodon_helper as mh)
+    aggregate, backends, logging, mapping, mods, snps, megalodon_helper as mh)
 
 
 def get_parser():
@@ -38,12 +38,20 @@ def get_parser():
         default='megalodon_results',
         help='Directory to store output results. Default: %(default)s')
     parser.add_argument(
+        '--output-suffix',
+        help='Suffix to apply to aggregated results (to avoid ' +
+        'ocerwriting results.')
+    parser.add_argument(
         '--processes', type=int, default=1,
         help='Number of parallel processes. Default: %(default)d')
     parser.add_argument(
+        '--read-ids-filename',
+        help='File containing read ids to process (one per ' +
+        'line). Default: All reads')
+    parser.add_argument(
         '--reference',
         help='Reference FASTA or minimap2 index file used for mapping ' +
-        'called reads.')
+        'called reads. Used to annotate VCF file with contig names.')
     parser.add_argument(
         '--suppress-progress', action='store_true',
         help='Suppress progress bar output.')
@@ -55,6 +63,9 @@ def get_parser():
 
 def main():
     args = get_parser().parse_args()
+    log_suffix = ('aggregation' if args.output_suffix is None else
+                  'aggregation.' + args.output_suffix)
+    logging.init_logger(args.output_directory, out_suffix=log_suffix)
     model_info = backends.ModelInfo(args.taiyaki_model_filename)
     mod_names = (model_info.mod_long_names
                  if mh.MOD_NAME in args.outputs else [])
@@ -63,12 +74,16 @@ def main():
     aligner = mapping.alignerPlus(
         str(args.reference), preset=str('map-ont'), best_n=1)
     aligner.add_ref_lens()
+    valid_read_ids = None
+    if args.read_ids_filename is not None:
+        with open(args.read_ids_filename) as read_ids_fp:
+            valid_read_ids = set(line.strip() for line in read_ids_fp)
     aggregate.aggregate_stats(
         args.outputs, args.output_directory, args.processes,
         args.write_vcf_log_probs, args.heterozygous_factors,
         snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE,
         mod_names, mod_agg_info, args.suppress_progress,
-        aligner.ref_names_and_lens)
+        aligner.ref_names_and_lens, valid_read_ids, args.output_suffix)
 
     return
 

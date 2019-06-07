@@ -31,8 +31,12 @@ class CustomFormatter(logging.Formatter):
 
         return result
 
-def init_logger(out_dir):
-    log_file = logging.FileHandler(os.path.join(out_dir, mh.LOG_FILENAME), 'w')
+def init_logger(out_dir, out_suffix=None):
+    log_fn = os.path.join(out_dir, mh.LOG_FILENAME)
+    if out_suffix is not None:
+        base_fn, fn_ext = os.path.splitext(log_fn)
+        log_fn = base_fn + '.' + out_suffix + fn_ext
+    log_file = logging.FileHandler(log_fn, 'w')
     log_file.setLevel(logging.DEBUG)
     log_file.setFormatter(CustomFormatter())
     console = logging.StreamHandler()
