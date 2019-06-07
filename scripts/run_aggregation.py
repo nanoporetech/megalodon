@@ -6,6 +6,7 @@ os.environ['OMP_NUM_THREADS'] = '1'
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
 import argparse
+from time import sleep
 
 from megalodon import (
     aggregate, backends, logging, mapping, mods, snps, megalodon_helper as mh)
@@ -66,6 +67,7 @@ def main():
     log_suffix = ('aggregation' if args.output_suffix is None else
                   'aggregation.' + args.output_suffix)
     logging.init_logger(args.output_directory, out_suffix=log_suffix)
+    logger = logging.get_logger()
     model_info = backends.ModelInfo(args.taiyaki_model_filename)
     mod_names = (model_info.mod_long_names
                  if mh.MOD_NAME in args.outputs else [])
@@ -84,6 +86,13 @@ def main():
         snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE,
         mod_names, mod_agg_info, args.suppress_progress,
         aligner.ref_names_and_lens, valid_read_ids, args.output_suffix)
+
+    if mh.SNP_NAME in args.outputs:
+        logger.info('Sorting output variant file')
+        sort_var_p = snps.sort_variants(
+            args.output_directory, args.output_suffix)
+        while sort_var_p.is_alive():
+            sleep(0.1)
 
     return
 
