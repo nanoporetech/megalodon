@@ -745,7 +745,7 @@ class AggSnps(mh.AbstractAggregationClass):
         return np.exp(post_snp_lps), gts
 
     def compute_haploid_probs(self, ref_lps, alts_lps):
-        snp_lps = np.concatenate([[ref_lps.sum()], alts_lps.sum(axis=0)])
+        snp_lps = np.concatenate([[ref_lps.sum()], alts_lps.sum(axis=1)])
         post_snp_lps = snp_lps - logsumexp(snp_lps)
         return np.exp(post_snp_lps), list(map(str, range(snp_lps.shape[0])))
 
