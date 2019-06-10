@@ -493,9 +493,13 @@ class SnpData(object):
         """
         if r_ref_pos.end - r_ref_pos.start <= 2 * edge_buffer:
             raise mh.MegaError('Mapped region too short for SNP calling.')
-        for variant in self.variants_idx.fetch(
+        try:
+            fetch_res = self.variants_idx.fetch(
                 r_ref_pos.chrm, r_ref_pos.start + edge_buffer,
-                r_ref_pos.end - edge_buffer):
+                r_ref_pos.end - edge_buffer)
+        except ValueError:
+            raise mh.MegaError('Mapped location not valid for variants file.')
+        for variant in fetch_res:
             snp_ref_seq = variant.ref
             snp_alt_seqs = variant.alts
             # skip SNPs larger than specified limit
