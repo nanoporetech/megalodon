@@ -63,7 +63,7 @@ SNP Arguments
 
   - Output per-read SNPs in text format.
 
-    - Output includes columns: ``read_id``, ``chrm``, ``strand``, ``pos``, ``score``, ``snp_ref_seq``, ``snp_alt_seq``, ``snp_id``
+    - Output includes columns: ``read_id``, ``chrm``, ``strand``, ``pos``, ``scores``, ``snp_ref_seq``, ``snp_alt_seqs``, ``snp_id``
     - Scores are log probabilities of the alternative allele.
 
       - Probabilities are calibrated to match observed log-likelihood ratios from ground truth samples.

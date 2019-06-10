@@ -348,9 +348,9 @@ def _get_snps_queue(
             # for var strings (read_if and chrms).
             snps_txt_fp.write('\n'.join((
                 '{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
-                    read_id, chrm, strand, pos, score,
-                    snp_ref_seq, snp_alt_seq, snp_id)
-                for pos, score, snp_ref_seq, snp_alt_seq, snp_id in
+                    read_id, chrm, strand, pos, ','.join(map(str, alt_scores)),
+                    snp_ref_seq, ','.join(snp_alt_seqs), snp_id)
+                for pos, alt_scores, snp_ref_seq, snp_alt_seqs, snp_id in
                 r_snp_calls)) + '\n')
             snps_txt_fp.flush()
         if do_ann_snps:
