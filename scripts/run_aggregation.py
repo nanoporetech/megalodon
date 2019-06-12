@@ -16,7 +16,8 @@ def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--taiyaki-model-filename',
-        help='Taiyaki model checkpoint file.')
+        help='Taiyaki model checkpoint file. Default: Load default model ' +
+        '({})'.format(mh.MODEL_PRESET_DESC))
     parser.add_argument(
         '--outputs', nargs='+',
         default=[mh.SNP_NAME, mh.MOD_NAME],
@@ -68,7 +69,8 @@ def main():
                   'aggregation.' + args.output_suffix)
     logging.init_logger(args.output_directory, out_suffix=log_suffix)
     logger = logging.get_logger()
-    model_info = backends.ModelInfo(args.taiyaki_model_filename)
+    tai_model_fn = mh.get_model_fn(args.taiyaki_model_filename)
+    model_info = backends.ModelInfo(tai_model_fn)
     mod_names = (model_info.mod_long_names
                  if mh.MOD_NAME in args.outputs else [])
     mod_agg_info = mods.AGG_INFO(
