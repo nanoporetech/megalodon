@@ -448,13 +448,16 @@ class SnpData(object):
             return
 
         logger.info('Loading variants.')
-        vars_idx = pysam.VariantFile(variant_fn)
+        vars_idx = pysam.VariantFile(self.variant_fn)
         try:
             contigs = list(vars_idx.header.contigs.keys())
             vars_idx.fetch(next(iter(contigs)), 0, 0)
         except ValueError:
-            raise mh.MegaError(
-                'Variants file must be indexed. Use bgzip and tabix.')
+            logger.warn(
+                'Variants file must be indexed. Performing indexing now.')
+            vars_idx.close()
+            self.variant_fn = index_variants(self.variant_fn)
+            vars_idx = pysam.VariantFile(self.variant_fn)
         if keep_snp_fp_open:
             self.variants_idx = vars_idx
         else:
@@ -817,29 +820,12 @@ class AggSnps(mh.AbstractAggregationClass):
 ##### Whatshap Mapping Post-process #####
 #########################################
 
-def sort_whatshap_mappings(out_dir, map_fmt):
-    whatshap_map_fn = os.path.join(
-        out_dir, mh.OUTPUT_FNS[mh.WHATSHAP_MAP_NAME] + '.' + map_fmt)
-    whatshap_sorted_basename = os.path.join(
-        out_dir, mh.OUTPUT_FNS[mh.WHATSHAP_MAP_NAME] + '.sorted')
-    whatshap_p = mp.Process(
-        target=mh.sort_and_index_mapping,
-        args=(whatshap_map_fn, whatshap_sorted_basename), daemon=True)
-    whatshap_p.start()
-    return whatshap_p
-
-def get_whatshap_command(out_dir):
-    agg_snp_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.SNP_NAME])
-    agg_snps_bn, _ = os.path.splitext(agg_snp_fn)
-    sort_snps_fn = agg_snps_bn + '.sorted.vcf.gz'
-    phase_fn = agg_snps_bn + '.phased.vcf'
-    map_sort_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.WHATSHAP_MAP_NAME] +
-                               '.sorted.bam')
+def get_whatshap_command(index_variant_fn, whatshap_sort_fn, phase_fn):
     return ('Run following command to obtain phased variants:\n\t\t' +
             'whatshap phase --indels --distrust-genotypes -o {} {} {}').format(
-                phase_fn, sort_snps_fn, map_sort_fn)
+                phase_fn, index_variant_fn, whatshap_sort_fn)
 
-def _sort_variants(in_vcf_fn, out_vcf_fn):
+def sort_variants(in_vcf_fn, out_vcf_fn):
     in_vcf_fp = pysam.VariantFile(in_vcf_fn)
     with pysam.VariantFile(
             out_vcf_fn, 'w', header=in_vcf_fp.header) as out_vcf_fp:
@@ -847,21 +833,13 @@ def _sort_variants(in_vcf_fn, out_vcf_fn):
             out_vcf_fp.write(rec)
     return
 
-def sort_variants(out_dir, out_suffix=None):
-    in_vcf_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.SNP_NAME])
-    if out_suffix is not None:
-        base_fn, fn_ext = os.path.splitext(in_vcf_fn)
-        in_vcf_fn = base_fn + '.' + out_suffix + fn_ext
-    out_vcf_fn = os.path.splitext(in_vcf_fn)[0] + '.sorted.vcf'
-
-    sort_var_p = mp.Process(
-        target=_sort_variants, args=(in_vcf_fn, out_vcf_fn), daemon=True)
-    sort_var_p.start()
-    return sort_var_p, out_vcf_fn
-
 def index_variants(variant_fn):
-    return pysam.tabix_index(
-        variant_fn, force=True, preset='vcf', keep_original=True)
+    try:
+        return pysam.tabix_index(
+            variant_fn, force=True, preset='vcf', keep_original=True)
+    except OSError:
+        # file likely not sorted
+        _sort_variants(variant_fn, )
 
 
 if __name__ == '__main__':

@@ -14,19 +14,19 @@ Workflow
 
    # run megalodon to produce whatshap_mappings
    megalodon \
-       fast5s --outputs whatshap_mappings \
-       --reference reference.fasta --variant-filename variants.vcf.gz
+       fast5s --outputs whatshap_mappings --processes 4 \
+       --reference reference.fasta --variant-filename variants.vcf.gz --overwrite
 
    # run whatshap with produced mappings and variants
    whatshap \
        phase --indels --distrust-genotypes \
        -o megalodon_results/variants.phased.vcf \
-       megalodon_results/variants.sorted.vcf \
+       megalodon_results/variants.sorted.vcf.gz \
        megalodon_results/whatshap_mappings.sorted.bam
-   bgzip megalodon_results/variants.phased.vcf
-   tabix megalodon_results/variants.phased.vcf.gz
 
    # color reads against the phased variants
+   bgzip megalodon_results/variants.phased.vcf
+   tabix megalodon_results/variants.phased.vcf.gz
    whatshap \
        haplotag megalodon_results/variants.phased.vcf.gz \
        megalodon_results/whatshap_mappings.sorted.bam \
@@ -43,15 +43,11 @@ Workflow
        --outputs snps --haploid --output-suffix haplotype_1 \
        --read-ids-filename megalodon_results/whatshap_mappings.haploid_reads.haplotype_1_read_ids.txt \
        --reference reference.fasta
-   bgzip megalodon_results/variants.haplotype_1.sorted.vcf
-   tabix megalodon_results/variants.haplotype_1.sorted.vcf.gz
    python \
        megalodon/scripts/run_aggregation.py \
        --outputs snps --haploid --output-suffix haplotype_2 \
        --read-ids-filename megalodon_results/whatshap_mappings.haploid_reads.haplotype_2_read_ids.txt \
        --reference reference.fasta
-   bgzip megalodon_results/variants.haplotype_2.sorted.vcf
-   tabix megalodon_results/variants.haplotype_2.sorted.vcf.gz
 
    # merge haploid variants to produce diploid variants
    python \

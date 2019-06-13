@@ -187,13 +187,11 @@ def _get_map_queue(
         return
 
 
-    map_bn, summ_fn = mh.OUTPUT_FNS[mh.MAP_NAME]
-
-    summ_fp = open(os.path.join(out_dir, summ_fn), 'w')
+    summ_fp = open(mh.get_megalodon_fn(out_dir, mh.MAP_SUMM_NAME), 'w')
     summ_fp.write('read_id\tpct_identity\tnum_align\tnum_match\t' +
                   'num_del\tnum_ins\n')
 
-    map_fn = os.path.join(out_dir, map_bn + '.' + map_fmt)
+    map_fn = mh.get_megalodon_fn(out_dir, mh.MAP_NAME) + '.' + map_fmt
     if map_fmt == 'bam': w_mode = 'wb'
     elif map_fmt == 'cram': w_mode = 'wc'
     elif map_fmt == 'sam': w_mode = 'w'
@@ -204,7 +202,7 @@ def _get_map_queue(
         reference_lengths=ref_names_and_lens[1], reference_filename=ref_fn)
 
     if do_output_pr_refs:
-        pr_ref_fp = open(os.path.join(out_dir, mh.PR_REF_FN), 'w')
+        pr_ref_fp = open(mh.get_megalodon_fn(out_dir, mh.PR_REF_NAME), 'w')
 
     try:
         while True:
@@ -224,6 +222,16 @@ def _get_map_queue(
         if do_output_pr_refs:
             pr_ref_fp.close()
 
+    return
+
+
+############################
+##### Samtools wrapper #####
+############################
+
+def sort_and_index_mapping(map_fn, out_fn):
+    pysam.sort('-O', 'BAM', '-o', out_fn, map_fn)
+    pysam.index(out_fn)
     return
 
 

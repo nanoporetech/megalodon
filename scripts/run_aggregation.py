@@ -40,9 +40,9 @@ def get_parser():
         default='megalodon_results',
         help='Directory to store output results. Default: %(default)s')
     parser.add_argument(
-        '--output-suffix',
-        help='Suffix to apply to aggregated results (to avoid ' +
-        'ocerwriting results.')
+        '--output-suffix', default='re_aggregated',
+        help='Suffix to apply to aggregated results, to avoid ' +
+        'overwriting results. Default: %(default)s')
     parser.add_argument(
         '--processes', type=int, default=1,
         help='Number of parallel processes. Default: %(default)d')
@@ -91,10 +91,11 @@ def main():
 
     if mh.SNP_NAME in args.outputs:
         logger.info('Sorting output variant file')
-        sort_var_p, sort_variant_fn = snps.sort_variants(
-            args.output_directory, args.output_suffix)
-        while sort_var_p.is_alive():
-            sleep(0.1)
+        variant_fn = mh.add_fn_suffix(
+            mh.get_megalodon_fn(args.output_directory, mh.SNP_NAME),
+            args.output_suffix)
+        sort_variant_fn = mh.add_fn_suffix(variant_fn, 'sorted')
+        snps.sort_variants(variant_fn, sort_variant_fn)
         logger.info('Indexing output variant file')
         index_var_fn = snps.index_variants(sort_variant_fn)
 

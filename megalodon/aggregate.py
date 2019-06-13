@@ -41,7 +41,7 @@ def _agg_snps_worker(
 
 def _get_snp_stats_queue(
         snp_stats_q, snp_conn, out_dir, ref_names_and_lens, out_suffix):
-    agg_snp_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.SNP_NAME])
+    agg_snp_fn = mh.get_megalodon_fn(out_dir, mh.SNP_NAME)
     if out_suffix is not None:
         base_fn, fn_ext = os.path.splitext(agg_snp_fn)
         agg_snp_fn = base_fn + '.' + out_suffix + fn_ext
@@ -95,7 +95,7 @@ def _agg_mods_worker(
 def _get_mod_stats_queue(
         mod_stats_q, mod_conn, out_dir, mod_names, ref_names_and_lens,
         out_suffix):
-    agg_mod_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.MOD_NAME])
+    agg_mod_fn = mh.get_megalodon_fn(out_dir, mh.MOD_NAME)
     if out_suffix is not None:
         base_fn, fn_ext = os.path.splitext(agg_mod_fn)
         agg_mod_fn = base_fn + '.' + out_suffix + fn_ext
@@ -189,7 +189,7 @@ def aggregate_stats(
     num_snps, num_mods, snp_prog_q, mod_prog_q = (
         0, 0, queue.Queue(), queue.Queue())
     if mh.SNP_NAME in outputs:
-        snps_db_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.PR_SNP_NAME][0])
+        snps_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_SNP_NAME)
         num_snps = snps.AggSnps(snps_db_fn).num_uniq()
         # create process to collect snp stats from workers
         snp_stats_q, snp_stats_p, main_snp_stats_conn = mh.create_getter_q(
@@ -213,7 +213,7 @@ def aggregate_stats(
             agg_snps_ps.append(p)
 
     if mh.MOD_NAME in outputs:
-        mods_db_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.PR_MOD_NAME][0])
+        mods_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME)
         num_mods = mods.AggMods(mods_db_fn).num_uniq()
         # create process to collect mods stats from workers
         mod_stats_q, mod_stats_p, main_mod_stats_conn = mh.create_getter_q(
