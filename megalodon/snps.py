@@ -839,7 +839,10 @@ def index_variants(variant_fn):
             variant_fn, force=True, preset='vcf', keep_original=True)
     except OSError:
         # file likely not sorted
-        _sort_variants(variant_fn, )
+        sort_variant_fn = mh.add_fn_suffix(variant_fn, 'sorted')
+        sort_variants(variant_fn, sort_variant_fn)
+        return pysam.tabix_index(
+            sort_variant_fn, force=True, preset='vcf', keep_original=True)
 
 
 if __name__ == '__main__':
