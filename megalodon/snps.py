@@ -831,7 +831,7 @@ def sort_whatshap_mappings(out_dir, map_fmt):
 def get_whatshap_command(out_dir):
     agg_snp_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.SNP_NAME])
     agg_snps_bn, _ = os.path.splitext(agg_snp_fn)
-    sort_snps_fn = agg_snps_bn + '.sorted.vcf'
+    sort_snps_fn = agg_snps_bn + '.sorted.vcf.gz'
     phase_fn = agg_snps_bn + '.phased.vcf'
     map_sort_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.WHATSHAP_MAP_NAME] +
                                '.sorted.bam')
@@ -839,12 +839,7 @@ def get_whatshap_command(out_dir):
             'whatshap phase --indels --distrust-genotypes -o {} {} {}').format(
                 phase_fn, sort_snps_fn, map_sort_fn)
 
-def _sort_variants(out_dir, out_suffix):
-    in_vcf_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.SNP_NAME])
-    if out_suffix is not None:
-        base_fn, fn_ext = os.path.splitext(in_vcf_fn)
-        in_vcf_fn = base_fn + '.' + out_suffix + fn_ext
-    out_vcf_fn = os.path.splitext(in_vcf_fn)[0] + '.sorted.vcf'
+def _sort_variants(in_vcf_fn, out_vcf_fn):
     in_vcf_fp = pysam.VariantFile(in_vcf_fn)
     with pysam.VariantFile(
             out_vcf_fn, 'w', header=in_vcf_fp.header) as out_vcf_fp:
@@ -853,10 +848,20 @@ def _sort_variants(out_dir, out_suffix):
     return
 
 def sort_variants(out_dir, out_suffix=None):
+    in_vcf_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.SNP_NAME])
+    if out_suffix is not None:
+        base_fn, fn_ext = os.path.splitext(in_vcf_fn)
+        in_vcf_fn = base_fn + '.' + out_suffix + fn_ext
+    out_vcf_fn = os.path.splitext(in_vcf_fn)[0] + '.sorted.vcf'
+
     sort_var_p = mp.Process(
-        target=_sort_variants, args=(out_dir, out_suffix), daemon=True)
+        target=_sort_variants, args=(in_vcf_fn, out_vcf_fn), daemon=True)
     sort_var_p.start()
-    return sort_var_p
+    return sort_var_p, out_vcf_fn
+
+def index_variants(variant_fn):
+    return pysam.tabix_index(
+        variant_fn, force=True, preset='vcf', keep_original=True)
 
 
 if __name__ == '__main__':

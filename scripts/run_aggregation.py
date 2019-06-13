@@ -91,10 +91,12 @@ def main():
 
     if mh.SNP_NAME in args.outputs:
         logger.info('Sorting output variant file')
-        sort_var_p = snps.sort_variants(
+        sort_var_p, sort_variant_fn = snps.sort_variants(
             args.output_directory, args.output_suffix)
         while sort_var_p.is_alive():
             sleep(0.1)
+        logger.info('Indexing output variant file')
+        index_var_fn = snps.index_variants(sort_variant_fn)
 
     return
 

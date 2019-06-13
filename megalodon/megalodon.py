@@ -942,9 +942,12 @@ def _main():
 
     if mh.SNP_NAME in args.outputs:
         logger.info('Sorting output variant file')
-        sort_var_p = snps.sort_variants(args.output_directory)
+        sort_var_p, sort_variant_fn = snps.sort_variants(
+            args.output_directory)
         while sort_var_p.is_alive():
             sleep(0.1)
+        logger.info('Indexing output variant file')
+        index_var_fn = snps.index_variants(sort_variant_fn)
 
     if mh.WHATSHAP_MAP_NAME in args.outputs:
         if whatshap_p.is_alive():
