@@ -145,8 +145,6 @@ def _get_map_queue(
     def write_alignment(
             read_id, q_seq, chrm, strand, r_st, q_st, q_en, cigar):
         q_seq = q_seq[q_st:q_en]
-        if strand == -1:
-            cigar = cigar[::-1]
 
         a = pysam.AlignedSegment()
         a.query_name = read_id
