@@ -213,6 +213,47 @@ if _DO_PROFILE:
         return
 
 
+####################################
+##### Post Per-read Processing #####
+####################################
+
+def post_process_whatshap(out_dir, map_fmt):
+    whatshap_map_bn = mh.get_megalodon_fn(out_dir, mh.WHATSHAP_MAP_NAME)
+    whatshap_map_fn = whatshap_map_bn + '.' + map_fmt
+    whatshap_sort_fn = whatshap_map_bn + '.sorted.bam'
+    whatshap_p = mp.Process(
+        target=mapping.sort_and_index_mapping,
+        args=(whatshap_map_fn, whatshap_sort_fn), daemon=True)
+    whatshap_p.start()
+    sleep(0.01)
+
+    return whatshap_sort_fn, whatshap_p
+
+def post_process_mapping(out_dir, map_fmt):
+    map_bn = mh.get_megalodon_fn(out_dir, mh.MAP_NAME)
+    map_fn = map_bn + '.' + map_fmt
+    map_sort_fn = map_bn + '.sorted.bam'
+    map_p = mp.Process(
+        target=mapping.sort_and_index_mapping,
+        args=(map_fn, map_sort_fn), daemon=True)
+    map_p.start()
+    sleep(0.01)
+
+    return map_p
+
+def post_process_aggregate(
+        mods_info, outputs, mod_bin_thresh, out_dir, num_ps, write_vcf_lp,
+        het_factors, snps_data, supp_prog, ref_names_and_lens):
+    mod_names = mods_info.mod_long_names if mh.MOD_NAME in outputs else []
+    mod_agg_info = mods.AGG_INFO(mods.BIN_THRESH_NAME, mod_bin_thresh)
+    aggregate.aggregate_stats(
+        outputs, out_dir, num_ps, write_vcf_lp, het_factors,
+        snps_data.call_mode, mod_names, mod_agg_info,
+        supp_prog, ref_names_and_lens)
+    return
+
+
+
 ##################################
 ##### Dynamic error updating #####
 ##################################
@@ -918,28 +959,21 @@ def _main():
         args.processes, args.verbose_read_progress, args.suppress_progress,
         mods_info, args.database_safety, args.edge_buffer, pr_ref_filts)
 
+    if mh.MAP_NAME in args.outputs:
+        logger.info('Spawning process to sort and index whatshap mappings')
+        map_p = post_process_mapping(args.output_directory, aligner.out_fmt)
+
     if mh.WHATSHAP_MAP_NAME in args.outputs:
         logger.info('Spawning process to sort and index whatshap mappings')
-        whatshap_map_bn = mh.get_megalodon_fn(
-            args.output_directory, mh.WHATSHAP_MAP_NAME)
-        whatshap_map_fn = whatshap_map_bn + '.' + aligner.out_fmt
-        whatshap_sort_fn = whatshap_map_bn + '.sorted.bam'
-        whatshap_p = mp.Process(
-            target=mapping.sort_and_index_mapping,
-            args=(whatshap_map_fn, whatshap_sort_fn), daemon=True)
-        whatshap_p.start()
-        sleep(0.01)
+        whatshap_sort_fn, whatshap_p = post_process_whatshap(
+            args.output_directory, aligner.out_fmt)
 
     if mh.SNP_NAME in args.outputs or mh.MOD_NAME in args.outputs:
-        mod_names = (mods_info.mod_long_names
-                     if mh.MOD_NAME in args.outputs else [])
-        mod_agg_info = mods.AGG_INFO(
-            mods.BIN_THRESH_NAME, args.mod_binary_threshold)
-        aggregate.aggregate_stats(
-            args.outputs, args.output_directory, args.processes,
-            args.write_vcf_log_probs, args.heterozygous_factors,
-            snps_data.call_mode, mod_names, mod_agg_info,
-            args.suppress_progress, aligner.ref_names_and_lens)
+        post_process_aggregate(
+            mods_info, args.outputs, args.mod_binary_threshold,
+            args.output_directory, args.processes, args.write_vcf_log_probs,
+            args.heterozygous_factors, snps_data, args.suppress_progress,
+            aligner.ref_names_and_lens)
 
     if mh.SNP_NAME in args.outputs:
         logger.info('Sorting output variant file')
@@ -957,6 +991,12 @@ def _main():
         logger.info(snps.get_whatshap_command(
             index_variant_fn, whatshap_sort_fn,
             mh.add_fn_suffix(variant_fn, 'phased')))
+
+    if mh.MAP_NAME in args.outputs:
+        if map_p.is_alive():
+            logger.info('Waiting for mappings sort and index')
+            while map_p.is_alive():
+                sleep(0.1)
 
     return
 
