@@ -217,25 +217,25 @@ if _DO_PROFILE:
 ##### Post Per-read Processing #####
 ####################################
 
-def post_process_whatshap(out_dir, map_fmt):
+def post_process_whatshap(out_dir, map_fmt, ref_fn):
     whatshap_map_bn = mh.get_megalodon_fn(out_dir, mh.WHATSHAP_MAP_NAME)
     whatshap_map_fn = whatshap_map_bn + '.' + map_fmt
     whatshap_sort_fn = whatshap_map_bn + '.sorted.bam'
     whatshap_p = mp.Process(
         target=mapping.sort_and_index_mapping,
-        args=(whatshap_map_fn, whatshap_sort_fn), daemon=True)
+        args=(whatshap_map_fn, whatshap_sort_fn, ref_fn), daemon=True)
     whatshap_p.start()
     sleep(0.01)
 
     return whatshap_sort_fn, whatshap_p
 
-def post_process_mapping(out_dir, map_fmt):
+def post_process_mapping(out_dir, map_fmt, ref_fn):
     map_bn = mh.get_megalodon_fn(out_dir, mh.MAP_NAME)
     map_fn = map_bn + '.' + map_fmt
     map_sort_fn = map_bn + '.sorted.bam'
     map_p = mp.Process(
         target=mapping.sort_and_index_mapping,
-        args=(map_fn, map_sort_fn), daemon=True)
+        args=(map_fn, map_sort_fn, ref_fn), daemon=True)
     map_p.start()
     sleep(0.01)
 
@@ -556,8 +556,11 @@ def aligner_validation(args):
         aligner = mapping.alignerPlus(
             str(args.reference), preset=str('map-ont'), best_n=1)
         setattr(aligner, 'out_fmt', args.mappings_format)
-        setattr(aligner, 'ref_fn', args.reference)
+        setattr(aligner, 'ref_fn', mh.resolve_path(args.reference))
         aligner.add_ref_lens()
+        mapping.test_open_alignment_out_file(
+            args.output_directory, aligner.out_fmt,
+            aligner.ref_names_and_lens, aligner.ref_fn)
     else:
         aligner = None
         if args.reference is not None:
@@ -960,13 +963,14 @@ def _main():
         mods_info, args.database_safety, args.edge_buffer, pr_ref_filts)
 
     if mh.MAP_NAME in args.outputs:
-        logger.info('Spawning process to sort and index whatshap mappings')
-        map_p = post_process_mapping(args.output_directory, aligner.out_fmt)
+        logger.info('Spawning process to sort and index mappings')
+        map_p = post_process_mapping(
+            args.output_directory, aligner.out_fmt, aligner.ref_fn)
 
     if mh.WHATSHAP_MAP_NAME in args.outputs:
         logger.info('Spawning process to sort and index whatshap mappings')
         whatshap_sort_fn, whatshap_p = post_process_whatshap(
-            args.output_directory, aligner.out_fmt)
+            args.output_directory, aligner.out_fmt, aligner.ref_fn)
 
     if mh.SNP_NAME in args.outputs or mh.MOD_NAME in args.outputs:
         post_process_aggregate(

@@ -139,6 +139,29 @@ def read_passes_filters(pr_ref_filts, read_len, q_st, q_en, cigar):
         return False
     return True
 
+def open_alignment_out_file(out_dir, map_fmt, ref_names_and_lens, ref_fn):
+    map_fn = mh.get_megalodon_fn(out_dir, mh.MAP_NAME) + '.' + map_fmt
+    if map_fmt == 'bam': w_mode = 'wb'
+    elif map_fmt == 'cram': w_mode = 'wc'
+    elif map_fmt == 'sam': w_mode = 'w'
+    else:
+        raise mh.MegaError('Invalid mapping output format')
+    return pysam.AlignmentFile(
+        map_fn, w_mode, reference_names=ref_names_and_lens[0],
+        reference_lengths=ref_names_and_lens[1], reference_filename=ref_fn)
+
+def test_open_alignment_out_file(out_dir, map_fmt, ref_names_and_lens, ref_fn):
+    try:
+        map_fp = open_alignment_out_file(
+            out_dir, map_fmt, ref_names_and_lens, ref_fn)
+    except ValueError:
+        raise mh.MegaError(
+            'Failed to open alignment file for writing. Check that reference ' +
+            'file is compressed with bgzip for CRAM output.')
+    map_fp.close()
+    return
+
+
 def _get_map_queue(
         mo_q, map_conn, out_dir, ref_names_and_lens, map_fmt, ref_fn,
         do_output_pr_refs, pr_ref_filts):
@@ -189,15 +212,8 @@ def _get_map_queue(
     summ_fp.write('read_id\tpct_identity\tnum_align\tnum_match\t' +
                   'num_del\tnum_ins\n')
 
-    map_fn = mh.get_megalodon_fn(out_dir, mh.MAP_NAME) + '.' + map_fmt
-    if map_fmt == 'bam': w_mode = 'wb'
-    elif map_fmt == 'cram': w_mode = 'wc'
-    elif map_fmt == 'sam': w_mode = 'w'
-    else:
-        raise mh.MegaError('Invalid mapping output format')
-    map_fp = pysam.AlignmentFile(
-        map_fn, w_mode, reference_names=ref_names_and_lens[0],
-        reference_lengths=ref_names_and_lens[1], reference_filename=ref_fn)
+    map_fp = open_alignment_out_file(
+        out_dir, map_fmt, ref_names_and_lens, ref_fn)
 
     if do_output_pr_refs:
         pr_ref_fp = open(mh.get_megalodon_fn(out_dir, mh.PR_REF_NAME), 'w')
@@ -227,8 +243,11 @@ def _get_map_queue(
 ##### Samtools wrapper #####
 ############################
 
-def sort_and_index_mapping(map_fn, out_fn):
-    pysam.sort('-O', 'BAM', '-o', out_fn, map_fn)
+def sort_and_index_mapping(map_fn, out_fn, ref_fn=None):
+    sort_args = ['-O', 'BAM', '-o', out_fn, map_fn]
+    if ref_fn is not None:
+        sort_args.extend(('--reference', ref_fn))
+    pysam.sort(*sort_args)
     pysam.index(out_fn)
     return
 
