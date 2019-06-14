@@ -52,6 +52,7 @@ Workflow
    # merge haploid variants to produce diploid variants
    python \
        megalodon/scripts/merge_haploid_variants.py \
+       megalodon_results/variants.phased.vcf.gz \
        megalodon_results/variants.haplotype_1.sorted.vcf.gz \
        megalodon_results/variants.haplotype_2.sorted.vcf.gz \
        --out-vcf megalodon_results/variants.haploid_merged.vcf

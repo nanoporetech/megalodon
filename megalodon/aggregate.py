@@ -15,9 +15,9 @@ from megalodon import logging, mods, snps, megalodon_helper as mh
 #######################################
 
 def _agg_snps_worker(
-        locs_q, snp_stats_q, snp_prog_q, snps_db_fn, write_vcf_llr,
+        locs_q, snp_stats_q, snp_prog_q, snps_db_fn, write_vcf_lp,
         het_factors, call_mode, valid_read_ids):
-    agg_snps = snps.AggSnps(snps_db_fn, write_vcf_llr)
+    agg_snps = snps.AggSnps(snps_db_fn, write_vcf_lp)
 
     while True:
         try:
@@ -40,13 +40,15 @@ def _agg_snps_worker(
     return
 
 def _get_snp_stats_queue(
-        snp_stats_q, snp_conn, out_dir, ref_names_and_lens, out_suffix):
+        snp_stats_q, snp_conn, out_dir, ref_names_and_lens, out_suffix,
+        write_vcf_lp):
     agg_snp_fn = mh.get_megalodon_fn(out_dir, mh.SNP_NAME)
     if out_suffix is not None:
         base_fn, fn_ext = os.path.splitext(agg_snp_fn)
         agg_snp_fn = base_fn + '.' + out_suffix + fn_ext
     agg_snp_fp = snps.VcfWriter(
-        agg_snp_fn, 'w', ref_names_and_lens=ref_names_and_lens)
+        agg_snp_fn, 'w', ref_names_and_lens=ref_names_and_lens,
+        write_vcf_lp=write_vcf_lp)
 
     while True:
         try:
@@ -180,7 +182,7 @@ def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps):
     return
 
 def aggregate_stats(
-        outputs, out_dir, num_ps, write_vcf_llr, het_factors, call_mode,
+        outputs, out_dir, num_ps, write_vcf_lp, het_factors, call_mode,
         mod_names, mod_agg_info, suppress_progress, ref_names_and_lens,
         valid_read_ids=None, out_suffix=None):
     if mh.SNP_NAME in outputs and mh.MOD_NAME in outputs:
@@ -193,7 +195,8 @@ def aggregate_stats(
         num_snps = snps.AggSnps(snps_db_fn).num_uniq()
         # create process to collect snp stats from workers
         snp_stats_q, snp_stats_p, main_snp_stats_conn = mh.create_getter_q(
-            _get_snp_stats_queue, (out_dir, ref_names_and_lens, out_suffix))
+            _get_snp_stats_queue, (
+                out_dir, ref_names_and_lens, out_suffix, write_vcf_lp))
         # create process to fill snp locs queue
         snp_filler_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
         snp_filler_p = mp.Process(
@@ -207,7 +210,7 @@ def aggregate_stats(
             p = mp.Process(
                 target=_agg_snps_worker,
                 args=(snp_filler_q, snp_stats_q, snp_prog_q, snps_db_fn,
-                      write_vcf_llr, het_factors, call_mode, valid_read_ids),
+                      write_vcf_lp, het_factors, call_mode, valid_read_ids),
                 daemon=True)
             p.start()
             agg_snps_ps.append(p)

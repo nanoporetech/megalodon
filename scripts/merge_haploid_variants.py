@@ -44,6 +44,11 @@ def are_same_var(v0, v1, v2):
             all((v1i == v1i == v2i)
                 for v0i, v1i, v2i in zip(v0.alts, v1.alts, v2.alts)))
 
+def parse_qual(qual):
+    if qual is None:
+        return 0
+    return qual
+
 def main():
     args = get_parser().parse_args()
 
@@ -85,7 +90,8 @@ def main():
                             next(iter(curr_v1_rec.samples.values()))['GT'][0],
                             next(iter(curr_v2_rec.samples.values()))['GT'][0])
                     qual = max(0, int(np.around(np.mean(
-                        (curr_v1_rec.qual, curr_v2_rec.qual)))))
+                        (parse_qual(curr_v1_rec.qual),
+                         parse_qual(curr_v2_rec.qual))))))
                     if qual == 0: qual = '.'
                     out_vars.write(RECORD_LINE.format(
                         contig, curr_v1_rec.pos, curr_v1_rec.id, curr_v1_rec.ref,

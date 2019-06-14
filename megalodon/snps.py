@@ -61,8 +61,15 @@ FIXED_VCF_MI = [
     'FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
     'FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype Quality">',
     'FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read Depth">',
-    'FORMAT=<ID=PL,Number=G,Type=Integer,Description="Normalized, Phred-scaled likelihoods for genotypes as defined in the VCF specification">'
+    ('FORMAT=<ID=GL,Number=G,Type=Float,' +
+     'Description="Log10 likelihoods for genotypes">'),
+    ('FORMAT=<ID=PL,Number=G,Type=Integer,' +
+     'Description="Normalized, Phred-scaled likelihoods for genotypes">')
 ]
+FORMAT_LOG_PROB_MI = (
+    'FORMAT=<ID=LOG_PROBS,Number=A,Type=String,' +
+    'Description="Per-read log10 likelihoods for alternative ' +
+    'alleles (semi-colon separated)">')
 
 
 ################################
@@ -582,26 +589,8 @@ class Variant(object):
     def add_haploid_probs(self, probs, gts):
         # phred scaled likelihoods
         with np.errstate(divide='ignore'):
-            raw_pl = -10 * np.log10(probs)
-        # "normalized" PL values stored as decsribed by VCF format
-        # abs to remove negative 0 from file
-        pl = np.abs(np.minimum(raw_pl - raw_pl.min(), mh.MAX_PL_VALUE))
-        s_pl = np.sort(pl)
-
-        # add sample tags
-        self.add_sample_field('GT', gts[np.argmax(probs)])
-        self.qual = '{:.0f}'.format(
-            np.around(np.minimum(raw_pl[0], mh.MAX_PL_VALUE)))
-        self.add_sample_field('GQ', '{:.0f}'.format(np.around(s_pl[1])))
-        self.add_sample_field(
-            'PL', ','.join('{:.0f}' for _ in range(probs.shape[0])).format(
-                *np.around(pl)))
-        return
-
-    def add_diploid_probs(self, probs, gts):
-        # phred scaled likelihoods
-        with np.errstate(divide='ignore'):
-            raw_pl = -10 * np.log10(probs)
+            gl = np.log10(probs)
+        raw_pl = -10 * gl
         # "normalized" PL values stored as decsribed by VCF format
         # abs to remove negative 0 from file
         pl = np.abs(np.minimum(raw_pl - raw_pl.min(), mh.MAX_PL_VALUE))
@@ -612,6 +601,30 @@ class Variant(object):
         qual = int(np.around(np.minimum(raw_pl[0], mh.MAX_PL_VALUE)))
         self.qual = '{:.0f}'.format(qual) if qual > 0 else '.'
         self.add_sample_field('GQ', '{:.0f}'.format(np.around(s_pl[1])))
+        self.add_sample_field(
+            'GL', ','.join('{:.2f}' for _ in range(probs.shape[0])).format(*gl))
+        self.add_sample_field(
+            'PL', ','.join('{:.0f}' for _ in range(probs.shape[0])).format(
+                *np.around(pl)))
+        return
+
+    def add_diploid_probs(self, probs, gts):
+        # phred scaled likelihoods
+        with np.errstate(divide='ignore'):
+            gl = np.log10(probs)
+        raw_pl = -10 * gl
+        # "normalized" PL values stored as decsribed by VCF format
+        # abs to remove negative 0 from file
+        pl = np.abs(np.minimum(raw_pl - raw_pl.min(), mh.MAX_PL_VALUE))
+        s_pl = np.sort(pl)
+
+        # add sample tags
+        self.add_sample_field('GT', gts[np.argmax(probs)])
+        qual = int(np.around(np.minimum(raw_pl[0], mh.MAX_PL_VALUE)))
+        self.qual = '{:.0f}'.format(qual) if qual > 0 else '.'
+        self.add_sample_field('GQ', '{:.0f}'.format(np.around(s_pl[1])))
+        self.add_sample_field(
+            'GL', ','.join('{:.2f}' for _ in range(probs.shape[0])).format(*gl))
         self.add_sample_field(
             'PL', ','.join('{:.0f}' for _ in range(probs.shape[0])).format(
                 *np.around(pl)))
@@ -640,7 +653,7 @@ class VcfWriter(object):
             header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER',
                     'INFO', 'FORMAT', SAMPLE_NAME),
             extra_meta_info=FIXED_VCF_MI, version='4.1', ref_fn=None,
-            ref_names_and_lens=None):
+            ref_names_and_lens=None, write_vcf_lp=False):
         self.filename = filename
         self.mode = mode
         self.header = header
@@ -656,7 +669,8 @@ class VcfWriter(object):
             mh.FILE_DATE_MI.format(datetime.date.today().strftime("%Y%m%d")),
             mh.SOURCE_MI.format(MEGALODON_VERSION),
             mh.REF_MI.format(ref_fn)] + contig_mis + extra_meta_info
-        # TODO add meta info for LOG_PROBS to make field valid VCF
+        if write_vcf_lp:
+            self.meta.append(FORMAT_LOG_PROB_MI)
 
         self.handle = open(self.filename, self.mode, encoding='utf-8')
         self.handle.write('\n'.join('##' + line for line in self.meta) + '\n')
@@ -793,8 +807,8 @@ class AggSnps(mh.AbstractAggregationClass):
         snp_var.add_sample_field('DP', '{}'.format(ref_lps.shape[0]))
 
         if self.write_vcf_log_probs:
-            snp_var.add_sample_field('LOG_PROBS', ';'.join(
-                ','.join('{:.2f}'.format(lp) for lp in alt_i_lps)
+            snp_var.add_sample_field('LOG_PROBS', ','.join(
+                ';'.join('{:.2f}'.format(lp) for lp in alt_i_lps)
                 for alt_i_lps in alts_lps))
 
         if call_mode == DIPLOID_MODE:
