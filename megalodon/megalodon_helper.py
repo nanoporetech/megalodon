@@ -4,6 +4,7 @@ import multiprocessing as mp
 from collections import namedtuple
 from abc import ABC, abstractmethod
 
+import pysam
 import numpy as np
 
 
@@ -35,40 +36,47 @@ BC_NAME = 'basecalls'
 BC_OUT_FMTS = ('fasta',)
 BC_MODS_NAME = 'mod_basecalls'
 MAP_NAME = 'mappings'
+MAP_SUMM_NAME = 'mappings_summary'
 MAP_OUT_FMTS = ('bam', 'cram', 'sam')
 PR_SNP_NAME = 'per_read_snps'
+PR_SNP_TXT_NAME = 'per_read_snps_text'
+WHATSHAP_MAP_NAME = 'whatshap_mappings'
 SNP_NAME = 'snps'
 PR_MOD_NAME = 'per_read_mods'
+PR_MOD_TXT_NAME = 'per_read_mods_text'
 # TOOD add wig/bedgraph modified base output
 MOD_NAME = 'mods'
+PR_REF_NAME = 'per_read_ref'
 OUTPUT_FNS = {
     BC_NAME:'basecalls',
     BC_MODS_NAME:'basecalls.modified_base_scores.hdf5',
-    MAP_NAME:['mappings', 'mappings.summary.txt'],
-    PR_SNP_NAME:['per_read_snp_calls.db',
-                 'per_read_snp_calls.txt'],
+    MAP_NAME:'mappings',
+    MAP_SUMM_NAME:'mappings.summary.txt',
+    PR_SNP_NAME:'per_read_snp_calls.db',
+    PR_SNP_TXT_NAME:'per_read_snp_calls.txt',
     SNP_NAME:'variants.vcf',
-    PR_MOD_NAME:['per_read_modified_base_calls.db',
-                 'per_read_modified_base_calls.txt'],
-    MOD_NAME:'modified_bases.mvcf'
+    WHATSHAP_MAP_NAME:'whatshap_mappings',
+    PR_MOD_NAME:'per_read_modified_base_calls.db',
+    PR_MOD_TXT_NAME:'per_read_modified_base_calls.txt',
+    MOD_NAME:'modified_bases.mvcf',
+    PR_REF_NAME:'per_read_references.fasta'
 }
-OUTPUT_DESCS = [
-    (BC_NAME, 'Called bases (FASTA)'),
-    (BC_MODS_NAME, 'Basecall-anchored modified base scores (HDF5)'),
-    (MAP_NAME, 'Mapped reads (BAM/CRAM/SAM)'),
-    (PR_SNP_NAME, 'Per-read, per-site SNP scores database'),
-    (SNP_NAME, 'Sample-level aggregated SNP calls (VCF)'),
-    (PR_MOD_NAME, 'Per-read, per-site modified base scores database'),
-    (MOD_NAME, 'Sample-level aggregated modified base calls (modVCF)')
-]
 LOG_FILENAME = 'log.txt'
-# special output type, not included in standard --outputs (since it is
-# used only in special circumstances)
-PR_REF_NAME = 'per_read_ref'
-PR_REF_FN = 'per_read_references.fasta'
+# outputs to be selected with command line --outputs argument
+OUTPUT_DESCS = {
+    BC_NAME:'Called bases (FASTA)',
+    BC_MODS_NAME:'Basecall-anchored modified base scores (HDF5)',
+    MAP_NAME:'Mapped reads (BAM/CRAM/SAM)',
+    PR_SNP_NAME:'Per-read, per-site SNP scores database',
+    SNP_NAME:'Sample-level aggregated SNP calls (VCF)',
+    WHATSHAP_MAP_NAME:'SNP annotated mappings for use with whatshap',
+    PR_MOD_NAME:'Per-read, per-site modified base scores database',
+    MOD_NAME:'Sample-level aggregated modified base calls (modVCF)'
+}
+
 
 ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, PR_SNP_NAME, SNP_NAME,
-                     PR_MOD_NAME, MOD_NAME))
+                     WHATSHAP_MAP_NAME, PR_MOD_NAME, MOD_NAME))
 
 PR_REF_FILTERS = namedtuple(
     'pr_ref_filters', ('pct_idnt', 'pct_cov', 'min_len', 'max_len'))
@@ -105,6 +113,20 @@ def resolve_path(fn_path):
     give other packages problems.
     """
     return os.path.realpath(os.path.expanduser(fn_path))
+
+
+###############################
+##### Filename Extraction #####
+###############################
+
+def get_megalodon_fn(out_dir, out_type):
+    return os.path.join(out_dir, OUTPUT_FNS[out_type])
+
+def add_fn_suffix(fn, suffix):
+    if suffix is not None:
+        base_fn, fn_ext = os.path.splitext(fn)
+        fn = base_fn + '.' + suffix + fn_ext
+    return fn
 
 
 ####################################

@@ -1,9 +1,12 @@
+import os
 import sys
 import queue
 import sqlite3
 import datetime
 from time import sleep
+from array import array
 import multiprocessing as mp
+from operator import itemgetter
 from collections import defaultdict, namedtuple, OrderedDict
 
 import pysam
@@ -48,14 +51,25 @@ SEL_SNP_STATS = '''
 SELECT * FROM snps WHERE chrm IS ? AND pos IS ? AND
 snp_id IS ? AND ref_seq IS ?'''
 
+SAMPLE_NAME = 'SAMPLE'
+# specified by sam format spec
+WHATSHAP_MAX_QUAL = 40
+WHATSHAP_RG_ID = '1'
 FIXED_VCF_MI = [
     'phasing=none',
     'INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
     'FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
     'FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype Quality">',
     'FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read Depth">',
-    'FORMAT=<ID=PL,Number=G,Type=Integer,Description="Normalized, Phred-scaled likelihoods for genotypes as defined in the VCF specification">'
+    ('FORMAT=<ID=GL,Number=G,Type=Float,' +
+     'Description="Log10 likelihoods for genotypes">'),
+    ('FORMAT=<ID=PL,Number=G,Type=Integer,' +
+     'Description="Normalized, Phred-scaled likelihoods for genotypes">')
 ]
+FORMAT_LOG_PROB_MI = (
+    'FORMAT=<ID=LOG_PROBS,Number=A,Type=String,' +
+    'Description="Per-read log10 likelihoods for alternative ' +
+    'alleles (semi-colon separated)">')
 
 
 ################################
@@ -104,11 +118,9 @@ def call_read_snps(
             read_alt_seqs = [mh.revcomp(alt_seq) for alt_seq in snp_alt_seqs]
 
         # select single base SNP or indel context width
-        is_snp = all(len(snp_ref_seq) == len(snp_alt_seq)
-                     for snp_alt_seq in snp_alt_seqs)
-        is_del = not is_snp and len(snp_ref_seq) > len(snp_alt_seqs[0])
-        snp_context_bases = snps_data.indel_context if is_snp else \
-                            snps_data.snp_context
+        snp_context_bases = snps_data.indel_context if all(
+            len(snp_ref_seq) == len(snp_alt_seq)
+            for snp_alt_seq in snp_alt_seqs) else snps_data.snp_context
         pos_bb = min(snp_context_bases, read_pos)
         pos_ab = min(snp_context_bases,
                      r_ref_seq.shape[0] - read_pos - len(read_ref_seq))
@@ -172,35 +184,163 @@ def call_read_snps(
 ##### Per-read SNP Output #####
 ###############################
 
+def log_prob_to_phred(log_prob):
+    return -10 * np.log10(1 - np.exp(log_prob))
+
+def simplify_snp_seq(ref_seq, alt_seq):
+    trim_before = trim_after = 0
+    while (len(ref_seq) > 0 and len(alt_seq) > 0 and
+           ref_seq[0] == alt_seq[0]):
+        trim_before += 1
+        ref_seq = ref_seq[1:]
+        alt_seq = alt_seq[1:]
+    while (len(ref_seq) > 0 and len(alt_seq) > 0 and
+           ref_seq[-1] == alt_seq[-1]):
+        trim_after += 1
+        ref_seq = ref_seq[:-1]
+        alt_seq = alt_seq[:-1]
+
+    return ref_seq, alt_seq, trim_before, trim_after
+
+def iter_non_overlapping_snps(snp_calls):
+    def get_max_prob_allele_snp(snp_grp):
+        """ For overlapping SNPs return the snp with the highest probability
+        single allele as this one will be added to the reference sequence.
+
+        More complex chained SNPs could be handled, but are not here.
+        For example, a 5 base deletion covering 2 single base swap SNPs could
+        validly result in 2 alternative single base swap alleles, but the
+        logic here would only allow one of those alternatives since they
+        are covered by the same reference deletion. There are certainly many
+        more edge cases than this and each one would require specific logic.
+        This likely covers the majority of valid cases and limiting to
+        50 base indels by default limits the scope of this issue.
+        """
+        most_prob_snp = None
+        for snp_data in snp_grp:
+            ref_lp = np.log1p(-np.exp(snp_data[1]).sum())
+            snp_max_lp = max(ref_lp, snp_data[1].max())
+            if most_prob_snp is None or snp_max_lp > most_prob_snp[0]:
+                most_prob_snp = (snp_max_lp, ref_lp, snp_data)
+
+        _, ref_lp, (snp_pos, alt_lps, snp_ref_seq,
+                    snp_alt_seqs, _) = most_prob_snp
+        return snp_pos, alt_lps, snp_ref_seq, snp_alt_seqs, ref_lp
+
+
+    snp_calls_iter = iter(snp_calls)
+    # initialize snp_grp with first snp
+    snp_data = next(snp_calls_iter)
+    prev_snp_end = snp_data[0] + len(snp_data[2])
+    snp_grp = [snp_data]
+    for snp_data in sorted(snp_calls, key=itemgetter(0)):
+        if snp_data[0] < prev_snp_end:
+            prev_snp_end = max(snp_data[0] + len(snp_data[2]), prev_snp_end)
+            snp_grp.append(snp_data)
+        else:
+            yield get_max_prob_allele_snp(snp_grp)
+            prev_snp_end = snp_data[0] + len(snp_data[2])
+            snp_grp = [snp_data]
+
+    # yeild last snp grp data
+    yield get_max_prob_allele_snp(snp_grp)
+    return
+
 def annotate_snps(r_start, ref_seq, r_snp_calls, strand):
     """ Annotate reference sequence with called snps.
 
     Note: Reference sequence is in read orientation and snp calls are in
     genome coordiates.
     """
-    snp_seqs = []
-    prev_pos = 0
+    snp_seqs, snp_quals, snp_cigar = [], [], []
+    prev_pos, curr_match = 0, 0
+    # ref_seq is read-centric so flop order to process snps in genomic order
     if strand == -1:
         ref_seq = ref_seq[::-1]
-    for snp_pos, alt_lps, snp_ref_seq, snp_alt_seqs, _ in sorted(r_snp_calls):
-        ref_lp = np.log1p(-np.exp(alt_lps).sum())
+    for (snp_pos, alt_lps, snp_ref_seq, snp_alt_seqs,
+         ref_lp) in iter_non_overlapping_snps(r_snp_calls):
+        prev_len = snp_pos - r_start - prev_pos
         # called canonical
-        if ref_lp >= min(alt_lps): continue
-        alt_seq = snp_alt_seqs[np.argmax(alt_lps)]
-        if strand == -1:
-            alt_seq = mh.revcomp(alt_seq)
-        snp_seqs.append(ref_seq[prev_pos:snp_pos - r_start] + alt_seq)
+        if ref_lp >= max(alt_lps):
+            snp_seqs.append(
+                ref_seq[prev_pos:snp_pos - r_start + len(snp_ref_seq)])
+            snp_quals.extend(
+                ([WHATSHAP_MAX_QUAL] * prev_len) +
+                ([min(log_prob_to_phred(ref_lp), WHATSHAP_MAX_QUAL)] *
+                 len(snp_ref_seq)))
+            curr_match += prev_len + len(snp_ref_seq)
+        else:
+            alt_seq = snp_alt_seqs[np.argmax(alt_lps)]
+            # complement since ref_seq is complement seq
+            # (not reversed; see loop init)
+            read_alt_seq = alt_seq if strand == 1 else mh.comp(alt_seq)
+            snp_seqs.append(ref_seq[prev_pos:snp_pos - r_start] + read_alt_seq)
+            snp_quals.extend(
+                ([WHATSHAP_MAX_QUAL] * prev_len) +
+                ([min(log_prob_to_phred(max(alt_lps)), WHATSHAP_MAX_QUAL)] *
+                 len(alt_seq)))
+
+            # add cigar information for snp or indel
+            t_ref_seq, t_alt_seq, t_before, t_after = simplify_snp_seq(
+                snp_ref_seq, alt_seq)
+            curr_match += t_before
+            snp_cigar.append((7, curr_match + prev_len))
+            if len(t_alt_seq) == len(t_ref_seq):
+                snp_cigar.append((8, len(t_alt_seq)))
+            elif len(t_alt_seq) > len(t_ref_seq):
+                # left justify mismatch bases in complex insertion
+                if len(t_ref_seq) != 0:
+                    snp_cigar.append((8, len(t_ref_seq)))
+                snp_cigar.append((1, len(t_alt_seq) - len(t_ref_seq)))
+            else:
+                # left justify mismatch bases in complex deletion
+                if len(t_alt_seq) != 0:
+                    snp_cigar.append((8, len(t_alt_seq)))
+                snp_cigar.append((2, len(t_ref_seq) - len(t_alt_seq)))
+            curr_match = t_after
         prev_pos = snp_pos - r_start + len(snp_ref_seq)
+
     snp_seqs.append(ref_seq[prev_pos:])
     snp_seq = ''.join(snp_seqs)
     if strand == -1:
         snp_seq = snp_seq[::-1]
+    len_remain = len(ref_seq) - prev_pos
+    snp_quals.extend([WHATSHAP_MAX_QUAL] * len_remain)
+    if strand == -1:
+        snp_quals = snp_quals[::-1]
+    snp_quals = list(map(int, snp_quals))
+    snp_cigar.append((7, len_remain + curr_match))
+    if strand == -1:
+        snp_cigar = snp_cigar[::-1]
 
-    return snp_seq
+    return snp_seq, snp_quals, snp_cigar
 
 def _get_snps_queue(
-        snps_q, snps_conn, snps_db_fn, snps_txt_fn, db_safety,
-        pr_refs_fn, pr_ref_filts):
+        snps_q, snps_conn, snps_db_fn, snps_txt_fn, db_safety, pr_refs_fn,
+        pr_ref_filts, whatshap_map_fn, ref_names_and_lens, ref_fn):
+    def write_whatshap_alignment(
+            read_id, snp_seq, snp_quals, chrm, strand, r_st, snp_cigar):
+        a = pysam.AlignedSegment()
+        a.query_name = read_id
+        a.flag = 0 if strand == 1 else 16
+        a.reference_id = whatshap_map_fp.get_tid(chrm)
+        a.reference_start = r_st
+        a.template_length = len(snp_seq)
+        a.mapping_quality = WHATSHAP_MAX_QUAL
+        a.set_tags([('RG', WHATSHAP_RG_ID)])
+
+        # convert to reference based sequence
+        if strand == -1:
+            snp_seq = mh.revcomp(snp_seq)
+            snp_quals = snp_quals[::-1]
+            snp_cigar = snp_cigar[::-1]
+        a.query_sequence = snp_seq
+        a.query_qualities = array('B', snp_quals)
+        a.cigartuples = snp_cigar
+        whatshap_map_fp.write(a)
+
+        return
+
     def get_snp_call():
         # note strand is +1 for fwd or -1 for rev
         r_snp_calls, (read_id, chrm, strand, r_start, ref_seq, read_len,
@@ -215,18 +355,25 @@ def _get_snps_queue(
             # for var strings (read_if and chrms).
             snps_txt_fp.write('\n'.join((
                 '{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
-                    read_id, chrm, strand, pos, score,
-                    snp_ref_seq, snp_alt_seq, snp_id)
-                for pos, score, snp_ref_seq, snp_alt_seq, snp_id in
+                    read_id, chrm, strand, pos, ','.join(map(str, alt_scores)),
+                    snp_ref_seq, ','.join(snp_alt_seqs), snp_id)
+                for pos, alt_scores, snp_ref_seq, snp_alt_seqs, snp_id in
                 r_snp_calls)) + '\n')
             snps_txt_fp.flush()
-        if pr_refs_fn is not None:
+        if do_ann_snps:
             if not mapping.read_passes_filters(
                     pr_ref_filts, read_len, q_st, q_en, cigar):
                 return
-            pr_refs_fp.write('>{}\n{}\n'.format(read_id, annotate_snps(
-                r_start, ref_seq, r_snp_calls, strand)))
-            pr_refs_fp.flush()
+            snp_seq, snp_quals, snp_cigar = annotate_snps(
+                r_start, ref_seq, r_snp_calls, strand)
+            if pr_refs_fn is not None:
+                pr_refs_fp.write('>{}\n{}\n'.format(read_id, snp_seq))
+                pr_refs_fp.flush()
+            if whatshap_map_fn is not None:
+                write_whatshap_alignment(
+                    read_id, snp_seq, snp_quals, chrm, strand, r_start,
+                    snp_cigar)
+
         return
 
 
@@ -241,6 +388,23 @@ def _get_snps_queue(
     if pr_refs_fn is not None:
         pr_refs_fp = open(pr_refs_fn, 'w')
 
+    if whatshap_map_fn is not None:
+        _, map_fmt = os.path.splitext(whatshap_map_fn)
+        if map_fmt == '.bam': w_mode = 'wb'
+        elif map_fmt == '.cram': w_mode = 'wc'
+        elif map_fmt == '.sam': w_mode = 'w'
+        else:
+            raise mh.MegaError('Invalid mapping output format')
+        header = {
+            'HD': {'VN': '1.4'},
+            'SQ': [{'LN': ref_len, 'SN': ref_name}
+                   for ref_name, ref_len in sorted(zip(*ref_names_and_lens))],
+            'RG': [{'ID':WHATSHAP_RG_ID, 'SM':SAMPLE_NAME},]}
+        whatshap_map_fp = pysam.AlignmentFile(
+            whatshap_map_fn, w_mode, header=header, reference_filename=ref_fn)
+
+    do_ann_snps = whatshap_map_fn is not None or pr_refs_fn is not None
+
     while True:
         try:
             get_snp_call()
@@ -254,6 +418,7 @@ def _get_snps_queue(
         get_snp_call()
     if snps_txt_fp is not None: snps_txt_fp.close()
     if pr_refs_fn is not None: pr_refs_fp.close()
+    if whatshap_map_fn is not None: whatshap_map_fp.close()
     snps_db.execute(CREATE_SNPS_IDX)
     snps_db.commit()
     snps_db.close()
@@ -290,13 +455,16 @@ class SnpData(object):
             return
 
         logger.info('Loading variants.')
-        vars_idx = pysam.VariantFile(variant_fn)
+        vars_idx = pysam.VariantFile(self.variant_fn)
         try:
             contigs = list(vars_idx.header.contigs.keys())
             vars_idx.fetch(next(iter(contigs)), 0, 0)
         except ValueError:
-            raise mh.MegaError(
-                'Variants file must be indexed. Use bgzip and tabix.')
+            logger.warn(
+                'Variants file must be indexed. Performing indexing now.')
+            vars_idx.close()
+            self.variant_fn = index_variants(self.variant_fn)
+            vars_idx = pysam.VariantFile(self.variant_fn)
         if keep_snp_fp_open:
             self.variants_idx = vars_idx
         else:
@@ -335,9 +503,13 @@ class SnpData(object):
         """
         if r_ref_pos.end - r_ref_pos.start <= 2 * edge_buffer:
             raise mh.MegaError('Mapped region too short for SNP calling.')
-        for variant in self.variants_idx.fetch(
+        try:
+            fetch_res = self.variants_idx.fetch(
                 r_ref_pos.chrm, r_ref_pos.start + edge_buffer,
-                r_ref_pos.end - edge_buffer):
+                r_ref_pos.end - edge_buffer)
+        except ValueError:
+            raise mh.MegaError('Mapped location not valid for variants file.')
+        for variant in fetch_res:
             snp_ref_seq = variant.ref
             snp_alt_seqs = variant.alts
             # skip SNPs larger than specified limit
@@ -414,10 +586,11 @@ class Variant(object):
     def add_sample_field(self, tag, value=None):
         self.sample_dict[tag] = value
 
-    def add_haploid_probs(self, probs):
+    def add_haploid_probs(self, probs, gts):
         # phred scaled likelihoods
         with np.errstate(divide='ignore'):
-            raw_pl = -10 * np.log10(probs)
+            gl = np.log10(probs)
+        raw_pl = -10 * gl
         # "normalized" PL values stored as decsribed by VCF format
         # abs to remove negative 0 from file
         pl = np.abs(np.minimum(raw_pl - raw_pl.min(), mh.MAX_PL_VALUE))
@@ -425,9 +598,11 @@ class Variant(object):
 
         # add sample tags
         self.add_sample_field('GT', gts[np.argmax(probs)])
-        self.qual = '{:.0f}'.format(
-            np.around(np.minimum(raw_pl[0], mh.MAX_PL_VALUE)))
+        qual = int(np.around(np.minimum(raw_pl[0], mh.MAX_PL_VALUE)))
+        self.qual = '{:.0f}'.format(qual) if qual > 0 else '.'
         self.add_sample_field('GQ', '{:.0f}'.format(np.around(s_pl[1])))
+        self.add_sample_field(
+            'GL', ','.join('{:.2f}' for _ in range(probs.shape[0])).format(*gl))
         self.add_sample_field(
             'PL', ','.join('{:.0f}' for _ in range(probs.shape[0])).format(
                 *np.around(pl)))
@@ -436,7 +611,8 @@ class Variant(object):
     def add_diploid_probs(self, probs, gts):
         # phred scaled likelihoods
         with np.errstate(divide='ignore'):
-            raw_pl = -10 * np.log10(probs)
+            gl = np.log10(probs)
+        raw_pl = -10 * gl
         # "normalized" PL values stored as decsribed by VCF format
         # abs to remove negative 0 from file
         pl = np.abs(np.minimum(raw_pl - raw_pl.min(), mh.MAX_PL_VALUE))
@@ -444,9 +620,11 @@ class Variant(object):
 
         # add sample tags
         self.add_sample_field('GT', gts[np.argmax(probs)])
-        self.qual = '{:.0f}'.format(
-            np.around(np.minimum(raw_pl[0], mh.MAX_PL_VALUE)))
+        qual = int(np.around(np.minimum(raw_pl[0], mh.MAX_PL_VALUE)))
+        self.qual = '{:.0f}'.format(qual) if qual > 0 else '.'
         self.add_sample_field('GQ', '{:.0f}'.format(np.around(s_pl[1])))
+        self.add_sample_field(
+            'GL', ','.join('{:.2f}' for _ in range(probs.shape[0])).format(*gl))
         self.add_sample_field(
             'PL', ','.join('{:.0f}' for _ in range(probs.shape[0])).format(
                 *np.around(pl)))
@@ -469,13 +647,13 @@ class Variant(object):
 class VcfWriter(object):
     """ VCF writer class
     """
-    version_options = set(['4.2',])
+    version_options = set(['4.1',])
     def __init__(
             self, filename, mode='w',
             header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER',
-                    'INFO', 'FORMAT', 'SAMPLE'),
-            extra_meta_info=FIXED_VCF_MI, version='4.2', ref_fn=None,
-            ref_names_and_lens=None):
+                    'INFO', 'FORMAT', SAMPLE_NAME),
+            extra_meta_info=FIXED_VCF_MI, version='4.1', ref_fn=None,
+            ref_names_and_lens=None, write_vcf_lp=False):
         self.filename = filename
         self.mode = mode
         self.header = header
@@ -491,7 +669,8 @@ class VcfWriter(object):
             mh.FILE_DATE_MI.format(datetime.date.today().strftime("%Y%m%d")),
             mh.SOURCE_MI.format(MEGALODON_VERSION),
             mh.REF_MI.format(ref_fn)] + contig_mis + extra_meta_info
-        # TODO add meta info for LOG_PROBS to make field valid VCF
+        if write_vcf_lp:
+            self.meta.append(FORMAT_LOG_PROB_MI)
 
         self.handle = open(self.filename, self.mode, encoding='utf-8')
         self.handle.write('\n'.join('##' + line for line in self.meta) + '\n')
@@ -587,11 +766,13 @@ class AggSnps(mh.AbstractAggregationClass):
         return np.exp(post_snp_lps), gts
 
     def compute_haploid_probs(self, ref_lps, alts_lps):
-        snp_lps = np.concatenate([[ref_lps.sum()], alts_lps.sum(axis=0)])
+        snp_lps = np.concatenate([[ref_lps.sum()], alts_lps.sum(axis=1)])
         post_snp_lps = snp_lps - logsumexp(snp_lps)
         return np.exp(post_snp_lps), list(map(str, range(snp_lps.shape[0])))
 
-    def compute_snp_stats(self, snp_loc, het_factors, call_mode=DIPLOID_MODE):
+    def compute_snp_stats(
+            self, snp_loc, het_factors, call_mode=DIPLOID_MODE,
+            valid_read_ids=None):
         assert call_mode in (HAPLIOD_MODE, DIPLOID_MODE), (
             'Invalid SNP aggregation ploidy call mode: {}.'.format(call_mode))
 
@@ -599,7 +780,13 @@ class AggSnps(mh.AbstractAggregationClass):
         alt_seqs = sorted(set(r_stats.alt_seq for r_stats in pr_snp_stats))
         pr_alt_lps = defaultdict(dict)
         for r_stats in pr_snp_stats:
+            if (valid_read_ids is not None and
+                r_stats.read_id not in valid_read_ids):
+                continue
             pr_alt_lps[r_stats.read_id][r_stats.alt_seq] = r_stats.score
+        if len(pr_alt_lps) == 0:
+            raise mh.MegaError('No valid reads cover SNP')
+
         alt_seq_lps = [[] for _ in range(len(alt_seqs))]
         for read_lps in pr_alt_lps.values():
             for i, alt_seq in enumerate(alt_seqs):
@@ -620,8 +807,8 @@ class AggSnps(mh.AbstractAggregationClass):
         snp_var.add_sample_field('DP', '{}'.format(ref_lps.shape[0]))
 
         if self.write_vcf_log_probs:
-            snp_var.add_sample_field('LOG_PROBS', ';'.join(
-                ','.join('{:.2f}'.format(lp) for lp in alt_i_lps)
+            snp_var.add_sample_field('LOG_PROBS', ','.join(
+                ';'.join('{:.2f}'.format(lp) for lp in alt_i_lps)
                 for alt_i_lps in alts_lps))
 
         if call_mode == DIPLOID_MODE:
@@ -641,6 +828,35 @@ class AggSnps(mh.AbstractAggregationClass):
     def close(self):
         self.snps_db.close()
         return
+
+
+#########################################
+##### Whatshap Mapping Post-process #####
+#########################################
+
+def get_whatshap_command(index_variant_fn, whatshap_sort_fn, phase_fn):
+    return ('Run following command to obtain phased variants:\n\t\t' +
+            'whatshap phase --indels --distrust-genotypes -o {} {} {}').format(
+                phase_fn, index_variant_fn, whatshap_sort_fn)
+
+def sort_variants(in_vcf_fn, out_vcf_fn):
+    in_vcf_fp = pysam.VariantFile(in_vcf_fn)
+    with pysam.VariantFile(
+            out_vcf_fn, 'w', header=in_vcf_fp.header) as out_vcf_fp:
+        for rec in sorted(in_vcf_fp.fetch(), key=lambda r: (r.chrom, r.start)):
+            out_vcf_fp.write(rec)
+    return
+
+def index_variants(variant_fn):
+    try:
+        return pysam.tabix_index(
+            variant_fn, force=True, preset='vcf', keep_original=True)
+    except OSError:
+        # file likely not sorted
+        sort_variant_fn = mh.add_fn_suffix(variant_fn, 'sorted')
+        sort_variants(variant_fn, sort_variant_fn)
+        return pysam.tabix_index(
+            sort_variant_fn, force=True, preset='vcf', keep_original=True)
 
 
 if __name__ == '__main__':

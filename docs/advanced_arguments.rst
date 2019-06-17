@@ -26,7 +26,7 @@ SNP Arguments
 - ``--heterozygous-factors``
 
   -
-- ``--max-snp-size``
+- ``--max-indel-size``
 
   -
 - ``--snp-all-paths``
@@ -35,10 +35,10 @@ SNP Arguments
 - ``--snp-calibration-filename``
 
   -
-- ``--snp-context-bases``
+- ``--variant-context-bases``
 
   -
-- ``--write-vcf-llr``
+- ``--write-vcf-log-probs``
 
   -
 

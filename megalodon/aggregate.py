@@ -15,9 +15,9 @@ from megalodon import logging, mods, snps, megalodon_helper as mh
 #######################################
 
 def _agg_snps_worker(
-        locs_q, snp_stats_q, snp_prog_q, snps_db_fn, write_vcf_llr,
-        het_factors, call_mode):
-    agg_snps = snps.AggSnps(snps_db_fn, write_vcf_llr)
+        locs_q, snp_stats_q, snp_prog_q, snps_db_fn, write_vcf_lp,
+        het_factors, call_mode, valid_read_ids):
+    agg_snps = snps.AggSnps(snps_db_fn, write_vcf_lp)
 
     while True:
         try:
@@ -30,7 +30,7 @@ def _agg_snps_worker(
 
         try:
             snp_var = agg_snps.compute_snp_stats(
-                snp_loc, het_factors, call_mode)
+                snp_loc, het_factors, call_mode, valid_read_ids)
             snp_stats_q.put(snp_var)
         except mh.MegaError:
             # something not right with the stats at this loc
@@ -40,22 +40,21 @@ def _agg_snps_worker(
     return
 
 def _get_snp_stats_queue(
-        snp_stats_q, snp_conn, out_dir, ref_names_and_lens, do_sort=False):
-    agg_snp_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.SNP_NAME])
-    if do_sort:
-        all_snp_vars = []
-    else:
-        agg_snp_fp = snps.VcfWriter(
-            agg_snp_fn, 'w', ref_names_and_lens=ref_names_and_lens)
+        snp_stats_q, snp_conn, out_dir, ref_names_and_lens, out_suffix,
+        write_vcf_lp):
+    agg_snp_fn = mh.get_megalodon_fn(out_dir, mh.SNP_NAME)
+    if out_suffix is not None:
+        base_fn, fn_ext = os.path.splitext(agg_snp_fn)
+        agg_snp_fn = base_fn + '.' + out_suffix + fn_ext
+    agg_snp_fp = snps.VcfWriter(
+        agg_snp_fn, 'w', ref_names_and_lens=ref_names_and_lens,
+        write_vcf_lp=write_vcf_lp)
 
     while True:
         try:
             snp_var = snp_stats_q.get(block=False)
             if snp_var is None: continue
-            if do_sort:
-                all_snp_vars.append(snp_var)
-            else:
-                agg_snp_fp.write_variant(snp_var)
+            agg_snp_fp.write_variant(snp_var)
         except queue.Empty:
             if snp_conn.poll():
                 break
@@ -64,26 +63,15 @@ def _get_snp_stats_queue(
 
     while not snp_stats_q.empty():
         snp_var = snp_stats_q.get(block=False)
-        if do_sort:
-            all_snp_vars.append(snp_var)
-        else:
-            agg_snp_fp.write_variant(snp_var)
+        agg_snp_fp.write_variant(snp_var)
 
-    if do_sort:
-        # sort variants and write to file (requires adding __lt__, __gt__
-        # methods to variant class
-        with snps.VcfWriter(
-                agg_snp_fn, 'w',
-                ref_names_and_lens=ref_names_and_lens) as agg_snp_fp:
-            for snp_var in sorted(all_snp_vars):
-                agg_snp_fp.write_variant(snp_var)
-    else:
-        agg_snp_fp.close()
+    agg_snp_fp.close()
 
     return
 
 def _agg_mods_worker(
-        locs_q, mod_stats_q, mod_prog_q, mods_db_fn, mod_agg_info):
+        locs_q, mod_stats_q, mod_prog_q, mods_db_fn, mod_agg_info,
+        valid_read_ids):
     agg_mods = mods.AggMods(mods_db_fn, mod_agg_info)
 
     while True:
@@ -95,29 +83,31 @@ def _agg_mods_worker(
         if mod_loc is None:
             break
 
-        mod_site = agg_mods.compute_mod_stats(mod_loc)
-        mod_stats_q.put(mod_site)
+        try:
+            mod_site = agg_mods.compute_mod_stats(
+                mod_loc, valid_read_ids=valid_read_ids)
+            mod_stats_q.put(mod_site)
+        except mh.MegaError:
+            # no valid reads cover location
+            pass
         mod_prog_q.put(1)
 
     return
 
 def _get_mod_stats_queue(
         mod_stats_q, mod_conn, out_dir, mod_names, ref_names_and_lens,
-        do_sort=False):
-    agg_mod_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.MOD_NAME])
-    if do_sort:
-        all_mods = []
-    else:
-        agg_mod_fp = mods.ModVcfWriter(
-            agg_mod_fn, mod_names, 'w', ref_names_and_lens=ref_names_and_lens)
+        out_suffix):
+    agg_mod_fn = mh.get_megalodon_fn(out_dir, mh.MOD_NAME)
+    if out_suffix is not None:
+        base_fn, fn_ext = os.path.splitext(agg_mod_fn)
+        agg_mod_fn = base_fn + '.' + out_suffix + fn_ext
+    agg_mod_fp = mods.ModVcfWriter(
+        agg_mod_fn, mod_names, 'w', ref_names_and_lens=ref_names_and_lens)
 
     while True:
         try:
             mod_site = mod_stats_q.get(block=False)
-            if do_sort:
-                all_mods.append(mod_site)
-            else:
-                agg_mod_fp.write_mod_site(mod_site)
+            agg_mod_fp.write_mod_site(mod_site)
         except queue.Empty:
             if mod_conn.poll():
                 break
@@ -126,18 +116,8 @@ def _get_mod_stats_queue(
 
     while not mod_stats_q.empty():
         mod_site = mod_stats_q.get(block=False)
-        if do_sort:
-            all_mods.append(mod_site)
-        else:
-            agg_mod_fp.write_mod_site(mod_site)
-    if do_sort:
-        with mods.ModVcfWriter(
-                agg_mod_fn, mod_names, 'w',
-                ref_names_and_lens=ref_names_and_lens) as agg_mod_fp:
-            for mod_site in sorted(all_mods):
-                agg_mod_fp.write_mod_site(mod_site)
-    else:
-        agg_mod_fp.close()
+        agg_mod_fp.write_mod_site(mod_site)
+    agg_mod_fp.close()
 
     return
 
@@ -202,19 +182,21 @@ def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps):
     return
 
 def aggregate_stats(
-        outputs, out_dir, num_ps, write_vcf_llr, het_factors, call_mode,
-        mod_names, mod_agg_info, suppress_progress, ref_names_and_lens):
+        outputs, out_dir, num_ps, write_vcf_lp, het_factors, call_mode,
+        mod_names, mod_agg_info, suppress_progress, ref_names_and_lens,
+        valid_read_ids=None, out_suffix=None):
     if mh.SNP_NAME in outputs and mh.MOD_NAME in outputs:
         num_ps = max(num_ps // 2, 1)
 
     num_snps, num_mods, snp_prog_q, mod_prog_q = (
         0, 0, queue.Queue(), queue.Queue())
     if mh.SNP_NAME in outputs:
-        snps_db_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.PR_SNP_NAME][0])
+        snps_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_SNP_NAME)
         num_snps = snps.AggSnps(snps_db_fn).num_uniq()
         # create process to collect snp stats from workers
         snp_stats_q, snp_stats_p, main_snp_stats_conn = mh.create_getter_q(
-            _get_snp_stats_queue, (out_dir, ref_names_and_lens))
+            _get_snp_stats_queue, (
+                out_dir, ref_names_and_lens, out_suffix, write_vcf_lp))
         # create process to fill snp locs queue
         snp_filler_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
         snp_filler_p = mp.Process(
@@ -228,16 +210,18 @@ def aggregate_stats(
             p = mp.Process(
                 target=_agg_snps_worker,
                 args=(snp_filler_q, snp_stats_q, snp_prog_q, snps_db_fn,
-                      write_vcf_llr, het_factors, call_mode), daemon=True)
+                      write_vcf_lp, het_factors, call_mode, valid_read_ids),
+                daemon=True)
             p.start()
             agg_snps_ps.append(p)
 
     if mh.MOD_NAME in outputs:
-        mods_db_fn = os.path.join(out_dir, mh.OUTPUT_FNS[mh.PR_MOD_NAME][0])
+        mods_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME)
         num_mods = mods.AggMods(mods_db_fn).num_uniq()
         # create process to collect mods stats from workers
         mod_stats_q, mod_stats_p, main_mod_stats_conn = mh.create_getter_q(
-            _get_mod_stats_queue, (out_dir, mod_names, ref_names_and_lens))
+            _get_mod_stats_queue, (
+                out_dir, mod_names, ref_names_and_lens, out_suffix))
         # create process to fill mod locs queue
         mod_filler_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
         mod_filler_p = mp.Process(
@@ -251,7 +235,7 @@ def aggregate_stats(
             p = mp.Process(
                 target=_agg_mods_worker,
                 args=(mod_filler_q, mod_stats_q, mod_prog_q, mods_db_fn,
-                      mod_agg_info),
+                      mod_agg_info, valid_read_ids),
                 daemon=True)
             p.start()
             agg_mods_ps.append(p)

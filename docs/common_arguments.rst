@@ -57,13 +57,14 @@ SNP Arguments
   - Compute sequence variants assuming a haploid reference. Default assume diploid.
 - ``--variant-filename``
 
-  - Variant file in compressed (``bgzip``) and indexed (``tabix``) VCF format or in BCF format.
+  - File containing putative variants in VCF/BCF format.
+  - If variant file is not sorted, compressed and indexed this will be performed before further processing.
   - Variants must be matched to the ``--reference`` provided.
 - ``--write-snps-text``
 
   - Output per-read SNPs in text format.
 
-    - Output includes columns: ``read_id``, ``chrm``, ``strand``, ``pos``, ``score``, ``snp_ref_seq``, ``snp_alt_seq``, ``snp_id``
+    - Output includes columns: ``read_id``, ``chrm``, ``strand``, ``pos``, ``scores``, ``snp_ref_seq``, ``snp_alt_seqs``, ``snp_id``
     - Scores are log probabilities of the alternative allele.
 
       - Probabilities are calibrated to match observed log-likelihood ratios from ground truth samples.

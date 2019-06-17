@@ -117,11 +117,9 @@ def process_read(
 
 def _get_bc_queue(
         bc_q, bc_conn, out_dir, bc_fmt, do_output_mods, mod_long_names):
-    bc_fp = open(os.path.join(
-        out_dir, mh.OUTPUT_FNS[mh.BC_NAME] + '.' + bc_fmt), 'w')
+    bc_fp = open(mh.get_megalodon_fn(out_dir, mh.BC_NAME) + '.' + bc_fmt, 'w')
     if do_output_mods:
-        mods_fp = h5py.File(os.path.join(
-            out_dir, mh.OUTPUT_FNS[mh.BC_MODS_NAME]))
+        mods_fp = h5py.File(mh.get_megalodon_fn(out_dir, mh.BC_MODS_NAME))
         mods_fp.create_group('Reads')
         mods_fp.create_dataset(
             'mod_long_names', data=np.array(mod_long_names, dtype='S'),
@@ -215,6 +213,47 @@ if _DO_PROFILE:
         return
 
 
+####################################
+##### Post Per-read Processing #####
+####################################
+
+def post_process_whatshap(out_dir, map_fmt, ref_fn):
+    whatshap_map_bn = mh.get_megalodon_fn(out_dir, mh.WHATSHAP_MAP_NAME)
+    whatshap_map_fn = whatshap_map_bn + '.' + map_fmt
+    whatshap_sort_fn = whatshap_map_bn + '.sorted.bam'
+    whatshap_p = mp.Process(
+        target=mapping.sort_and_index_mapping,
+        args=(whatshap_map_fn, whatshap_sort_fn, ref_fn), daemon=True)
+    whatshap_p.start()
+    sleep(0.01)
+
+    return whatshap_sort_fn, whatshap_p
+
+def post_process_mapping(out_dir, map_fmt, ref_fn):
+    map_bn = mh.get_megalodon_fn(out_dir, mh.MAP_NAME)
+    map_fn = map_bn + '.' + map_fmt
+    map_sort_fn = map_bn + '.sorted.bam'
+    map_p = mp.Process(
+        target=mapping.sort_and_index_mapping,
+        args=(map_fn, map_sort_fn, ref_fn), daemon=True)
+    map_p.start()
+    sleep(0.01)
+
+    return map_p
+
+def post_process_aggregate(
+        mods_info, outputs, mod_bin_thresh, out_dir, num_ps, write_vcf_lp,
+        het_factors, snps_data, supp_prog, ref_names_and_lens):
+    mod_names = mods_info.mod_long_names if mh.MOD_NAME in outputs else []
+    mod_agg_info = mods.AGG_INFO(mods.BIN_THRESH_NAME, mod_bin_thresh)
+    aggregate.aggregate_stats(
+        outputs, out_dir, num_ps, write_vcf_lp, het_factors,
+        snps_data.call_mode, mod_names, mod_agg_info,
+        supp_prog, ref_names_and_lens)
+    return
+
+
+
 ##################################
 ##### Dynamic error updating #####
 ##################################
@@ -272,7 +311,7 @@ def prep_errors_bar(
         num_update_errors = 0
     else:
         bar = tqdm(total=tot_reads, smoothing=0, initial=curr_num_reads,
-                   unit=' reads')
+                   unit='read')
         if start_time is not None:
             bar.start_t = start_time
     if num_update_errors > 0:
@@ -409,27 +448,27 @@ def process_all_reads(
                 out_dir, aligner.ref_names_and_lens, aligner.out_fmt,
                 aligner.ref_fn, do_output_pr_refs, pr_ref_filts))
     if mh.PR_SNP_NAME in outputs:
-        pr_refs_fn = os.path.join(out_dir, mh.PR_REF_FN) if (
-            mh.PR_REF_NAME in outputs and
-            snps_data.do_pr_ref_snps) else None
-        snps_db_fn, snps_txt_fn = mh.OUTPUT_FNS[mh.PR_SNP_NAME]
-        snps_txt_fn = (os.path.join(out_dir, snps_txt_fn)
+        pr_refs_fn = mh.get_megalodon_fn(out_dir, mh.PR_REF_NAME) if (
+            mh.PR_REF_NAME in outputs and snps_data.do_pr_ref_snps) else None
+        whatshap_map_fn = (
+            mh.get_megalodon_fn(out_dir, mh.WHATSHAP_MAP_NAME) + '.' +
+            aligner.out_fmt) if mh.WHATSHAP_MAP_NAME in outputs else None
+        snps_txt_fn = (mh.get_megalodon_fn(out_dir, mh.PR_SNP_TXT_NAME)
                        if snps_data.write_snps_txt else None)
         snps_q, snps_p, main_snps_conn = mh.create_getter_q(
             snps._get_snps_queue, (
-                os.path.join(out_dir, snps_db_fn),
-                snps_txt_fn, db_safety, pr_refs_fn, pr_ref_filts))
+                mh.get_megalodon_fn(out_dir, mh.PR_SNP_NAME),
+                snps_txt_fn, db_safety, pr_refs_fn, pr_ref_filts,
+                whatshap_map_fn, aligner.ref_names_and_lens, aligner.ref_fn))
     if mh.PR_MOD_NAME in outputs:
-        pr_refs_fn = os.path.join(out_dir, mh.PR_REF_FN) if (
-            mh.PR_REF_NAME in outputs and
-            mods_info.do_pr_ref_mods) else None
-        mods_db_fn, mods_txt_fn = mh.OUTPUT_FNS[mh.PR_MOD_NAME]
-        mods_txt_fn = (os.path.join(out_dir, mods_txt_fn)
+        pr_refs_fn = mh.get_megalodon_fn(out_dir, mh.PR_REF_NAME) if (
+            mh.PR_REF_NAME in outputs and mods_info.do_pr_ref_mods) else None
+        mods_txt_fn = (mh.get_megalodon_fn(out_dir, mh.PR_MOD_TXT_NAME)
                        if mods_info.write_mods_txt else None)
         mods_q, mods_p, main_mods_conn = mh.create_getter_q(
             mods._get_mods_queue, (
-                os.path.join(out_dir, mods_db_fn), mods_txt_fn, db_safety,
-                pr_refs_fn, pr_ref_filts))
+                mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME), mods_txt_fn,
+                db_safety, pr_refs_fn, pr_ref_filts))
 
     proc_reads_ps, map_conns = [], []
     for device in model_info.process_devices:
@@ -517,8 +556,11 @@ def aligner_validation(args):
         aligner = mapping.alignerPlus(
             str(args.reference), preset=str('map-ont'), best_n=1)
         setattr(aligner, 'out_fmt', args.mappings_format)
-        setattr(aligner, 'ref_fn', args.reference)
+        setattr(aligner, 'ref_fn', mh.resolve_path(args.reference))
         aligner.add_ref_lens()
+        mapping.test_open_alignment_out_file(
+            args.output_directory, aligner.out_fmt,
+            aligner.ref_names_and_lens, aligner.ref_fn)
     else:
         aligner = None
         if args.reference is not None:
@@ -529,6 +571,8 @@ def aligner_validation(args):
 
 def snps_validation(args, is_cat_mod, output_size, aligner):
     logger = logging.get_logger()
+    if mh.WHATSHAP_MAP_NAME in args.outputs and not mh.SNP_NAME in args.outputs:
+        args.outputs.append(mh.SNP_NAME)
     if mh.SNP_NAME in args.outputs and not mh.PR_SNP_NAME in args.outputs:
         args.outputs.append(mh.PR_SNP_NAME)
     if mh.PR_SNP_NAME in args.outputs and args.variant_filename is None:
@@ -689,10 +733,10 @@ def get_parser():
     out_grp = parser.add_argument_group('Output Arguments')
     out_grp.add_argument(
         '--outputs', nargs='+',
-        default=['basecalls',], choices=tuple(mh.OUTPUT_FNS.keys()),
+        default=['basecalls',], choices=tuple(mh.OUTPUT_DESCS.keys()),
         help='Desired output(s).\nOptions:\n' +
         '\n'.join(('\t{}: {}'.format(*out_desc)
-                   for out_desc in mh.OUTPUT_DESCS)) +
+                   for out_desc in mh.OUTPUT_DESCS.items())) +
         '\nDefault: %(default)s')
     out_grp.add_argument(
         '--output-directory',
@@ -918,18 +962,48 @@ def _main():
         args.processes, args.verbose_read_progress, args.suppress_progress,
         mods_info, args.database_safety, args.edge_buffer, pr_ref_filts)
 
+    if mh.MAP_NAME in args.outputs:
+        logger.info('Spawning process to sort and index mappings')
+        map_p = post_process_mapping(
+            args.output_directory, aligner.out_fmt, aligner.ref_fn)
+
+    if mh.WHATSHAP_MAP_NAME in args.outputs:
+        logger.info('Spawning process to sort and index whatshap mappings')
+        whatshap_sort_fn, whatshap_p = post_process_whatshap(
+            args.output_directory, aligner.out_fmt, aligner.ref_fn)
+
     if mh.SNP_NAME in args.outputs or mh.MOD_NAME in args.outputs:
-        mod_names = (mods_info.mod_long_names
-                     if mh.MOD_NAME in args.outputs else [])
-        mod_agg_info = mods.AGG_INFO(
-            mods.BIN_THRESH_NAME, args.mod_binary_threshold)
-        aggregate.aggregate_stats(
-            args.outputs, args.output_directory, args.processes,
-            args.write_vcf_log_probs, args.heterozygous_factors,
-            snps_data.call_mode, mod_names, mod_agg_info,
-            args.suppress_progress, aligner.ref_names_and_lens)
+        post_process_aggregate(
+            mods_info, args.outputs, args.mod_binary_threshold,
+            args.output_directory, args.processes, args.write_vcf_log_probs,
+            args.heterozygous_factors, snps_data, args.suppress_progress,
+            aligner.ref_names_and_lens)
+
+    if mh.SNP_NAME in args.outputs:
+        logger.info('Sorting output variant file')
+        variant_fn = mh.get_megalodon_fn(args.output_directory, mh.SNP_NAME)
+        sort_variant_fn = mh.add_fn_suffix(variant_fn, 'sorted')
+        snps.sort_variants(variant_fn, sort_variant_fn)
+        logger.info('Indexing output variant file')
+        index_variant_fn = snps.index_variants(sort_variant_fn)
+
+    if mh.WHATSHAP_MAP_NAME in args.outputs:
+        if whatshap_p.is_alive():
+            logger.info('Waiting for whatshap mappings sort and index')
+            while whatshap_p.is_alive():
+                sleep(0.1)
+        logger.info(snps.get_whatshap_command(
+            index_variant_fn, whatshap_sort_fn,
+            mh.add_fn_suffix(variant_fn, 'phased')))
+
+    if mh.MAP_NAME in args.outputs:
+        if map_p.is_alive():
+            logger.info('Waiting for mappings sort and index')
+            while map_p.is_alive():
+                sleep(0.1)
 
     return
+
 
 if __name__ == '__main__':
     sys.stderr.write('This is a module. See commands with `megalodon -h`')
