@@ -18,6 +18,7 @@ Workflow
        --reference reference.fasta --variant-filename variants.vcf.gz --overwrite
 
    # run whatshap with produced mappings and variants
+   samtools index megalodon_results/whatshap_mappings.sorted.bam
    whatshap \
        phase --indels --distrust-genotypes \
        -o megalodon_results/variants.phased.vcf \
@@ -37,7 +38,6 @@ Workflow
        megalodon/scripts/extract_haplotype_read_ids.py \
        megalodon_results/whatshap_mappings.haplotagged.bam \
        megalodon_results/whatshap_mappings.haploid_reads
-
    python \
        megalodon/scripts/run_aggregation.py \
        --outputs snps --haploid --output-suffix haplotype_1 \
