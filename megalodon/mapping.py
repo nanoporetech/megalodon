@@ -6,7 +6,7 @@ from collections import namedtuple
 import mappy
 import pysam
 
-from megalodon import megalodon_helper as mh, logging
+from megalodon import megalodon_helper as mh
 
 
 MAP_POS = namedtuple('MAP_POS', (
@@ -243,17 +243,12 @@ def _get_map_queue(
 ##### Samtools wrapper #####
 ############################
 
-def sort_mapping(map_fn, out_fn, ref_fn=None, do_index=True):
+def sort_and_index_mapping(map_fn, out_fn, ref_fn=None):
     sort_args = ['-O', 'BAM', '-o', out_fn, map_fn]
     if ref_fn is not None:
-        sort_args.extend(['--reference', ref_fn])
-    try:
-        pysam.sort(*sort_args)
-        if do_index:
-            pysam.index(out_fn)
-    except pysam.utils.SamtoolsError:
-        logger = logging.get_logger()
-        logger.warning('Sorting and indexing mapping failed.')
+        sort_args.extend(('--reference', ref_fn))
+    pysam.sort(*sort_args)
+    pysam.index(out_fn)
     return
 
 
