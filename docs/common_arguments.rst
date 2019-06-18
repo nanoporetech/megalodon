@@ -83,10 +83,11 @@ Modified Base Arguments
 
   - Output per-read modified bases in text format.
 
-    - Output includes columns: ``read_id``, ``chrm``, ``strand``, ``pos``, ``score``, ``raw_motif``, ``mod_base``
-    - Scores are log-likelihoods (higher score supports canonical base, lower score supports modified base)
+    - Output includes columns: ``read_id``, ``chrm``, ``strand``, ``pos``, ``mod_log_probs``, ``mod_bases``, ``motif``
+    - Log probabilities are comma-separated corresponding to modified bases in the next field
 
-      - Scores are calibrated to match observed log likelihood ratios.
+      - Log-probabilities are calibrated to match observed log likelihood ratios.
+    - ``motif`` includes the reference sequence matching the specified motif (via ``--mod-motif``) as well as the relative modified base position within that motif
     - Position is 0-based
 
 -----------------------

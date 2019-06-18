@@ -167,7 +167,7 @@ def get_mod_calibration_fn(
         'megalodon', os.path.join(
             MODEL_DATA_DIR_NAME, DEFAULT_MODEL_PRESET, MOD_CALIBRATION_FN)))
 
-def get_model_fn(model_fn, preset_str=None):
+def get_model_fn(model_fn=None, preset_str=None):
     if model_fn is not None:
         return resolve_path(model_fn)
     elif preset_str is not None:

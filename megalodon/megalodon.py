@@ -243,12 +243,12 @@ def post_process_mapping(out_dir, map_fmt, ref_fn):
 
 def post_process_aggregate(
         mods_info, outputs, mod_bin_thresh, out_dir, num_ps, write_vcf_lp,
-        het_factors, snps_data, supp_prog, ref_names_and_lens):
+        het_factors, snps_data, write_mod_lp, supp_prog, ref_names_and_lens):
     mod_names = mods_info.mod_long_names if mh.MOD_NAME in outputs else []
     mod_agg_info = mods.AGG_INFO(mods.BIN_THRESH_NAME, mod_bin_thresh)
     aggregate.aggregate_stats(
         outputs, out_dir, num_ps, write_vcf_lp, het_factors,
-        snps_data.call_mode, mod_names, mod_agg_info,
+        snps_data.call_mode, mod_names, mod_agg_info, write_mod_lp,
         supp_prog, ref_names_and_lens)
     return
 
@@ -834,9 +834,10 @@ def get_parser():
                          'Default: Calibrate scores as described in ' +
                          '--mod-calibration-filename'))
     mod_grp.add_argument(
-        '--mod-binary-threshold', type=float, nargs=2,
+        '--mod-binary-threshold', type=float, nargs=1,
         default=mods.DEFAULT_AGG_INFO.binary_threshold,
-        help=hidden_help('Thresholds for modified base aggregation. ' +
+        help=hidden_help('Threshold for modified base aggregation ' +
+                         '(probability of modified/canonical base). ' +
                          'Default: %(default)s'))
     mod_grp.add_argument(
         '--mod-calibration-filename',
@@ -853,6 +854,10 @@ def get_parser():
         help=hidden_help('Compute forwards algorithm all paths score for ' +
                          'modified base calls. (Default: Viterbi ' +
                          'best-path score)'))
+    mod_grp.add_argument(
+        '--write-mod-log-probs', action='store_true',
+        help=hidden_help('Write per-read modified base log probabilities ' +
+                         'out in non-standard modVCF field.'))
 
     tai_grp = parser.add_argument_group('Taiyaki Signal Chunking Arguments')
     tai_grp.add_argument(
@@ -976,7 +981,8 @@ def _main():
         post_process_aggregate(
             mods_info, args.outputs, args.mod_binary_threshold,
             args.output_directory, args.processes, args.write_vcf_log_probs,
-            args.heterozygous_factors, snps_data, args.suppress_progress,
+            args.heterozygous_factors, snps_data, args.write_mod_log_probs,
+            args.suppress_progress,
             aligner.ref_names_and_lens)
 
     if mh.SNP_NAME in args.outputs:

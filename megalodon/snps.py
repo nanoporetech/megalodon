@@ -170,9 +170,8 @@ def call_read_snps(
                 loc_ref_score - loc_alt_score, read_ref_seq, read_alt_seq))
 
         # due to calibration mutli-allelic log likelihoods could result in
-        # inferred negative reference likelihood, so re-normalize her
-        loc_alt_log_ps = calibration.compute_alt_log_probs(
-            np.array(loc_alt_llrs))
+        # inferred negative reference likelihood, so re-normalize here
+        loc_alt_log_ps = calibration.compute_log_probs(np.array(loc_alt_llrs))
 
         r_snp_calls.append((
             snp_ref_pos, loc_alt_log_ps, snp_ref_seq, snp_alt_seqs, snp_id))
@@ -558,7 +557,10 @@ class Variant(object):
     def _sorted_format_keys(self):
         sorted_keys = sorted(self.sample_dict.keys())
         if 'GT' in sorted_keys:
-            sorted_keys = ['GT'] + [k for k in sorted_keys if k != 'GT']
+            sorted_keys.insert(0, sorted_keys.pop(sorted_keys.index('GT')))
+        if 'LOG_PROBS' in sorted_keys:
+            # move log probs to end of format field for easier human readability
+            sorted_keys.append(sorted_keys.pop(sorted_keys.index('LOG_PROBS')))
         return sorted_keys
     @property
     def format(self):
