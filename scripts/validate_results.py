@@ -16,8 +16,6 @@ from sklearn.metrics import (
 
 from megalodon import megalodon_helper as mh
 
-MAP_FN = mh.OUTPUT_FNS[mh.MAP_SUMM_NAME]
-MODS_FN = mh.OUTPUT_FNS[mh.PR_MOD_TXT_NAME]
 
 VERBOSE = False
 
@@ -63,6 +61,7 @@ parser.add_argument(
 
 
 def report_mod_metrics(m_dat, args, out_fp, pdf_fp):
+    m_dat['llr'] = m_dat['mod_log_prob'] - m_dat['can_log_prob']
     for motif in np.unique(m_dat['motif']):
         motif_m_dat = m_dat[m_dat['motif'] == motif]
         if VERBOSE: sys.stderr.write('Computing PR/ROC for {}\n'.format(motif))
@@ -74,12 +73,12 @@ def report_mod_metrics(m_dat, args, out_fp, pdf_fp):
                           sum(~motif_m_dat['is_mod'])))
         # compute roc and presicion recall
         precision, recall, _ = precision_recall_curve(
-            motif_m_dat['is_mod'], -motif_m_dat['mod_log_probs'])
+            motif_m_dat['is_mod'], motif_m_dat['llr'])
         avg_prcn = average_precision_score(
-            motif_m_dat['is_mod'], -motif_m_dat['mod_log_probs'])
+            motif_m_dat['is_mod'], motif_m_dat['llr'])
 
         fpr, tpr, _ = roc_curve(
-            motif_m_dat['is_mod'], -motif_m_dat['mod_log_probs'])
+            motif_m_dat['is_mod'], motif_m_dat['llr'])
         roc_auc = auc(fpr, tpr)
 
         out_fp.write(('Modified base metrics for {}:\n\t' +
@@ -89,14 +88,14 @@ def report_mod_metrics(m_dat, args, out_fp, pdf_fp):
 
         if VERBOSE: sys.stderr.write('Plotting {}\n'.format(motif))
         plt.figure(figsize=(11, 7))
-        sns.kdeplot(motif_m_dat[motif_m_dat['is_mod']]['mod_log_probs'],
+        sns.kdeplot(motif_m_dat[motif_m_dat['is_mod']]['llr'],
                     shade=True, bw=MOD_BANDWIDTH, gridsize=MOD_GRIDSIZE,
                     label='Yes')
-        sns.kdeplot(motif_m_dat[~motif_m_dat['is_mod']]['mod_log_probs'],
+        sns.kdeplot(motif_m_dat[~motif_m_dat['is_mod']]['llr'],
                     shade=True, bw=MOD_BANDWIDTH, gridsize=MOD_GRIDSIZE,
                     label='No')
         plt.legend(prop={'size':16}, title='Is Modified?')
-        plt.xlabel('Modified Base Score')
+        plt.xlabel('Log Likelihood Ratio\n(Less Modified <--> More Modified')
         plt.ylabel('Density')
         plt.title('Motif: {}'.format(motif))
         pdf_fp.savefig(bbox_inches='tight')
@@ -178,7 +177,7 @@ def plot_acc(mod_acc, ctrl_acc, mod_parsim_acc, ctrl_parsim_acc, pdf_fp):
 def report_acc_metrics(res_dir, out_fp):
     try:
         bc_dat = pd.read_csv(
-            os.path.join(res_dir, MAP_FN), sep='\t')
+            mh.get_megalodon_fn(res_dir, mh.MAP_SUMM_NAME), sep='\t')
         bc_acc = bc_dat['pct_identity']
         parsim_acc = 100 * (bc_dat['num_match'] - bc_dat['num_ins']) / \
                      (bc_dat['num_align'] - bc_dat['num_ins'])
@@ -208,7 +207,8 @@ def parse_mod_data(args, out_fp):
 
     try:
         mod_dat = pd.read_csv(
-            os.path.join(args.megalodon_results_dir, MODS_FN), sep='\t')
+            mh.get_megalodon_fn(args.megalodon_results_dir, mh.PR_MOD_TXT_NAME),
+            sep='\t')
     except FileNotFoundError:
         mod_dat = None
 
@@ -222,8 +222,8 @@ def parse_control_mods(args, out_fp):
             args.control_megalodon_results_dir, out_fp)
         try:
             ctrl_dat = pd.read_csv(
-                os.path.join(args.control_megalodon_results_dir, MODS_FN),
-                sep='\t')
+                mh.get_megalodon_fn(args.control_megalodon_results_dir,
+                                    mh.PR_MOD_TXT_NAME), sep='\t')
         except FileNotFoundError:
             ctrl_dat = None
     elif args.ground_truth_data is not None:

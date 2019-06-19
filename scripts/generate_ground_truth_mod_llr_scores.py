@@ -7,14 +7,12 @@ import pandas as pd
 from megalodon import megalodon_helper as mh
 
 
-MODS_FN = mh.OUTPUT_FNS[mh.PR_MOD_NAME][1]
-
 VERBOSE = False
 
 
 def output_mods_data(mod_dat, ctrl_dat, gt_dat, mod_chrm_sw, out_fn):
     if VERBOSE: sys.stderr.write('Merging modified base data\n')
-    # merge scores with known mod sites
+    # merge data with known mod sites
     if ctrl_dat is not None:
         mod_dat['is_mod'] = np.full(mod_dat.shape[0], True)
         ctrl_dat['is_mod'] = np.full(ctrl_dat.shape[0], False)
@@ -26,10 +24,11 @@ def output_mods_data(mod_dat, ctrl_dat, gt_dat, mod_chrm_sw, out_fn):
         m_dat['is_mod'] = np.array([
             chrm.startswith(mod_chrm_sw) for chrm in m_dat['chrm']])
 
+    m_dat['llr'] = m_dat['can_log_prob'] - m_dat['mod_log_prob']
     with open(out_fn, 'w') as fp:
         for _, pos_dat in m_dat.iterrows():
             fp.write('{}\t{}\t{}\n'.format(
-                pos_dat.is_mod, pos_dat.score, pos_dat.mod_base))
+                pos_dat.is_mod, pos_dat.llr, pos_dat.mod_base))
 
     return
 
@@ -37,10 +36,8 @@ def parse_mod_data(args):
     if VERBOSE: sys.stderr.write('Reading megalodon data\n')
     try:
         mod_dat = pd.read_csv(
-            os.path.join(args.megalodon_results_dir, MODS_FN),
-            sep='\t', header=None,
-            names=['read_id' ,'chrm', 'strand', 'pos', 'score',
-                   'motif', 'mod_base'])
+            mh.get_megalodon_fn(args.megalodon_results_dir,
+                                mh.PR_MOD_TXT_NAME), sep='\t')
     except FileNotFoundError:
         sys.write('ERROR: Must provide a valid Megalodon result directory.')
         sys.exit(1)
@@ -53,10 +50,8 @@ def parse_control_mods(args):
         if VERBOSE: sys.stderr.write('Reading control mods data\n')
         try:
             ctrl_dat = pd.read_csv(
-                os.path.join(args.control_megalodon_results_dir, MODS_FN),
-                sep='\t', header=None,
-                names=['read_id' ,'chrm', 'strand', 'pos', 'score',
-                       'motif', 'mod_base'])
+                mh.get_megalodon_fn(args.megalodon_results_dir,
+                                    mh.PR_MOD_TXT_NAME), sep='\t')
         except FileNotFoundError:
             ctrl_dat = None
     elif args.ground_truth_data is not None:

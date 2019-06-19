@@ -204,10 +204,12 @@ def _get_mods_queue(
             # for var strings (read_if and chrms).
             mods_txt_fp.write('\n'.join((
                 '{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
-                    read_id, chrm, strand, pos, ','.join(map(str, mod_lps)),
-                    ','.join(mod_bases), '{}:{}'.format(raw_motif, rel_pos))
-                for pos, mod_lps, mod_bases, ref_motif, rel_pos, raw_motif in
-                r_mod_scores)) + '\n')
+                    read_id, chrm, strand, pos, mod_lp,
+                    np.log1p(-np.exp(mod_lps).sum()), mod_base,
+                    '{}:{}'.format(raw_motif, rel_pos))
+                for pos, mod_lps, mod_bases, ref_motif, rel_pos, raw_motif
+                in r_mod_scores
+                for mod_lp, mod_base in zip(mod_lps, mod_bases))) + '\n')
             mods_txt_fp.flush()
         if pr_refs_fn is not None:
             if not mapping.read_passes_filters(
@@ -232,7 +234,9 @@ def _get_mods_queue(
     else:
         mods_txt_fp = open(mods_txt_fn, 'w')
         mods_txt_fp.write(
-            'read_id\tchrm\tstrand\tpos\tmod_log_probs\tmod_bases\tmotif\n')
+            '\t'.join((
+                'read_id', 'chrm', 'strand', 'pos', 'mod_log_prob',
+                'can_log_prob', 'mod_base', 'motif')) + '\n')
 
     if pr_refs_fn is not None:
         pr_refs_fp = open(pr_refs_fn, 'w')
@@ -573,7 +577,7 @@ class AggMods(mh.AbstractAggregationClass):
         mods_cov = dict((mt, 0) for mt in mod_types)
         for read_pos_lps in pos_scores.values():
             mt_lps = np.array(list(read_pos_lps.values()))
-            can_lp = np.log1p(-np.exp(mt_lps).sum(axis=0))
+            can_lp = np.log1p(-np.exp(mt_lps).sum())
             if can_lp > mt_lps.max():
                 if np.exp(can_lp) > self.binary_thresh:
                     valid_cov += 1
