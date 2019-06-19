@@ -170,9 +170,8 @@ def call_read_snps(
                 loc_ref_score - loc_alt_score, read_ref_seq, read_alt_seq))
 
         # due to calibration mutli-allelic log likelihoods could result in
-        # inferred negative reference likelihood, so re-normalize her
-        loc_alt_log_ps = calibration.compute_alt_log_probs(
-            np.array(loc_alt_llrs))
+        # inferred negative reference likelihood, so re-normalize here
+        loc_alt_log_ps = calibration.compute_log_probs(np.array(loc_alt_llrs))
 
         r_snp_calls.append((
             snp_ref_pos, loc_alt_log_ps, snp_ref_seq, snp_alt_seqs, snp_id))
@@ -351,14 +350,14 @@ def _get_snps_queue(
             for pos, alt_lps, snp_ref_seq, snp_alt_seqs, snp_id in r_snp_calls
             for alt_lp, snp_alt_seq in zip(alt_lps, snp_alt_seqs)])
         if snps_txt_fp is not None:
-            # would involve batching and creating several conversion tables
-            # for var strings (read_if and chrms).
             snps_txt_fp.write('\n'.join((
-                '{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
-                    read_id, chrm, strand, pos, ','.join(map(str, alt_scores)),
-                    snp_ref_seq, ','.join(snp_alt_seqs), snp_id)
-                for pos, alt_scores, snp_ref_seq, snp_alt_seqs, snp_id in
-                r_snp_calls)) + '\n')
+                ('\t'.join('{}' for _ in field_names)).format(
+                    read_id, chrm, strand, pos,
+                    np.log1p(-np.exp(alt_lps).sum()), alt_lp,
+                    snp_ref_seq, snp_alt_seq, snp_id)
+                for pos, alt_lps, snp_ref_seq, snp_alt_seqs, snp_id
+                in r_snp_calls
+                for alt_lp, snp_alt_seq in zip(alt_lps, snp_alt_seqs))) + '\n')
             snps_txt_fp.flush()
         if do_ann_snps:
             if not mapping.read_passes_filters(
@@ -383,7 +382,14 @@ def _get_snps_queue(
     if db_safety < 1:
         snps_db.execute(SET_NO_ROLLBACK_MODE)
     snps_db.execute(CREATE_SNPS_TBLS)
-    snps_txt_fp = None if snps_txt_fn is None else open(snps_txt_fn, 'w')
+    if snps_txt_fn is None:
+        snps_txt_fp = None
+    else:
+        snps_txt_fp = open(snps_txt_fn, 'w')
+        field_names = (
+            'read_id', 'chrm', 'strand', 'pos', 'ref_log_prob', 'alt_log_prob',
+            'ref_seq', 'alt_seq', 'snp_id')
+        snps_txt_fp.write('\t'.join(field_names) + '\n')
 
     if pr_refs_fn is not None:
         pr_refs_fp = open(pr_refs_fn, 'w')
@@ -558,7 +564,10 @@ class Variant(object):
     def _sorted_format_keys(self):
         sorted_keys = sorted(self.sample_dict.keys())
         if 'GT' in sorted_keys:
-            sorted_keys = ['GT'] + [k for k in sorted_keys if k != 'GT']
+            sorted_keys.insert(0, sorted_keys.pop(sorted_keys.index('GT')))
+        if 'LOG_PROBS' in sorted_keys:
+            # move log probs to end of format field for easier human readability
+            sorted_keys.append(sorted_keys.pop(sorted_keys.index('LOG_PROBS')))
         return sorted_keys
     @property
     def format(self):

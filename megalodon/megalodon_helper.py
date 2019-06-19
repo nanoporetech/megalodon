@@ -58,7 +58,7 @@ OUTPUT_FNS = {
     WHATSHAP_MAP_NAME:'whatshap_mappings',
     PR_MOD_NAME:'per_read_modified_base_calls.db',
     PR_MOD_TXT_NAME:'per_read_modified_base_calls.txt',
-    MOD_NAME:'modified_bases.mvcf',
+    MOD_NAME:'modified_bases',
     PR_REF_NAME:'per_read_references.fasta'
 }
 LOG_FILENAME = 'log.txt'
@@ -74,6 +74,16 @@ OUTPUT_DESCS = {
     MOD_NAME:'Sample-level aggregated modified base calls (modVCF)'
 }
 
+# output formats for modified bases and file extensions
+MOD_BEDMETHYL_NAME = 'bedmethyl'
+MOD_VCF_NAME = 'modvcf'
+# TODO actaully implement wiggle output
+MOD_WIG_NAME = 'wiggle'
+MOD_OUTPUT_FMTS = {
+    MOD_BEDMETHYL_NAME:'bedMethyl',
+    MOD_VCF_NAME:'modVcf',
+    MOD_WIG_NAME:'wig'
+}
 
 ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, PR_SNP_NAME, SNP_NAME,
                      WHATSHAP_MAP_NAME, PR_MOD_NAME, MOD_NAME))
@@ -167,7 +177,7 @@ def get_mod_calibration_fn(
         'megalodon', os.path.join(
             MODEL_DATA_DIR_NAME, DEFAULT_MODEL_PRESET, MOD_CALIBRATION_FN)))
 
-def get_model_fn(model_fn, preset_str=None):
+def get_model_fn(model_fn=None, preset_str=None):
     if model_fn is not None:
         return resolve_path(model_fn)
     elif preset_str is not None:

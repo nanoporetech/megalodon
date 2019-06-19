@@ -16,8 +16,6 @@ from sklearn.metrics import (
 
 from megalodon import megalodon_helper as mh
 
-MAP_FN = mh.OUTPUT_FNS[mh.MAP_NAME][1]
-MODS_FN = mh.OUTPUT_FNS[mh.PR_MOD_NAME][1]
 
 VERBOSE = False
 
@@ -36,66 +34,48 @@ BC_CONTROL_NAME = 'Control'
 #BC_CONTROL_NAME = '"High Accuracy"\nFlip-flop'
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    'megalodon_results_dir',
-    help='Output directory from megalodon with mappings and per_read_mods ' +
-    'in outputs. Must have --write-mods-text set for mods validation.')
-parser.add_argument(
-    '--control-megalodon-results-dir',
-    help='Megalodon output directory with modified base control sample.')
-parser.add_argument(
-    '--ground-truth-data',
-    help='Ground truth csv with (chrm, pos, is_mod) values.')
-parser.add_argument(
-    '--mod-chrms-startswith',
-    help='String prefix for all mapped chromosomes with ground ' +
-    'truth modifications. All other sites will be assumed unmodified.')
-parser.add_argument(
-    '--out-pdf', default='megalodon_validation.pdf',
-    help='Output pdf filename. Default: %(default)s')
-parser.add_argument(
-    '--out-filename',
-    help='Output filename for text summary. Default: stdout')
-parser.add_argument(
-    '--quiet', action='store_true',
-    help='Suppress progress information.')
-
-
 def report_mod_metrics(m_dat, args, out_fp, pdf_fp):
-    for motif in np.unique(m_dat['motif']):
-        motif_m_dat = m_dat[m_dat['motif'] == motif]
-        if VERBOSE: sys.stderr.write('Computing PR/ROC for {}\n'.format(motif))
-        out_fp.write(('Modified base class distribution for {}:\n\t' +
+    m_dat['llr'] = m_dat['mod_log_prob'] - m_dat['can_log_prob']
+    uniq_grps = m_dat.groupby(['mod_base', 'motif']).size().reset_index()
+    for mod_base, motif in zip(uniq_grps.mod_base, uniq_grps.motif):
+        motif_m_dat = m_dat[(m_dat['motif'] == motif) &
+                            (m_dat['mod_base'] == mod_base)]
+        if VERBOSE: sys.stderr.write('Computing PR/ROC for {} in {}\n'.format(
+                mod_base, motif))
+        out_fp.write(('Modified base class distribution for {} in {}:\n\t' +
                       'Number of modified observations:    {}\n\t' +
                       'Number of unmodified observations:  {}\n').format(
-                          motif,
+                          mod_base, motif,
                           sum(motif_m_dat['is_mod']),
                           sum(~motif_m_dat['is_mod'])))
         # compute roc and presicion recall
         precision, recall, _ = precision_recall_curve(
-            motif_m_dat['is_mod'], -motif_m_dat['score'])
+            motif_m_dat['is_mod'], motif_m_dat['llr'])
         avg_prcn = average_precision_score(
-            motif_m_dat['is_mod'], -motif_m_dat['score'])
+            motif_m_dat['is_mod'], motif_m_dat['llr'])
 
-        fpr, tpr, _ = roc_curve(motif_m_dat['is_mod'], -motif_m_dat['score'])
+        fpr, tpr, _ = roc_curve(
+            motif_m_dat['is_mod'], motif_m_dat['llr'])
         roc_auc = auc(fpr, tpr)
 
-        out_fp.write(('Modified base metrics for {}:\n\t' +
+        out_fp.write(('Modified base metrics for {} in {}:\n\t' +
                       'Average precision:  {:.6f}\n\t' +
                       'ROC AUC:            {:.6f}\n').format(
-                          motif, avg_prcn, roc_auc))
+                          mod_base, motif, avg_prcn, roc_auc))
 
-        if VERBOSE: sys.stderr.write('Plotting {}\n'.format(motif))
+        if VERBOSE: sys.stderr.write('Plotting {} in {}\n'.format(
+                mod_base, motif))
         plt.figure(figsize=(11, 7))
-        sns.kdeplot(motif_m_dat[motif_m_dat['is_mod']]['score'], shade=True,
-                    bw=MOD_BANDWIDTH, gridsize=MOD_GRIDSIZE, label='Yes')
-        sns.kdeplot(motif_m_dat[~motif_m_dat['is_mod']]['score'], shade=True,
-                    bw=MOD_BANDWIDTH, gridsize=MOD_GRIDSIZE, label='No')
+        sns.kdeplot(motif_m_dat[motif_m_dat['is_mod']]['llr'],
+                    shade=True, bw=MOD_BANDWIDTH, gridsize=MOD_GRIDSIZE,
+                    label='Yes')
+        sns.kdeplot(motif_m_dat[~motif_m_dat['is_mod']]['llr'],
+                    shade=True, bw=MOD_BANDWIDTH, gridsize=MOD_GRIDSIZE,
+                    label='No')
         plt.legend(prop={'size':16}, title='Is Modified?')
-        plt.xlabel('Modified Base Score')
+        plt.xlabel('Log Likelihood Ratio\n(Less Modified <--> More Modified')
         plt.ylabel('Density')
-        plt.title('Motif: {}'.format(motif))
+        plt.title('Modified Base: {}\tMotif: {}'.format(mod_base, motif))
         pdf_fp.savefig(bbox_inches='tight')
         plt.close()
 
@@ -105,8 +85,8 @@ def report_mod_metrics(m_dat, args, out_fp, pdf_fp):
         plt.xlim([-0.05, 1.05])
         plt.xlabel('Recall')
         plt.ylabel('Precision')
-        plt.title('Motif: {}\tPrecision-Recall curve: AP={:0.2f}'.format(
-            motif, avg_prcn))
+        plt.title(('Modified Base: {}\tMotif: {}\tPrecision-Recall ' +
+                   'curve: AP={:0.2f}').format(mod_base, motif, avg_prcn))
         pdf_fp.savefig(bbox_inches='tight')
         plt.close()
 
@@ -116,7 +96,8 @@ def report_mod_metrics(m_dat, args, out_fp, pdf_fp):
         plt.ylim([-0.05, 1.05])
         plt.xlabel('False Positive Rate')
         plt.ylabel('True Positive Rate')
-        plt.title('Motif: {}\tROC curve: auc={:0.2f}'.format(motif, roc_auc))
+        plt.title(('Modified Base: {}\tMotif: {}\tROC curve: ' +
+                   'auc={:0.2f}').format(mod_base, motif, roc_auc))
         pdf_fp.savefig(bbox_inches='tight')
         plt.close()
 
@@ -174,8 +155,8 @@ def plot_acc(mod_acc, ctrl_acc, mod_parsim_acc, ctrl_parsim_acc, pdf_fp):
 
 def report_acc_metrics(res_dir, out_fp):
     try:
-        bc_dat = pd.read_csv(
-            os.path.join(res_dir, MAP_FN), sep='\t')
+        bc_dat = pd.read_csv(mh.get_megalodon_fn(res_dir, mh.MAP_SUMM_NAME),
+                             sep='\t')
         bc_acc = bc_dat['pct_identity']
         parsim_acc = 100 * (bc_dat['num_match'] - bc_dat['num_ins']) / \
                      (bc_dat['num_align'] - bc_dat['num_ins'])
@@ -205,10 +186,8 @@ def parse_mod_data(args, out_fp):
 
     try:
         mod_dat = pd.read_csv(
-            os.path.join(args.megalodon_results_dir, MODS_FN),
-            sep='\t', header=None,
-            names=['read_id' ,'chrm', 'strand', 'pos', 'score',
-                   'motif', 'mod_base'])
+            mh.get_megalodon_fn(args.megalodon_results_dir,
+                                mh.PR_MOD_TXT_NAME), sep='\t')
     except FileNotFoundError:
         mod_dat = None
 
@@ -222,10 +201,8 @@ def parse_control_mods(args, out_fp):
             args.control_megalodon_results_dir, out_fp)
         try:
             ctrl_dat = pd.read_csv(
-                os.path.join(args.control_megalodon_results_dir, MODS_FN),
-                sep='\t', header=None,
-                names=['read_id' ,'chrm', 'strand', 'pos', 'score',
-                       'motif', 'mod_base'])
+                mh.get_megalodon_fn(args.control_megalodon_results_dir,
+                                    mh.PR_MOD_TXT_NAME), sep='\t')
         except FileNotFoundError:
             ctrl_dat = None
     elif args.ground_truth_data is not None:
@@ -241,8 +218,36 @@ def parse_control_mods(args, out_fp):
 
     return ctrl_acc, ctrl_parsim_acc, ctrl_dat, gt_dat, mod_chrm_sw
 
+def get_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        'megalodon_results_dir',
+        help='Output directory from megalodon with mappings and per_read_mods ' +
+        'in outputs. Must have --write-mods-text set for mods validation.')
+    parser.add_argument(
+        '--control-megalodon-results-dir',
+        help='Megalodon output directory with modified base control sample.')
+    parser.add_argument(
+        '--ground-truth-data',
+        help='Ground truth csv with (chrm, pos, is_mod) values.')
+    parser.add_argument(
+        '--mod-chrms-startswith',
+        help='String prefix for all mapped chromosomes with ground ' +
+        'truth modifications. All other sites will be assumed unmodified.')
+    parser.add_argument(
+        '--out-pdf', default='megalodon_validation.pdf',
+        help='Output pdf filename. Default: %(default)s')
+    parser.add_argument(
+        '--out-filename',
+        help='Output filename for text summary. Default: stdout')
+    parser.add_argument(
+        '--quiet', action='store_true',
+        help='Suppress progress information.')
+
+    return parser
+
 def main():
-    args = parser.parse_args()
+    args = get_parser().parse_args()
     global VERBOSE
     VERBOSE = not args.quiet
     pdf_fp = PdfPages(args.out_pdf)

@@ -179,7 +179,7 @@ def compute_mirrored_calibration(
 ##### LLR Stats #####
 #####################
 
-def compute_alt_log_probs(alt_llrs):
+def compute_log_probs(alt_llrs):
     """ Compute log probabilities from a set of log likelihood ratios all
     against the reference allele
     """

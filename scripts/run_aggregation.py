@@ -32,9 +32,15 @@ def get_parser():
         help='Bayesian prior factor for snv and indel heterozygous calls ' +
         '(compared to 1.0 for hom ref/alt). Default: %(default)s')
     parser.add_argument(
-        '--mod-binary-threshold', type=float, nargs=2,
+        '--mod-binary-threshold', type=float, nargs=1,
         default=mods.DEFAULT_AGG_INFO.binary_threshold,
-        help='Thresholds for modified base aggregation. Default: %(default)s')
+        help='Threshold for modified base aggregation (probability of ' +
+        'modified/canonical base). Default: %(default)s')
+    parser.add_argument(
+        '--mod-output-formats', nargs='+',
+        default=[mh.MOD_BEDMETHYL_NAME,],
+        choices=tuple(mh.MOD_OUTPUT_FMTS.keys()),
+        help='Modified base aggregated output format(s). Default: %(default)s')
     parser.add_argument(
         '--output-directory',
         default='megalodon_results',
@@ -53,10 +59,15 @@ def get_parser():
     parser.add_argument(
         '--reference',
         help='Reference FASTA or minimap2 index file used for mapping ' +
-        'called reads. Used to annotate VCF file with contig names.')
+        'called reads. Used to annotate VCF file with contig names ' +
+        '(required for VCF sorting and indexing).')
     parser.add_argument(
         '--suppress-progress', action='store_true',
         help='Suppress progress bar output.')
+    parser.add_argument(
+        '--write-mod-log-probs', action='store_true',
+        help='Write per-read modified base log probabilities ' +
+        'out in non-standard modVCF field.')
     parser.add_argument(
         '--write-vcf-log-probs', action='store_true',
         help='Write alt log prbabilities out in non-standard VCF field.')
@@ -77,7 +88,8 @@ def main():
         mods.BIN_THRESH_NAME, args.mod_binary_threshold)
     aligner = mapping.alignerPlus(
         str(args.reference), preset=str('map-ont'), best_n=1)
-    aligner.add_ref_lens()
+    if args.reference is not None:
+        aligner.add_ref_lens()
     valid_read_ids = None
     if args.read_ids_filename is not None:
         with open(args.read_ids_filename) as read_ids_fp:
@@ -86,10 +98,12 @@ def main():
         args.outputs, args.output_directory, args.processes,
         args.write_vcf_log_probs, args.heterozygous_factors,
         snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE,
-        mod_names, mod_agg_info, args.suppress_progress,
+        mod_names, mod_agg_info, args.write_mod_log_probs,
+        args.mod_output_formats, args.suppress_progress,
         aligner.ref_names_and_lens, valid_read_ids, args.output_suffix)
 
-    if mh.SNP_NAME in args.outputs:
+    # note reference is required in order to annotate contigs for VCF writing
+    if mh.SNP_NAME in args.outputs and args.reference is not None:
         logger.info('Sorting output variant file')
         variant_fn = mh.add_fn_suffix(
             mh.get_megalodon_fn(args.output_directory, mh.SNP_NAME),
