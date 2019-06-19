@@ -107,7 +107,7 @@ Outputs
     - Tab-delimited output can be produced by adding the ``--write-mods-text`` flag
   - Aggregated calls
 
-    - Aggregated calls are output in either bedMethyl format files (one per modified base) or a VCF variant format (including all modified bases).
+    - Aggregated calls are output in either bedMethyl format (default; one file per modified base), a VCF variant format (including all modified bases) or wiggle format (one file per modified base/strand combination).
 - SNP Variant Calls
 
   - Per-read SNP Calls
