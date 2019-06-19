@@ -16,8 +16,8 @@ from sklearn.metrics import (
 
 from megalodon import megalodon_helper as mh
 
-MAP_FN = mh.OUTPUT_FNS[mh.MAP_NAME][1]
-MODS_FN = mh.OUTPUT_FNS[mh.PR_MOD_NAME][1]
+MAP_FN = mh.OUTPUT_FNS[mh.MAP_SUMM_NAME]
+MODS_FN = mh.OUTPUT_FNS[mh.PR_MOD_TXT_NAME]
 
 VERBOSE = False
 
@@ -74,11 +74,12 @@ def report_mod_metrics(m_dat, args, out_fp, pdf_fp):
                           sum(~motif_m_dat['is_mod'])))
         # compute roc and presicion recall
         precision, recall, _ = precision_recall_curve(
-            motif_m_dat['is_mod'], -motif_m_dat['score'])
+            motif_m_dat['is_mod'], -motif_m_dat['mod_log_probs'])
         avg_prcn = average_precision_score(
-            motif_m_dat['is_mod'], -motif_m_dat['score'])
+            motif_m_dat['is_mod'], -motif_m_dat['mod_log_probs'])
 
-        fpr, tpr, _ = roc_curve(motif_m_dat['is_mod'], -motif_m_dat['score'])
+        fpr, tpr, _ = roc_curve(
+            motif_m_dat['is_mod'], -motif_m_dat['mod_log_probs'])
         roc_auc = auc(fpr, tpr)
 
         out_fp.write(('Modified base metrics for {}:\n\t' +
@@ -88,10 +89,12 @@ def report_mod_metrics(m_dat, args, out_fp, pdf_fp):
 
         if VERBOSE: sys.stderr.write('Plotting {}\n'.format(motif))
         plt.figure(figsize=(11, 7))
-        sns.kdeplot(motif_m_dat[motif_m_dat['is_mod']]['score'], shade=True,
-                    bw=MOD_BANDWIDTH, gridsize=MOD_GRIDSIZE, label='Yes')
-        sns.kdeplot(motif_m_dat[~motif_m_dat['is_mod']]['score'], shade=True,
-                    bw=MOD_BANDWIDTH, gridsize=MOD_GRIDSIZE, label='No')
+        sns.kdeplot(motif_m_dat[motif_m_dat['is_mod']]['mod_log_probs'],
+                    shade=True, bw=MOD_BANDWIDTH, gridsize=MOD_GRIDSIZE,
+                    label='Yes')
+        sns.kdeplot(motif_m_dat[~motif_m_dat['is_mod']]['mod_log_probs'],
+                    shade=True, bw=MOD_BANDWIDTH, gridsize=MOD_GRIDSIZE,
+                    label='No')
         plt.legend(prop={'size':16}, title='Is Modified?')
         plt.xlabel('Modified Base Score')
         plt.ylabel('Density')
@@ -205,10 +208,7 @@ def parse_mod_data(args, out_fp):
 
     try:
         mod_dat = pd.read_csv(
-            os.path.join(args.megalodon_results_dir, MODS_FN),
-            sep='\t', header=None,
-            names=['read_id' ,'chrm', 'strand', 'pos', 'score',
-                   'motif', 'mod_base'])
+            os.path.join(args.megalodon_results_dir, MODS_FN), sep='\t')
     except FileNotFoundError:
         mod_dat = None
 
@@ -223,9 +223,7 @@ def parse_control_mods(args, out_fp):
         try:
             ctrl_dat = pd.read_csv(
                 os.path.join(args.control_megalodon_results_dir, MODS_FN),
-                sep='\t', header=None,
-                names=['read_id' ,'chrm', 'strand', 'pos', 'score',
-                       'motif', 'mod_base'])
+                sep='\t')
         except FileNotFoundError:
             ctrl_dat = None
     elif args.ground_truth_data is not None:

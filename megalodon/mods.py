@@ -199,13 +199,13 @@ def _get_mods_queue(
             for pos, mod_lps, mod_bases, ref_motif, rel_pos, raw_motif in
             r_mod_scores
             for mod_lp, mod_base in zip(mod_lps, mod_bases)])
-        if mods_txt_fp is not None:
+        if mods_txt_fp is not None and len(r_mod_scores) > 0:
             # would involve batching and creating several conversion tables
             # for var strings (read_if and chrms).
             mods_txt_fp.write('\n'.join((
                 '{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
                     read_id, chrm, strand, pos, ','.join(map(str, mod_lps)),
-                    ','.join(mod_bases), '{}:{}'.format(ref_motif, rel_pos))
+                    ','.join(mod_bases), '{}:{}'.format(raw_motif, rel_pos))
                 for pos, mod_lps, mod_bases, ref_motif, rel_pos, raw_motif in
                 r_mod_scores)) + '\n')
             mods_txt_fp.flush()
