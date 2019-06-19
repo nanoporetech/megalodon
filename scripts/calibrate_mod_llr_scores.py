@@ -79,7 +79,7 @@ def get_parser():
     parser.add_argument(
         '--ground-truth-llrs', default='mod_calibration_statistics.txt',
         help='Ground truth log-likelihood ratio statistics (produced by ' +
-        'generate_ground_truth_snp_mod_scores.py). Default: %(default)s')
+        'generate_ground_truth_mod_llr_scores.py). Default: %(default)s')
     parser.add_argument(
         '--max-input-llr', type=int, default=calibration.DEFAULT_SMOOTH_MAX,
         help='Maximum log-likelihood ratio to compute calibration. ' +

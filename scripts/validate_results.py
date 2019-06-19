@@ -34,32 +34,6 @@ BC_CONTROL_NAME = 'Control'
 #BC_CONTROL_NAME = '"High Accuracy"\nFlip-flop'
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    'megalodon_results_dir',
-    help='Output directory from megalodon with mappings and per_read_mods ' +
-    'in outputs. Must have --write-mods-text set for mods validation.')
-parser.add_argument(
-    '--control-megalodon-results-dir',
-    help='Megalodon output directory with modified base control sample.')
-parser.add_argument(
-    '--ground-truth-data',
-    help='Ground truth csv with (chrm, pos, is_mod) values.')
-parser.add_argument(
-    '--mod-chrms-startswith',
-    help='String prefix for all mapped chromosomes with ground ' +
-    'truth modifications. All other sites will be assumed unmodified.')
-parser.add_argument(
-    '--out-pdf', default='megalodon_validation.pdf',
-    help='Output pdf filename. Default: %(default)s')
-parser.add_argument(
-    '--out-filename',
-    help='Output filename for text summary. Default: stdout')
-parser.add_argument(
-    '--quiet', action='store_true',
-    help='Suppress progress information.')
-
-
 def report_mod_metrics(m_dat, args, out_fp, pdf_fp):
     m_dat['llr'] = m_dat['mod_log_prob'] - m_dat['can_log_prob']
     for motif in np.unique(m_dat['motif']):
@@ -239,8 +213,36 @@ def parse_control_mods(args, out_fp):
 
     return ctrl_acc, ctrl_parsim_acc, ctrl_dat, gt_dat, mod_chrm_sw
 
+def get_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        'megalodon_results_dir',
+        help='Output directory from megalodon with mappings and per_read_mods ' +
+        'in outputs. Must have --write-mods-text set for mods validation.')
+    parser.add_argument(
+        '--control-megalodon-results-dir',
+        help='Megalodon output directory with modified base control sample.')
+    parser.add_argument(
+        '--ground-truth-data',
+        help='Ground truth csv with (chrm, pos, is_mod) values.')
+    parser.add_argument(
+        '--mod-chrms-startswith',
+        help='String prefix for all mapped chromosomes with ground ' +
+        'truth modifications. All other sites will be assumed unmodified.')
+    parser.add_argument(
+        '--out-pdf', default='megalodon_validation.pdf',
+        help='Output pdf filename. Default: %(default)s')
+    parser.add_argument(
+        '--out-filename',
+        help='Output filename for text summary. Default: stdout')
+    parser.add_argument(
+        '--quiet', action='store_true',
+        help='Suppress progress information.')
+
+    return parser
+
 def main():
-    args = parser.parse_args()
+    args = get_parser().parse_args()
     global VERBOSE
     VERBOSE = not args.quiet
     pdf_fp = PdfPages(args.out_pdf)

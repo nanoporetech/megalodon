@@ -203,7 +203,7 @@ def _get_mods_queue(
             # would involve batching and creating several conversion tables
             # for var strings (read_if and chrms).
             mods_txt_fp.write('\n'.join((
-                '{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
+                ('\t'.join('{}' for _ in field_names)).format(
                     read_id, chrm, strand, pos, mod_lp,
                     np.log1p(-np.exp(mod_lps).sum()), mod_base,
                     '{}:{}'.format(raw_motif, rel_pos))
@@ -233,10 +233,10 @@ def _get_mods_queue(
         mods_txt_fp = None
     else:
         mods_txt_fp = open(mods_txt_fn, 'w')
-        mods_txt_fp.write(
-            '\t'.join((
-                'read_id', 'chrm', 'strand', 'pos', 'mod_log_prob',
-                'can_log_prob', 'mod_base', 'motif')) + '\n')
+        field_names = (
+            'read_id', 'chrm', 'strand', 'pos', 'mod_log_prob',
+            'can_log_prob', 'mod_base', 'motif')
+        mods_txt_fp.write('\t'.join(field_names) + '\n')
 
     if pr_refs_fn is not None:
         pr_refs_fp = open(pr_refs_fn, 'w')
