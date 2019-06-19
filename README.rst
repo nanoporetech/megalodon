@@ -20,7 +20,6 @@ Megalodon requires ``numpy`` and ``cython`` to be installed before running megal
 
 Megalodon requires `taiyaki <https://github.com/nanoporetech/taiyaki>`_ installation for basecalling backend at run time.
 Megalodon requires only a minimal taiyaki installation via ``pip install git+git://github.com/nanoporetech/taiyaki.git``.
-Full installation via ``git clone https://github.com/nanoporetech/taiyaki && cd taiyaki && make install`` is not necessary for megalodon functionality.
 
 Megalodon requires `pytorch <https://pytorch.org/>`_ to support the ``taiyaki`` basecalling backend.
 For megalodon GPU support, pytorch must be installed with GPU support (and ``--devices`` to use provided at run time).
@@ -32,9 +31,7 @@ Installation
 ::
 
    pip install numpy cython
-   git clone https://github.com/nanoporetech/megalodon
-   cd megalodon
-   pip install .
+   pip install git+https://github.com/nanoporetech/megalodon.git
 
 Getting Started
 ---------------
@@ -62,7 +59,7 @@ The format for each output is described below.
 
    The default basecalling model (used in this example command) is for R9.4.1, MinION/GridION reads.
    This is equivalent to the guppy/MinKNOW high accuracy model in terms of basecall accuracy and run speed (though using taiyaki backend is slower than guppy).
-   This model contains 5mC (encoded as a ``Z`` base) and 6mA (encoded as a ``Y`` base) trained in biological contexts only (5mC in human CpG and E. coli CCWGG and 6mA in E. coli GATC).
+   This model contains modified bases 5mC (encoded as a ``Z`` base) and 6mA (encoded as a ``Y`` base) trained in biological contexts only (5mC in human CpG and E. coli CCWGG and 6mA in E. coli GATC).
 
 Inputs
 ------
@@ -73,13 +70,14 @@ Inputs
   - By default the directory will be searched recursively for read files (ending in ``.fast5``)
 - Reference
 
-  - Genome or transcriptome sequence reference file in FASTA format
+  - Genome or transcriptome sequence reference file in FASTA format (minimap2 index may be provided instead)
 - Variants File
 
-  - Format: indexed VCF or BCF
-  - Optional, but required for SNP calling
-  - Megalodon currently requires a set of candidate variants in order to call SNPs.
-  - Only small indels (default less than ``50`` bases) are included in testing.
+  - Format: VCF or BCF
+
+    - If not indexed, indexing will be performed
+  - Megalodon currently requires a set of candidate variants for ``--outputs snps``.
+  - Only small indels (default less than ``50`` bases) are tested by default.
 
     - Specify the ``--max-indel-size`` argument to process larger indels
     - The ``--variant-context-bases`` argument may need to be increased for larger indels.
@@ -96,11 +94,9 @@ Outputs
 - Mappings
 
   - Format: SAM, BAM (default), or CRAM
-  - A tab-separated mapping summary is produced
+  - A tab-separated mapping text summary is produced including per-read alignment statistics
 
-    - Columns: ``read_id``, ``percent_identity``, ``num_aligned_bases``, ``num_matched_bases``, ``num_deleted_bases``, ``num_inserted_bases``
-
-      - ``percent_identity`` is defined as ``num_matched_bases`` / ``num_align_bases``
+    - ``percent_identity`` is defined as ``num_matched_bases`` / ``num_align_bases``
 - Modified Base Calls
 
   - Per-read modified base calls
@@ -109,18 +105,9 @@ Outputs
 
       - Contains a single ``mods`` table indexed by reference position
     - Tab-delimited output can be produced by adding the ``--write-mods-text`` flag
-
-      - Columns: ``read_id``, ``chromosome``, ``strand``, ``position``, ``score``, ``motif``, ``modified_base``
-
-        - Position is 0-based
-        - Motif is as described by ``--mod-motif`` argument
-
-          - If ``--mod-motif`` is not provided, all applicable positions for a modification are tested
   - Aggregated calls
 
-    - Aggregated calls are output in a variant of the VCF format, as no current format allows the output of mulitple types of modifications to the same file.
-
-      - This format treats modified bases as a variant. As opposed to SNP calls (as in VCF format) which output the probability of a particular genotype, this format outputs the estimated proportion of reads modified at the specified genomic location.
+    - Aggregated calls are output in either bedMethyl format files (one per modified base) or a VCF variant format (including all modified bases).
 - SNP Variant Calls
 
   - Per-read SNP Calls
@@ -129,20 +116,11 @@ Outputs
 
       - Contains a single ``snps`` table indexed by reference position
     - Tab-delimited output can be produced by adding the ``--write-snps-text`` flag
-
-      - Columns: ``read_id``, ``chromosome``, ``strand``, ``position``, ``score``, ``ref_seq``, ``alt_seq``, and ``snp_id``
-
-        - Position is 0-based
   - Aggregated calls
 
     - Format: VCF
-    - VCF file contains ``GT``, ``GQ``, and ``PL`` sample fields
+    - VCF sample field contains ``GT``, ``GQ``, ``DP``, ``GL``, and ``PL`` attributes
     - Default run mode is diploid. To run in haploid mode, set ``--haploid`` flag.
-  - Future additions:
-
-    - Phased VCF output
-    - Phased read calls
-    - Improved phase-aware per-read sequence variants calls
 
 Computing
 ---------

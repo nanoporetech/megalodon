@@ -248,8 +248,9 @@ def post_process_aggregate(
     mod_agg_info = mods.AGG_INFO(mods.BIN_THRESH_NAME, mod_bin_thresh)
     aggregate.aggregate_stats(
         outputs, out_dir, num_ps, write_vcf_lp, het_factors,
-        snps_data.call_mode, mod_names, mod_agg_info, write_mod_lp,
-        supp_prog, ref_names_and_lens)
+        snps_data.call_mode, mod_names, mod_agg_info,
+        write_mod_lp, mods_info.mod_output_fmts, supp_prog,
+        ref_names_and_lens)
     return
 
 
@@ -639,7 +640,8 @@ def mods_validation(args, model_info):
     mods_info = mods.ModInfo(
         model_info, args.mod_motif, args.mod_all_paths,
         args.write_mods_text, args.mod_context_bases,
-        mh.BC_MODS_NAME in args.outputs, args.refs_include_mods, mod_calib_fn)
+        mh.BC_MODS_NAME in args.outputs, args.refs_include_mods, mod_calib_fn,
+        args.mod_output_formats)
     return args, mods_info
 
 def parse_pr_ref_output(args):
@@ -834,6 +836,11 @@ def get_parser():
                          'Default: Calibrate scores as described in ' +
                          '--mod-calibration-filename'))
     mod_grp.add_argument(
+        '--mod-all-paths', action='store_true',
+        help=hidden_help('Compute forwards algorithm all paths score for ' +
+                         'modified base calls. (Default: Viterbi ' +
+                         'best-path score)'))
+    mod_grp.add_argument(
         '--mod-binary-threshold', type=float, nargs=1,
         default=mods.DEFAULT_AGG_INFO.binary_threshold,
         help=hidden_help('Threshold for modified base aggregation ' +
@@ -850,10 +857,11 @@ def get_parser():
         help=hidden_help('Context bases for modified base calling. ' +
                          'Default: %(default)d'))
     mod_grp.add_argument(
-        '--mod-all-paths', action='store_true',
-        help=hidden_help('Compute forwards algorithm all paths score for ' +
-                         'modified base calls. (Default: Viterbi ' +
-                         'best-path score)'))
+        '--mod-output-formats', nargs='+',
+        default=[mh.MOD_BEDMETHYL_NAME,],
+        choices=tuple(mh.MOD_OUTPUT_FMTS.keys()),
+        help=hidden_help('Modified base aggregated output format(s). ' +
+                         'Default: %(default)s'))
     mod_grp.add_argument(
         '--write-mod-log-probs', action='store_true',
         help=hidden_help('Write per-read modified base log probabilities ' +
@@ -982,8 +990,7 @@ def _main():
             mods_info, args.outputs, args.mod_binary_threshold,
             args.output_directory, args.processes, args.write_vcf_log_probs,
             args.heterozygous_factors, snps_data, args.write_mod_log_probs,
-            args.suppress_progress,
-            aligner.ref_names_and_lens)
+            args.suppress_progress, aligner.ref_names_and_lens)
 
     if mh.SNP_NAME in args.outputs:
         logger.info('Sorting output variant file')

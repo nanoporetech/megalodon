@@ -96,19 +96,27 @@ def _agg_mods_worker(
 
 def _get_mod_stats_queue(
         mod_stats_q, mod_conn, out_dir, mod_names, ref_names_and_lens,
-        out_suffix, write_mod_lp):
-    agg_mod_fn = mh.get_megalodon_fn(out_dir, mh.MOD_NAME)
+        out_suffix, write_mod_lp, mod_output_fmts):
+    agg_mod_bn = mh.get_megalodon_fn(out_dir, mh.MOD_NAME)
     if out_suffix is not None:
-        base_fn, fn_ext = os.path.splitext(agg_mod_fn)
-        agg_mod_fn = base_fn + '.' + out_suffix + fn_ext
-    agg_mod_fp = mods.ModVcfWriter(
-        agg_mod_fn, mod_names, 'w', ref_names_and_lens=ref_names_and_lens,
-        write_mod_lp=write_mod_lp)
+        agg_mod_bn += '.' + out_suffix
+    agg_mod_fps = []
+    if mh.MOD_BEDMETHYL_NAME in mod_output_fmts:
+        agg_mod_fps.append(mods.ModBedMethylWriter(
+            agg_mod_bn, mod_names, 'w'))
+    if mh.MOD_VCF_NAME in mod_output_fmts:
+        agg_mod_fps.append(mods.ModVcfWriter(
+            agg_mod_bn, mod_names, 'w', ref_names_and_lens=ref_names_and_lens,
+            write_mod_lp=write_mod_lp))
+    if mh.MOD_WIG_NAME in mod_output_fmts:
+        agg_mod_fps.append(mods.ModWigWriter(
+            agg_mod_bn, mod_names, 'w'))
 
     while True:
         try:
             mod_site = mod_stats_q.get(block=False)
-            agg_mod_fp.write_mod_site(mod_site)
+            for agg_mod_fp in agg_mod_fps:
+                agg_mod_fp.write_mod_site(mod_site)
         except queue.Empty:
             if mod_conn.poll():
                 break
@@ -184,8 +192,9 @@ def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps):
 
 def aggregate_stats(
         outputs, out_dir, num_ps, write_vcf_lp, het_factors, call_mode,
-        mod_names, mod_agg_info, write_mod_lp, suppress_progress,
-        ref_names_and_lens, valid_read_ids=None, out_suffix=None):
+        mod_names, mod_agg_info, write_mod_lp, mod_output_fmts,
+        suppress_progress, ref_names_and_lens, valid_read_ids=None,
+        out_suffix=None):
     if mh.SNP_NAME in outputs and mh.MOD_NAME in outputs:
         num_ps = max(num_ps // 2, 1)
 
@@ -223,7 +232,7 @@ def aggregate_stats(
         mod_stats_q, mod_stats_p, main_mod_stats_conn = mh.create_getter_q(
             _get_mod_stats_queue, (
                 out_dir, mod_names, ref_names_and_lens, out_suffix,
-                write_mod_lp))
+                write_mod_lp, mod_output_fmts))
         # create process to fill mod locs queue
         mod_filler_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
         mod_filler_p = mp.Process(

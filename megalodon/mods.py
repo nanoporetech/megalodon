@@ -331,7 +331,8 @@ class ModInfo(object):
     def __init__(
             self, model_info, all_mod_motifs_raw=None, mod_all_paths=False,
             write_mods_txt=None, mod_context_bases=None,
-            do_output_mods=False, do_pr_ref_mods=False, mods_calib_fn=None):
+            do_output_mods=False, do_pr_ref_mods=False, mods_calib_fn=None,
+            mod_output_fmts=[mh.MOD_BEDMETHYL_NAME]):
         logger = logging.get_logger()
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other alphabet info
@@ -344,6 +345,7 @@ class ModInfo(object):
         self.do_pr_ref_mods = do_pr_ref_mods
         self.mod_long_names = model_info.mod_long_names
         self.calib_table = calibration.ModCalibrator(mods_calib_fn)
+        self.mod_output_fmts = mod_output_fmts
 
         self.alphabet = model_info.can_alphabet
         self.ncan_base = len(self.alphabet)
@@ -397,20 +399,30 @@ class ModInfo(object):
 #########################
 
 class ModSite(object):
-    """ Modified base site for entry into ModVcfWriter.
+    """ Modified base site for entry into Mod Writers.
     Currently only handles a single sample.
     """
     def __init__(
-            self, chrom, pos, strand, ref, mods, id='.', qual='.', filter='.',
-            info=None, sample_dict=None):
+            self, chrom, pos, strand, ref_seq, mod_bases,
+            id='.', qual='.', filter='.', info=None, sample_dict=None,
+            ref_mod_pos=0, mod_props=None):
+        self.strand = strand
+        self.mod_bases = mod_bases
+        self.mod_props = mod_props
+        mod_seqs = ','.join((
+            ref_seq[:ref_mod_pos] + mod_base + ref_seq[ref_mod_pos + 1:]
+            for mod_base in mod_bases))
+
+        # attributes must match header text from ModVcfWriter
         self.chrom = chrom
         self.pos = int(pos)
-        self.ref = ref.upper()
-        self.alt = mods
         self.id = str(id)
+        self.ref = ref_seq.upper()
+        self.alt = mod_seqs
         self.qual = qual
         self.filter = str(filter)
-        self.strand = strand
+
+        # info and gentype data fields
         if info is None:
             info = {}
         if 'STRD' not in info:
@@ -419,6 +431,10 @@ class ModSite(object):
         if sample_dict is None:
             sample_dict = OrderedDict()
         self.sample_dict = sample_dict
+
+        if self.mod_props is not None:
+            self.add_mod_props(self.mod_props)
+
         return
 
     @property
@@ -463,6 +479,15 @@ class ModSite(object):
             self.add_sample_field(mod_name, '{:.4f}'.format(mod_prop))
         return
 
+    def get_coverage(self, default_value=0):
+        if 'VALID_DP' in self.sample_dict:
+            return self.sample_dict['VALID_DP']
+        elif 'DP' in self.sample_dict:
+            return self.sample_dict['DP']
+        elif 'DP' in self.info_dict:
+            return self.info_dict['DP']
+        return default_value
+
     def __eq__(self, mod2):
         return (self.chrm, self.pos, self.strand) == (
             mod2.chrm, mod2.pos, mod2.strand)
@@ -482,18 +507,17 @@ class ModSite(object):
         return (self.chrm, self.pos, self.strand) >= (
             mod2.chrm, mod2.pos, mod2.strand)
 
-
 class ModVcfWriter(object):
     """ modVCF writer class
     """
     version_options = set(['4.2',])
     def __init__(
-            self, filename, mods, mode='w',
+            self, basename, mods, mode='w',
             header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER',
                     'INFO', 'FORMAT', 'SAMPLE'),
             extra_meta_info=FIXED_VCF_MI, version='4.2', ref_fn=None,
             ref_names_and_lens=None, write_mod_lp=False):
-        self.filename = filename
+        self.basename = basename
         self.mods = mods
         self.mode = mode
         self.header = header
@@ -514,14 +538,11 @@ class ModVcfWriter(object):
                 for mod_tmplt in MOD_MI_TMPLTS]
         if write_mod_lp:
             self.meta.append(FORMAT_LOG_PROB_MI)
-
+        self.filename = '{}.{}'.format(
+            self.basename, mh.MOD_OUTPUT_FMTS[mh.MOD_VCF_NAME])
         self.handle = open(self.filename, self.mode, encoding='utf-8')
         self.handle.write('\n'.join('##' + line for line in self.meta) + '\n')
         self.handle.write('#' + '\t'.join(self.header) + '\n')
-        return
-
-    def close(self):
-        self.handle.close()
         return
 
     def write_mod_site(self, mod_site):
@@ -531,6 +552,113 @@ class ModVcfWriter(object):
         elements[self.header.index('POS')] += 1
         self.handle.write('{}\n'.format('\t'.join(map(str, elements))))
         self.handle.flush()
+
+        return
+
+    def close(self):
+        self.handle.close()
+        return
+
+class ModBedMethylWriter(object):
+    """ bedMethyl writer class
+
+    Note that the bedMethyl format cannot store more than one modification
+    type, so multiple file handles will be opened.
+    """
+    def __init__(self, basename, mods, mode='w'):
+        self.basename = basename
+        self.mods = mods
+        self.mod_short_names, self.mod_long_names = zip(*self.mods)
+        self.mode = mode
+        self.handles = dict(
+            (mod_short_name,
+             open('{}.{}.{}'.format(self.basename, mod_long_name,
+                                    mh.MOD_OUTPUT_FMTS[mh.MOD_BEDMETHYL_NAME]),
+                  self.mode, encoding='utf-8'))
+            for mod_short_name, mod_long_name in self.mods)
+        return
+
+    def write_mod_site(self, mod_site):
+        for mod_base, mod_prop in mod_site.mod_props.items():
+            if mod_base not in self.mod_short_names:
+                mh.warning('Invalid modified base encountered during ' +
+                           'bedMethyl output.')
+                continue
+            self.handles[mod_base].write(
+                ('{chrom}\t{pos}\t{end}\t{name}\t{strand}\t{pos}\t{end}' +
+                 '\t0,0,0\t{cov}\t{prop:.4f}\n').format(
+                     chrom=mod_site.chrom, pos=mod_site.pos,
+                     end=mod_site.pos + 1, name=mod_site.id,
+                     strand=mod_site.strand, cov=mod_site.get_coverage(),
+                     prop=mod_prop))
+            self.handles[mod_base].flush()
+
+        return
+
+    def close(self):
+        for handle in self.handles.values():
+            handle.close()
+        return
+
+class ModWigWriter(object):
+    """ Modified base wiggle variableStep writer class
+
+    Note that the wiggle/bedgraph format cannot store more than one modification
+    type or multiple strands, so multiple file handles will be opened.
+    """
+    def __init__(
+            self, basename, mods, mode='w',
+            strands={'+':'fwd_strand', '-':'rev_strand'}):
+        self.basename = basename
+        self.mods = mods
+        self.mods_lookup = dict(mods)
+        self.mod_short_names, self.mod_long_names = zip(*self.mods)
+        self.mode = mode
+        self.strands = strands
+
+        self.mod_sites_data = dict(
+            ((mod_short_name, strand), defaultdict(list))
+            for mod_short_name, mod_long_name in self.mods
+            for strand, strand_name in strands.items())
+
+        return
+
+    def write_mod_site(self, mod_site):
+        if mod_site.strand not in self.strands:
+            mh.warning('Invalid strand encountered during wiggle output.')
+            return
+        for mod_base, mod_prop in mod_site.mod_props.items():
+            if mod_base not in self.mod_short_names:
+                mh.warning('Invalid modified base encountered during ' +
+                           'wiggle output.')
+                continue
+            self.mod_sites_data[(mod_base, mod_site.strand)][
+                mod_site.chrom].append((mod_site.pos, mod_prop))
+
+        return
+
+    def close(self):
+        # write all data on close since all data is required to write
+        # wiggle format
+        for (mod_base, strand), all_cs_mod_sites in self.mod_sites_data.items():
+            with open('{}.{}.{}.{}'.format(
+                    self.basename, self.mods_lookup[mod_base],
+                    self.strands[strand], mh.MOD_OUTPUT_FMTS[mh.MOD_WIG_NAME]),
+                      self.mode, encoding='utf-8') as wig_fp:
+                # write header
+                track_name = ('Modified Base {} Proportion Modified ' +
+                              '({})').format(
+                                  self.mods_lookup[mod_base],
+                                  self.strands[strand])
+                wig_fp.write(
+                    'track type=wiggle_0 name="{0}" description="{0}"\n'.format(
+                        track_name))
+                for chrom, cs_mod_sites in all_cs_mod_sites.items():
+                    wig_fp.write('variableStep chrom={} span=1\n'.format(chrom))
+                    wig_fp.write(
+                        '\n'.join((
+                            '{} {}'.format(pos, mod_prop)
+                            for pos, mod_prop in sorted(cs_mod_sites))) + '\n')
 
         return
 
@@ -649,24 +777,22 @@ class AggMods(mh.AbstractAggregationClass):
                 r_stats.read_id not in valid_read_ids):
                 continue
             mod_type_stats[r_stats.read_id][r_stats.mod_base] = r_stats.score
-        if len(mod_type_stats) == 0:
+        total_cov = len(mod_type_stats)
+        if total_cov == 0:
             raise mh.MegaError('No valid reads cover modified base location')
         if agg_method == BIN_THRESH_NAME:
             mod_props, valid_cov = self.est_binary_thresh(mod_type_stats)
 
         r0_stats = pr_mod_stats[0]
         strand = '+' if r0_stats.strand == 1 else '-'
-        before_mod_motif = r0_stats.motif[:r0_stats.motif_pos]
-        after_mod_motif = r0_stats.motif[r0_stats.motif_pos + 1:]
-        mod_motifs = ','.join((before_mod_motif + mod_base + after_mod_motif
-                               for mod_base in mod_props.keys()))
         mod_site = ModSite(
             chrom=r0_stats.chrm, pos=r0_stats.pos, strand=strand,
-            ref=r0_stats.motif, mods=mod_motifs,
-            id='_'.join(map(str, (r0_stats.chrm, r0_stats.pos, strand))))
-        mod_site.add_mod_props(mod_props)
-        mod_site.add_tag('DP', '{}'.format(len(mod_type_stats)))
-        mod_site.add_sample_field('DP', '{}'.format(len(mod_type_stats)))
+            ref_seq=r0_stats.motif, ref_mod_pos=r0_stats.motif_pos,
+            mod_bases=list(mod_props.keys()),
+            id='{}_{}_{}'.format(r0_stats.chrm, r0_stats.pos, strand),
+            mod_props=mod_props)
+        mod_site.add_tag('DP', '{}'.format(total_cov))
+        mod_site.add_sample_field('DP', '{}'.format(total_cov))
         mod_site.add_sample_field('VALID_DP', '{}'.format(int(valid_cov)))
 
         if self.write_mod_lp:

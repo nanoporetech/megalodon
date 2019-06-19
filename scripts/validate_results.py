@@ -36,13 +36,16 @@ BC_CONTROL_NAME = 'Control'
 
 def report_mod_metrics(m_dat, args, out_fp, pdf_fp):
     m_dat['llr'] = m_dat['mod_log_prob'] - m_dat['can_log_prob']
-    for motif in np.unique(m_dat['motif']):
-        motif_m_dat = m_dat[m_dat['motif'] == motif]
-        if VERBOSE: sys.stderr.write('Computing PR/ROC for {}\n'.format(motif))
-        out_fp.write(('Modified base class distribution for {}:\n\t' +
+    uniq_grps = m_dat.groupby(['mod_base', 'motif']).size().reset_index()
+    for mod_base, motif in zip(uniq_grps.mod_base, uniq_grps.motif):
+        motif_m_dat = m_dat[(m_dat['motif'] == motif) &
+                            (m_dat['mod_base'] == mod_base)]
+        if VERBOSE: sys.stderr.write('Computing PR/ROC for {} in {}\n'.format(
+                mod_base, motif))
+        out_fp.write(('Modified base class distribution for {} in {}:\n\t' +
                       'Number of modified observations:    {}\n\t' +
                       'Number of unmodified observations:  {}\n').format(
-                          motif,
+                          mod_base, motif,
                           sum(motif_m_dat['is_mod']),
                           sum(~motif_m_dat['is_mod'])))
         # compute roc and presicion recall
@@ -55,12 +58,13 @@ def report_mod_metrics(m_dat, args, out_fp, pdf_fp):
             motif_m_dat['is_mod'], motif_m_dat['llr'])
         roc_auc = auc(fpr, tpr)
 
-        out_fp.write(('Modified base metrics for {}:\n\t' +
+        out_fp.write(('Modified base metrics for {} in {}:\n\t' +
                       'Average precision:  {:.6f}\n\t' +
                       'ROC AUC:            {:.6f}\n').format(
-                          motif, avg_prcn, roc_auc))
+                          mod_base, motif, avg_prcn, roc_auc))
 
-        if VERBOSE: sys.stderr.write('Plotting {}\n'.format(motif))
+        if VERBOSE: sys.stderr.write('Plotting {} in {}\n'.format(
+                mod_base, motif))
         plt.figure(figsize=(11, 7))
         sns.kdeplot(motif_m_dat[motif_m_dat['is_mod']]['llr'],
                     shade=True, bw=MOD_BANDWIDTH, gridsize=MOD_GRIDSIZE,
@@ -71,7 +75,7 @@ def report_mod_metrics(m_dat, args, out_fp, pdf_fp):
         plt.legend(prop={'size':16}, title='Is Modified?')
         plt.xlabel('Log Likelihood Ratio\n(Less Modified <--> More Modified')
         plt.ylabel('Density')
-        plt.title('Motif: {}'.format(motif))
+        plt.title('Modified Base: {}\tMotif: {}'.format(mod_base, motif))
         pdf_fp.savefig(bbox_inches='tight')
         plt.close()
 
@@ -81,8 +85,8 @@ def report_mod_metrics(m_dat, args, out_fp, pdf_fp):
         plt.xlim([-0.05, 1.05])
         plt.xlabel('Recall')
         plt.ylabel('Precision')
-        plt.title('Motif: {}\tPrecision-Recall curve: AP={:0.2f}'.format(
-            motif, avg_prcn))
+        plt.title(('Modified Base: {}\tMotif: {}\tPrecision-Recall ' +
+                   'curve: AP={:0.2f}').format(mod_base, motif, avg_prcn))
         pdf_fp.savefig(bbox_inches='tight')
         plt.close()
 
@@ -92,7 +96,8 @@ def report_mod_metrics(m_dat, args, out_fp, pdf_fp):
         plt.ylim([-0.05, 1.05])
         plt.xlabel('False Positive Rate')
         plt.ylabel('True Positive Rate')
-        plt.title('Motif: {}\tROC curve: auc={:0.2f}'.format(motif, roc_auc))
+        plt.title(('Modified Base: {}\tMotif: {}\tROC curve: ' +
+                   'auc={:0.2f}').format(mod_base, motif, roc_auc))
         pdf_fp.savefig(bbox_inches='tight')
         plt.close()
 
@@ -150,8 +155,8 @@ def plot_acc(mod_acc, ctrl_acc, mod_parsim_acc, ctrl_parsim_acc, pdf_fp):
 
 def report_acc_metrics(res_dir, out_fp):
     try:
-        bc_dat = pd.read_csv(
-            mh.get_megalodon_fn(res_dir, mh.MAP_SUMM_NAME), sep='\t')
+        bc_dat = pd.read_csv(mh.get_megalodon_fn(res_dir, mh.MAP_SUMM_NAME),
+                             sep='\t')
         bc_acc = bc_dat['pct_identity']
         parsim_acc = 100 * (bc_dat['num_match'] - bc_dat['num_ins']) / \
                      (bc_dat['num_align'] - bc_dat['num_ins'])
@@ -181,8 +186,8 @@ def parse_mod_data(args, out_fp):
 
     try:
         mod_dat = pd.read_csv(
-            mh.get_megalodon_fn(args.megalodon_results_dir, mh.PR_MOD_TXT_NAME),
-            sep='\t')
+            mh.get_megalodon_fn(args.megalodon_results_dir,
+                                mh.PR_MOD_TXT_NAME), sep='\t')
     except FileNotFoundError:
         mod_dat = None
 

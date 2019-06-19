@@ -350,14 +350,14 @@ def _get_snps_queue(
             for pos, alt_lps, snp_ref_seq, snp_alt_seqs, snp_id in r_snp_calls
             for alt_lp, snp_alt_seq in zip(alt_lps, snp_alt_seqs)])
         if snps_txt_fp is not None:
-            # would involve batching and creating several conversion tables
-            # for var strings (read_if and chrms).
             snps_txt_fp.write('\n'.join((
-                '{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
-                    read_id, chrm, strand, pos, ','.join(map(str, alt_scores)),
-                    snp_ref_seq, ','.join(snp_alt_seqs), snp_id)
-                for pos, alt_scores, snp_ref_seq, snp_alt_seqs, snp_id in
-                r_snp_calls)) + '\n')
+                ('\t'.join('{}' for _ in field_names)).format(
+                    read_id, chrm, strand, pos,
+                    np.log1p(-np.exp(alt_lps).sum()), alt_lp,
+                    snp_ref_seq, snp_alt_seq, snp_id)
+                for pos, alt_lps, snp_ref_seq, snp_alt_seqs, snp_id
+                in r_snp_calls
+                for alt_lp, snp_alt_seq in zip(alt_lps, snp_alt_seqs))) + '\n')
             snps_txt_fp.flush()
         if do_ann_snps:
             if not mapping.read_passes_filters(
@@ -382,7 +382,14 @@ def _get_snps_queue(
     if db_safety < 1:
         snps_db.execute(SET_NO_ROLLBACK_MODE)
     snps_db.execute(CREATE_SNPS_TBLS)
-    snps_txt_fp = None if snps_txt_fn is None else open(snps_txt_fn, 'w')
+    if snps_txt_fn is None:
+        snps_txt_fp = None
+    else:
+        snps_txt_fp = open(snps_txt_fn, 'w')
+        field_names = (
+            'read_id', 'chrm', 'strand', 'pos', 'ref_log_prob', 'alt_log_prob',
+            'ref_seq', 'alt_seq', 'snp_id')
+        snps_txt_fp.write('\t'.join(field_names) + '\n')
 
     if pr_refs_fn is not None:
         pr_refs_fp = open(pr_refs_fn, 'w')
