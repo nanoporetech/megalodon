@@ -349,7 +349,7 @@ def _get_snps_queue(
              snp_ref_seq, snp_alt_seq, snp_id)
             for pos, alt_lps, snp_ref_seq, snp_alt_seqs, snp_id in r_snp_calls
             for alt_lp, snp_alt_seq in zip(alt_lps, snp_alt_seqs)])
-        if snps_txt_fp is not None:
+        if snps_txt_fp is not None and len(r_snp_calls) > 0:
             snps_txt_fp.write('\n'.join((
                 ('\t'.join('{}' for _ in field_names)).format(
                     read_id, chrm, strand, pos,
@@ -623,13 +623,19 @@ class Variant(object):
             gl = np.log10(probs)
         raw_pl = -10 * gl
         # "normalized" PL values stored as decsribed by VCF format
-        # abs to remove negative 0 from file
-        pl = np.abs(np.minimum(raw_pl - raw_pl.min(), mh.MAX_PL_VALUE))
+        pl = np.minimum(raw_pl - raw_pl.min(), mh.MAX_PL_VALUE)
         s_pl = np.sort(pl)
 
         # add sample tags
         self.add_sample_field('GT', gts[np.argmax(probs)])
-        qual = int(np.around(np.minimum(raw_pl[0], mh.MAX_PL_VALUE)))
+        try:
+            qual = int(np.minimum(np.around(raw_pl[0]), mh.MAX_PL_VALUE)))
+        except ValueError:
+            logger = logging.get_logger()
+            logger.debug(
+                'NAN quality value encountered. gts:{}, probs:{}'.format(
+                    str(gts), str(probs)))
+            qual = mg.MAX_PL_VALUE
         self.qual = '{:.0f}'.format(qual) if qual > 0 else '.'
         self.add_sample_field('GQ', '{:.0f}'.format(np.around(s_pl[1])))
         self.add_sample_field(
