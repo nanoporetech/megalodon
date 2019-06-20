@@ -23,27 +23,28 @@ sys.path.insert(0, os.path.abspath('../megalodon'))
 
 # Add any Sphinx extension module names here, as strings. They can be extensions
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
-extensions = ['sphinx.ext.autodoc', 'sphinx.ext.viewcode',
+# include 'sphinx.ext.autodoc' for API documentation
+extensions = ['sphinx.ext.viewcode',
               'sphinx.ext.intersphinx', 'sphinx.ext.mathjax', 'sphinxarg.ext',
               'sphinx.ext.napoleon',]
 mathjax_path = "https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"
 
 # don't include class inheritence in docs: https://stackoverflow.com/questions/46279030/how-can-i-prevent-sphinx-from-listing-object-as-a-base-class
-from sphinx.ext.autodoc import ClassDocumenter, _
-add_line = ClassDocumenter.add_line
-def add_line_no_bases(self, text, *args, **kwargs):
-    if text.strip().startswith('Bases: '):
-        return
-    add_line(self, text, *args, **kwargs)
+#from sphinx.ext.autodoc import ClassDocumenter, _
+#add_line = ClassDocumenter.add_line
+#def add_line_no_bases(self, text, *args, **kwargs):
+#    if text.strip().startswith('Bases: '):
+#        return
+#    add_line(self, text, *args, **kwargs)
 
-add_directive_header = ClassDocumenter.add_directive_header
-def add_directive_header_no_bases(self, *args, **kwargs):
-    self.add_line = add_line_no_bases.__get__(self)
-    result = add_directive_header(self, *args, **kwargs)
-    del self.add_line
-    return result
+#add_directive_header = ClassDocumenter.add_directive_header
+#def add_directive_header_no_bases(self, *args, **kwargs):
+#    self.add_line = add_line_no_bases.__get__(self)
+#    result = add_directive_header(self, *args, **kwargs)
+#    del self.add_line
+#    return result
 
-ClassDocumenter.add_directive_header = add_directive_header_no_bases
+#ClassDocumenter.add_directive_header = add_directive_header_no_bases
 
 
 # Add any paths that contain templates here, relative to this directory.
@@ -64,9 +65,9 @@ project = __pkg_name__.capitalize()
 copyright = u'2019, Oxford Nanopore Technologies'
 
 # Generate API documentation:
-if subprocess.call(['sphinx-apidoc', '--module-first', '--no-toc',
-                    '-f', '-o', './', "../{}".format(__pkg_name__)]) != 0:
-    sys.stderr.write('Failed to generate API documentation!\n')
+#if subprocess.call(['sphinx-apidoc', '--module-first', '--no-toc',
+#                    '-f', '-o', './', "../{}".format(__pkg_name__)]) != 0:
+#    sys.stderr.write('Failed to generate API documentation!\n')
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the

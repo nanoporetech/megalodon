@@ -26,11 +26,8 @@ Basic megalodon installation (python 3 support only)
 
 ::
 
-    git clone https://git.oxfordnanolabs.local/algorithm/megalodon
-    cd megalodon
-    pip install .
-
-See :doc:`tutorials` for common workflows.
+   pip install numpy cython
+   pip install git+https://git.oxfordnanolabs.local/algorithm/megalodon.git
 
 ===========
 Quick Start
@@ -40,22 +37,23 @@ Megalodon is accessed via the command line interface, ``megalodon`` command.
 
 ::
 
-    # megalodon help (common args)
-    megalodon -h
-    # megalodon help (all args)
-    megalodon --help-long
+   # megalodon help (common args)
+   megalodon -h
+   # megalodon help (all args)
+   megalodon --help-long
 
-    # Example command calling variants and CpG methylation
-    #   Compute settings: GPU devices 0 and 1 with 8 CPU cores
-    megalodon raw_fast5s/ \
-        --outputs basecalls mappings snps mods \
-        --reference reference.fa --variant-filename variants.vcf.gz \
-        --mod-motif Z CG 0 --devices 0 1 --processes 8 --verbose-read-progress 3
+   # Example command calling variants and CpG methylation
+   #   Compute settings: GPU devices 0 and 1 with 8 CPU cores
+   megalodon raw_fast5s/ \
+       --outputs basecalls mappings snps mods \
+       --reference reference.fa --variant-filename variants.vcf \
+       --mod-motif Z CG 0 --devices 0 1 --processes 8 --verbose-read-progress 3
 
 This command produces the ``megalodon_results`` output directory containing basecalls, mappings, SNP and modified base results.
 
 The majority of megalodon's functionality is accessed via the ``megalodon`` command (exemplified above), though a small number of additional scripts are found in the ``scripts`` directory of the code repository.
 These including independent modified base or SNP aggregation (much faster than re-computing per-read calls), modified base result validation, and model statistic calibration.
+Helper scripts to perform sequence variant phasing (details here :doc:`variant_phasing`) are also included in the ``scripts`` directory of the repository.
 
 --------
 Contents
