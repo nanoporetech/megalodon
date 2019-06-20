@@ -629,7 +629,7 @@ class Variant(object):
         # add sample tags
         self.add_sample_field('GT', gts[np.argmax(probs)])
         try:
-            qual = int(np.minimum(np.around(raw_pl[0]), mh.MAX_PL_VALUE)))
+            qual = int(np.minimum(np.around(raw_pl[0]), mh.MAX_PL_VALUE))
         except ValueError:
             logger = logging.get_logger()
             logger.debug(
