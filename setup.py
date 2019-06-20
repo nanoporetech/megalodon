@@ -44,16 +44,14 @@ try:
             os.path.join(__pkg_name__, "_decode.pyx"),
             os.path.join(__pkg_name__, "_c_decode.c")],
                   include_dirs=[np.get_include()],
-                  extra_compile_args=["-O3", "-fopenmp", "-std=c99",
-                                      "-march=native"],
-                  extra_link_args=["-fopenmp"]),
-    ])
+                  extra_compile_args=["-O3", "-std=c99", "-march=native"])])
 except ImportError:
     sys.stderr.write(
         '*' * 60 + '\nINSTALLATION ERROR:\n'
         '\tNeed to install numpy and cython before megalodon installation.\n' +
         '\tThis is required in order to get maximum efficincy from ' +
-        'cython code optimizations.\nTo install run:\n$ pip install numpy cython\n' +
+        'cython code optimizations.\n' +
+        'To install run:\n$ pip install numpy cython\n' +
         '*' * 60 + '\n')
     sys.exit(1)
 
