@@ -1,0 +1,43 @@
+language: python
+python:
+    - "3.4"
+    - "3.5"
+    - "3.6"
+dist: trusty
+sudo: required
+
+addons:
+  apt:
+    sources:
+      - ubuntu-toolchain-r-test
+    packages:
+      - libhdf5-dev
+
+
+install:
+  - echo $TRAVIS_PYTHON_VERSION
+  - pip install --upgrade pip setuptools wheel
+  - pip install --only-binary=numpy,scipy,cython numpy scipy cython
+  - pip install .
+  - pip install sphinx sphinx_rtd_theme sphinx-argparse
+
+
+script:
+  - echo "No testing implemented"
+
+
+before_deploy:
+  - cd docs
+  - sphinx-build -b html -d _build/doctrees . _build/html
+  - cd ../
+  - touch docs/_build/html/.nojekyll
+
+deploy:
+  provider: pages
+  skip_cleanup: true
+  github_token: $GHPAGES_TOKEN
+  local_dir: docs/_build/html
+  target_branch: gh-pages
+  on:
+    branch: master
+    python: "3.6"
