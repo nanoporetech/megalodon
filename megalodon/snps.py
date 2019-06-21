@@ -101,12 +101,14 @@ def score_seq(tpost, seq, tpost_start=0, tpost_end=None,
 
 def call_read_snps(
         snps_data, r_ref_pos, edge_buffer, r_ref_seq, rl_cumsum, r_to_q_poss,
-        r_post, post_mapped_start):
+        r_post, post_mapped_start, snp_merge_gap=2):
     # call all snps overlapping this read
     r_snp_calls = []
     for (snp_ref_seq, snp_alt_seqs, snp_id,
-         snp_ref_pos) in snps_data.iter_overlapping_snps(
-             r_ref_pos, edge_buffer):
+         snp_ref_pos) in snps_data.iter_nearby_snp_grps(
+             r_ref_pos, edge_buffer, snp_merge_gap):
+        # TODO test all combinations of snps in the group and then
+        # take marginal probabilities for each individual SNP
 
         if r_ref_pos.strand == 1:
             read_pos = snp_ref_pos - r_ref_pos.start
@@ -502,7 +504,7 @@ class SnpData(object):
             self.variants_idx = pysam.VariantFile(self.variant_fn)
         return
 
-    def iter_overlapping_snps(self, r_ref_pos, edge_buffer):
+    def iter_nearby_snp_grps(self, r_ref_pos, edge_buffer, snp_merge_gap):
         """Iterator over SNPs overlapping the read mapped position.
 
         SNPs within edge buffer of the end of the mapping will be ignored.
@@ -515,17 +517,27 @@ class SnpData(object):
                 r_ref_pos.end - edge_buffer)
         except ValueError:
             raise mh.MegaError('Mapped location not valid for variants file.')
-        for variant in fetch_res:
-            snp_ref_seq = variant.ref
-            snp_alt_seqs = variant.alts
-            # skip SNPs larger than specified limit
-            if self.max_indel_size is not None and max(
-                    np.abs(len(snp_ref_seq) - len(snp_alt_seq))
-                    for snp_alt_seq in snp_alt_seqs) > self.max_indel_size:
-                continue
-            # convert to 0-based coordinates
-            yield snp_ref_seq, snp_alt_seqs, variant.id, variant.pos - 1
 
+        snp_calls = sorted(fetch_res, key=itemgetter(0))
+        # initialize snp_grp with first snp
+        snp_data = snp_calls[0]
+        prev_snp_end = snp_data[0] + len(snp_data[2])
+        snp_grp = [snp_data]
+        for variant in snp_calls[1:]:
+            if self.max_indel_size is not None and max(
+                    np.abs(len(variant.ref) - len(snp_alt_seq))
+                    for snp_alt_seq in variant.alts) > self.max_indel_size:
+                continue
+            if snp_data[0] < prev_snp_end + snp_merge_gap:
+                prev_snp_end = max(snp_data[0] + len(snp_data[2]), prev_snp_end)
+                snp_grp.append(snp_data)
+            else:
+                yield filter_overlapping_dels(snp_grp)
+                prev_snp_end = snp_data[0] + len(snp_data[2])
+                snp_grp = [snp_data]
+
+        # yeild last snp grp data
+        yield filter_overlapping_dels(snp_grp)
         return
 
     def calibrate_llr(self, llr, snp_ref_seq, snp_alt_seq):
