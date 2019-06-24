@@ -125,8 +125,10 @@ def _get_mod_stats_queue(
 
     while not mod_stats_q.empty():
         mod_site = mod_stats_q.get(block=False)
-        agg_mod_fp.write_mod_site(mod_site)
-    agg_mod_fp.close()
+        for agg_mod_fp in agg_mod_fps:
+            agg_mod_fp.write_mod_site(mod_site)
+    for agg_mod_fp in agg_mod_fps:
+        agg_mod_fp.close()
 
     return
 
