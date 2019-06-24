@@ -26,7 +26,7 @@ Basic megalodon installation (python 3 support only)
 
 ::
 
-   pip install numpy cython
+   pip install numpy
    pip install git+https://git.oxfordnanolabs.local/algorithm/megalodon.git
 
 ===========
