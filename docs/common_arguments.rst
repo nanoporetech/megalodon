@@ -2,21 +2,31 @@
 Common Arguments
 ****************
 
-------------------
-Required Arguments
-------------------
+-----------------
+Required Argument
+-----------------
 
 - ``fast5s_dir``
 
   - Path to directory containing raw FAST5-format nanopore reads.
   - Both single and multi FAST5 formats are supported.
   - Default searches recursively for fast5 read files. To search only one-level specify `--not-recursive`.
+
+--------------
+Model Argument
+--------------
+
 - ``--taiyaki-model-filename``
 
   - `taiyaki <https://github.com/nanoporetech/taiyaki>`_ basecalling model checkpoint file
   - In order to identify modified bases a model trained to identify those modifications must be provided.
 
     - Train a new modified base model using taiyaki.
+  - By default the model included with megalodon is used.
+
+    - This model is applicable to MinION or GridION R9.4.1 flowcells.
+    - This model is equivalent to the "high accuracy" model for MinKNOW/guppy.
+    - This model includes modified bases 5mC and 6mA in biological contexts: 5mC in human (CpG) and E. coli (CCWGG) contexts and 6mA in E. coli (GATC) context.
 
 ----------------
 Output Arguments
@@ -25,8 +35,13 @@ Output Arguments
 - ``--outputs``
 
   - Specify desired outputs.
-  - Options are ``basecalls``, ``mod_basecalls``, ``mappings``, ``per_read_snps``, ``per_read_mods``, ``snp``, and ``mods``.
-  - Default is to output basecalls only.
+  - Options are ``basecalls``, ``mod_basecalls``, ``mappings``, ``whatshap_mappings``, ``per_read_snps``, ``per_read_mods``, ``snp``, and ``mods``.
+
+    - ``mod_basecalls`` are currently output in an HDF5 file with a data set corresponding to each read (accessed via the ``read_id``).
+    - ``whatshap_mappings`` are intended only for obtaining highly accurate phased variant genotypes.
+
+      - These mappings contain reference sequence at all positions except for per-read called variants. The base quality scores encode the likelihood for that reference anchored variant for use in the whathap phasing algorithm.
+  - Default output is basecalls only.
 - ``--output-directory``
 
   - Specify the directory to output results.
@@ -48,27 +63,28 @@ Mapping Arguments
 
   - Reference genome or transcriptiome in FASTA format.
 
--------------
-SNP Arguments
--------------
+--------------------------
+Sequence Variant Arguments
+--------------------------
 
 - ``--haploid``
 
-  - Compute sequence variants assuming a haploid reference. Default assume diploid.
+  - Compute sequence variants assuming a haploid reference. Default: diploid
 - ``--variant-filename``
 
   - File containing putative variants in VCF/BCF format.
-  - If variant file is not sorted, compressed and indexed this will be performed before further processing.
+
+    - Variants file must be sorted.
+    - If variant file is not compressed and indexed this will be performed before further processing.
   - Variants must be matched to the ``--reference`` provided.
 - ``--write-snps-text``
 
   - Output per-read SNPs in text format.
 
-    - Output includes columns: ``read_id``, ``chrm``, ``strand``, ``pos``, ``scores``, ``snp_ref_seq``, ``snp_alt_seqs``, ``snp_id``
-    - Scores are log probabilities of the alternative allele.
+    - Output includes columns: ``read_id``, ``chrm``, ``strand``, ``pos``, ``ref_log_prob``, ``alt_log_prob``, ``snp_ref_seq``, ``snp_alt_seq``, ``snp_id``
+    - Log probabilities are calibrated to match observed log-likelihood ratios from ground truth samples.
 
-      - Probabilities are calibrated to match observed log-likelihood ratios from ground truth samples.
-      - Note that for multi-allelic sites all alternative alleles must be extracted in order to obtain the reference probability.
+      - Reference log probabilities are included to make processing mutliple alternative allele sites easier to process.
     - Position is 0-based
 
 -----------------------
@@ -78,16 +94,18 @@ Modified Base Arguments
 - ``--mod-motif``
 
   - Restrict modified base results to the specified motifs.
-  - If not provided (and ``per_read_mods`` or ``mods`` outputs requested) all relevant sites are tested.
+  - If not provided (and ``per_read_mods`` or ``mods`` outputs requested) all relevant sites are tested (e.g. all ``C`` bases for ``5mC``).
 - ``--write-mods-text``
 
   - Output per-read modified bases in text format.
 
-    - Output includes columns: ``read_id``, ``chrm``, ``strand``, ``pos``, ``mod_log_probs``, ``mod_bases``, ``motif``
-    - Log probabilities are comma-separated corresponding to modified bases in the next field
+    - Output includes columns: ``read_id``, ``chrm``, ``strand``, ``pos``, ``mod_log_probs``, ``can_log_prob``, ``mod_bases``, ``motif``
+    - Log probabilities are calibrated to match observed log-likelihood ratios from ground truth samples.
 
-      - Log-probabilities are calibrated to match observed log likelihood ratios.
-    - ``motif`` includes the reference sequence matching the specified motif (via ``--mod-motif``) as well as the relative modified base position within that motif
+      - Canonical log probabilities are included to make processing mutliple modification sites easier to process.
+
+        - Note that the included model does not model such sites, but megalodon is capable of handling these sites (e.g. testing for 5mC and 5hmC simultaneously is supported given a basecalling model).
+    - ``motif`` includes the searched motif (via ``--mod-motif``) as well as the relative modified base position within that motif (e.g. ``CG:0`` for provided ``--mod-motif Z CG 0``).
     - Position is 0-based
 
 -----------------------
@@ -105,12 +123,12 @@ Taiyaki Chunk Arguments
 - ``--devices``
 
   - GPU devices to use for basecalling acceleration.
-  - In not provided CPU basecalling will be performed.
-  - A separate GPU process will be spawned for each CPU worker process requested (spread evenly over specified ``--devices``)..
+  - If not provided CPU basecalling will be performed.
+  - A separate GPU process will be spawned for each CPU worker process requested (spread evenly over specified ``--devices``).
 
-    - Each GPU process must load the model parameters ~450MB for the default high-accuracy model).
+    - Each GPU process must load the model parameters (~450MB for the default high-accuracy model).
     - Extra headroom for chunks must be allowed as well.
-    - ``1`` process per GB of GPU memory is a good default.
+    - ``1`` process per 0.6 GB of GPU memory is a good default.
 - ``--max-concurrent-chunks``
 
   - Maximum number of concurrent chunks to basecall at once.

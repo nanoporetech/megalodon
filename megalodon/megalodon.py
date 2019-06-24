@@ -879,7 +879,7 @@ def get_parser():
         '--devices', type=int, nargs='+',
         help='CUDA GPU devices to use (only valid for taiyaki), default: CPU')
     tai_grp.add_argument(
-        '--max-concurrent-chunks', type=int, default=50,
+        '--max-concurrent-chunks', type=int, default=200,
         help='Only process N chunks concurrently per-read (to avoid GPU ' +
         'memory errors). Default: %(default)d')
 
@@ -932,8 +932,9 @@ def get_parser():
                          'crash), 2 (DB safe mode). Default: %(default)d'))
     misc_grp.add_argument(
         '--edge-buffer', type=int, default=100,
-        help=hidden_help('Ignore SNP or indel calls near edge of read ' +
-                         'mapping. Default: %(default)d'))
+        help=hidden_help('Do not process sequence variant or modified base ' +
+                         'calls near edge of read mapping. ' +
+                         'Default: %(default)d'))
     misc_grp.add_argument(
         '--not-recursive', action='store_true',
         help=hidden_help('Only search for fast5 read files directly found ' +
