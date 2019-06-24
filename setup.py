@@ -49,20 +49,16 @@ except ImportError:
         '*' * 60 + '\n')
     sys.exit(1)
 
+extra_compile_args = ['-std=c99']
 if sys.platform == 'darwin':
-    extra_compile_args = ['-std=c++11', "-mmacosx-version-min=10.9"]
-    extra_link_args = ["-stdlib=libc++", "-mmacosx-version-min=10.9"]
+    extra_compile_args.append('-mmacosx-version-min=10.9')
     print('Using macOS clang args')
-else:
-    extra_compile_args = []
-    extra_link_args = []
 extensions = [
     Extension(str("megalodon.decode"),
               [str("megalodon/_decode.pyx")],
               include_dirs=include_dirs,
               extra_compile_args=extra_compile_args,
-              extra_link_args=extra_link_args,
-              language="c++"),
+              language="c"),
 ]
 extensions[0].cython_directives = {"embedsignature": True}
 
