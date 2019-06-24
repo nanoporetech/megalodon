@@ -44,7 +44,7 @@ try:
             os.path.join(__pkg_name__, "_decode.pyx"),
             os.path.join(__pkg_name__, "_c_decode.c")],
                   include_dirs=[np.get_include()],
-                  extra_compile_args=["-O3", "-std=c99", "-march=native"])])
+                  extra_compile_args=["-O3", "-std=c99"])])
 except ImportError:
     sys.stderr.write(
         '*' * 60 + '\nINSTALLATION ERROR:\n'
