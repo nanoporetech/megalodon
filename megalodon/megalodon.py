@@ -977,12 +977,12 @@ def _main():
         mods_info, args.database_safety, args.edge_buffer, pr_ref_filts)
 
     if mh.MAP_NAME in args.outputs:
-        logger.info('Spawning process to sort and index mappings')
+        logger.info('Spawning process to sort mappings')
         map_p = post_process_mapping(
             args.output_directory, aligner.out_fmt, aligner.ref_fn)
 
     if mh.WHATSHAP_MAP_NAME in args.outputs:
-        logger.info('Spawning process to sort and index whatshap mappings')
+        logger.info('Spawning process to sort whatshap mappings')
         whatshap_sort_fn, whatshap_p = post_process_whatshap(
             args.output_directory, aligner.out_fmt, aligner.ref_fn)
 
@@ -1003,7 +1003,7 @@ def _main():
 
     if mh.WHATSHAP_MAP_NAME in args.outputs:
         if whatshap_p.is_alive():
-            logger.info('Waiting for whatshap mappings sort and index')
+            logger.info('Waiting for whatshap mappings sort')
             while whatshap_p.is_alive():
                 sleep(0.1)
         logger.info(snps.get_whatshap_command(
@@ -1012,7 +1012,7 @@ def _main():
 
     if mh.MAP_NAME in args.outputs:
         if map_p.is_alive():
-            logger.info('Waiting for mappings sort and index')
+            logger.info('Waiting for mappings sort')
             while map_p.is_alive():
                 sleep(0.1)
 
