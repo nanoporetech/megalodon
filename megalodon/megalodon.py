@@ -344,9 +344,14 @@ def _get_fail_queue(
                     unexp_err_fp.flush()
         if do_update_prog:
             if not suppress_progress:
-                bar.set_postfix({
-                    'ksample/s':(sig_called / 1000) /
-                    bar.format_dict['elapsed']})
+                try:
+                    bar.set_postfix({
+                        'ksample/s':(sig_called / 1000) /
+                        bar.format_dict['elapsed']})
+                except AttributeError:
+                    # sometimes get no format_dict error
+                    # so don't include ksample/s if so
+                    pass
                 bar.update(1)
             reads_called += 1
         if num_update_errors > 0:
@@ -426,10 +431,11 @@ def process_all_reads(
             num_ps, num_reads_conn),
         daemon=True)
     files_p.start()
-    # progress and failed reads getter
+    # progress and failed reads getter (no limit on failed reads queue
+    # in case error occurs there, don't halt run
     failed_reads_q, f_p, main_f_conn = mh.create_getter_q(
             _get_fail_queue, (getter_num_reads_conn, num_update_errors,
-                              suppress_progress))
+                              suppress_progress), max_size=None)
 
     # start output type getters/writers
     (bc_q, bc_p, main_bc_conn, mo_q, mo_p, main_mo_conn, snps_q, snps_p,

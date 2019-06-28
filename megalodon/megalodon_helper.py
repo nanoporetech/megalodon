@@ -196,8 +196,8 @@ def get_model_fn(model_fn=None, preset_str=None):
 ##### Multi-processing Helper #####
 ###################################
 
-def create_getter_q(getter_func, args):
-    q = mp.Queue(maxsize=_MAX_QUEUE_SIZE)
+def create_getter_q(getter_func, args, max_size=_MAX_QUEUE_SIZE):
+    q = mp.Queue(maxsize=max_size)
     main_conn, conn = mp.Pipe()
     p = mp.Process(target=getter_func, daemon=True, args=(q, conn, *args))
     p.start()
