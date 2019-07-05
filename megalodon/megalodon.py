@@ -278,6 +278,8 @@ def _fill_files_queue(
                 ('Read ID ({}) found in previous read and will not ' +
                  'process from {}.').format(read_id, fast5_fn))
             continue
+        if fast5_fn is None or read_id is None:
+            continue
         read_file_q.put((fast5_fn, read_id))
         used_read_ids.add(read_id)
     # add None to indicate that read processes should return
