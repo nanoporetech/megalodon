@@ -269,7 +269,7 @@ def _get_snp_calls(
     out_fp = open(out_fn, 'w')
     bar = None
     if not suppress_progress:
-        bar = tqdm(smoothing=0)
+        bar = tqdm(smoothing=0, dynamic_ncols=True)
 
     err_types = defaultdict(int)
     while True:

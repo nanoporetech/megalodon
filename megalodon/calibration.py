@@ -60,7 +60,7 @@ def compute_smooth_mono_density(llrs, num_calib_vals, smooth_bw, smooth_ls):
 
 
     smooth_vals = np.zeros(num_calib_vals)
-    for llr in tqdm(llrs, smoothing=0):
+    for llr in tqdm(llrs, smoothing=0, dynamic_ncols=True):
         smooth_vals += guassian(smooth_ls - llr)
     smooth_vals /= llrs.shape[0]
 
