@@ -227,6 +227,7 @@ def iter_non_overlapping_snps(snp_calls):
         return snp_pos, alt_lps, snp_ref_seq, snp_alt_seqs, ref_lp
 
 
+    if len(snp_calls) == 0: return
     snp_calls_iter = iter(snp_calls)
     # initialize snp_grp with first snp
     snp_data = next(snp_calls_iter)
