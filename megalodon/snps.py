@@ -128,24 +128,6 @@ def call_read_snps(
                      r_ref_seq.shape[0] - read_pos - len(read_ref_seq))
         pos_ref_seq = r_ref_seq[read_pos - pos_bb:
                                 read_pos + pos_ab + len(read_ref_seq)]
-        # TODO move this to an initial check of a small number of variants
-        # against the reference
-        if any(pos_ref_seq[pos_bb:pos_bb + len(snp_ref_seq)] !=
-               np.array([mh.ALPHABET.find(b) for b in read_ref_seq])):
-            # variant reference sequence does not match fasta reference
-            logger = logging.get_logger()
-            logger.debug(
-                '*'*10 + 'Refernce seq at {} expected {}[{}]{} got "{}"'.format(
-                    snp_ref_pos,
-                    ''.join(mh.ALPHABET[b] for b in
-                            pos_ref_seq[pos_bb-3:pos_bb]),
-                    ''.join(mh.ALPHABET[b] for b in
-                            pos_ref_seq[pos_bb:pos_bb + len(snp_ref_seq)]),
-                    ''.join(mh.ALPHABET[b] for b in
-                            pos_ref_seq[pos_bb + len(snp_ref_seq):
-                                        pos_bb + len(snp_ref_seq) + 3]),
-                    read_ref_seq, ) + '*' * 10)
-            continue
         blk_start  = rl_cumsum[r_to_q_poss[read_pos - pos_bb]]
         blk_end = rl_cumsum[r_to_q_poss[read_pos + pos_ab] + 1]
         if blk_end - blk_start < max(len(pos_ref_seq), max(
@@ -440,11 +422,31 @@ def _get_snps_queue(
 ######################
 
 class SnpData(object):
+    def check_vars_match_ref(
+            self, vars_idx, contigs, aligner, num_contigs=5,
+            num_sites_per_contig=50):
+        """ Validate that the reference sequences in the variant file matches
+        a reference sequence file.
+        """
+        for contig in contigs[:num_contigs]:
+            for var_data in list(vars_idx.fetch(contig))[:num_sites_per_contig]:
+                ref_seq = aligner.seq(contig, var_data.start, var_data.stop)
+                if ref_seq != var_data.ref:
+                    # variant reference sequence does not match reference
+                    logger = logging.get_logger()
+                    logger.debug((
+                        'Reference sequence does not match variant reference ' +
+                        'sequence at {} expected "{}" got "{}"').format(
+                            snp_ref_pos, var_data.ref, ref_seq))
+                    return False
+
+        return True
+
     def __init__(
             self, variant_fn, max_indel_size, all_paths,
             write_snps_txt, context_bases, snps_calib_fn=None,
             call_mode=DIPLOID_MODE, do_pr_ref_snps=False, aligner=None,
-            keep_snp_fp_open=False):
+            keep_snp_fp_open=False, do_validate_reference=True):
         logger = logging.get_logger('snps')
         self.max_indel_size = max_indel_size
         self.all_paths = all_paths
@@ -474,12 +476,6 @@ class SnpData(object):
             vars_idx.close()
             self.variant_fn = index_variants(self.variant_fn)
             vars_idx = pysam.VariantFile(self.variant_fn)
-        if keep_snp_fp_open:
-            self.variants_idx = vars_idx
-        else:
-            vars_idx.close()
-            self.variants_idx = None
-
         if aligner is None:
             raise mh.MegaError(
                 'Must provide aligner if SNP filename is provided')
@@ -490,6 +486,17 @@ class SnpData(object):
                 'variant file contigs:\t{}').format(
                     ', '.join(aligner.ref_names_and_lens[0][:3]),
                     ', '.join(contigs[:3])))
+        if do_validate_reference and not self.check_vars_match_ref(
+                vars_idx, contigs, aligner):
+            raise mh.MegaError(
+                'Reference sequence file does not match reference sequence ' +
+                'from variants file.')
+
+        if keep_snp_fp_open:
+            self.variants_idx = vars_idx
+        else:
+            vars_idx.close()
+            self.variants_idx = None
 
         return
 
