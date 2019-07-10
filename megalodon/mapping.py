@@ -31,8 +31,9 @@ class alignerPlus(mappy.Aligner):
 
 def align_read(q_seq, aligner, map_thr_buf, read_id=None):
     try:
-        r_algn = next(aligner.map(str(q_seq), buf=map_thr_buf))
-    except StopIteration:
+        # enumerate all alignments to avoid memory leak from mappy
+        r_algn = list(aligner.map(str(q_seq), buf=map_thr_buf))[0]
+    except IndexError:
         # alignment not produced
         return [None, None], None
 

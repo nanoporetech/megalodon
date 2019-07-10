@@ -125,8 +125,10 @@ def _get_mod_stats_queue(
 
     while not mod_stats_q.empty():
         mod_site = mod_stats_q.get(block=False)
-        agg_mod_fp.write_mod_site(mod_site)
-    agg_mod_fp.close()
+        for agg_mod_fp in agg_mod_fps:
+            agg_mod_fp.write_mod_site(mod_site)
+    for agg_mod_fp in agg_mod_fps:
+        agg_mod_fp.close()
 
     return
 
@@ -137,15 +139,15 @@ def _agg_prog_worker(
     if num_snps > 0:
         if num_mods > 0 and not suppress_progress:
             mod_bar = tqdm(desc='Mods', unit=' sites', total=num_mods,
-                           position=1, smoothing=0)
+                           position=1, smoothing=0, dynamic_ncols=True)
             snp_bar = tqdm(desc='SNPs', unit=' sites', total=num_snps,
-                           position=0, smoothing=0)
+                           position=0, smoothing=0, dynamic_ncols=True)
         elif not suppress_progress:
             snp_bar = tqdm(desc='SNPs', unit=' sites', total=num_snps,
-                           position=0, smoothing=0)
+                           position=0, smoothing=0, dynamic_ncols=True)
     elif num_mods > 0 and  not suppress_progress:
         mod_bar = tqdm(desc='Mods', unit=' sites', total=num_mods,
-                       position=0, smoothing=0)
+                       position=0, smoothing=0, dynamic_ncols=True)
 
     logger = logging.get_logger()
     while True:

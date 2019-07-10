@@ -1,3 +1,4 @@
+import sys
 import string
 import numpy as np
 from collections import defaultdict, namedtuple
@@ -38,14 +39,17 @@ class ModelInfo(object):
             dv for dv, n_dv in zip(self.devices, procs_per_device)
             for _ in range(n_dv)]
 
-        # import modules
-        from taiyaki.helpers import load_model as load_taiyaki_model
-        from taiyaki.basecall_helpers import run_model as tai_run_model
         try:
+            # import modules
+            from taiyaki.helpers import load_model as load_taiyaki_model
+            from taiyaki.basecall_helpers import run_model as tai_run_model
             from taiyaki.layers import GlobalNormFlipFlopCatMod
+            import torch
         except ImportError:
-            GlobalNormFlipFlopCatMod = None
-        import torch
+            logger.error(
+                'Failed to import taiyaki and pytorch. Ensure working ' +
+                'installations to run megalodon')
+            sys.exit(1)
 
         # store modules in object
         self.load_taiyaki_model = load_taiyaki_model

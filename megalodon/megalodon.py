@@ -278,6 +278,8 @@ def _fill_files_queue(
                 ('Read ID ({}) found in previous read and will not ' +
                  'process from {}.').format(read_id, fast5_fn))
             continue
+        if fast5_fn is None or read_id is None:
+            continue
         read_file_q.put((fast5_fn, read_id))
         used_read_ids.add(read_id)
     # add None to indicate that read processes should return
@@ -312,7 +314,7 @@ def prep_errors_bar(
         num_update_errors = 0
     else:
         bar = tqdm(total=tot_reads, smoothing=0, initial=curr_num_reads,
-                   unit='read')
+                   unit='read', dynamic_ncols=True)
         if start_time is not None:
             bar.start_t = start_time
     if num_update_errors > 0:
@@ -344,9 +346,14 @@ def _get_fail_queue(
                     unexp_err_fp.flush()
         if do_update_prog:
             if not suppress_progress:
-                bar.set_postfix({
-                    'ksample/s':(sig_called / 1000) /
-                    bar.format_dict['elapsed']})
+                try:
+                    bar.set_postfix({
+                        'ksample/s':(sig_called / 1000) /
+                        bar.format_dict['elapsed']})
+                except AttributeError:
+                    # sometimes get no format_dict error
+                    # so don't include ksample/s if so
+                    pass
                 bar.update(1)
             reads_called += 1
         if num_update_errors > 0:
@@ -426,10 +433,11 @@ def process_all_reads(
             num_ps, num_reads_conn),
         daemon=True)
     files_p.start()
-    # progress and failed reads getter
+    # progress and failed reads getter (no limit on failed reads queue
+    # in case error occurs there, don't halt run
     failed_reads_q, f_p, main_f_conn = mh.create_getter_q(
             _get_fail_queue, (getter_num_reads_conn, num_update_errors,
-                              suppress_progress))
+                              suppress_progress), max_size=None)
 
     # start output type getters/writers
     (bc_q, bc_p, main_bc_conn, mo_q, mo_p, main_mo_conn, snps_q, snps_p,
@@ -879,7 +887,7 @@ def get_parser():
         '--devices', type=int, nargs='+',
         help='CUDA GPU devices to use (only valid for taiyaki), default: CPU')
     tai_grp.add_argument(
-        '--max-concurrent-chunks', type=int, default=50,
+        '--max-concurrent-chunks', type=int, default=200,
         help='Only process N chunks concurrently per-read (to avoid GPU ' +
         'memory errors). Default: %(default)d')
 
@@ -932,8 +940,9 @@ def get_parser():
                          'crash), 2 (DB safe mode). Default: %(default)d'))
     misc_grp.add_argument(
         '--edge-buffer', type=int, default=100,
-        help=hidden_help('Ignore SNP or indel calls near edge of read ' +
-                         'mapping. Default: %(default)d'))
+        help=hidden_help('Do not process sequence variant or modified base ' +
+                         'calls near edge of read mapping. ' +
+                         'Default: %(default)d'))
     misc_grp.add_argument(
         '--not-recursive', action='store_true',
         help=hidden_help('Only search for fast5 read files directly found ' +
@@ -976,12 +985,12 @@ def _main():
         mods_info, args.database_safety, args.edge_buffer, pr_ref_filts)
 
     if mh.MAP_NAME in args.outputs:
-        logger.info('Spawning process to sort and index mappings')
+        logger.info('Spawning process to sort mappings')
         map_p = post_process_mapping(
             args.output_directory, aligner.out_fmt, aligner.ref_fn)
 
     if mh.WHATSHAP_MAP_NAME in args.outputs:
-        logger.info('Spawning process to sort and index whatshap mappings')
+        logger.info('Spawning process to sort whatshap mappings')
         whatshap_sort_fn, whatshap_p = post_process_whatshap(
             args.output_directory, aligner.out_fmt, aligner.ref_fn)
 
@@ -1002,7 +1011,7 @@ def _main():
 
     if mh.WHATSHAP_MAP_NAME in args.outputs:
         if whatshap_p.is_alive():
-            logger.info('Waiting for whatshap mappings sort and index')
+            logger.info('Waiting for whatshap mappings sort')
             while whatshap_p.is_alive():
                 sleep(0.1)
         logger.info(snps.get_whatshap_command(
@@ -1011,7 +1020,7 @@ def _main():
 
     if mh.MAP_NAME in args.outputs:
         if map_p.is_alive():
-            logger.info('Waiting for mappings sort and index')
+            logger.info('Waiting for mappings sort')
             while map_p.is_alive():
                 sleep(0.1)
 

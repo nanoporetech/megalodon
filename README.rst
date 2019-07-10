@@ -16,7 +16,7 @@ Detailed documentation for all ``megalodon`` arguments and algorithms can be fou
 Prerequisites
 -------------
 
-Megalodon requires ``numpy`` and ``cython`` to be installed before running megalodon installation command.
+Megalodon requires ``numpy`` to be installed before running megalodon installation command (install with ``pip install numpy``).
 
 Megalodon requires `taiyaki <https://github.com/nanoporetech/taiyaki>`_ installation for basecalling backend at run time.
 Megalodon requires only a minimal taiyaki installation via ``pip install git+git://github.com/nanoporetech/taiyaki.git``.
@@ -31,7 +31,7 @@ Installation
 ::
 
    pip install numpy cython
-   pip install git+https://github.com/nanoporetech/megalodon.git
+   pip install git+git://github.com/nanoporetech/megalodon.git
 
 Getting Started
 ---------------
@@ -140,8 +140,8 @@ The ``--chunk-size`` and ``--chunk-overlap`` arguments allow users to specify re
 A number of helper processes will be spawned in order to perform more minor tasks, which should take minimal compute resources.
 These include enumerating read ids and files, collecting and reporting progress information and getting data from read processing queues and writing outputs (basecalls, mappings, SNPs and modified bases).
 
-Compatibility
--------------
+Model Compatibility
+-------------------
 
 The model and calibration files included with megalodon are applicable only to MinION or GridION R9.4.1 flowcells.
 New models trained with taiyaki can be used with megalodon, but in order to obtain the highest performance the megalodon (SNP and modified base) calibration files should be reproduced for any new model (TODO provide walkthrough).
@@ -151,6 +151,11 @@ The included model contains 5mC and 6mA capabilities.
 Modified base detection outside of these contexts has not been tested and may produce sub-optimal results.
 As noted above newly trained models using taiyaki can be used with megalodon, but calibration files should be reproduced for each new model.
 
+RNA
+---
+
+Megalodon does not currently support direct RNA processing.
+This feature is currently under development.
 
 Licence and Copyright
 ---------------------
