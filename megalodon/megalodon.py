@@ -53,7 +53,7 @@ def handle_errors(func, args, r_vals, out_q, fast5_fn, failed_reads_q):
 
 def process_read(
         raw_sig, read_id, model_info, bc_q, caller_conn, snps_data, snps_q,
-        mods_q, mods_info, fast5_fn, failed_reads_q, edge_buffer):
+        mods_q, mods_info, fast5_fn, failed_reads_q):
     """ Workhorse per-read megalodon function (connects all the parts)
     """
     if model_info.is_cat_mod:
@@ -91,8 +91,8 @@ def process_read(
     if snps_q is not None:
         handle_errors(
             func=snps.call_read_snps,
-            args=(snps_data, r_ref_pos, edge_buffer, np_ref_seq,
-                  mapped_rl_cumsum, r_to_q_poss, r_post, post_mapped_start),
+            args=(snps_data, r_ref_pos, np_ref_seq, mapped_rl_cumsum,
+                  r_to_q_poss, r_post, post_mapped_start),
             r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
@@ -100,9 +100,8 @@ def process_read(
     if mods_q is not None:
         handle_errors(
             func=mods.call_read_mods,
-            args=(r_ref_pos, edge_buffer, r_ref_seq, np_ref_seq,
-                  mapped_rl_cumsum, r_to_q_poss, r_post_w_mods,
-                  post_mapped_start, mods_info),
+            args=(r_ref_pos, r_ref_seq, np_ref_seq, mapped_rl_cumsum,
+                  r_to_q_poss, r_post_w_mods, post_mapped_start, mods_info),
             r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
@@ -166,7 +165,7 @@ def _get_bc_queue(
 
 def _process_reads_worker(
         read_file_q, bc_q, snps_q, failed_reads_q, mods_q, caller_conn,
-        model_info, snps_data, mods_info, edge_buffer, device):
+        model_info, snps_data, mods_info, device):
     model_info.prep_model_worker(device)
     snps_data.reopen_variant_index()
 
@@ -186,8 +185,7 @@ def _process_reads_worker(
             raw_sig = fast5_io.get_signal(fast5_fn, read_id, scale=True)
             process_read(
                 raw_sig, read_id, model_info, bc_q, caller_conn, snps_data,
-                snps_q, mods_q, mods_info, fast5_fn, failed_reads_q,
-                edge_buffer)
+                snps_q, mods_q, mods_info, fast5_fn, failed_reads_q)
             failed_reads_q.put((
                 False, True, None, None, None, raw_sig.shape[0]))
         except KeyboardInterrupt:
@@ -419,7 +417,7 @@ def _get_fail_queue(
 def process_all_reads(
         fast5s_dir, recursive, num_reads, read_ids_fn, model_info, outputs,
         out_dir, bc_fmt, aligner, snps_data, num_ps, num_update_errors,
-        suppress_progress, mods_info, db_safety, edge_buffer, pr_ref_filts):
+        suppress_progress, mods_info, db_safety, pr_ref_filts):
     logger = logging.get_logger()
     logger.info('Preparing workers to process reads.')
     # read filename queue filler
@@ -489,8 +487,7 @@ def process_all_reads(
         p = mp.Process(
             target=_process_reads_worker, args=(
                 read_file_q, bc_q, snps_q, failed_reads_q, mods_q,
-                caller_conn, model_info, snps_data, mods_info, edge_buffer,
-                device))
+                caller_conn, model_info, snps_data, mods_info, device))
         p.daemon = True
         p.start()
         proc_reads_ps.append(p)
@@ -603,7 +600,7 @@ def snps_validation(args, is_cat_mod, output_size, aligner):
             args.snp_all_paths, args.write_snps_text,
             args.variant_context_bases, snp_calib_fn,
             snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE,
-            args.refs_include_snps, aligner)
+            args.refs_include_snps, aligner, edge_buffer=args.edge_buffer)
     except mh.MegaError as e:
         logger.error(str(e))
         sys.exit(1)
@@ -649,7 +646,7 @@ def mods_validation(args, model_info):
         model_info, args.mod_motif, args.mod_all_paths,
         args.write_mods_text, args.mod_context_bases,
         mh.BC_MODS_NAME in args.outputs, args.refs_include_mods, mod_calib_fn,
-        args.mod_output_formats)
+        args.mod_output_formats, args.edge_buffer)
     return args, mods_info
 
 def parse_pr_ref_output(args):
@@ -982,7 +979,7 @@ def _main():
         args.read_ids_filename, model_info, args.outputs,
         args.output_directory, args.basecalls_format, aligner, snps_data,
         args.processes, args.verbose_read_progress, args.suppress_progress,
-        mods_info, args.database_safety, args.edge_buffer, pr_ref_filts)
+        mods_info, args.database_safety, pr_ref_filts)
 
     if mh.MAP_NAME in args.outputs:
         logger.info('Spawning process to sort mappings')

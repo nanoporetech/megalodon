@@ -93,14 +93,14 @@ def score_mod_seq(
         all_paths)
 
 def call_read_mods(
-        r_ref_pos, edge_buffer, r_ref_seq, np_ref_seq, rl_cumsum,
-        r_to_q_poss, r_post, post_mapped_start, mods_info):
+        r_ref_pos, r_ref_seq, np_ref_seq, rl_cumsum, r_to_q_poss, r_post,
+        post_mapped_start, mods_info):
     def iter_motif_sites(r_ref_seq):
-        max_pos = len(r_ref_seq) - edge_buffer
+        max_pos = len(r_ref_seq) - mods_info.edge_buffer
         for motif, rel_pos, mod_bases, raw_motif in mods_info.all_mod_motifs:
             for motif_match in motif.finditer(r_ref_seq):
                 m_pos = motif_match.start() + rel_pos
-                if m_pos < edge_buffer: continue
+                if m_pos < mods_info.edge_buffer: continue
                 if m_pos > max_pos: break
                 yield m_pos, mod_bases, motif_match.group(), rel_pos, raw_motif
         return
@@ -332,7 +332,7 @@ class ModInfo(object):
             self, model_info, all_mod_motifs_raw=None, mod_all_paths=False,
             write_mods_txt=None, mod_context_bases=None,
             do_output_mods=False, do_pr_ref_mods=False, mods_calib_fn=None,
-            mod_output_fmts=[mh.MOD_BEDMETHYL_NAME]):
+            mod_output_fmts=[mh.MOD_BEDMETHYL_NAME], edge_buffer=100):
         logger = logging.get_logger()
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other alphabet info
@@ -346,6 +346,7 @@ class ModInfo(object):
         self.mod_long_names = model_info.mod_long_names
         self.calib_table = calibration.ModCalibrator(mods_calib_fn)
         self.mod_output_fmts = mod_output_fmts
+        self.edge_buffer = edge_buffer
 
         self.alphabet = model_info.can_alphabet
         self.ncan_base = len(self.alphabet)
