@@ -608,7 +608,14 @@ class Variant(object):
 
         # add sample tags
         self.add_sample_field('GT', gts[np.argmax(probs)])
-        qual = int(np.around(np.minimum(raw_pl[0], mh.MAX_PL_VALUE)))
+        try:
+            qual = int(np.around(np.minimum(raw_pl[0], mh.MAX_PL_VALUE)))
+        except ValueError:
+            logger = logging.get_logger()
+            logger.debug(
+                'NAN quality value encountered. gts:{}, probs:{}'.format(
+                    str(gts), str(probs)))
+            qual = mg.MAX_PL_VALUE
         self.qual = '{:.0f}'.format(qual) if qual > 0 else '.'
         self.add_sample_field('GQ', '{:.0f}'.format(np.around(s_pl[1])))
         self.add_sample_field(
