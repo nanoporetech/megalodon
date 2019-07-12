@@ -615,7 +615,7 @@ class Variant(object):
             logger.debug(
                 'NAN quality value encountered. gts:{}, probs:{}'.format(
                     str(gts), str(probs)))
-            qual = mg.MAX_PL_VALUE
+            qual = mh.MAX_PL_VALUE
         self.qual = '{:.0f}'.format(qual) if qual > 0 else '.'
         self.add_sample_field('GQ', '{:.0f}'.format(np.around(s_pl[1])))
         self.add_sample_field(
@@ -643,7 +643,7 @@ class Variant(object):
             logger.debug(
                 'NAN quality value encountered. gts:{}, probs:{}'.format(
                     str(gts), str(probs)))
-            qual = mg.MAX_PL_VALUE
+            qual = mh.MAX_PL_VALUE
         self.qual = '{:.0f}'.format(qual) if qual > 0 else '.'
         self.add_sample_field('GQ', '{:.0f}'.format(np.around(s_pl[1])))
         self.add_sample_field(
