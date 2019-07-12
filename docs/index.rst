@@ -11,7 +11,7 @@ Prerequisites
 -------------
 
 Megalodon requires `taiyaki <https://github.com/nanoporetech/taiyaki>`_ installation for basecalling backend.
-Megalodon requires only a minimal taiyaki installation via ``pip install git+git://github.com/nanoporetech/taiyaki.git``.
+Megalodon requires only a minimal taiyaki installation via ``pip install git+https://github.com/nanoporetech/taiyaki.git``.
 Full installation (via ``make install``) is not necessary for megalodon functionality.
 
 Megalodon requires `pytorch <https://pytorch.org/>`_ to support the ``taiyaki`` basecalling backend.
