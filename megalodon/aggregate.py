@@ -204,7 +204,9 @@ def aggregate_stats(
         0, 0, queue.Queue(), queue.Queue())
     if mh.SNP_NAME in outputs:
         snps_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_SNP_NAME)
+        logger.info('Computing number of unique variants.')
         num_snps = snps.AggSnps(snps_db_fn).num_uniq()
+        logger.info('Spawning variant aggregation processes.')
         # create process to collect snp stats from workers
         snp_stats_q, snp_stats_p, main_snp_stats_conn = mh.create_getter_q(
             _get_snp_stats_queue, (
@@ -229,7 +231,9 @@ def aggregate_stats(
 
     if mh.MOD_NAME in outputs:
         mods_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME)
+        logger.info('Computing number of modified base reference positions.')
         num_mods = mods.AggMods(mods_db_fn).num_uniq()
+        logger.info('Spawning modified base aggregation processes.')
         # create process to collect mods stats from workers
         mod_stats_q, mod_stats_p, main_mod_stats_conn = mh.create_getter_q(
             _get_mod_stats_queue, (
