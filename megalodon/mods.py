@@ -33,12 +33,15 @@ SET_ASYNC_MODE='PRAGMA synchronous = OFF'
 
 ADDMANY_MODS = "INSERT INTO mods VALUES ({})".format(
     ','.join(('?' for _ in FIELDS_NAME_AND_TYPE)))
+# TODO normalize data base with second pos table
 CREATE_MODS_IDX = "CREATE INDEX mod_pos ON mods (chrm, strand, pos)"
 
 COUNT_UNIQ_MODS = """
 SELECT COUNT(*) FROM (
 SELECT DISTINCT chrm, strand, pos FROM mods)"""
-SEL_UNIQ_MODS = 'SELECT DISTINCT chrm, strand, pos FROM mods'
+# these should be equivalent, but the second seems to be optimized in sqlite3
+#SEL_UNIQ_MODS = 'SELECT DISTINCT chrm, strand, pos FROM mods'
+SEL_UNIQ_MODS = 'SELECT * FROM (SELECT DISTINCT chrm, strand, pos FROM mods)'
 SEL_MOD_STATS = '''
 SELECT * FROM mods WHERE chrm=? AND strand=? AND pos=?'''
 
@@ -62,6 +65,8 @@ FORMAT_LOG_PROB_MI = (
     'FORMAT=<ID=LOG_PROBS,Number=A,Type=String,' +
     'Description="Per-read log10 likelihoods for modified ' +
     'bases (semi-colon separated)">')
+
+OUT_BUFFER_LIMIT = 10000
 
 
 ################################
@@ -210,7 +215,6 @@ def _get_mods_queue(
                 for pos, mod_lps, mod_bases, ref_motif, rel_pos, raw_motif
                 in r_mod_scores
                 for mod_lp, mod_base in zip(mod_lps, mod_bases))) + '\n')
-            mods_txt_fp.flush()
         if pr_refs_fn is not None:
             if not mapping.read_passes_filters(
                     pr_ref_filts, read_len, q_st, q_en, cigar):
@@ -218,7 +222,6 @@ def _get_mods_queue(
 
             pr_refs_fp.write('>{}\n{}\n'.format(read_id, annotate_mods(
                 r_start, ref_seq, r_mod_scores, strand)))
-            pr_refs_fp.flush()
 
         return
 
@@ -551,7 +554,6 @@ class ModVcfWriter(object):
         # VCF POS field is 1-based
         elements[self.header.index('POS')] += 1
         self.handle.write('{}\n'.format('\t'.join(map(str, elements))))
-        self.handle.flush()
 
         return
 
@@ -565,11 +567,14 @@ class ModBedMethylWriter(object):
     Note that the bedMethyl format cannot store more than one modification
     type, so multiple file handles will be opened.
     """
-    def __init__(self, basename, mods, mode='w'):
+    def __init__(self, basename, mods, mode='w', buffer_limit=OUT_BUFFER_LIMIT):
         self.basename = basename
         self.mods = mods
         self.mod_short_names, self.mod_long_names = zip(*self.mods)
         self.mode = mode
+        self.buffer_limit = buffer_limit
+        self.buffers = dict(
+            (mod_short_name, []) for mod_short_name, _ in self.mods)
         self.handles = dict(
             (mod_short_name,
              open('{}.{}.{}'.format(self.basename, mod_long_name,
@@ -584,19 +589,25 @@ class ModBedMethylWriter(object):
                 mh.warning('Invalid modified base encountered during ' +
                            'bedMethyl output.')
                 continue
-            self.handles[mod_base].write(
+            self.buffers[mod_base].append(
                 ('{chrom}\t{pos}\t{end}\t{name}\t{strand}\t{pos}\t{end}' +
-                 '\t0,0,0\t{cov}\t{prop:.4f}\n').format(
+                 '\t0,0,0\t{cov}\t{prop:.4f}').format(
                      chrom=mod_site.chrom, pos=mod_site.pos,
                      end=mod_site.pos + 1, name=mod_site.id,
                      strand=mod_site.strand, cov=mod_site.get_coverage(),
                      prop=mod_prop))
-            self.handles[mod_base].flush()
+            if len(self.buffers[mod_base]) > self.buffer_limit:
+                self.handles[mod_base].write(
+                    '\n'.join(self.buffers[mod_base]) + '\n')
+                self.buffers[mod_base] = []
 
         return
 
     def close(self):
-        for handle in self.handles.values():
+        for mod_base, handle in self.handles.items():
+            if len(self.buffers[mod_base]) > 0:
+                handle.write(
+                    '\n'.join(self.buffers[mod_base]) + '\n')
             handle.close()
         return
 

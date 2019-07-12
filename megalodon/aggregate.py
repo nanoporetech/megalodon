@@ -9,6 +9,8 @@ from tqdm import tqdm
 
 from megalodon import logging, mods, snps, megalodon_helper as mh
 
+_DO_PROFILE_AGG_MOD = False
+
 
 #######################################
 ##### Aggregate SNP and Mod Stats #####
@@ -72,12 +74,26 @@ def _get_snp_stats_queue(
 def _agg_mods_worker(
         locs_q, mod_stats_q, mod_prog_q, mods_db_fn, mod_agg_info,
         valid_read_ids, write_mod_lp):
+    def put_mod_site(mod_site):
+        # function to profiling purposes
+        mod_stats_q.put(mod_site)
+        return
+    def get_mod_site():
+        # function to profiling purposes
+        return locs_q.get(block=False)
+    def do_sleep():
+        # function to profiling purposes
+        sleep(0.1)
+        return
+
     agg_mods = mods.AggMods(mods_db_fn, mod_agg_info, write_mod_lp)
 
     while True:
         try:
+            #mod_loc = get_mod_site()
             mod_loc = locs_q.get(block=False)
         except queue.Empty:
+            #do_sleep()
             sleep(0.1)
             continue
         if mod_loc is None:
@@ -86,6 +102,7 @@ def _agg_mods_worker(
         try:
             mod_site = agg_mods.compute_mod_stats(
                 mod_loc, valid_read_ids=valid_read_ids)
+            #put_mod_site(mod_site)
             mod_stats_q.put(mod_site)
         except mh.MegaError:
             # no valid reads cover location
@@ -93,6 +110,14 @@ def _agg_mods_worker(
         mod_prog_q.put(1)
 
     return
+
+if _DO_PROFILE_AGG_MOD:
+    _agg_mods_wrapper = _agg_mods_worker
+    def _agg_mods_worker(*args):
+        import cProfile
+        cProfile.runctx('_agg_mods_wrapper(*args)', globals(), locals(),
+                        filename='aggregate_mods.prof')
+        return
 
 def _get_mod_stats_queue(
         mod_stats_q, mod_conn, out_dir, mod_names, ref_names_and_lens,
@@ -183,10 +208,11 @@ def _agg_prog_worker(
 
     return
 
-def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps):
+def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps, limit=None):
     agg_db = agg_class(db_fn)
-    for loc in agg_db.iter_uniq():
+    for i, loc in enumerate(agg_db.iter_uniq()):
         locs_q.put(loc)
+        if limit is not None and i >= limit: break
     for _ in range(num_ps):
         locs_q.put(None)
 
@@ -200,10 +226,12 @@ def aggregate_stats(
     if mh.SNP_NAME in outputs and mh.MOD_NAME in outputs:
         num_ps = max(num_ps // 2, 1)
 
+    logger = logging.get_logger('agg')
     num_snps, num_mods, snp_prog_q, mod_prog_q = (
         0, 0, queue.Queue(), queue.Queue())
     if mh.SNP_NAME in outputs:
         snps_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_SNP_NAME)
+        # TODO move counting into separate process with pipe to progress process
         logger.info('Computing number of unique variants.')
         num_snps = snps.AggSnps(snps_db_fn).num_uniq()
         logger.info('Spawning variant aggregation processes.')
@@ -231,6 +259,7 @@ def aggregate_stats(
 
     if mh.MOD_NAME in outputs:
         mods_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME)
+        # TODO move counting into separate process with pipe to progress process
         logger.info('Computing number of modified base reference positions.')
         num_mods = mods.AggMods(mods_db_fn).num_uniq()
         logger.info('Spawning modified base aggregation processes.')
@@ -243,7 +272,8 @@ def aggregate_stats(
         mod_filler_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
         mod_filler_p = mp.Process(
             target=_fill_locs_queue,
-            args=(mod_filler_q, mods_db_fn, mods.AggMods, num_ps), daemon=True)
+            args=(mod_filler_q, mods_db_fn, mods.AggMods, num_ps, 50000),
+            daemon=True)
         mod_filler_p.start()
         # create worker processes to aggregate mods
         mod_prog_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
@@ -258,7 +288,6 @@ def aggregate_stats(
             agg_mods_ps.append(p)
 
     # create progress process
-    logger = logging.get_logger('agg')
     logger.info(
         'Aggregating {} SNPs and {} mod sites over reads.'.format(
             num_snps, num_mods))
