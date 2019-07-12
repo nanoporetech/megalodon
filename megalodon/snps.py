@@ -7,6 +7,7 @@ from time import sleep
 from array import array
 import multiprocessing as mp
 from operator import itemgetter
+from itertools import product, combinations, groupby
 from collections import defaultdict, namedtuple, OrderedDict
 
 import pysam
@@ -72,6 +73,23 @@ FORMAT_LOG_PROB_MI = (
     'alleles (semi-colon separated)">')
 
 
+############################
+##### Helper Functions #####
+############################
+
+def logsumexp(x):
+    x_max = x.max()
+    return np.log(np.sum(np.exp(x - x_max))) + x_max
+
+def binom_pmf(k, n, p):
+    return (np.math.factorial(n) / (
+        np.math.factorial(k) * np.math.factorial(n - k))) * (
+            p ** k) * ((1 - p) ** (n - k))
+
+def seq_to_int(seq, alphabet=mh.ALPHABET):
+    return np.array([alphabet.find(b) for b in seq], dtype=np.uintp)
+
+
 ################################
 ##### Per-read SNP Scoring #####
 ################################
@@ -100,40 +118,47 @@ def score_seq(tpost, seq, tpost_start=0, tpost_end=None,
     return score
 
 def call_read_snps(
-        snps_data, r_ref_pos, r_ref_seq, rl_cumsum, r_to_q_poss,
+        snps_data, read_ref_pos, strand_read_ref_seq, rl_cumsum, r_to_q_poss,
         r_post, post_mapped_start):
     # call all snps overlapping this read
     r_snp_calls = []
-    for (snp_ref_seq, snp_alt_seqs, context_seqs, snp_id,
-         snp_ref_pos) in snps_data.iter_snps(r_ref_pos, r_ref_seq):
-        # TODO loop over context_seqs and report ratio of sum of probabilities
-
-        blk_start  = rl_cumsum[r_to_q_poss[read_pos - pos_bb]]
-
-        # need to add len of ref sequence here
-        blk_end = rl_cumsum[r_to_q_poss[read_pos + pos_ab] + 1]
-        if blk_end - blk_start < max(len(pos_ref_seq), max(
-                len(read_alt_seq) for read_alt_seq in read_alt_seqs)):
+    for (np_s_snp_ref_seq, np_s_snp_alt_seqs, np_s_context_seqs,
+         s_ref_start, s_ref_end, snp_ref_seq, snp_alt_seqs, snp_id,
+         snp_ref_pos) in snps_data.iter_snps(
+             read_ref_pos, strand_read_ref_seq):
+        blk_start  = rl_cumsum[r_to_q_poss[s_ref_start]]
+        blk_end = rl_cumsum[r_to_q_poss[s_ref_end]]
+        if blk_end - blk_start < max(
+                len(up_seq) + len(dn_seq)
+                for up_seq, dn_seq in np_s_context_seqs) + max(
+                        len(snp_ref_seq), max(len(snp_alt_seq)
+                                              for snp_alt_seq in snp_alt_seqs)):
             # no valid mapping over large inserted query bases
             # i.e. need as many "events/strides" as bases for valid mapping
             continue
 
-        loc_ref_score = score_seq(
-            r_post, pos_ref_seq, post_mapped_start + blk_start,
-            post_mapped_start + blk_end, snps_data.all_paths)
-        loc_alt_llrs = []
-        for read_alt_seq in read_alt_seqs:
-            pos_alt_seq = np.concatenate([
-                pos_ref_seq[:pos_bb],
-                np.array([mh.ALPHABET.find(b) for b in read_alt_seq],
-                         dtype=np.uintp),
-                pos_ref_seq[pos_bb + len(snp_ref_seq):]])
-            loc_alt_score = score_seq(
-                r_post, pos_alt_seq, post_mapped_start + blk_start,
+        ref_context_seqs = (
+            np.concatenate([up_context_seq, np_s_snp_ref_seq, dn_context_seq])
+            for up_context_seq, dn_context_seq in np_s_context_seqs)
+        loc_ref_lp = logsumexp(
+            np.array([score_seq(
+                r_post, ref_seq, post_mapped_start + blk_start,
                 post_mapped_start + blk_end, snps_data.all_paths)
+                      for ref_seq in ref_context_seqs]))
+        loc_alt_llrs = []
+        for np_s_snp_alt_seq in np_s_snp_alt_seqs:
+            alt_context_seqs = (
+                np.concatenate([
+                    up_context_seq, np_s_snp_alt_seq, dn_context_seq])
+                for up_context_seq, dn_context_seq in np_s_context_seqs)
+            loc_alt_lp = logsumexp(
+                np.array([score_seq(
+                    r_post, alt_seq, post_mapped_start + blk_start,
+                    post_mapped_start + blk_end, snps_data.all_paths)
+                          for alt_seq in alt_context_seqs]))
             # calibrate log probs
             loc_alt_llrs.append(snps_data.calibrate_llr(
-                loc_ref_score - loc_alt_score, read_ref_seq, read_alt_seq))
+                loc_ref_lp - loc_alt_lp, snp_ref_seq, snp_alt_seqs))
 
         # due to calibration mutli-allelic log likelihoods could result in
         # inferred negative reference likelihood, so re-normalize here
@@ -485,7 +510,7 @@ class SnpData(object):
         return
 
     @property
-    def snp_context(self):
+    def substitution_context(self):
         return self.context_bases[0]
     @property
     def indel_context(self):
@@ -496,81 +521,238 @@ class SnpData(object):
             self.variants_idx = pysam.VariantFile(self.variant_fn)
         return
 
-    def iter_snps(self, r_ref_pos, r_ref_seq):
+    @staticmethod
+    def merge_variants(fetch_res):
+        """ Group variants by start and stop and merge into multi-allelic sites
+        if this is not done, allele probabilities will not be normalized
+        correctly.
+        """
+        variants = []
+        for _, site_vars in groupby(
+                fetch_res, lambda var: (var.start, var.stop)):
+            site_vars = list(site_vars)
+            if len(site_vars) == 1:
+                variants.append(site_vars[0])
+            else:
+                site_var = site_vars[0]
+                site_var.id = ';'.join(sorted(set(
+                    var_id for var in site_vars
+                    for var_id in var.id.split(';'))))
+                site_var.alts = tuple(sorted(set(
+                    alt for var in site_vars
+                    for alt in var.alts)))
+                variants.append(site_var)
+
+        return variants
+
+    @staticmethod
+    def compute_variant_distance(var1, var2):
+        # if the variants overlap return None
+        if not (var1.start >= var2.stop or var2.start >= var1.stop):
+            return None
+        elif var1.start >= var2.stop:
+            return var1.start - var2.stop
+        return var2.start - var1.stop
+
+    @staticmethod
+    def any_variants_overlap(variants):
+        for var1, var2 in combinations(variants, 2):
+            if not (var1.start >= var2.stop or var2.start >= var1.stop):
+                return True
+        return False
+
+    @staticmethod
+    def annotate_context_seqs(
+            context_vars, up_context_seq, dn_context_seq, context_ref_start,
+            context_rel_var_start, context_rel_var_end):
+        # annotate upstream sequence
+        ann_up_seq = ''
+        prev_end = 0
+        for context_var, alt_seq in context_vars:
+            if context_var.stop - context_ref_start > context_rel_var_start:
+                continue
+            ann_up_seq += up_context_seq[
+                prev_end:context_var.start - context_ref_start] + alt_seq
+            prev_end = context_var.stop - context_ref_start
+        ann_up_seq += up_context_seq[prev_end:]
+
+        # annotate upstream sequence
+        ann_dn_seq = ''
+        prev_end = 0
+        for context_var, alt_seq in context_vars:
+            if context_var.start - context_ref_start < context_rel_var_end:
+                continue
+            ann_dn_seq += dn_context_seq[
+                prev_end:context_var.start - context_ref_start -
+                context_rel_var_end] + alt_seq
+            prev_end = (context_var.stop - context_ref_start -
+                        context_rel_var_end)
+        ann_up_seq += up_context_seq[prev_end:]
+
+        return ann_up_seq, ann_dn_seq
+
+    @staticmethod
+    def iter_variant_combos_by_distance(variant, context_variants):
+        """ Group variants by distance to the variant of interest
+        if there are more combinations of variants than max_contexts
+        then return the combinations of most proximal contexts
+        """
+        def iter_alt_variant_seqs(vars1, vars2):
+            vars_w_alts = (((var, alt) for alt in var.alts)
+                           for var in variants)
+            for vars_w_alt in product(*vars_w_alt):
+                yield vars_w_alt
+            return
+
+        dist_vars = dict((k, list(v)) for k, v in groupby(
+            context_variants,
+            lambda var: compute_variant_distance(variant, var)))
+        # remove overlapping/mutually-exclusive variants (None distance)
+        # better to ask forgiveness than permission
+        try: del dist_vars[None]
+        except KeyError: pass
+
+        used_vars = []
+        # sort list by distance to a variant in order to report most
+        # proximal variants first
+        for var_dist, dist_context_vars in sorted(dist_vars.items()):
+            # loop over numbers of current distance variants (1 or more) and
+            # previously used variants (0 or more)
+            for n_dist_vars, n_used_vars in product(
+                    range(1, len(dist_context_vars) + 1),
+                    range(len(used_vars))):
+                # loop over actual selection of variants
+                # including selected alt seq
+                for curr_and_used_vars in product(
+                        combinations(dist_context_vars, n_dist_vars),
+                        combinations(used_vars, n_used_vars)):
+                    for vars_w_alt in iter_alt_variant_seqs(
+                            list(vars1) + list(vars2)):
+                        yield vars_w_alt
+            used_vars.extend(dist_context_vars)
+
+        return
+
+    def iter_snps(self, read_ref_pos, strand_read_ref_seq, max_contexts=16):
         """Iterator over SNPs overlapping the read mapped position.
 
+        Args:
+            read_ref_pos: Read reference mapping position
+                (`megalodon.mapping.MAP_POS`)
+            strand_read_ref_seq: read centric mapped reference sequence.
+                Reverse complement if read is mapped to reverse strand.
+            max_contexts: Maximum number of context variant combinations to
+                include around each variant.
+
+        Yields:
+            snp_ref_seq: Reference variant sequence on read strand
+            snp_alt_seqs: Alternative variant sequences on read strand
+            context_seqs: Sequences surrounding the variant on read strand
+            context_start: Start of variant context in read coordinates
+            context_end: End of variant context in read coordinates
+            variant_ref: Reference variant sequence on reference
+            variant_alts: Alternate variant sequences on reference
+            variant_id: string idnentifier for the variant
+            pos: variant position (0-based coordinate)
+
         SNPs within edge buffer of the end of the mapping will be ignored.
+
+        If more than max_contexts snps exist within context_basss then only
+        the max_contexts most proximal to the variant in question will be
+        returned.
         """
-        def construct_snp_data(variant, context_vars):
-            if r_ref_pos.strand == 1:
-                read_pos = variant.pos - 1 - r_ref_pos.start
-                read_ref_seq = variant.ref
-                read_alt_seqs = variant.alts
-            else:
-                read_pos = r_ref_pos.end - variant.stop + 1
-                read_ref_seq = mh.revcomp(variant.ref)
-                read_alt_seqs = [mh.revcomp(alt_seq)
-                                 for alt_seq in variant.alts]
+        def revcomp_variant(context_seqs, var_ref, var_alts):
+            rc_context_seqs = [
+                (mh.revcomp(dn_context_seq), mh.revcomp(up_context_seq))
+                for up_context_seq, dn_context_seq in context_seqs]
+            return rc_context_seqs, mh.revcomp(var_ref), [
+                mh.revcomp(alt) for alt in var_alts]
 
-            # select single base SNP or indel context width
-            var_context_bases = self.indel_context if all(
-                len(variant.ref) == len(snp_alt_seq)
-                for snp_alt_seq in variant.alts) else self.snp_context
-            pos_bb = min(var_context_bases, read_pos)
-            pos_ab = min(var_context_bases,
-                         r_ref_seq.shape[0] - read_pos - len(read_ref_seq))
-            pos_ref_seq = r_ref_seq[read_pos - pos_bb:
-                                    read_pos + pos_ab + len(read_ref_seq)]
+        def extract_variant_contexts(
+                variant, context_vars, context_ref_start, context_ref_end):
+            context_rel_var_start = variant.start - context_ref_start
+            context_rel_var_end = context_rel_var_start + variant.rlen
 
-            context_seqs = []
-            # loop over all combinations of variants
-            for context_var in context_vars:
-                # TODO fill with tuples of upstream and downstream sequences
-                # annotated with variants
-                pass
-            return (read_ref_seq, read_alt_seqs, context_seqs, variant.id,
-                    variant.pos - 1)
+            context_ref_seq = read_ref_seq[context_read_start:context_read_end]
+            # first context is always reference sequence
+            up_context_seq = context_ref_seq[:context_rel_var_start]
+            dn_context_seq = context_ref_seq[context_rel_var_end:]
+            context_seqs = [(up_context_seq, dn_context_seq),]
+
+            if max_contexts == 1 or len(context_vars) == 0:
+                return context_seqs
+
+            for context_vars in iter_variant_combos_by_distance(
+                    context_vars):
+                if any_variants_overlap(context_vars): continue
+                context_seqs.append(annotate_context_seqs(
+                    context_vars, up_context_seq, dn_context_seq,
+                    context_ref_start, context_rel_var_start,
+                    context_rel_var_end))
+
+            return context_seqs
 
 
-        if r_ref_pos.end - r_ref_pos.start <= 2 * self.edge_buffer:
-            raise mh.MegaError('Mapped region too short for SNP calling.')
+        if read_ref_pos.end - read_ref_pos.start <= 2 * self.edge_buffer:
+            raise mh.MegaError('Mapped region too short for variant calling.')
+        # convert to forward strand sequence in order to annotate with variants
+        read_ref_seq = (strand_read_ref_seq if read_ref_pos.strand == 1 else
+                        mh.revcomp(strand_read_ref_seq))
         try:
             fetch_res = self.variants_idx.fetch(
-                r_ref_pos.chrm, r_ref_pos.start + self.edge_buffer,
-                r_ref_pos.end - self.edge_buffer)
+                read_ref_pos.chrm, read_ref_pos.start + self.edge_buffer,
+                read_ref_pos.end - self.edge_buffer)
         except ValueError:
             raise mh.MegaError('Mapped location not valid for variants file.')
 
-        # initialize snp_grp with first snp
-        try:
-            variant = next(fetch_res)
-        except StopIteration:
-            return
+        read_variants = self.merge_variants(fetch_res)
+        for variant in read_variants:
+            # compute various relative coordinates (in reference coordinates
+            # not on read strand, to make it easier to work with variants)
+            # select single base substitution or indel context width
+            var_context_bases = self.indel_context if all(
+                variant.rlen == len(alt)
+                for alt in variant.alts) else self.substitution_context
+            context_ref_start = variant.start - var_context_bases
+            if context_ref_start < read_ref_pos.start:
+                context_ref_start = read_ref_pos.start
+            context_ref_end = variant.stop + var_context_bases
+            if context_ref_end > read_ref_pos.end:
+                context_ref_end = read_ref_pos.end
+            context_read_start = context_ref_start - read_ref_pos.start
+            context_read_end = context_ref_end - read_ref_pos.start
+            # could optimize this with a rolling set of variants or dictionary
+            # holding variants, but this is simpler and likely not a bottleneck
+            context_vars = [
+                var for var in read_variants
+                if var.start >= context_ref_start and
+                var.stop <= context_read_end]
+            context_seqs = extract_variant_contexts(
+                variant, context_vars, context_ref_start, context_ref_end)
+            # revcomp seqs for strand and convert to numpy arrays
+            var_ref, var_alts = variant.ref, variant.alts
+            if read_ref_pos.strand == -1:
+                context_seqs, var_ref, var_alts = revcomp_variant(
+                    context_seqs, var_ref, var_alts)
+                context_read_start, context_read_end = (
+                    len(strand_read_ref_seq) - context_read_end,
+                    len(strand_read_ref_seq) - context_read_start)
+            np_s_var_ref_seq = seq_to_int(var_ref)
+            np_s_var_alt_seqs = [seq_to_int(alt) for alt in var_alts]
+            np_s_context_seqs = [
+                (seq_to_int(up_context_seq), seq_to_int(dn_context_seq))
+                for up_context_seq, dn_context_seq in context_seqs]
 
-        prev_snp_end = variant.stop
-        snp_grp = [variant]
-        for variant in fetch_res:
-            if self.max_indel_size is not None and max(
-                    np.abs(len(variant.ref) - len(snp_alt_seq))
-                    for snp_alt_seq in variant.alts) > self.max_indel_size:
-                continue
-            if variant.start < prev_snp_end + snp_merge_gap:
-                prev_snp_end = max(variant.stop, prev_snp_end)
-                snp_grp.append(variant)
-            else:
-                yield (snp_grp[0].ref, snp_grp[0].alts, snp_grp[0].id,
-                       snp_grp[0].pos - 1)
-                prev_snp_end = variant.stop
-                snp_grp = [variant]
+            yield (
+                np_s_var_ref_seq, np_s_var_alt_seqs, np_s_context_seqs,
+                context_read_start, context_read_end, variant.ref,
+                variant.alts, variant.id, variant.start)
 
-        # yeild last snp grp data
-        yield (snp_grp[0].ref, snp_grp[0].alts, snp_grp[0].id,
-               snp_grp[0].pos - 1)
         return
 
-    def calibrate_llr(self, llr, snp_ref_seq, snp_alt_seq):
+    def calibrate_llr(self, llr, var_ref_seq, var_alt_seq):
         return self.calib_table.calibrate_llr(
-            llr, snp_ref_seq, snp_alt_seq)
+            llr, var_ref_seq, var_alt_seq)
 
 
 ######################
@@ -750,15 +932,6 @@ class VcfWriter(object):
 #################################
 ##### SNP Aggregation Class #####
 #################################
-
-def logsumexp(x):
-    x_max = x.max()
-    return np.log(np.sum(np.exp(x - x_max))) + x_max
-
-def binom_pmf(k, n, p):
-    return (np.math.factorial(n) / (
-        np.math.factorial(k) * np.math.factorial(n - k))) * (
-            p ** k) * ((1 - p) ** (n - k))
 
 class AggSnps(mh.AbstractAggregationClass):
     """ Class to assist in database queries for per-site aggregation of

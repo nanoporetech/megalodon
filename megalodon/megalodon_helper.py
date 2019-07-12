@@ -19,6 +19,7 @@ DEFAULT_INDEL_HET_FACTOR = 1.6
 MED_NORM_FACTOR = 1.4826
 
 ALPHABET = 'ACGT'
+NP_ALPHABET = np.char.array(list(ALPHABET))
 COMP_BASES = dict(zip(map(ord, 'ACGT'), map(ord, 'TGCA')))
 
 _MAX_QUEUE_SIZE = 1000
