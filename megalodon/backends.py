@@ -44,10 +44,18 @@ class ModelInfo(object):
             from taiyaki.helpers import load_model as load_taiyaki_model
             from taiyaki.basecall_helpers import run_model as tai_run_model
             from taiyaki.layers import GlobalNormFlipFlopCatMod
+        except ImportError:
+            logger = logging.get_logger()
+            logger.error(
+                'Failed to import taiyaki. Ensure working ' +
+                'installations to run megalodon')
+            sys.exit(1)
+        try:
             import torch
         except ImportError:
+            logger = logging.get_logger()
             logger.error(
-                'Failed to import taiyaki and pytorch. Ensure working ' +
+                'Failed to import pytorch. Ensure working ' +
                 'installations to run megalodon')
             sys.exit(1)
 
