@@ -356,13 +356,13 @@ class ModInfo(object):
         if model_info.is_cat_mod:
             # TODO also output "(alt to C)" for each mod
             logger.info(
-                'Using canoncical alphabet {} and modified bases {}.'.format(
+                'Using canonical alphabet {} and modified bases {}.'.format(
                     self.alphabet, ' '.join(
                         '{}={}'.format(*mod_b)
                         for mod_b in model_info.mod_long_names)))
         else:
             logger.info(
-                'Using canoncical alphabet {}.'.format(self.alphabet))
+                'Using canonical alphabet {}.'.format(self.alphabet))
 
         self.nbase = len(self.alphabet)
         self.n_can_state = (self.ncan_base + self.ncan_base) * (
