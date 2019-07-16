@@ -476,8 +476,9 @@ def process_all_reads(
                        if mods_info.write_mods_txt else None)
         mods_q, mods_p, main_mods_conn = mh.create_getter_q(
             mods._get_mods_queue, (
-                mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME), mods_txt_fn,
-                db_safety, pr_refs_fn, pr_ref_filts))
+                mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME), db_safety,
+                aligner.ref_names_and_lens, mods_txt_fn,
+                pr_refs_fn, pr_ref_filts))
 
     proc_reads_ps, map_conns = [], []
     for device in model_info.process_devices:
