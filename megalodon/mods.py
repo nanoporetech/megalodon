@@ -224,6 +224,28 @@ class ModsDb(object):
             'WHERE pos_id=?', (pos_id, ))
         return [self.mod_data(*pos_data_i) for pos_data_i in self.cur]
 
+        return pos_id
+
+    def get_read_id(self, uuid):
+        try:
+            read_id = self.cur.execute(
+                'SELECT read_id FROM read WHERE uuid=?', (uuid,)).fetchone()[0]
+        except TypeError:
+            raise mh.MegaError('Read ID not found in mods data base.')
+        return read_id
+
+    def get_read_id_or_insert(self, uuid):
+        try:
+            read_id = self.get_read_id(uuid)
+        except mh.MegaError:
+            self.cur.execute('INSERT INTO read (uuid) VALUES (?)', (uuid,))
+            read_id = self.cur.lastrowid
+        return read_id
+
+    def create_data_read_index(self):
+        self.cur.execute('CREATE INDEX data_read_idx ON data(score_read)')
+        return
+
     def get_read_stats(self, uuid):
         self.cur.execute(
             'SELECT uuid, chrm.chrm, pos.strand, pos.pos, data.score, ' +
