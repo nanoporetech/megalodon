@@ -74,7 +74,8 @@ class ModsDb(object):
         'read_id', 'chrm', 'strand', 'pos', 'score', 'mod_base', 'motif',
         'motif_pos', 'raw_motif'])
 
-    def __init__(self, fn, read_only=True, db_safety=1):
+    def __init__(self, fn, read_only=True, db_safety=1,
+                 pos_index_in_memory=True):
         self.fn = mh.resolve_path(fn)
 
         if read_only:
@@ -100,11 +101,14 @@ class ModsDb(object):
                 self.db.execute("CREATE TABLE {} ({})".format(
                     tbl_name, ','.join((
                         '{} {}'.format(*ft) for ft in tbl.items()))))
-            self.db.execute('CREATE UNIQUE INDEX pos_idx ON pos' +
-                            '(strand, pos, pos_chrm)')
             self.db.execute('CREATE UNIQUE INDEX chrm_idx ON chrm(chrm)')
             self.db.execute('CREATE UNIQUE INDEX mod_idx ON ' +
                             'mod(mod_base, motif, motif_pos, raw_motif)')
+            self.pos_idx_in_mem = pos_index_in_memory
+            if self.pos_idx_in_mem:
+                self.pos_idx = {}
+            else:
+                self.create_pos_index()
 
         return
 
@@ -133,13 +137,18 @@ class ModsDb(object):
     def get_pos_id(self, chrm, strand, pos, chrm_id=None):
         if chrm_id is None:
             chrm_id = self.get_chrm_id(chrm)
+
         try:
-            pos_id = self.cur.execute(
-                'SELECT pos_id FROM pos WHERE pos_chrm=? AND strand=? ' +
-                'AND pos=?', (chrm_id, strand, pos)).fetchone()[0]
-        except:
+            if self.pos_idx_in_mem:
+                pos_id = self.pos_idx[(chrm_id, strand, pos)]
+            else:
+                pos_id = self.cur.execute(
+                    'SELECT pos_id FROM pos WHERE pos_chrm=? AND strand=? ' +
+                    'AND pos=?', (chrm_id, strand, pos)).fetchone()[0]
+        except TypeError, KeyError:
             raise mh.MegaError(
                 'Reference position not found in mods data base.')
+
         return pos_id
 
     def get_pos_id_or_insert(self, chrm, strand, pos, chrm_id=None):
@@ -152,6 +161,8 @@ class ModsDb(object):
                 'INSERT INTO pos (pos_chrm, strand, pos) VALUES (?,?,?)',
                 (chrm_id, strand, pos))
             pos_id = self.cur.lastrowid
+            if self.pos_idx_in_mem:
+                self.pos_idx[(chrm_id, strand, pos)] = pos_id
         return pos_id
 
     def get_mod_base_id(self, mod_base, motif, motif_pos, raw_motif):
@@ -192,6 +203,11 @@ class ModsDb(object):
             'INSERT INTO data VALUES (?,?,?,?)', read_insert_data)
         return
 
+    def create_pos_index(self):
+        self.cur.execute('CREATE UNIQUE INDEX pos_idx ON pos' +
+                         '(pos_chrm, strand, pos)')
+        return
+
     def create_data_pos_index(self):
         self.cur.execute('CREATE INDEX data_pos_idx ON data(score_pos)')
         return
@@ -202,7 +218,7 @@ class ModsDb(object):
         return
 
     def get_num_uniq_mod_pos(self):
-        return self.cur.execute('SELECT COUNT(*) FROM pos').fetchone()[0]
+        return self.cur.execute('SELECT MAX(pos_id) FROM pos').fetchone()[0]
 
     def iter_pos_id(self):
         self.cur.execute('SELECT pos_id FROM pos')
@@ -457,6 +473,7 @@ def _get_mods_queue(
 
     if mods_txt_fp is not None: mods_txt_fp.close()
     if pr_refs_fn is not None: pr_refs_fp.close()
+    mods_db.create_pos_index()
     mods_db.create_data_pos_index()
     mods_db.close()
 

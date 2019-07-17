@@ -2,6 +2,7 @@ import sys
 import sqlite3
 import argparse
 from tqdm import tqdm
+from time import time
 
 from megalodon import logging, megalodon_helper as mh, mods
 
@@ -18,8 +19,8 @@ def get_parser():
 
     return parser
 
-def fill_mods(old_cur, new_db):
-    read_ids = {}
+def fill_mods(old_cur, new_db, chrms):
+    read_ids, poss = {}, {}
     n_recs = old_cur.execute('SELECT COUNT(*) FROM mods').fetchone()[0]
     old_cur.execute('SELECT * FROM mods')
     for (uuid, chrm, strand, pos, score, mod_base, motif, motif_pos,
@@ -30,7 +31,14 @@ def fill_mods(old_cur, new_db):
             new_db.cur.execute('INSERT INTO read (uuid) VALUES (?)', (uuid,))
             read_id = new_db.cur.lastrowid
             read_ids[uuid] = read_id
-        pos_id = new_db.get_pos_id_or_insert(chrm, strand, pos)
+        chrm_id = chrms[chrm]
+        try:
+            pos_id = poss[(chrm_id, strand, pos)]
+        except KeyError:
+            new_db.cur.execute('INSERT INTO pos (pos_chrm, pos, strand) ' +
+                               'VALUES (?, ?, ?)', (chrm_id, pos, strand))
+            pos_id = new_db.cur.lastrowid
+            poss[(chrm_id, strand, pos)] = pos_id
         mod_base_id = new_db.get_mod_base_id_or_insert(
             mod_base, motif, motif_pos, raw_motif)
         new_db.cur.execute('INSERT INTO data VALUES (?,?,?,?)',
@@ -39,9 +47,10 @@ def fill_mods(old_cur, new_db):
 
 def fill_refs(old_cur, new_db):
     old_cur.execute('SELECT DISTINCT chrm FROM mods')
+    chrms = {}
     for ref_name, in old_cur:
-        new_db.add_chrm(ref_name)
-    return
+        chrms[ref_name] = new_db.add_chrm(ref_name)
+    return chrms
 
 def main():
     args = get_parser().parse_args()
@@ -51,12 +60,19 @@ def main():
     new_db = mods.ModsDb(args.new_db, read_only=False)
 
     sys.stderr.write('Reading/loading reference record names.\n')
-    fill_refs(old_cur, new_db)
+    chrms = fill_refs(old_cur, new_db)
 
     sys.stderr.write('Reading/loading modified base scores.\n')
-    fill_mods(old_cur, new_db)
+    fill_mods(old_cur, new_db, chrms)
 
+    t0 = time()
+    sys.stderr.write('Creating positions index.\n')
+    new_db.create_pos_index()
+    t1 = time()
+    sys.stderr.write('Took {} seconds.\n'.format(t1 - t0))
+    sys.stderr.write('Creating scores position index.\n')
     new_db.create_data_pos_index()
+    sys.stderr.write('Took {} seconds.\n'.format(time() - t1))
     new_db.close()
 
     return
