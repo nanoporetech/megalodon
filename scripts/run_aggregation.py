@@ -88,7 +88,7 @@ def main():
         logger.info('Loading model.')
         mod_names = backends.ModelInfo(mh.get_model_fn(
             args.taiyaki_model_filename)).mod_long_names
-    logger.info('Loading reference.')
+    if args.reference is not None: logger.info('Loading reference.')
     aligner = mapping.alignerPlus(
         str(args.reference), preset=str('map-ont'), best_n=1)
     if args.reference is not None:

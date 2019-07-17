@@ -584,7 +584,7 @@ def snps_validation(args, is_cat_mod, output_size, aligner):
     if mh.PR_SNP_NAME in args.outputs and args.variant_filename is None:
         logger.error(
             '{} output requested, '.format(mh.PR_SNP_NAME) +
-            'but --variant-filename provided.')
+            'but --variant-filename not provided.')
         sys.exit(1)
     if mh.PR_SNP_NAME in args.outputs and not (
             is_cat_mod or mh.nstate_to_nbase(output_size) == 4):
