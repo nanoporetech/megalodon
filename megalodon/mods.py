@@ -145,7 +145,7 @@ class ModsDb(object):
                 pos_id = self.cur.execute(
                     'SELECT pos_id FROM pos WHERE pos_chrm=? AND strand=? ' +
                     'AND pos=?', (chrm_id, strand, pos)).fetchone()[0]
-        except TypeError, KeyError:
+        except (TypeError, KeyError):
             raise mh.MegaError(
                 'Reference position not found in mods data base.')
 
