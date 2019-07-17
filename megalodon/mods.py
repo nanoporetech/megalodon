@@ -106,6 +106,7 @@ def call_read_mods(
         return
 
 
+    logger = logging.get_logger('mods')
     # call all mods overlapping this read
     r_mod_scores = []
     for (pos, mod_bases, ref_motif, rel_pos,
@@ -113,6 +114,13 @@ def call_read_mods(
         pos_bb, pos_ab = min(mods_info.mod_context_bases, pos), min(
             mods_info.mod_context_bases, np_ref_seq.shape[0] - pos - 1)
         pos_ref_seq = np_ref_seq[pos - pos_bb:pos + pos_ab + 1]
+        if pos_ref_seq.max() > len(mh.ALPHABET):
+            ref_pos = r_ref_pos.start + pos if r_ref_pos.strand == 1 else \
+                      r_ref_pos.start + len(r_ref_seq) - pos - 1
+            logger.debug(
+                'Invalid sequence encountered calling modified base ' +
+                'at {}:{}'.format(r_ref_pos.chrm, ref_pos))
+            continue
         pos_can_mods = np.zeros_like(pos_ref_seq)
 
         blk_start, blk_end = (rl_cumsum[r_to_q_poss[pos - pos_bb]],

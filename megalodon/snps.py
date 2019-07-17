@@ -87,7 +87,10 @@ def binom_pmf(k, n, p):
             p ** k) * ((1 - p) ** (n - k))
 
 def seq_to_int(seq, alphabet=mh.ALPHABET):
-    return np.array([alphabet.find(b) for b in seq], dtype=np.uintp)
+    np_seq = np.array([alphabet.find(b) for b in seq], dtype=np.uintp)
+    if np_seq.max() >= len(alphabet):
+        raise mh.MegaError('Invalid character in sequence')
+    return np_seq
 
 
 ################################
@@ -535,9 +538,14 @@ class SnpData(object):
                 variants.append(site_vars[0])
             else:
                 site_var = site_vars[0]
-                site_var.id = ';'.join(sorted(set(
+                # join all valid ids
+                # skip None ids ('.' in VCF)
+                site_var_ids = set(
                     var_id for var in site_vars
-                    for var_id in var.id.split(';'))))
+                    for var_id in var.id.split(';') if var is not None)
+                # if all ids are None leave id as None
+                if len(site_var_ids) > 0:
+                    site_var.id = ';'.join(sorted(site_var_ids))
                 site_var.alts = tuple(sorted(set(
                     alt for var in site_vars
                     for alt in var.alts)))
@@ -693,6 +701,7 @@ class SnpData(object):
             return context_seqs
 
 
+        logger = logging.get_logger('snps')
         if read_ref_pos.end - read_ref_pos.start <= 2 * self.edge_buffer:
             raise mh.MegaError('Mapped region too short for variant calling.')
         # convert to forward strand sequence in order to annotate with variants
@@ -737,11 +746,19 @@ class SnpData(object):
                 context_read_start, context_read_end = (
                     len(strand_read_ref_seq) - context_read_end,
                     len(strand_read_ref_seq) - context_read_start)
-            np_s_var_ref_seq = seq_to_int(var_ref)
-            np_s_var_alt_seqs = [seq_to_int(alt) for alt in var_alts]
-            np_s_context_seqs = [
-                (seq_to_int(up_context_seq), seq_to_int(dn_context_seq))
-                for up_context_seq, dn_context_seq in context_seqs]
+            try:
+                np_s_var_ref_seq = seq_to_int(var_ref)
+                np_s_var_alt_seqs = [seq_to_int(alt) for alt in var_alts]
+                np_s_context_seqs = [
+                    (seq_to_int(up_context_seq), seq_to_int(dn_context_seq))
+                    for up_context_seq, dn_context_seq in context_seqs]
+            except mh.MegaError:
+                # some sequence contained invalid characters
+                logger.debug(
+                    'Invalid sequence encountered for variant ' +
+                    '"{}" at {}:{}'.format(
+                        variant.id, variant.chrom, variant.start))
+                continue
 
             yield (
                 np_s_var_ref_seq, np_s_var_alt_seqs, np_s_context_seqs,
