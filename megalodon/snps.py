@@ -541,8 +541,8 @@ class SnpData(object):
                 # join all valid ids
                 # skip None ids ('.' in VCF)
                 site_var_ids = set(
-                    var_id for var in site_vars
-                    for var_id in var.id.split(';') if var is not None)
+                    var_id for var in site_vars if var is not None
+                    for var_id in var.id.split(';'))
                 # if all ids are None leave id as None
                 if len(site_var_ids) > 0:
                     site_var.id = ';'.join(sorted(site_var_ids))
