@@ -200,6 +200,7 @@ def aggregate_stats(
     if mh.SNP_NAME in outputs and mh.MOD_NAME in outputs:
         num_ps = max(num_ps // 2, 1)
 
+    logger = logging.get_logger('agg')
     num_snps, num_mods, snp_prog_q, mod_prog_q = (
         0, 0, queue.Queue(), queue.Queue())
     if mh.SNP_NAME in outputs:
@@ -258,7 +259,6 @@ def aggregate_stats(
             agg_mods_ps.append(p)
 
     # create progress process
-    logger = logging.get_logger('agg')
     logger.info(
         'Aggregating {} SNPs and {} mod sites over reads.'.format(
             num_snps, num_mods))
