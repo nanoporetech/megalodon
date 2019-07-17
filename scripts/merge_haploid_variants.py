@@ -83,26 +83,29 @@ def main():
             try:
                 gt0 = next(iter(curr_v0_rec.samples.values()))['GT']
                 if are_same_var(curr_v0_rec, curr_v1_rec, curr_v2_rec):
-                    if len(set(gt0)):
-                        gt = '{}|{}'.format(*gt0)
+                    gt1 = next(iter(curr_v1_rec.samples.values()))['GT'][0]
+                    gt2 = next(iter(curr_v2_rec.samples.values()))['GT'][0]
+                    gt = '{}|{}'.format(gt1, gt2)
+                    if gt1 != 0 and gt2 == 0:
+                        qual = parse_qual(curr_v1_rec.qual)
+                    elif gt1 == 0 and gt2 != 0:
+                        qual = parse_qual(curr_v2_rec.qual)
                     else:
-                        gt = '{}|{}'.format(
-                            next(iter(curr_v1_rec.samples.values()))['GT'][0],
-                            next(iter(curr_v2_rec.samples.values()))['GT'][0])
-                    qual = max(0, int(np.around(np.mean(
-                        (parse_qual(curr_v1_rec.qual),
-                         parse_qual(curr_v2_rec.qual))))))
+                        qual = max(parse_qual(curr_v1_rec.qual),
+                                   parse_qual(curr_v2_rec.qual))
                     if qual == 0: qual = '.'
                     out_vars.write(RECORD_LINE.format(
-                        contig, curr_v1_rec.pos, curr_v1_rec.id, curr_v1_rec.ref,
-                        ','.join(curr_v1_rec.alts), qual, gt))
+                        contig, curr_v1_rec.pos, curr_v1_rec.id,
+                        curr_v1_rec.ref, ','.join(curr_v1_rec.alts), qual, gt))
                     curr_v0_rec = next(vars0_contig_iter)
                     curr_v1_rec = next(vars1_contig_iter)
                     curr_v2_rec = next(vars2_contig_iter)
                 elif curr_v1_rec.pos < curr_v0_rec.pos:
+                    # variant in haplotype 1 does not exist in phased variants
                     # this should never happen
                     curr_v1_rec = next(vars1_contig_iter)
                 elif curr_v2_rec.pos < curr_v0_rec.pos:
+                    # variant in haplotype 2 does not exist in phased variants
                     # this should never happen
                     curr_v2_rec = next(vars2_contig_iter)
                 else:
