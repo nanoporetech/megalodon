@@ -78,11 +78,15 @@ OUTPUT_DESCS = {
 # output formats for modified bases and file extensions
 MOD_BEDMETHYL_NAME = 'bedmethyl'
 MOD_VCF_NAME = 'modvcf'
-# TODO actaully implement wiggle output
 MOD_WIG_NAME = 'wiggle'
 MOD_OUTPUT_FMTS = {
     MOD_BEDMETHYL_NAME:'bedMethyl',
     MOD_VCF_NAME:'modVcf',
+    MOD_WIG_NAME:'wig'
+}
+MOD_OUTPUT_EXTNS = {
+    MOD_BEDMETHYL_NAME:'bed',
+    MOD_VCF_NAME:'vcf',
     MOD_WIG_NAME:'wig'
 }
 

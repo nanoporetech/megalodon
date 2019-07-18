@@ -548,7 +548,7 @@ class ModVcfWriter(object):
         if write_mod_lp:
             self.meta.append(FORMAT_LOG_PROB_MI)
         self.filename = '{}.{}'.format(
-            self.basename, mh.MOD_OUTPUT_FMTS[mh.MOD_VCF_NAME])
+            self.basename, mh.MOD_OUTPUT_EXTNS[mh.MOD_VCF_NAME])
         self.handle = open(self.filename, self.mode, encoding='utf-8')
         self.handle.write('\n'.join('##' + line for line in self.meta) + '\n')
         self.handle.write('#' + '\t'.join(self.header) + '\n')
@@ -582,7 +582,7 @@ class ModBedMethylWriter(object):
         self.handles = dict(
             (mod_short_name,
              open('{}.{}.{}'.format(self.basename, mod_long_name,
-                                    mh.MOD_OUTPUT_FMTS[mh.MOD_BEDMETHYL_NAME]),
+                                    mh.MOD_OUTPUT_EXTNS[mh.MOD_BEDMETHYL_NAME]),
                   self.mode, encoding='utf-8'))
             for mod_short_name, mod_long_name in self.mods)
         return
@@ -593,13 +593,14 @@ class ModBedMethylWriter(object):
                 mh.warning('Invalid modified base encountered during ' +
                            'bedMethyl output.')
                 continue
+            cov = mod_site.get_coverage()
             self.handles[mod_base].write(
-                ('{chrom}\t{pos}\t{end}\t{name}\t{strand}\t{pos}\t{end}' +
-                 '\t0,0,0\t{cov}\t{prop:.4f}\n').format(
+                ('{chrom}\t{pos}\t{end}\t{name}\t{score}\t{strand}\t{pos}' +
+                 '\t{end}\t0,0,0\t{cov}\t{perc}\n').format(
                      chrom=mod_site.chrom, pos=mod_site.pos,
                      end=mod_site.pos + 1, name=mod_site.id,
-                     strand=mod_site.strand, cov=mod_site.get_coverage(),
-                     prop=mod_prop))
+                     strand=mod_site.strand, cov=cov, score=min(int(cov), 1000),
+                     perc=int(mod_prop * 100)))
             self.handles[mod_base].flush()
 
         return
@@ -652,7 +653,7 @@ class ModWigWriter(object):
         for (mod_base, strand), all_cs_mod_sites in self.mod_sites_data.items():
             with open('{}.{}.{}.{}'.format(
                     self.basename, self.mods_lookup[mod_base],
-                    self.strands[strand], mh.MOD_OUTPUT_FMTS[mh.MOD_WIG_NAME]),
+                    self.strands[strand], mh.MOD_OUTPUT_EXTNS[mh.MOD_WIG_NAME]),
                       self.mode, encoding='utf-8') as wig_fp:
                 # write header
                 track_name = ('Modified Base {} Proportion Modified ' +
