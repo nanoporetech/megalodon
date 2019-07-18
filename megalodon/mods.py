@@ -799,10 +799,13 @@ class ModVcfWriter(object):
             header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER',
                     'INFO', 'FORMAT', 'SAMPLE'),
             extra_meta_info=FIXED_VCF_MI, version='4.2', ref_fn=None,
-            ref_names_and_lens=None, write_mod_lp=False):
+            ref_names_and_lens=None, write_mod_lp=False,
+            buffer_limit=OUT_BUFFER_LIMIT):
         self.basename = basename
         self.mods = mods
         self.mode = mode
+        self.buffer_limit = buffer_limit
+        self.buffer = []
         self.header = header
         if version not in self.version_options:
             raise ValueError('version must be one of {}'.format(
@@ -833,11 +836,16 @@ class ModVcfWriter(object):
         elements = ['.' if e == '' else e for e in elements]
         # VCF POS field is 1-based
         elements[self.header.index('POS')] += 1
-        self.handle.write('{}\n'.format('\t'.join(map(str, elements))))
+        self.buffer.append('\t'.join(map(str, elements)))
+        if len(self.buffer) > self.buffer_limit:
+            self.handle.write('\n'.join(self.buffer) + '\n')
+            self.buffer = []
 
         return
 
     def close(self):
+        if len(self.buffer) > 0:
+            self.handle.write('\n'.join(self.buffer) + '\n')
         self.handle.close()
         return
 
