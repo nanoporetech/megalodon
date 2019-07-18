@@ -75,8 +75,15 @@ class ModsDb(object):
         'motif_pos', 'raw_motif'])
 
     def __init__(self, fn, read_only=True, db_safety=1,
-                 pos_index_in_memory=True):
+                 pos_index_in_memory=False, mod_chrm_index_in_memory=True):
+        """ Interface to database containing modified base statistics.
+
+        Default settings are for optimal read_only performance.
+        """
         self.fn = mh.resolve_path(fn)
+        self.read_only = read_only
+        self.pos_idx_in_mem = pos_index_in_memory
+        self.cm_idx_in_mem = mod_chrm_index_in_memory
 
         if read_only:
             self.db = sqlite3.connect('file:' + fn + '?mode=ro', uri=True)
@@ -84,7 +91,13 @@ class ModsDb(object):
             self.db = sqlite3.connect(fn)
 
         self.cur = self.db.cursor()
-        if not read_only:
+        if read_only:
+            if self.cm_idx_in_mem:
+                self.load_chrm_index()
+                self.load_mod_index()
+            if self.pos_idx_in_mem:
+                self.load_pos_index()
+        else:
             self.db.execute('PRAGMA foreign_keys = ON')
             if db_safety < 2:
                 # set asynchronous mode to off for max speed
@@ -98,37 +111,53 @@ class ModsDb(object):
                     ('chrm', self.chrm_tbl), ('pos', self.pos_tbl),
                     ('mod', self.mod_tbl), ('read', self.read_tbl),
                     ('data', self.data_tbl)):
-                self.db.execute("CREATE TABLE {} ({})".format(
-                    tbl_name, ','.join((
-                        '{} {}'.format(*ft) for ft in tbl.items()))))
-            self.db.execute('CREATE UNIQUE INDEX chrm_idx ON chrm(chrm)')
-            self.db.execute('CREATE UNIQUE INDEX mod_idx ON ' +
-                            'mod(mod_base, motif, motif_pos, raw_motif)')
-            self.pos_idx_in_mem = pos_index_in_memory
+                try:
+                    self.db.execute("CREATE TABLE {} ({})".format(
+                        tbl_name, ','.join((
+                            '{} {}'.format(*ft) for ft in tbl.items()))))
+                except sqlite3.OperationalError:
+                    raise mh.MegaError(
+                        'Modified bases data base already exists. Either ' +
+                        'provide location for new database or open in ' +
+                        'read_only mode.')
+
             if self.pos_idx_in_mem:
                 self.pos_idx = {}
             else:
                 self.create_pos_index()
+            if self.cm_idx_in_mem:
+                self.chrm_idx = {}
+                self.mod_idx = {}
+            else:
+                self.create_mod_index()
+                self.create_chrm_index()
 
         return
 
-    def add_chrm(self, chrm):
+    def insert_chrm(self, chrm):
         self.cur.execute('INSERT INTO chrm (chrm) VALUES (?)', (chrm,))
+        if self.cm_idx_in_mem:
+            self.chrm_idx[chrm] = self.cur.lastrowid
         return self.cur.lastrowid
 
     def get_chrm_id(self, chrm):
         try:
-            chrm_id = self.cur.execute(
-                'SELECT chrm_id FROM chrm WHERE chrm=?', (chrm,)).fetchone()[0]
-        except TypeError:
+            if self.cm_idx_in_mem:
+                chrm_id = self.chrm_idx[chrm]
+            else:
+                chrm_id = self.cur.execute(
+                    'SELECT chrm_id FROM chrm WHERE chrm=?',
+                    (chrm,)).fetchone()[0]
+        except (TypeError, KeyError):
             raise mh.MegaError('Reference record (chromosome) not found in ' +
-                               'mods data base.')
+                               'data base.')
         return chrm_id
 
     def get_chrm(self, chrm_id):
         try:
             chrm = self.cur.execute(
-                'SELECT chrm FROM chrm WHERE chrm_id=?', chrm_id).fetchone()[0]
+                'SELECT chrm FROM chrm WHERE chrm_id=?',
+                (chrm_id,)).fetchone()[0]
         except TypeError:
             raise mh.MegaError('Reference record (chromosome) not found in ' +
                                'mods data base.')
@@ -147,7 +176,7 @@ class ModsDb(object):
                     'AND pos=?', (chrm_id, strand, pos)).fetchone()[0]
         except (TypeError, KeyError):
             raise mh.MegaError(
-                'Reference position not found in mods data base.')
+                'Reference position not found in data base.')
 
         return pos_id
 
@@ -167,11 +196,14 @@ class ModsDb(object):
 
     def get_mod_base_id(self, mod_base, motif, motif_pos, raw_motif):
         try:
-            mod_id = self.cur.execute(
-                'SELECT mod_id FROM mod WHERE mod_base=? AND motif=? AND ' +
-                'motif_pos=? AND raw_motif=?',
-                (mod_base, motif, motif_pos, raw_motif)).fetchone()[0]
-        except TypeError:
+            if self.cm_idx_in_mem:
+                mod_id = self.mod_idx[(mod_base, motif, motif_pos, raw_motif)]
+            else:
+                mod_id = self.cur.execute(
+                    'SELECT mod_id FROM mod WHERE mod_base=? AND motif=? AND ' +
+                    'motif_pos=? AND raw_motif=?',
+                    (mod_base, motif, motif_pos, raw_motif)).fetchone()[0]
+        except (TypeError, KeyError):
             raise mh.MegaError('Modified base not found in mods data base.')
         return mod_id
 
@@ -184,6 +216,9 @@ class ModsDb(object):
                 'INSERT INTO mod (mod_base, motif, motif_pos, raw_motif) ' +
                 'VALUES (?,?,?,?)', (mod_base, motif, motif_pos, raw_motif))
             mod_base_id = self.cur.lastrowid
+            if self.cm_idx_in_mem:
+                self.mod_idx[(mod_base, motif, motif_pos,
+                              raw_motif)] = mod_base_id
         return mod_base_id
 
     def insert_read_scores(self, r_mod_scores, uuid, chrm, strand):
@@ -203,9 +238,40 @@ class ModsDb(object):
             'INSERT INTO data VALUES (?,?,?,?)', read_insert_data)
         return
 
+    def create_chrm_index(self):
+        self.cur.execute('CREATE UNIQUE INDEX chrm_idx ON chrm(chrm)')
+        return
+
+    def load_chrm_index(self):
+        self.chrm_idx = {}
+        self.cur.execute('SELECT chrm_id, chrm FROM chrm')
+        for chrm_id, chrm in self.cur:
+            self.chrm_idx[chrm] = chrm_id
+        return
+
+    def create_mod_index(self):
+        self.cur.execute('CREATE UNIQUE INDEX mod_idx ON ' +
+                         'mod(mod_base, motif, motif_pos, raw_motif)')
+        return
+
+    def load_mod_index(self):
+        self.mod_idx = {}
+        self.cur.execute(
+            'SELECT mod_id, mod_base, motif, motif_pos, raw_motif FROM mod')
+        for mod_id, mod_base, motif, motif_pos, raw_motif in self.cur:
+            self.mod_idx[(mod_base, motif, motif_pos, raw_motif)] = mod_id
+        return
+
     def create_pos_index(self):
         self.cur.execute('CREATE UNIQUE INDEX pos_idx ON pos' +
                          '(pos_chrm, strand, pos)')
+        return
+
+    def load_pos_index(self):
+        self.pos_idx = {}
+        self.cur.execute('SELECT pos_id, pos_chrm, strand, pos FROM pos')
+        for pos_id, chrm_id, strand, pos in self.cur:
+            self.pos_idx[(chrm_id, strand, pos)] = pos_id
         return
 
     def create_data_pos_index(self):
@@ -444,9 +510,11 @@ def _get_mods_queue(
     logger = logging.get_logger('mods')
     been_warned = False
 
-    mods_db = ModsDb(mods_db_fn, read_only=False, db_safety=db_safety)
+    mods_db = ModsDb(mods_db_fn, db_safety=db_safety, read_only=False,
+                     pos_index_in_memory=True)
     for ref_name in ref_names_and_lens[0]:
-        mods_db.add_chrm(ref_name)
+        mods_db.insert_chrm(ref_name)
+    mods_db.create_chrm_index()
 
     if mods_txt_fn is None:
         mods_txt_fp = None
@@ -473,6 +541,7 @@ def _get_mods_queue(
 
     if mods_txt_fp is not None: mods_txt_fp.close()
     if pr_refs_fn is not None: pr_refs_fp.close()
+    mods_db.create_mod_index()
     mods_db.create_pos_index()
     mods_db.create_data_pos_index()
     mods_db.close()
@@ -900,8 +969,8 @@ class AggMods(mh.AbstractAggregationClass):
     """
     def __init__(self, mods_db_fn, agg_info=DEFAULT_AGG_INFO,
                  write_mod_lp=False):
-        # open as read only database
-        self.mods_db = ModsDb(mods_db_fn, read_only=True)
+        # open as read only database (default)
+        self.mods_db = ModsDb(mods_db_fn)
         self.n_uniq_mods = None
         assert agg_info.method in AGG_METHOD_NAMES
         self.agg_method = agg_info.method

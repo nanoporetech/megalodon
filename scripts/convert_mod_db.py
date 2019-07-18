@@ -7,9 +7,9 @@ from time import time
 from megalodon import logging, megalodon_helper as mh, mods
 
 DEBUG = False
-N_DEBUG = 10000000
+N_DEBUG = 50000000
 
-INSERT_BATCH_SIZE = 100000
+INSERT_BATCH_SIZE = 1000
 
 def get_parser():
     parser = argparse.ArgumentParser()
@@ -33,23 +33,12 @@ def get_read_id(uuid, read_ids, new_db):
         read_ids[uuid] = read_id
     return read_id, read_ids
 
-def get_pos_id(chrm, strand, pos, poss, new_db, chrms):
-    chrm_id = chrms[chrm]
-    try:
-        pos_id = poss[(chrm_id, strand, pos)]
-    except KeyError:
-        new_db.cur.execute('INSERT INTO pos (pos_chrm, pos, strand) ' +
-                           'VALUES (?, ?, ?)', (chrm_id, pos, strand))
-        pos_id = new_db.cur.lastrowid
-        poss[(chrm_id, strand, pos)] = pos_id
-    return pos_id, poss
-
 def insert_data(new_db, insert_batch):
     new_db.cur.executemany('INSERT INTO data VALUES (?,?,?,?)', insert_batch)
     return
 
-def fill_mods(old_cur, new_db, chrms):
-    read_ids, poss = {}, {}
+def fill_mods(old_cur, new_db):
+    read_ids = {}
     n_recs = old_cur.execute('SELECT MAX(rowid) FROM mods').fetchone()[0]
     old_cur.execute('SELECT * FROM mods')
     insert_batch = []
@@ -58,7 +47,7 @@ def fill_mods(old_cur, new_db, chrms):
                             dynamic_ncols=True):
         if DEBUG and i > N_DEBUG: break
         read_id, read_ids = get_read_id(uuid, read_ids, new_db)
-        pos_id, poss = get_pos_id(chrm, strand, pos, poss, new_db, chrms)
+        pos_id = new_db.get_pos_id_or_insert(chrm, strand, pos)
         mod_base_id = new_db.get_mod_base_id_or_insert(
             mod_base, motif, motif_pos, raw_motif)
         insert_batch.append((score, pos_id, mod_base_id, read_id))
@@ -73,23 +62,23 @@ def fill_mods(old_cur, new_db, chrms):
 
 def fill_refs(old_cur, new_db):
     old_cur.execute('SELECT DISTINCT chrm FROM mods')
-    chrms = {}
     for ref_name, in old_cur:
-        chrms[ref_name] = new_db.add_chrm(ref_name)
-    return chrms
+        new_db.insert_chrm(ref_name)
+    return
 
 def main():
     args = get_parser().parse_args()
 
     old_db = sqlite3.connect(args.old_db)
     old_cur = old_db.cursor()
-    new_db = mods.ModsDb(args.new_db, read_only=False)
+    new_db = mods.ModsDb(args.new_db, read_only=False,
+                         pos_index_in_memory=True)
 
     sys.stderr.write('Reading/loading reference record names.\n')
-    chrms = fill_refs(old_cur, new_db)
+    fill_refs(old_cur, new_db)
 
     sys.stderr.write('Reading/loading modified base scores.\n')
-    fill_mods(old_cur, new_db, chrms)
+    fill_mods(old_cur, new_db)
 
     if not DEBUG:
         t0 = time()
