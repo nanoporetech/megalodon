@@ -880,12 +880,11 @@ class ModBedMethylWriter(object):
 
             cov = mod_site.get_coverage()
             self.buffers[mod_base].append(
-                ('{chrom}\t{pos}\t{end}\t{name}\t{score}\t{strand}\t{pos}' +
+                ('{chrom}\t{pos}\t{end}\t.\t{score}\t{strand}\t{pos}' +
                  '\t{end}\t0,0,0\t{cov}\t{perc}').format(
                      chrom=mod_site.chrom, pos=mod_site.pos,
-                     end=mod_site.pos + 1, name=mod_site.id,
-                     strand=mod_site.strand, cov=cov, score=min(int(cov), 1000),
-                     perc=int(mod_prop * 100)))
+                     end=mod_site.pos + 1, strand=mod_site.strand, cov=cov,
+                     score=min(int(cov), 1000), perc=int(mod_prop * 100)))
             if len(self.buffers[mod_base]) > self.buffer_limit:
                 self.handles[mod_base].write(
                     '\n'.join(self.buffers[mod_base]) + '\n')
