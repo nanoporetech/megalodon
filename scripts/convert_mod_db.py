@@ -9,7 +9,7 @@ from megalodon import logging, megalodon_helper as mh, mods
 DEBUG = False
 N_DEBUG = 50000000
 
-INSERT_BATCH_SIZE = 1000
+INSERT_BATCH_SIZE = 10000
 
 def get_parser():
     parser = argparse.ArgumentParser()
@@ -64,6 +64,7 @@ def fill_refs(old_cur, new_db):
     old_cur.execute('SELECT DISTINCT chrm FROM mods')
     for ref_name, in old_cur:
         new_db.insert_chrm(ref_name)
+    new_db.create_chrm_index()
     return
 
 def main():
@@ -81,6 +82,7 @@ def main():
     fill_mods(old_cur, new_db)
 
     if not DEBUG:
+        new_db.create_mod_index()
         t0 = time()
         sys.stderr.write('Creating positions index.\n')
         new_db.create_pos_index()

@@ -47,10 +47,9 @@ class ModsDb(object):
         ('chrm', 'TEXT')))
     pos_tbl = OrderedDict((
         ('pos_id', 'INTEGER PRIMARY KEY'),
-        ('strand', 'INTEGER'),
-        ('pos', 'INTEGER'),
         ('pos_chrm', 'INTEGER'),
-        ('FOREIGN KEY(pos_chrm)', 'REFERENCES chrm(chrm_id)')))
+        ('strand', 'INTEGER'),
+        ('pos', 'INTEGER')))
     mod_tbl = OrderedDict((
         ('mod_id', 'INTEGER PRIMARY KEY'),
         ('mod_base', 'TEXT'),
@@ -64,10 +63,7 @@ class ModsDb(object):
         ('score', 'FLOAT'),
         ('score_pos', 'INTEGER'),
         ('score_mod', 'INTEGER'),
-        ('score_read', 'INTEGER'),
-        ('FOREIGN KEY(score_pos)', 'REFERENCES pos(pos_id)'),
-        ('FOREIGN KEY(score_mod)', 'REFERENCES mod(mod_id)'),
-        ('FOREIGN KEY(score_read)', 'REFERENCES read(read_id)')))
+        ('score_read', 'INTEGER')))
 
     # namedtuple for returning mods from a single position
     mod_data = namedtuple('mod_data', [
@@ -98,7 +94,6 @@ class ModsDb(object):
             if self.pos_idx_in_mem:
                 self.load_pos_index()
         else:
-            self.db.execute('PRAGMA foreign_keys = ON')
             if db_safety < 2:
                 # set asynchronous mode to off for max speed
                 self.db.execute('PRAGMA synchronous = OFF')
