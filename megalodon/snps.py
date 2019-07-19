@@ -18,6 +18,8 @@ from megalodon import (calibration, decode, logging, mapping,
 from megalodon._version import MEGALODON_VERSION
 
 
+_DEBUG_PER_READ = False
+
 DIPLOID_MODE = 'diploid'
 HAPLIOD_MODE = 'haploid'
 
@@ -92,10 +94,42 @@ def seq_to_int(seq, alphabet=mh.ALPHABET):
         raise mh.MegaError('Invalid character in sequence')
     return np_seq
 
+def int_to_seq(np_seq, alphabet=mh.ALPHABET):
+    if np_seq.max() >= len(alphabet):
+        raise mh.MegaError('Invalid character in sequence')
+    return ''.join(mh.ALPHABET[b] for b in np_seq)
+
 
 ################################
 ##### Per-read SNP Scoring #####
 ################################
+
+def write_per_read_debug(
+        snp_ref_pos, snp_id, read_ref_pos, np_s_snp_ref_seq, np_s_snp_alt_seqs,
+        np_s_context_seqs, loc_contexts_ref_lps, loc_contexts_alts_lps, logger):
+    ref_seq = int_to_seq(np_s_snp_ref_seq)
+    if read_ref_pos.strand == -1:
+        ref_seq = mh.revcomp(ref_seq)
+    alts_seq = [int_to_seq(np_alt) for np_alt in np_s_snp_alt_seqs]
+    if read_ref_pos.strand == -1:
+        alts_seq = [mh.revcomp(alt_seq) for alt_seq in alts_seq]
+    ','.join(alts_seq)
+
+    context_seqs = []
+    for up_context_seq, dn_context_seq in np_s_context_seqs:
+        up_seq, dn_seq = int_to_seq(up_context_seq), int_to_seq(dn_context_seq)
+        if read_ref_pos.strand == -1:
+            up_seq, dn_seq = mh.revcomp(dn_seq), mh.revcomp(up_seq)
+        context_seqs.append((up_seq, dn_seq))
+    out_txt = ''
+    for ref_lp, alt_lps, (up_seq, dn_seq) in zip(
+            loc_contexts_ref_lps, loc_contexts_alts_lps, context_seqs):
+        out_txt += '{}\t{}\t{}\t{}\t{}[{}]{}\t{}\t{:.2f}\t{}\n'.format(
+            read_ref_pos.chrm, read_ref_pos.strand, snp_ref_pos, snp_id, up_seq,
+            ref_seq, dn_seq, ','.join(alts_seq), ref_lp,
+            ','.join(('{:.2f}'.format(alt_lp) for alt_lp in alt_lps)))
+    logger.debug(out_txt)
+    return
 
 def score_seq(tpost, seq, tpost_start=0, tpost_end=None,
               all_paths=False):
@@ -125,6 +159,7 @@ def call_read_snps(
         r_post, post_mapped_start):
     # call all snps overlapping this read
     r_snp_calls = []
+    logger = logging.get_logger('per_read_snps')
     for (np_s_snp_ref_seq, np_s_snp_alt_seqs, np_s_context_seqs,
          s_ref_start, s_ref_end, snp_ref_seq, snp_alt_seqs, snp_id,
          snp_ref_pos) in snps_data.iter_snps(
@@ -143,22 +178,26 @@ def call_read_snps(
         ref_context_seqs = (
             np.concatenate([up_context_seq, np_s_snp_ref_seq, dn_context_seq])
             for up_context_seq, dn_context_seq in np_s_context_seqs)
-        loc_ref_lp = logsumexp(
-            np.array([score_seq(
-                r_post, ref_seq, post_mapped_start + blk_start,
-                post_mapped_start + blk_end, snps_data.all_paths)
-                      for ref_seq in ref_context_seqs]))
+        loc_contexts_ref_lps = np.array([score_seq(
+            r_post, ref_seq, post_mapped_start + blk_start,
+            post_mapped_start + blk_end, snps_data.all_paths)
+                                         for ref_seq in ref_context_seqs])
+        loc_ref_lp = logsumexp(loc_contexts_ref_lps)
         loc_alt_llrs = []
+        if _DEBUG_PER_READ:
+            loc_contexts_alts_lps = []
         for np_s_snp_alt_seq in np_s_snp_alt_seqs:
             alt_context_seqs = (
                 np.concatenate([
                     up_context_seq, np_s_snp_alt_seq, dn_context_seq])
                 for up_context_seq, dn_context_seq in np_s_context_seqs)
-            loc_alt_lp = logsumexp(
-                np.array([score_seq(
-                    r_post, alt_seq, post_mapped_start + blk_start,
-                    post_mapped_start + blk_end, snps_data.all_paths)
-                          for alt_seq in alt_context_seqs]))
+            loc_contexts_alt_lps = np.array([score_seq(
+                r_post, alt_seq, post_mapped_start + blk_start,
+                post_mapped_start + blk_end, snps_data.all_paths)
+                                             for alt_seq in alt_context_seqs])
+            loc_alt_lp = logsumexp(loc_contexts_alt_lps)
+            if _DEBUG_PER_READ:
+                loc_contexts_alts_lps.append(loc_contexts_alt_lps)
             # calibrate log probs
             loc_alt_llrs.append(snps_data.calibrate_llr(
                 loc_ref_lp - loc_alt_lp, snp_ref_seq, snp_alt_seqs))
@@ -166,6 +205,12 @@ def call_read_snps(
         # due to calibration mutli-allelic log likelihoods could result in
         # inferred negative reference likelihood, so re-normalize here
         loc_alt_log_ps = calibration.compute_log_probs(np.array(loc_alt_llrs))
+
+        if _DEBUG_PER_READ:
+            write_per_read_debug(
+                snp_ref_pos, snp_id, read_ref_pos, np_s_snp_ref_seq,
+                np_s_snp_alt_seqs, np_s_context_seqs,
+                loc_contexts_ref_lps, loc_contexts_alts_lps, logger)
 
         r_snp_calls.append((
             snp_ref_pos, loc_alt_log_ps, snp_ref_seq, snp_alt_seqs, snp_id))
@@ -606,16 +651,16 @@ class SnpData(object):
         if there are more combinations of variants than max_contexts
         then return the combinations of most proximal contexts
         """
-        def iter_alt_variant_seqs(vars1, vars2):
+        def iter_alt_variant_seqs(variants):
             vars_w_alts = (((var, alt) for alt in var.alts)
                            for var in variants)
-            for vars_w_alt in product(*vars_w_alt):
+            for vars_w_alt in product(*vars_w_alts):
                 yield vars_w_alt
             return
 
         dist_vars = dict((k, list(v)) for k, v in groupby(
             context_variants,
-            lambda var: compute_variant_distance(variant, var)))
+            lambda var: SnpData.compute_variant_distance(variant, var)))
         # remove overlapping/mutually-exclusive variants (None distance)
         # better to ask forgiveness than permission
         try: del dist_vars[None]
@@ -632,11 +677,11 @@ class SnpData(object):
                     range(len(used_vars))):
                 # loop over actual selection of variants
                 # including selected alt seq
-                for curr_and_used_vars in product(
+                for curr_vars, used_vars_i in product(
                         combinations(dist_context_vars, n_dist_vars),
                         combinations(used_vars, n_used_vars)):
                     for vars_w_alt in iter_alt_variant_seqs(
-                            list(vars1) + list(vars2)):
+                            list(curr_vars) + list(used_vars_i)):
                         yield vars_w_alt
             used_vars.extend(dist_context_vars)
 
@@ -691,10 +736,10 @@ class SnpData(object):
             if max_contexts == 1 or len(context_vars) == 0:
                 return context_seqs
 
-            for context_vars in iter_variant_combos_by_distance(
-                    context_vars):
-                if any_variants_overlap(context_vars): continue
-                context_seqs.append(annotate_context_seqs(
+            for context_vars in self.iter_variant_combos_by_distance(
+                    variant, context_vars):
+                if self.any_variants_overlap(context_vars): continue
+                context_seqs.append(self.annotate_context_seqs(
                     context_vars, up_context_seq, dn_context_seq,
                     context_ref_start, context_rel_var_start,
                     context_rel_var_end))
@@ -720,9 +765,9 @@ class SnpData(object):
             # compute various relative coordinates (in reference coordinates
             # not on read strand, to make it easier to work with variants)
             # select single base substitution or indel context width
-            var_context_bases = self.indel_context if all(
+            var_context_bases = self.substitution_context if all(
                 variant.rlen == len(alt)
-                for alt in variant.alts) else self.substitution_context
+                for alt in variant.alts) else self.indel_context
             context_ref_start = variant.start - var_context_bases
             if context_ref_start < read_ref_pos.start:
                 context_ref_start = read_ref_pos.start
@@ -736,7 +781,7 @@ class SnpData(object):
             context_vars = [
                 var for var in read_variants
                 if var.start >= context_ref_start and
-                var.stop <= context_read_end]
+                var.stop <= context_ref_end]
             context_seqs = extract_variant_contexts(
                 variant, context_vars, context_ref_start, context_ref_end)
             # revcomp seqs for strand and convert to numpy arrays
