@@ -89,7 +89,7 @@ def main():
         t1 = time()
         sys.stderr.write('Took {} seconds.\n'.format(t1 - t0))
         sys.stderr.write('Creating scores position index.\n')
-        new_db.create_data_pos_index()
+        new_db.create_data_covering_index()
         sys.stderr.write('Took {} seconds.\n'.format(time() - t1))
     new_db.close()
 

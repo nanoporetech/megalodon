@@ -36,6 +36,9 @@ FORMAT_LOG_PROB_MI = (
 
 OUT_BUFFER_LIMIT = 10000
 
+# allow 64GB for memory mapped sqlite file access
+MEMORY_MAP_LIMIT = 64000000000
+
 
 ###################
 ##### Mods DB #####
@@ -88,9 +91,11 @@ class ModsDb(object):
 
         self.cur = self.db.cursor()
         if read_only:
+            # use memory mapped file access
+            self.db.execute('PRAGMA mmap_size = {}'.format(MEMORY_MAP_LIMIT))
             if self.cm_idx_in_mem:
-                self.load_chrm_index()
-                self.load_mod_index()
+                self.load_chrm_read_index()
+                self.load_mod_read_index()
             if self.pos_idx_in_mem:
                 self.load_pos_index()
         else:
@@ -237,11 +242,11 @@ class ModsDb(object):
         self.cur.execute('CREATE UNIQUE INDEX chrm_idx ON chrm(chrm)')
         return
 
-    def load_chrm_index(self):
-        self.chrm_idx = {}
+    def load_chrm_read_index(self):
+        self.chrm_read_idx = {}
         self.cur.execute('SELECT chrm_id, chrm FROM chrm')
         for chrm_id, chrm in self.cur:
-            self.chrm_idx[chrm] = chrm_id
+            self.chrm_read_idx[chrm_id] = chrm
         return
 
     def create_mod_index(self):
@@ -249,12 +254,12 @@ class ModsDb(object):
                          'mod(mod_base, motif, motif_pos, raw_motif)')
         return
 
-    def load_mod_index(self):
-        self.mod_idx = {}
+    def load_mod_read_index(self):
+        self.mod_read_idx = {}
         self.cur.execute(
             'SELECT mod_id, mod_base, motif, motif_pos, raw_motif FROM mod')
         for mod_id, mod_base, motif, motif_pos, raw_motif in self.cur:
-            self.mod_idx[(mod_base, motif, motif_pos, raw_motif)] = mod_id
+            self.mod_read_idx[mod_id] = (mod_base, motif, motif_pos, raw_motif)
         return
 
     def create_pos_index(self):
@@ -263,14 +268,15 @@ class ModsDb(object):
         return
 
     def load_pos_index(self):
-        self.pos_idx = {}
+        self.pos_read_idx = {}
         self.cur.execute('SELECT pos_id, pos_chrm, strand, pos FROM pos')
         for pos_id, chrm_id, strand, pos in self.cur:
-            self.pos_idx[(chrm_id, strand, pos)] = pos_id
+            self.pos_read_idx[pos_id] = (chrm_id, strand, pos)
         return
 
-    def create_data_pos_index(self):
-        self.cur.execute('CREATE INDEX data_pos_idx ON data(score_pos)')
+    def create_data_covering_index(self):
+        self.cur.execute('CREATE INDEX data_cov_idx ON data(' +
+                         'score_pos, score_mod, score_read)')
         return
 
     def close(self):
@@ -288,12 +294,67 @@ class ModsDb(object):
 
         return
 
-    def get_pos_stats(self, pos_id):
+    def get_pos_stats(self, pos_id, return_uuids=False):
+        # if pos_idx_in_mem, assume cm_idx_in_mem as well
+        if self.pos_idx_in_mem:
+            if return_uuids:
+                self.cur.execute(
+                    'SELECT read.uuid, score_pos, score, score_mod ' +
+                    'FROM data ' +
+                    'INNER JOIN read ON read.read_id = data.score_read ' +
+                    'WHERE score_pos=?', (pos_id, ))
+                return [
+                    self.mod_data(read_id, self.chrm_read_idx[chrm_id], strand,
+                                  pos, score, *self.mod_read_idx[mod_id])
+                    for read_id, (chrm_id, strand, pos), score, mod_id in
+                    ((read_id, self.pos_read_idx[pos_id], score, mod_id)
+                     for read_id, pos_id, score, mod_id in self.cur)]
+            else:
+                self.cur.execute(
+                    'SELECT score_read, score_pos, score, score_mod ' +
+                    'FROM data ' +
+                    'WHERE score_pos=?', (pos_id, ))
+                return [
+                    self.mod_data(read_id, self.chrm_read_idx[chrm_id], strand,
+                                  pos, score, *self.mod_read_idx[mod_id])
+                    for read_id, (chrm_id, strand, pos), score, mod_id in
+                    ((read_id, self.pos_read_idx[pos_id], score, mod_id)
+                     for read_id, pos_id, score, mod_id in self.cur)]
+
+        if self.cm_idx_in_mem:
+            if return_uuids:
+                self.cur.execute(
+                    'SELECT read.uuid, pos_chrm, strand, pos, data.score, ' +
+                    'data.score_mod ' +
+                    'FROM pos ' +
+                    'INNER JOIN data ON data.score_pos = pos.pos_id ' +
+                    'INNER JOIN read ON read.read_id = data.score_read ' +
+                    'WHERE pos_id=?', (pos_id, ))
+                return [
+                    self.mod_data(
+                        read_id, self.chrm_read_idx[chrm_id], strand, pos,
+                        score, *self.mod_read_idx[mod_id])
+                    for read_id, chrm_id, strand, pos, score, mod_id in
+                    self.cur]
+            else:
+                self.cur.execute(
+                    'SELECT data.score_read, pos.pos_chrm, pos.strand, ' +
+                    'pos.pos, data.score, data.score_mod ' +
+                    'FROM pos ' +
+                    'INNER JOIN data ON data.score_pos = pos.pos_id ' +
+                    'WHERE pos_id=?', (pos_id, ))
+                return [
+                    self.mod_data(
+                        read_id, self.chrm_read_idx[chrm_id], strand, pos,
+                        score, *self.mod_read_idx[mod_id])
+                    for read_id, chrm_id, strand, pos, score, mod_id in
+                    self.cur]
+
+        # perform full query from on-disk database
         self.cur.execute(
             'SELECT read.uuid, chrm.chrm, strand, pos, data.score, ' +
-            ' mod.mod_base, mod.motif, mod.motif_pos, mod.raw_motif ' +
-            'FROM ' +
-            ' pos ' +
+            'mod.mod_base, mod.motif, mod.motif_pos, mod.raw_motif ' +
+            'FROM pos ' +
             'INNER JOIN data ON data.score_pos = pos.pos_id ' +
             'INNER JOIN read ON read.read_id = data.score_read ' +
             'INNER JOIN mod ON mod.mod_id = data.score_mod ' +
@@ -320,15 +381,16 @@ class ModsDb(object):
         return read_id
 
     def create_data_read_index(self):
+        # TODO convert this into a covering index
         self.cur.execute('CREATE INDEX data_read_idx ON data(score_read)')
         return
 
     def get_read_stats(self, uuid):
+        # TODO optimize this as with position query
         self.cur.execute(
             'SELECT uuid, chrm.chrm, pos.strand, pos.pos, data.score, ' +
             ' mod.mod_base, mod.motif, mod.motif_pos, mod.raw_motif ' +
-            'FROM ' +
-            ' read ' +
+            'FROM read ' +
             'INNER JOIN data ON data.score_read = read.uuid ' +
             'INNER JOIN pos ON pos.pos_id = data.score_pos ' +
             'INNER JOIN mod ON mod.mod_id = data.score_mod ' +
@@ -538,7 +600,7 @@ def _get_mods_queue(
     if pr_refs_fn is not None: pr_refs_fp.close()
     mods_db.create_mod_index()
     mods_db.create_pos_index()
-    mods_db.create_data_pos_index()
+    mods_db.create_data_covering_index()
     mods_db.close()
 
     return
@@ -970,11 +1032,16 @@ class ModWigWriter(object):
 class AggMods(mh.AbstractAggregationClass):
     """ Class to assist in database queries for per-site aggregation of
     modified base calls over reads.
+
+    Warning, setting pos_index_in_memory for a large database will drastically
+    increase the startup time and memory usage (~8GB for a human genome at
+    CpG sites).
     """
     def __init__(self, mods_db_fn, agg_info=DEFAULT_AGG_INFO,
-                 write_mod_lp=False):
+                 write_mod_lp=False, pos_index_in_memory=False):
         # open as read only database (default)
-        self.mods_db = ModsDb(mods_db_fn)
+        self.mods_db = ModsDb(
+            mods_db_fn, pos_index_in_memory=pos_index_in_memory)
         self.n_uniq_mods = None
         assert agg_info.method in AGG_METHOD_NAMES
         self.agg_method = agg_info.method
@@ -1065,7 +1132,8 @@ class AggMods(mh.AbstractAggregationClass):
                 'No modified base proportion estimation method: {}'.format(
                     agg_method))
 
-        pr_mod_stats = self.mods_db.get_pos_stats(mod_loc)
+        pr_mod_stats = self.mods_db.get_pos_stats(
+            mod_loc, return_uuids=valid_read_ids is not None)
         mod_type_stats = defaultdict(dict)
         for r_stats in pr_mod_stats:
             if (valid_read_ids is not None and

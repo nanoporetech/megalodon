@@ -10,6 +10,7 @@ from tqdm import tqdm
 from megalodon import logging, mods, snps, megalodon_helper as mh
 
 _DO_PROFILE_AGG_MOD = False
+_N_MOD_AGG_PROF = 20000
 
 
 #######################################
@@ -259,8 +260,6 @@ def aggregate_stats(
 
     if mh.MOD_NAME in outputs:
         mods_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME)
-        # TODO move counting into separate process with pipe to progress process
-        logger.info('Computing number of modified base reference positions.')
         num_mods = mods.AggMods(mods_db_fn).num_uniq()
         logger.info('Spawning modified base aggregation processes.')
         # create process to collect mods stats from workers
@@ -270,10 +269,11 @@ def aggregate_stats(
                 write_mod_lp, mod_output_fmts))
         # create process to fill mod locs queue
         mod_filler_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
+        mod_fill_limit = _N_MOD_AGG_PROF if _DO_PROFILE_AGG_MOD else None
         mod_filler_p = mp.Process(
             target=_fill_locs_queue,
-            args=(mod_filler_q, mods_db_fn, mods.AggMods, num_ps, 50000),
-            daemon=True)
+            args=(mod_filler_q, mods_db_fn, mods.AggMods, num_ps,
+                  mod_fill_limit), daemon=True)
         mod_filler_p.start()
         # create worker processes to aggregate mods
         mod_prog_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
