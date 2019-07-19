@@ -226,7 +226,7 @@ def _get_map_queue(
             except queue.Empty:
                 if map_conn.poll():
                     break
-                sleep(0.1)
+                sleep(0.001)
                 continue
 
         while not mo_q.empty():

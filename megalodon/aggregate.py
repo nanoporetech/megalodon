@@ -10,7 +10,10 @@ from tqdm import tqdm
 from megalodon import logging, mods, snps, megalodon_helper as mh
 
 _DO_PROFILE_AGG_MOD = False
-_N_MOD_AGG_PROF = 20000
+_DO_PROFILE_GET_MODS = False
+_DO_PROFILE_AGG_FILLER = False
+_DO_PROF = _DO_PROFILE_AGG_MOD or _DO_PROFILE_AGG_FILLER or _DO_PROFILE_GET_MODS
+_N_MOD_PROF = 200000
 
 
 #######################################
@@ -26,7 +29,7 @@ def _agg_snps_worker(
         try:
             snp_loc = locs_q.get(block=False)
         except queue.Empty:
-            sleep(0.1)
+            sleep(0.001)
             continue
         if snp_loc is None:
             break
@@ -61,7 +64,7 @@ def _get_snp_stats_queue(
         except queue.Empty:
             if snp_conn.poll():
                 break
-            sleep(0.1)
+            sleep(0.001)
             continue
 
     while not snp_stats_q.empty():
@@ -75,36 +78,43 @@ def _get_snp_stats_queue(
 def _agg_mods_worker(
         locs_q, mod_stats_q, mod_prog_q, mods_db_fn, mod_agg_info,
         valid_read_ids, write_mod_lp):
+    def get_pos_id():
+        return locs_q.get(block=False)
+    def get_loc_data_from_id(q_pos_id):
+        # function for profiling purposes
+        if q_pos_id is None: return None
+        for pos_id, chrm_id, strand, pos in locs_iter:
+            if q_pos_id == pos_id:
+                return pos_id, chrm_id, strand, pos
+    def get_loc_data():
+        return locs_q.get(block=False)
     def put_mod_site(mod_site):
-        # function to profiling purposes
+        # function for profiling purposes
         mod_stats_q.put(mod_site)
         return
-    def get_mod_site():
-        # function to profiling purposes
-        return locs_q.get(block=False)
     def do_sleep():
-        # function to profiling purposes
-        sleep(0.1)
+        # function for profiling purposes
+        sleep(0.0001)
         return
 
+    # needed if only pos id is loaded into queue
+    #locs_iter = mods.ModsDb(mods_db_fn).iter_pos_ordered()
     agg_mods = mods.AggMods(mods_db_fn, mod_agg_info, write_mod_lp)
 
     while True:
         try:
-            #mod_loc = get_mod_site()
-            mod_loc = locs_q.get(block=False)
+            #loc_data = get_loc_data_from_id(get_pos_id())
+            loc_data = get_loc_data()
         except queue.Empty:
-            #do_sleep()
-            sleep(0.1)
+            do_sleep()
             continue
-        if mod_loc is None:
+        if loc_data is None:
             break
 
         try:
             mod_site = agg_mods.compute_mod_stats(
-                mod_loc, valid_read_ids=valid_read_ids)
-            #put_mod_site(mod_site)
-            mod_stats_q.put(mod_site)
+                loc_data, valid_read_ids=valid_read_ids)
+            put_mod_site(mod_site)
         except mh.MegaError:
             # no valid reads cover location
             pass
@@ -123,6 +133,14 @@ if _DO_PROFILE_AGG_MOD:
 def _get_mod_stats_queue(
         mod_stats_q, mod_conn, out_dir, mod_names, ref_names_and_lens,
         out_suffix, write_mod_lp, mod_output_fmts):
+    def get_mod_site():
+        # function for profiling purposes
+        return mod_stats_q.get(block=False)
+    def do_sleep():
+        # function for profiling purposes
+        sleep(0.001)
+        return
+
     agg_mod_bn = mh.get_megalodon_fn(out_dir, mh.MOD_NAME)
     if out_suffix is not None:
         agg_mod_bn += '.' + out_suffix
@@ -140,13 +158,13 @@ def _get_mod_stats_queue(
 
     while True:
         try:
-            mod_site = mod_stats_q.get(block=False)
+            mod_site = get_mod_site()
             for agg_mod_fp in agg_mod_fps:
                 agg_mod_fp.write_mod_site(mod_site)
         except queue.Empty:
             if mod_conn.poll():
                 break
-            sleep(0.1)
+            do_sleep()
             continue
 
     while not mod_stats_q.empty():
@@ -157,6 +175,15 @@ def _get_mod_stats_queue(
         agg_mod_fp.close()
 
     return
+
+if _DO_PROFILE_GET_MODS:
+    _get_mod_stats_queue_wrapper = _get_mod_stats_queue
+    def _get_mod_stats_queue(*args):
+        import cProfile
+        cProfile.runctx('_get_mod_stats_queue_wrapper(*args)',
+                        globals(), locals(),
+                        filename='get_mods_queue.prof')
+        return
 
 def _agg_prog_worker(
         snp_prog_q, mod_prog_q, num_snps, num_mods, prog_conn,
@@ -189,7 +216,7 @@ def _agg_prog_worker(
                     if snp_bar is not None: snp_bar.update(0)
                     if mod_bar is not None: mod_bar.update(1)
             except queue.Empty:
-                sleep(0.01)
+                sleep(0.001)
                 if prog_conn.poll():
                     break
                 continue
@@ -218,6 +245,14 @@ def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps, limit=None):
         locs_q.put(None)
 
     return
+
+if _DO_PROFILE_AGG_FILLER:
+    _fill_locs_queue_wrapper = _fill_locs_queue
+    def _fill_locs_queue(*args):
+        import cProfile
+        cProfile.runctx('_fill_locs_queue_wrapper(*args)', globals(), locals(),
+                        filename='agg_fill_locs.prof')
+        return
 
 def aggregate_stats(
         outputs, out_dir, num_ps, write_vcf_lp, het_factors, call_mode,
@@ -268,8 +303,8 @@ def aggregate_stats(
                 out_dir, mod_names, ref_names_and_lens, out_suffix,
                 write_mod_lp, mod_output_fmts))
         # create process to fill mod locs queue
-        mod_filler_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
-        mod_fill_limit = _N_MOD_AGG_PROF if _DO_PROFILE_AGG_MOD else None
+        mod_filler_q = mp.Queue(maxsize=100000)
+        mod_fill_limit = _N_MOD_PROF if _DO_PROF else None
         mod_filler_p = mp.Process(
             target=_fill_locs_queue,
             args=(mod_filler_q, mods_db_fn, mods.AggMods, num_ps,
