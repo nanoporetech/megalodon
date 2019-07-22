@@ -701,17 +701,6 @@ def mkdir(out_dir, overwrite):
 
     return
 
-def profile_validation(args):
-    logger = logging.get_logger()
-    if args.processes > 1:
-        msg = ('Running profiling with multiple processes is ' +
-               'not allowed. Setting to single process.')
-        args.processes = 1
-    else:
-        msg = 'Running profiling. This may slow processing.'
-    logger.warning(msg)
-    return args
-
 
 ##########################
 ########## Main ##########
@@ -815,7 +804,8 @@ def get_parser():
                          'megalodon/scripts/calibrate_snp_llr_scores.py. ' +
                          'Default: Load default calibration file.'))
     snp_grp.add_argument(
-        '--variant-context-bases', type=int, nargs=2, default=[10, 30],
+        '--variant-context-bases', type=int, nargs=2,
+        default=[mh.DEFAULT_SNV_CONTEXT, mh.DEFAULT_INDEL_CONTEXT],
         help=hidden_help('Context bases for single base SNP and indel ' +
                          'calling. Default: %(default)s'))
     snp_grp.add_argument(
@@ -858,7 +848,7 @@ def get_parser():
                          'megalodon/scripts/calibrate_mod_llr_scores.py. ' +
                          'Default: Load default calibration file.'))
     mod_grp.add_argument(
-        '--mod-context-bases', type=int, default=10,
+        '--mod-context-bases', type=int, default=mh.DEFAULT_MOD_CONTEXT,
         help=hidden_help('Context bases for modified base calling. ' +
                          'Default: %(default)d'))
     mod_grp.add_argument(
@@ -959,9 +949,8 @@ def _main():
     logging.init_logger(args.output_directory)
     logger = logging.get_logger()
     logger.debug('Command: """' + ' '.join(sys.argv) + '"""')
-
     if _DO_PROFILE:
-        args = profile_validation(args)
+        logger.warning('Running profiling. This may slow processing.')
 
     args, pr_ref_filts = parse_pr_ref_output(args)
     tai_model_fn = mh.get_model_fn(args.taiyaki_model_filename)

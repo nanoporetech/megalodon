@@ -121,13 +121,15 @@ def write_per_read_debug(
         if read_ref_pos.strand == -1:
             up_seq, dn_seq = mh.revcomp(dn_seq), mh.revcomp(up_seq)
         context_seqs.append((up_seq, dn_seq))
-    out_txt = ''
+    out_txt = '\n'
     for ref_lp, alt_lps, (up_seq, dn_seq) in zip(
-            loc_contexts_ref_lps, loc_contexts_alts_lps, context_seqs):
-        out_txt += '{}\t{}\t{}\t{}\t{}[{}]{}\t{}\t{:.2f}\t{}\n'.format(
-            read_ref_pos.chrm, read_ref_pos.strand, snp_ref_pos, snp_id, up_seq,
-            ref_seq, dn_seq, ','.join(alts_seq), ref_lp,
-            ','.join(('{:.2f}'.format(alt_lp) for alt_lp in alt_lps)))
+            loc_contexts_ref_lps, zip(*loc_contexts_alts_lps), context_seqs):
+        out_txt += ('VARIANT_FULL_DATA: {}\t{}\t{}\t{}\t{}[{}]{}\t{}\t' +
+                    '{:.2f}\t{}\n').format(
+                        read_ref_pos.chrm, read_ref_pos.strand, snp_ref_pos,
+                        snp_id, up_seq, ref_seq, dn_seq, ','.join(alts_seq),
+                        ref_lp, ','.join(('{:.2f}'.format(alt_lp)
+                                          for alt_lp in alt_lps)))
     logger.debug(out_txt)
     return
 
@@ -624,13 +626,13 @@ class SnpData(object):
         prev_end = 0
         for context_var, alt_seq in context_vars:
             if context_var.stop - context_ref_start > context_rel_var_start:
-                continue
+                break
             ann_up_seq += up_context_seq[
                 prev_end:context_var.start - context_ref_start] + alt_seq
             prev_end = context_var.stop - context_ref_start
         ann_up_seq += up_context_seq[prev_end:]
 
-        # annotate upstream sequence
+        # annotate downstream sequence
         ann_dn_seq = ''
         prev_end = 0
         for context_var, alt_seq in context_vars:
@@ -641,21 +643,23 @@ class SnpData(object):
                 context_rel_var_end] + alt_seq
             prev_end = (context_var.stop - context_ref_start -
                         context_rel_var_end)
-        ann_up_seq += up_context_seq[prev_end:]
+        ann_dn_seq += dn_context_seq[prev_end:]
 
         return ann_up_seq, ann_dn_seq
 
     @staticmethod
     def iter_variant_combos_by_distance(variant, context_variants):
-        """ Group variants by distance to the variant of interest
-        if there are more combinations of variants than max_contexts
-        then return the combinations of most proximal contexts
+        """ Yield combinations of variants ordered by inclusion of variants
+        closer to the variant of interest first.
         """
         def iter_alt_variant_seqs(variants):
-            vars_w_alts = (((var, alt) for alt in var.alts)
-                           for var in variants)
+            """ Single variants can have multiple alternative sequences,
+            so iterate over those here
+            """
+            vars_w_alts = [[(var, alt) for alt in var.alts]
+                           for var in variants]
             for vars_w_alt in product(*vars_w_alts):
-                yield vars_w_alt
+                yield sorted(vars_w_alt, key=lambda x: x[0].start)
             return
 
         dist_vars = dict((k, list(v)) for k, v in groupby(
@@ -674,12 +678,12 @@ class SnpData(object):
             # previously used variants (0 or more)
             for n_dist_vars, n_used_vars in product(
                     range(1, len(dist_context_vars) + 1),
-                    range(len(used_vars))):
+                    range(len(used_vars) + 1)):
                 # loop over actual selection of variants
-                # including selected alt seq
                 for curr_vars, used_vars_i in product(
                         combinations(dist_context_vars, n_dist_vars),
                         combinations(used_vars, n_used_vars)):
+                    # including selected alt seq
                     for vars_w_alt in iter_alt_variant_seqs(
                             list(curr_vars) + list(used_vars_i)):
                         yield vars_w_alt
@@ -736,13 +740,16 @@ class SnpData(object):
             if max_contexts == 1 or len(context_vars) == 0:
                 return context_seqs
 
-            for context_vars in self.iter_variant_combos_by_distance(
+            for context_vars_i in self.iter_variant_combos_by_distance(
                     variant, context_vars):
-                if self.any_variants_overlap(context_vars): continue
+                if self.any_variants_overlap(list(zip(*context_vars_i))[0]):
+                    continue
                 context_seqs.append(self.annotate_context_seqs(
-                    context_vars, up_context_seq, dn_context_seq,
+                    context_vars_i, up_context_seq, dn_context_seq,
                     context_ref_start, context_rel_var_start,
                     context_rel_var_end))
+                if len(context_seqs) >= max_contexts:
+                    break
 
             return context_seqs
 
@@ -781,9 +788,11 @@ class SnpData(object):
             context_vars = [
                 var for var in read_variants
                 if var.start >= context_ref_start and
-                var.stop <= context_ref_end]
+                var.stop <= context_ref_end and
+                var.start != variant.start]
             context_seqs = extract_variant_contexts(
                 variant, context_vars, context_ref_start, context_ref_end)
+
             # revcomp seqs for strand and convert to numpy arrays
             var_ref, var_alts = variant.ref, variant.alts
             if read_ref_pos.strand == -1:
