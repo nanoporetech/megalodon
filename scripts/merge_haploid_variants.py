@@ -83,16 +83,25 @@ def main():
             try:
                 gt0 = next(iter(curr_v0_rec.samples.values()))['GT']
                 if are_same_var(curr_v0_rec, curr_v1_rec, curr_v2_rec):
-                    gt1 = next(iter(curr_v1_rec.samples.values()))['GT'][0]
-                    gt2 = next(iter(curr_v2_rec.samples.values()))['GT'][0]
-                    gt = '{}|{}'.format(gt1, gt2)
-                    if gt1 != 0 and gt2 == 0:
-                        qual = parse_qual(curr_v1_rec.qual)
-                    elif gt1 == 0 and gt2 != 0:
-                        qual = parse_qual(curr_v2_rec.qual)
+                    s1_attrs = next(iter(curr_v1_rec.samples.values()))
+                    s2_attrs = next(iter(curr_v2_rec.samples.values()))
+                    # don't let haploid calls change a homozygous call
+                    # TODO explore settings where this restriction could
+                    # be relaxed
+                    if len(set(gt0)) == 1:
+                        gt = '{}|{}'.format(*gt0)
+                        qual = curr_v0_rec.qual
                     else:
-                        qual = max(parse_qual(curr_v1_rec.qual),
-                                   parse_qual(curr_v2_rec.qual))
+                        gt1 = s1_attrs['GT'][0]
+                        gt2 = s2_attrs['GT'][0]
+                        gt = '{}|{}'.format(gt1, gt2)
+                        if gt1 != 0 and gt2 == 0:
+                            qual = parse_qual(curr_v1_rec.qual)
+                        elif gt1 == 0 and gt2 != 0:
+                            qual = parse_qual(curr_v2_rec.qual)
+                        else:
+                            qual = max(parse_qual(curr_v1_rec.qual),
+                                       parse_qual(curr_v2_rec.qual))
                     if qual == 0: qual = '.'
                     out_vars.write(RECORD_LINE.format(
                         contig, curr_v1_rec.pos, curr_v1_rec.id,
@@ -118,16 +127,10 @@ def main():
                         contig, curr_v0_rec.pos, curr_v0_rec.id,
                         curr_v0_rec.ref, ','.join(curr_v0_rec.alts),
                         qual, '{}|{}'.format(*gt0)))
-                    if curr_v1_rec.pos < curr_v2_rec.pos:
-                        if curr_v0_rec.pos == curr_v1_rec.pos:
-                            curr_v1_rec = next(vars1_contig_iter)
-                    elif curr_v1_rec.pos > curr_v2_rec.pos:
-                        if curr_v0_rec.pos == curr_v2_rec.pos:
-                            curr_v2_rec = next(vars2_contig_iter)
-                    else:
-                        if curr_v0_rec.pos == curr_v1_rec.pos == curr_v2_rec.pos:
-                            curr_v1_rec = next(vars1_contig_iter)
-                            curr_v2_rec = next(vars2_contig_iter)
+                    if curr_v0_rec.pos == curr_v1_rec.pos:
+                        curr_v1_rec = next(vars1_contig_iter)
+                    if curr_v0_rec.pos == curr_v2_rec.pos:
+                        curr_v2_rec = next(vars2_contig_iter)
                     curr_v0_rec = next(vars0_contig_iter)
             except StopIteration:
                 break
