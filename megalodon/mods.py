@@ -788,9 +788,7 @@ class AggMods(mh.AbstractAggregationClass):
         mod_site = ModSite(
             chrom=r0_stats.chrm, pos=r0_stats.pos, strand=strand,
             ref_seq=r0_stats.motif, ref_mod_pos=r0_stats.motif_pos,
-            mod_bases=list(mod_props.keys()),
-            id='{}_{}_{}'.format(r0_stats.chrm, r0_stats.pos, strand),
-            mod_props=mod_props)
+            mod_bases=list(mod_props.keys()), mod_props=mod_props)
         mod_site.add_tag('DP', '{}'.format(total_cov))
         mod_site.add_sample_field('DP', '{}'.format(total_cov))
         mod_site.add_sample_field('VALID_DP', '{}'.format(int(valid_cov)))
