@@ -90,7 +90,7 @@ def binom_pmf(k, n, p):
 
 def seq_to_int(seq, alphabet=mh.ALPHABET):
     np_seq = np.array([alphabet.find(b) for b in seq], dtype=np.uintp)
-    if np_seq.max() >= len(alphabet):
+    if np_seq.shape[0] > 0 and np_seq.max() >= len(alphabet):
         raise mh.MegaError('Invalid character in sequence')
     return np_seq
 
