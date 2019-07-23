@@ -691,6 +691,59 @@ class SnpData(object):
 
         return
 
+    @staticmethod
+    def iter_context_variants(variants, context_max_dist):
+        """ Iterate variants as well as variants within context_max_dist
+        """
+        vars_iter = iter(variants)
+        def next_var_or_none():
+            try:
+                return next(vars_iter)
+            except StopIteration:
+                return None
+
+        curr_vars = [next(vars_iter),]
+        next_var = next(vars_iter)
+        if next_var is None:
+            if curr_vars[0] is None:
+                yield curr_vars[0], []
+            return
+        curr_var_idx = -1
+
+        while next_var is not None:
+            if curr_var_idx == len(curr_vars) and next_var is not None:
+                curr_vars.append(next_var)
+                next_var = next_var_or_none()
+            curr_var = curr_vars[curr_var_idx]
+            # add relevant variants
+            while (next_var is not None and
+                   next_var.start - context_max_dist <= curr_var.stop):
+                curr_vars.append(next_var)
+                next_var = next_var_or_none()
+            # remove variants that end before the variant of interest
+            n_vars_removed = sum(
+                var.stop + context_max_dist < curr_var.start + 1
+                for var in curr_vars)
+            curr_vars = [var for var in curr_vars
+                         if var.stop + context_max_dist >= curr_var.start + 1]
+            curr_var_idx -= n_vars_removed - 1
+            # yeild variants in range of current variant
+            yield curr_var, curr_vars
+
+        # yield final vars from the read
+        while len(curr_vars) < curr_var_idx:
+            curr_var = curr_vars[curr_var_idx]
+            # remove variants that end before the variant of interest
+            n_vars_removed = sum(var.stop + context_max_dist < curr_var.start
+                                 for var in curr_vars)
+            curr_vars = [var for var in curr_vars
+                         if var.stop + context_max_dist >= curr_var.start]
+            curr_var_idx -= n_vars_removed - 1
+            # yeild variants in range of current variant
+            yield curr_var, curr_vars
+
+        return
+
     def iter_snps(self, read_ref_pos, strand_read_ref_seq, max_contexts=16):
         """Iterator over SNPs overlapping the read mapped position.
 
@@ -726,8 +779,22 @@ class SnpData(object):
             return rc_context_seqs, mh.revcomp(var_ref), [
                 mh.revcomp(alt) for alt in var_alts]
 
-        def extract_variant_contexts(
-                variant, context_vars, context_ref_start, context_ref_end):
+        def extract_variant_contexts(variant, context_vars):
+            # compute various relative coordinates (in reference coordinates
+            # not on read strand, to make it easier to work with variants)
+            # select single base substitution or indel context width
+            var_context_bases = self.substitution_context if all(
+                variant.rlen == len(alt)
+                for alt in variant.alts) else self.indel_context
+            context_ref_start = variant.start - var_context_bases
+            if context_ref_start < read_ref_pos.start:
+                context_ref_start = read_ref_pos.start
+            context_ref_end = variant.stop + var_context_bases
+            if context_ref_end > read_ref_pos.end:
+                context_ref_end = read_ref_pos.end
+            context_read_start = context_ref_start - read_ref_pos.start
+            context_read_end = context_ref_end - read_ref_pos.start
+
             context_rel_var_start = variant.start - context_ref_start
             context_rel_var_end = context_rel_var_start + variant.rlen
 
@@ -738,7 +805,8 @@ class SnpData(object):
             context_seqs = [(up_context_seq, dn_context_seq),]
 
             if max_contexts == 1 or len(context_vars) == 0:
-                return context_seqs
+                return (context_ref_start, context_read_start, context_read_end,
+                        context_seqs)
 
             for context_vars_i in self.iter_variant_combos_by_distance(
                     variant, context_vars):
@@ -751,7 +819,8 @@ class SnpData(object):
                 if len(context_seqs) >= max_contexts:
                     break
 
-            return context_seqs
+            return (context_ref_start, context_read_start, context_read_end,
+                    context_seqs)
 
 
         logger = logging.get_logger('snps')
@@ -768,30 +837,10 @@ class SnpData(object):
             raise mh.MegaError('Mapped location not valid for variants file.')
 
         read_variants = self.merge_variants(fetch_res)
-        for variant in read_variants:
-            # compute various relative coordinates (in reference coordinates
-            # not on read strand, to make it easier to work with variants)
-            # select single base substitution or indel context width
-            var_context_bases = self.substitution_context if all(
-                variant.rlen == len(alt)
-                for alt in variant.alts) else self.indel_context
-            context_ref_start = variant.start - var_context_bases
-            if context_ref_start < read_ref_pos.start:
-                context_ref_start = read_ref_pos.start
-            context_ref_end = variant.stop + var_context_bases
-            if context_ref_end > read_ref_pos.end:
-                context_ref_end = read_ref_pos.end
-            context_read_start = context_ref_start - read_ref_pos.start
-            context_read_end = context_ref_end - read_ref_pos.start
-            # could optimize this with a rolling set of variants or dictionary
-            # holding variants, but this is simpler and likely not a bottleneck
-            context_vars = [
-                var for var in read_variants
-                if var.start >= context_ref_start and
-                var.stop <= context_ref_end and
-                var.start != variant.start]
-            context_seqs = extract_variant_contexts(
-                variant, context_vars, context_ref_start, context_ref_end)
+        for variant, context_variants in self.iter_context_variants(
+                read_variants, mh.CONTEXT_MAX_DIST):
+            (context_ref_start, context_read_start, context_read_end,
+             context_seqs) = extract_variant_contexts(variant, context_variants)
 
             # revcomp seqs for strand and convert to numpy arrays
             var_ref, var_alts = variant.ref, variant.alts
