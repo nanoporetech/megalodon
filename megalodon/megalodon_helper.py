@@ -30,6 +30,7 @@ COMP_BASES = dict(zip(map(ord, 'ACGT'), map(ord, 'TGCA')))
 _MAX_QUEUE_SIZE = 1000
 
 # VCF spec text
+MIN_GL_VALUE = -1000
 MAX_PL_VALUE = 255
 VCF_VERSION_MI = 'fileformat=VCFv{}'
 FILE_DATE_MI = 'fileDate={}'

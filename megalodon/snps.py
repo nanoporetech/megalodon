@@ -941,7 +941,7 @@ class Variant(object):
     def add_haploid_probs(self, probs, gts):
         # phred scaled likelihoods
         with np.errstate(divide='ignore'):
-            gl = np.log10(probs)
+            gl = np.maximum(mh.MIN_GL_VALUE, np.log10(probs))
         raw_pl = -10 * gl
         # "normalized" PL values stored as decsribed by VCF format
         # abs to remove negative 0 from file
