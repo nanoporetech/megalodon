@@ -96,7 +96,8 @@ def process_read(
             r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
-            out_q=snps_q, fast5_fn=fast5_fn, failed_reads_q=failed_reads_q)
+            out_q=snps_q, fast5_fn=fast5_fn + ':::' + read_id,
+            failed_reads_q=failed_reads_q)
     if mods_q is not None:
         handle_errors(
             func=mods.call_read_mods,
@@ -105,7 +106,8 @@ def process_read(
             r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
-            out_q=mods_q, fast5_fn=fast5_fn, failed_reads_q=failed_reads_q)
+            out_q=mods_q, fast5_fn=fast5_fn + ':::' + read_id,
+            failed_reads_q=failed_reads_q)
 
     return
 
@@ -194,10 +196,11 @@ def _process_reads_worker(
             return
         except mh.MegaError as e:
             failed_reads_q.put((
-                True, True, str(e), fast5_fn, None, raw_sig.shape[0]))
+                True, True, str(e), fast5_fn + ':::' + read_id, None,
+                raw_sig.shape[0]))
         except:
             failed_reads_q.put((
-                True, True, _UNEXPECTED_ERROR_CODE, fast5_fn,
+                True, True, _UNEXPECTED_ERROR_CODE, fast5_fn + ':::' + read_id,
                 traceback.format_exc(), 0))
 
     return

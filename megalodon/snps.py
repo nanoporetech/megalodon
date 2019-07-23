@@ -382,10 +382,10 @@ def _get_snps_queue(
 
         return
 
-    def get_snp_call():
+    def get_snp_call(
+            r_snp_calls, read_id, chrm, strand, r_start, ref_seq, read_len,
+            q_st, q_en, cigar):
         # note strand is +1 for fwd or -1 for rev
-        r_snp_calls, (read_id, chrm, strand, r_start, ref_seq, read_len,
-                      q_st, q_en, cigar) = snps_q.get(block=False)
         snps_db.executemany(ADDMANY_SNPS, [
             (read_id, chrm, strand, pos, alt_lp,
              snp_ref_seq, snp_alt_seq, snp_id)
@@ -418,6 +418,7 @@ def _get_snps_queue(
         return
 
 
+    logger = logging.get_logger('snps_getter')
     snps_db = sqlite3.connect(snps_db_fn)
     if db_safety < 2:
         snps_db.execute(SET_ASYNC_MODE)
@@ -455,15 +456,31 @@ def _get_snps_queue(
 
     while True:
         try:
-            get_snp_call()
+            r_snp_calls, (read_id, chrm, strand, r_start, ref_seq, read_len,
+                          q_st, q_en, cigar) = snps_q.get(block=False)
         except queue.Empty:
             if snps_conn.poll():
                 break
             sleep(0.1)
             continue
+        try:
+            get_snp_call(
+                r_snp_calls, read_id, chrm, strand, r_start, ref_seq, read_len,
+                q_st, q_en, cigar)
+        except Exception as e:
+            logger.debug('Error processing variant output for read: ' +
+                         '{}\nError type: {}'.format(read_id, str(e)))
 
     while not snps_q.empty():
-        get_snp_call()
+        r_snp_calls, (read_id, chrm, strand, r_start, ref_seq, read_len,
+                      q_st, q_en, cigar) = snps_q.get(block=False)
+        try:
+            get_snp_call(
+                r_snp_calls, read_id, chrm, strand, r_start, ref_seq, read_len,
+                q_st, q_en, cigar)
+        except Exception as e:
+            logger.debug('Error processing variant output for read: ' +
+                         '{}\nError type: {}'.format(read_id, str(e)))
     if snps_txt_fp is not None: snps_txt_fp.close()
     if pr_refs_fn is not None: pr_refs_fp.close()
     if whatshap_map_fn is not None: whatshap_map_fp.close()

@@ -196,11 +196,10 @@ def annotate_mods(r_start, ref_seq, r_mod_scores, strand):
 def _get_mods_queue(
         mods_q, mods_conn, mods_db_fn, mods_txt_fn, db_safety,
         pr_refs_fn, pr_ref_filts):
-    def get_mod_call():
+    def get_mod_call(
+            r_mod_scores,  read_id, chrm, strand, r_start, ref_seq,
+            read_len, q_st, q_en, cigar):
         # note strand is +1 for fwd or -1 for rev
-        r_mod_scores, (
-            read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
-            cigar) = mods_q.get(block=False)
         mods_db.executemany(ADDMANY_MODS, [
             (read_id, chrm, strand, pos, mod_lp, mod_base, ref_motif, rel_pos,
              raw_motif)
@@ -231,6 +230,7 @@ def _get_mods_queue(
         return
 
 
+    logger = logging.get_logger('mods_getter')
     mods_db = sqlite3.connect(mods_db_fn)
     if db_safety < 2:
         mods_db.execute(SET_ASYNC_MODE)
@@ -251,15 +251,34 @@ def _get_mods_queue(
 
     while True:
         try:
-            get_mod_call()
+            r_mod_scores, (
+                read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
+                cigar) = mods_q.get(block=False)
         except queue.Empty:
             if mods_conn.poll():
                 break
             sleep(0.1)
             continue
+        try:
+            get_mod_call(
+                r_mod_scores,  read_id, chrm, strand, r_start, ref_seq,
+                read_len, q_st, q_en, cigar)
+        except Exception as e:
+            logger.debug('Error processing mods output for read: ' +
+                         '{}\nError type: {}'.format(read_id, str(e)))
 
     while not mods_q.empty():
-        get_mod_call()
+        r_mod_scores, (
+            read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
+            cigar) = mods_q.get(block=False)
+        try:
+            get_mod_call(
+                r_mod_scores,  read_id, chrm, strand, r_start, ref_seq,
+                read_len, q_st, q_en, cigar)
+        except Exception as e:
+            logger.debug('Error processing mods output for read: ' +
+                         '{}\nError type: {}'.format(read_id, str(e)))
+
     if mods_txt_fp is not None: mods_txt_fp.close()
     if pr_refs_fn is not None: pr_refs_fp.close()
     mods_db.execute(CREATE_MODS_IDX)
