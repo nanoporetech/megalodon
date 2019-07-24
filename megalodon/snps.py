@@ -599,7 +599,7 @@ class SnpData(object):
                 fetch_res, lambda var: (var.start, var.stop)):
             site_vars = list(site_vars)
             if len(site_vars) == 1:
-                variants.append(site_vars[0])
+                site_var = site_vars[0]
             else:
                 site_var = site_vars[0]
                 # join all valid ids
@@ -614,7 +614,11 @@ class SnpData(object):
                 site_var.alts = tuple(sorted(set(
                     alt for var in site_vars
                     for alt in var.alts)))
-                variants.append(site_var)
+            # skip large indels
+            if max(np.abs(len(site_var.ref) - len(alt))
+                   for alt in site_var.alts) > self.max_indel_size:
+                continue
+            variants.append(site_var)
 
         return variants
 
