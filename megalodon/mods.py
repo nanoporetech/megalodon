@@ -93,7 +93,7 @@ def score_mod_seq(
         all_paths)
 
 def call_read_mods(
-        r_ref_pos, r_ref_seq, np_ref_seq, rl_cumsum, r_to_q_poss, r_post,
+        r_ref_pos, r_ref_seq, rl_cumsum, r_to_q_poss, r_post,
         post_mapped_start, mods_info):
     def iter_motif_sites(r_ref_seq):
         max_pos = len(r_ref_seq) - mods_info.edge_buffer
@@ -112,9 +112,11 @@ def call_read_mods(
     for (pos, mod_bases, ref_motif, rel_pos,
          raw_motif) in iter_motif_sites(r_ref_seq):
         pos_bb, pos_ab = min(mods_info.mod_context_bases, pos), min(
-            mods_info.mod_context_bases, np_ref_seq.shape[0] - pos - 1)
-        pos_ref_seq = np_ref_seq[pos - pos_bb:pos + pos_ab + 1]
-        if pos_ref_seq.max() > len(mh.ALPHABET):
+            mods_info.mod_context_bases, len(r_ref_seq) - pos - 1)
+        try:
+            pos_ref_seq = mh.seq_to_int(
+                r_ref_seq[pos - pos_bb:pos + pos_ab + 1])
+        except mh.MegaError:
             ref_pos = r_ref_pos.start + pos if r_ref_pos.strand == 1 else \
                       r_ref_pos.start + len(r_ref_seq) - pos - 1
             logger.debug(

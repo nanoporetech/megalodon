@@ -80,7 +80,6 @@ def process_read(
     # map read and record mapping from reference to query positions
     r_ref_seq, r_to_q_poss, r_ref_pos, r_cigar = mapping.map_read(
         r_seq, read_id, caller_conn)
-    np_ref_seq = mh.seq_to_int(r_ref_seq)
 
     # get mapped start in post and run len to mapped bit of output
     post_mapped_start = rl_cumsum[r_ref_pos.q_trim_start]
@@ -100,8 +99,8 @@ def process_read(
     if mods_q is not None:
         handle_errors(
             func=mods.call_read_mods,
-            args=(r_ref_pos, r_ref_seq, np_ref_seq, mapped_rl_cumsum,
-                  r_to_q_poss, r_post_w_mods, post_mapped_start, mods_info),
+            args=(r_ref_pos, r_ref_seq, mapped_rl_cumsum, r_to_q_poss,
+                  r_post_w_mods, post_mapped_start, mods_info),
             r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
