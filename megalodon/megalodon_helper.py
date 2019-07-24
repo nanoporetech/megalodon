@@ -133,16 +133,16 @@ def comp(seq):
 def revcomp(seq):
     return seq.translate(COMP_BASES)[::-1]
 
-def seq_to_int(seq, alphabet=mh.ALPHABET):
+def seq_to_int(seq, alphabet=ALPHABET):
     np_seq = np.array([alphabet.find(b) for b in seq], dtype=np.uintp)
     if np_seq.shape[0] > 0 and np_seq.max() >= len(alphabet):
-        raise mh.MegaError('Invalid character in sequence')
+        raise MegaError('Invalid character in sequence')
     return np_seq
 
-def int_to_seq(np_seq, alphabet=mh.ALPHABET):
+def int_to_seq(np_seq, alphabet=ALPHABET):
     if np_seq.max() >= len(alphabet):
-        raise mh.MegaError('Invalid character in sequence')
-    return ''.join(mh.ALPHABET[b] for b in np_seq)
+        raise MegaError('Invalid character in sequence')
+    return ''.join(ALPHABET[b] for b in np_seq)
 
 
 ###############################
