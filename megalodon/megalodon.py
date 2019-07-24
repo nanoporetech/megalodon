@@ -80,8 +80,7 @@ def process_read(
     # map read and record mapping from reference to query positions
     r_ref_seq, r_to_q_poss, r_ref_pos, r_cigar = mapping.map_read(
         r_seq, read_id, caller_conn)
-    np_ref_seq = np.array([
-        mh.ALPHABET.find(b) for b in r_ref_seq], dtype=np.uintp)
+    np_ref_seq = mh.seq_to_int(r_ref_seq)
 
     # get mapped start in post and run len to mapped bit of output
     post_mapped_start = rl_cumsum[r_ref_pos.q_trim_start]

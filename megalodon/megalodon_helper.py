@@ -120,6 +120,10 @@ class MegaError(Exception):
     """
     pass
 
+############################
+##### Helper Functions #####
+############################
+
 def nstate_to_nbase(nstate):
     return int(np.sqrt(0.25 + (0.5 * nstate)) - 0.5)
 
@@ -129,16 +133,27 @@ def comp(seq):
 def revcomp(seq):
     return seq.translate(COMP_BASES)[::-1]
 
-def resolve_path(fn_path):
-    """Helper function to resolve relative and linked paths that might
-    give other packages problems.
-    """
-    return os.path.realpath(os.path.expanduser(fn_path))
+def seq_to_int(seq, alphabet=mh.ALPHABET):
+    np_seq = np.array([alphabet.find(b) for b in seq], dtype=np.uintp)
+    if np_seq.shape[0] > 0 and np_seq.max() >= len(alphabet):
+        raise mh.MegaError('Invalid character in sequence')
+    return np_seq
+
+def int_to_seq(np_seq, alphabet=mh.ALPHABET):
+    if np_seq.max() >= len(alphabet):
+        raise mh.MegaError('Invalid character in sequence')
+    return ''.join(mh.ALPHABET[b] for b in np_seq)
 
 
 ###############################
 ##### Filename Extraction #####
 ###############################
+
+def resolve_path(fn_path):
+    """Helper function to resolve relative and linked paths that might
+    give other packages problems.
+    """
+    return os.path.realpath(os.path.expanduser(fn_path))
 
 def get_megalodon_fn(out_dir, out_type):
     return os.path.join(out_dir, OUTPUT_FNS[out_type])

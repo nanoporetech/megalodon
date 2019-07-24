@@ -84,17 +84,6 @@ def logsumexp(x):
     x_max = x.max()
     return np.log(np.sum(np.exp(x - x_max))) + x_max
 
-def seq_to_int(seq, alphabet=mh.ALPHABET):
-    np_seq = np.array([alphabet.find(b) for b in seq], dtype=np.uintp)
-    if np_seq.shape[0] > 0 and np_seq.max() >= len(alphabet):
-        raise mh.MegaError('Invalid character in sequence')
-    return np_seq
-
-def int_to_seq(np_seq, alphabet=mh.ALPHABET):
-    if np_seq.max() >= len(alphabet):
-        raise mh.MegaError('Invalid character in sequence')
-    return ''.join(mh.ALPHABET[b] for b in np_seq)
-
 
 ################################
 ##### Per-read SNP Scoring #####
@@ -103,17 +92,18 @@ def int_to_seq(np_seq, alphabet=mh.ALPHABET):
 def write_per_read_debug(
         snp_ref_pos, snp_id, read_ref_pos, np_s_snp_ref_seq, np_s_snp_alt_seqs,
         np_s_context_seqs, loc_contexts_ref_lps, loc_contexts_alts_lps, logger):
-    ref_seq = int_to_seq(np_s_snp_ref_seq)
+    ref_seq = mh.int_to_seq(np_s_snp_ref_seq)
     if read_ref_pos.strand == -1:
         ref_seq = mh.revcomp(ref_seq)
-    alts_seq = [int_to_seq(np_alt) for np_alt in np_s_snp_alt_seqs]
+    alts_seq = [mh.int_to_seq(np_alt) for np_alt in np_s_snp_alt_seqs]
     if read_ref_pos.strand == -1:
         alts_seq = [mh.revcomp(alt_seq) for alt_seq in alts_seq]
     ','.join(alts_seq)
 
     context_seqs = []
     for up_context_seq, dn_context_seq in np_s_context_seqs:
-        up_seq, dn_seq = int_to_seq(up_context_seq), int_to_seq(dn_context_seq)
+        up_seq, dn_seq = (mh.int_to_seq(up_context_seq),
+                          mh.int_to_seq(dn_context_seq))
         if read_ref_pos.strand == -1:
             up_seq, dn_seq = mh.revcomp(dn_seq), mh.revcomp(up_seq)
         context_seqs.append((up_seq, dn_seq))
@@ -585,40 +575,6 @@ class SnpData(object):
         return
 
     @staticmethod
-    def merge_variants(fetch_res):
-        """ Group variants by start and stop and merge into multi-allelic sites
-        if this is not done, allele probabilities will not be normalized
-        correctly.
-        """
-        variants = []
-        for _, site_vars in groupby(
-                fetch_res, lambda var: (var.start, var.stop)):
-            site_vars = list(site_vars)
-            if len(site_vars) == 1:
-                site_var = site_vars[0]
-            else:
-                site_var = site_vars[0]
-                # join all valid ids
-                # skip None ids ('.' in VCF)
-                site_var_ids = set(
-                    var_id for var in site_vars
-                    if var.id is not None and var.id != '.'
-                    for var_id in var.id.split(';'))
-                # if all ids are None leave id as None
-                if len(site_var_ids) > 0:
-                    site_var.id = ';'.join(sorted(site_var_ids))
-                site_var.alts = tuple(sorted(set(
-                    alt for var in site_vars
-                    for alt in var.alts)))
-            # skip large indels
-            if max(np.abs(len(site_var.ref) - len(alt))
-                   for alt in site_var.alts) > self.max_indel_size:
-                continue
-            variants.append(site_var)
-
-        return variants
-
-    @staticmethod
     def compute_variant_distance(var1, var2):
         # if the variants overlap return None
         if not (var1.start >= var2.stop or var2.start >= var1.stop):
@@ -761,6 +717,39 @@ class SnpData(object):
 
         return
 
+    def merge_variants(self, fetch_res):
+        """ Group variants by start and stop and merge into multi-allelic sites
+        if this is not done, allele probabilities will not be normalized
+        correctly.
+        """
+        variants = []
+        for _, site_vars in groupby(
+                fetch_res, lambda var: (var.start, var.stop)):
+            site_vars = list(site_vars)
+            if len(site_vars) == 1:
+                site_var = site_vars[0]
+            else:
+                site_var = site_vars[0]
+                # join all valid ids
+                # skip None ids ('.' in VCF)
+                site_var_ids = set(
+                    var_id for var in site_vars
+                    if var.id is not None and var.id != '.'
+                    for var_id in var.id.split(';'))
+                # if all ids are None leave id as None
+                if len(site_var_ids) > 0:
+                    site_var.id = ';'.join(sorted(site_var_ids))
+                site_var.alts = tuple(sorted(set(
+                    alt for var in site_vars
+                    for alt in var.alts)))
+            # skip large indels
+            if max(np.abs(len(site_var.ref) - len(alt))
+                   for alt in site_var.alts) > self.max_indel_size:
+                continue
+            variants.append(site_var)
+
+        return variants
+
     def iter_snps(self, read_ref_pos, strand_read_ref_seq, max_contexts=16):
         """Iterator over SNPs overlapping the read mapped position.
 
@@ -868,10 +857,11 @@ class SnpData(object):
                     len(strand_read_ref_seq) - context_read_end,
                     len(strand_read_ref_seq) - context_read_start)
             try:
-                np_s_var_ref_seq = seq_to_int(var_ref)
-                np_s_var_alt_seqs = [seq_to_int(alt) for alt in var_alts]
+                np_s_var_ref_seq = mh.seq_to_int(var_ref)
+                np_s_var_alt_seqs = [mh.seq_to_int(alt) for alt in var_alts]
                 np_s_context_seqs = [
-                    (seq_to_int(up_context_seq), seq_to_int(dn_context_seq))
+                    (mh.seq_to_int(up_context_seq),
+                     mh.seq_to_int(dn_context_seq))
                     for up_context_seq, dn_context_seq in context_seqs]
             except mh.MegaError:
                 # some sequence contained invalid characters
