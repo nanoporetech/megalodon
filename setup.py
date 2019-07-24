@@ -26,6 +26,7 @@ else:
 install_requires = [
     "h5py >= 2.2.1",
     "numpy >= 1.9.0",
+    "scipy >= 1.1.0",
     "Cython >= 0.25.2",
     "mappy >= 2.16",
     "pysam >= 0.15",

@@ -12,6 +12,7 @@ from collections import defaultdict, namedtuple, OrderedDict
 
 import pysam
 import numpy as np
+from scipy import stats
 
 from megalodon import (calibration, decode, logging, mapping,
                        megalodon_helper as mh)
@@ -82,11 +83,6 @@ FORMAT_LOG_PROB_MI = (
 def logsumexp(x):
     x_max = x.max()
     return np.log(np.sum(np.exp(x - x_max))) + x_max
-
-def binom_pmf(k, n, p):
-    return (np.math.factorial(n) / (
-        np.math.factorial(k) * np.math.factorial(n - k))) * (
-            p ** k) * ((1 - p) ** (n - k))
 
 def seq_to_int(seq, alphabet=mh.ALPHABET):
     np_seq = np.array([alphabet.find(b) for b in seq], dtype=np.uintp)
@@ -1114,12 +1110,14 @@ class AggSnps(mh.AbstractAggregationClass):
             llr_ord = np.argsort(all_lps[a2] - all_lps[a1])
             s_a1_lps = all_lps[a1][llr_ord]
             s_a2_lps = all_lps[a2][llr_ord]
-            # compute log probability of heterozygous genotype by binomial
-            # weighted sum of maximum likelihoods
-            return logsumexp(np.array([
-                np.log(binom_pmf(i, all_lps.shape[1], 0.5)) +
-                np.sum(s_a1_lps[:i]) + np.sum(s_a2_lps[i:])
-                for i in range(all_lps.shape[1] + 1)]))
+            with np.errstate(divide='ignore'):
+                # compute log probability of heterozygous genotype by binomial
+                # weighted sum of maximum likelihoods
+                het_lp = logsumexp(np.array([
+                    np.log(stats.binom.pmf(i, all_lps.shape[1], 0.5)) +
+                    np.sum(s_a1_lps[:i]) + np.sum(s_a2_lps[i:])
+                    for i in range(all_lps.shape[1] + 1)]))
+            return het_lp
 
 
         all_lps = np.concatenate([ref_lps.reshape(1, -1), alts_lps], axis=0)
@@ -1134,11 +1132,11 @@ class AggSnps(mh.AbstractAggregationClass):
                     genotype_lps.append(compute_het_lp(a1, a2))
                     het_gts.append(True)
 
-        prior_weights = np.array([
-            1.0 if het_gt else het_factor ** all_lps.shape[1]
+        log_prior_weights = np.array([
+            0.0 if het_gt else all_lps.shape[1] * np.log(het_factor)
             for het_gt in het_gts])
-        prior_weights /= prior_weights.sum()
-        snp_lps = np.array(genotype_lps) + np.log(prior_weights)
+        log_prior_weights = log_prior_weights - logsumexp(log_prior_weights)
+        snp_lps = np.array(genotype_lps) + log_prior_weights
         post_snp_lps = snp_lps - logsumexp(snp_lps)
         return np.exp(post_snp_lps), gts
 
