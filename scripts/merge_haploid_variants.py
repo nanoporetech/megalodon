@@ -90,7 +90,7 @@ def main():
                     # be relaxed
                     if len(set(gt0)) == 1:
                         gt = '{}|{}'.format(*gt0)
-                        qual = curr_v0_rec.qual
+                        qual = parse_qual(curr_v0_rec.qual)
                     else:
                         gt1 = s1_attrs['GT'][0]
                         gt2 = s2_attrs['GT'][0]
