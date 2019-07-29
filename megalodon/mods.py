@@ -616,12 +616,11 @@ class ModBedMethylWriter(object):
                 continue
             cov = mod_site.get_coverage()
             self.handles[mod_base].write(
-                ('{chrom}\t{pos}\t{end}\t{name}\t{score}\t{strand}\t{pos}' +
+                ('{chrom}\t{pos}\t{end}\t.\t{score}\t{strand}\t{pos}' +
                  '\t{end}\t0,0,0\t{cov}\t{perc}\n').format(
                      chrom=mod_site.chrom, pos=mod_site.pos,
-                     end=mod_site.pos + 1, name=mod_site.id,
-                     strand=mod_site.strand, cov=cov, score=min(int(cov), 1000),
-                     perc=int(mod_prop * 100)))
+                     end=mod_site.pos + 1, strand=mod_site.strand, cov=cov,
+                     score=min(int(cov), 1000), perc=int(mod_prop * 100)))
             self.handles[mod_base].flush()
 
         return
@@ -819,9 +818,7 @@ class AggMods(mh.AbstractAggregationClass):
         mod_site = ModSite(
             chrom=r0_stats.chrm, pos=r0_stats.pos, strand=strand,
             ref_seq=r0_stats.motif, ref_mod_pos=r0_stats.motif_pos,
-            mod_bases=list(mod_props.keys()),
-            id='{}_{}_{}'.format(r0_stats.chrm, r0_stats.pos, strand),
-            mod_props=mod_props)
+            mod_bases=list(mod_props.keys()), mod_props=mod_props)
         mod_site.add_tag('DP', '{}'.format(total_cov))
         mod_site.add_sample_field('DP', '{}'.format(total_cov))
         mod_site.add_sample_field('VALID_DP', '{}'.format(int(valid_cov)))
