@@ -24,8 +24,14 @@ DEFAULT_MOD_CONTEXT = 15
 MED_NORM_FACTOR = 1.4826
 
 ALPHABET = 'ACGT'
-NP_ALPHABET = np.char.array(list(ALPHABET))
 COMP_BASES = dict(zip(map(ord, 'ACGT'), map(ord, 'TGCA')))
+NP_COMP_BASES = np.array([3, 2, 1, 0], dtype=np.uintp)
+SEQ_MIN = np.array(['A'], dtype='S1').view(np.uint8)[0]
+SEQ_TO_INT_ARR = np.full(26, -1, dtype=np.uintp)
+SEQ_TO_INT_ARR[0] = 0
+SEQ_TO_INT_ARR[2] = 1
+SEQ_TO_INT_ARR[6] = 2
+SEQ_TO_INT_ARR[19] = 3
 
 _MAX_QUEUE_SIZE = 1000
 
@@ -133,16 +139,31 @@ def comp(seq):
 def revcomp(seq):
     return seq.translate(COMP_BASES)[::-1]
 
-def seq_to_int(seq, alphabet=ALPHABET):
-    np_seq = np.array([alphabet.find(b) for b in seq], dtype=np.uintp)
-    if np_seq.shape[0] > 0 and np_seq.max() >= len(alphabet):
+def comp_np(np_seq):
+    return NP_COMP_BASES[np_seq]
+
+def revcomp_np(np_seq):
+    return NP_COMP_BASES[np_seq][::-1]
+
+def seq_to_int(seq, error_on_invalid=False):
+    try:
+        np_seq = SEQ_TO_INT_ARR[
+            np.array(list(seq), dtype='c').view(np.uint8) - SEQ_MIN]
+    except IndexError:
+        if error_on_invalid:
+            raise MegaError('Invalid character in sequence')
+        else:
+            # use slower string find method to convert seq with
+            # invalid characters
+            np_seq = np.array([ALPHABET.find(b) for b in seq], dtype=np.uintp)
+    if error_on_invalid and np_seq.shape[0] > 0 and np_seq.max() >= 4:
         raise MegaError('Invalid character in sequence')
     return np_seq
 
 def int_to_seq(np_seq, alphabet=ALPHABET):
     if np_seq.max() >= len(alphabet):
         raise MegaError('Invalid character in sequence')
-    return ''.join(ALPHABET[b] for b in np_seq)
+    return ''.join(alphabet[b] for b in np_seq)
 
 
 ###############################

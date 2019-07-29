@@ -21,6 +21,8 @@ from megalodon._version import MEGALODON_VERSION
 
 _DEBUG_PER_READ = False
 
+VARIANT_DATA = namedtuple('VARIANT_DATA', ('var', 'np_ref', 'np_alts'))
+
 DIPLOID_MODE = 'diploid'
 HAPLIOD_MODE = 'haploid'
 
@@ -143,7 +145,7 @@ def score_seq(tpost, seq, tpost_start=0, tpost_end=None,
     return score
 
 def call_read_snps(
-        snps_data, read_ref_pos, strand_read_ref_seq, rl_cumsum, r_to_q_poss,
+        snps_data, read_ref_pos, strand_read_np_ref_seq, rl_cumsum, r_to_q_poss,
         r_post, post_mapped_start):
     # call all snps overlapping this read
     r_snp_calls = []
@@ -151,7 +153,7 @@ def call_read_snps(
     for (np_s_snp_ref_seq, np_s_snp_alt_seqs, np_s_context_seqs,
          s_ref_start, s_ref_end, snp_ref_seq, snp_alt_seqs, snp_id,
          snp_ref_pos) in snps_data.iter_snps(
-             read_ref_pos, strand_read_ref_seq):
+             read_ref_pos, strand_read_np_ref_seq):
         blk_start  = rl_cumsum[r_to_q_poss[s_ref_start]]
         blk_end = rl_cumsum[r_to_q_poss[s_ref_end]]
         if blk_end - blk_start < max(
@@ -577,16 +579,18 @@ class SnpData(object):
     @staticmethod
     def compute_variant_distance(var1, var2):
         # if the variants overlap return None
-        if not (var1.start >= var2.stop or var2.start >= var1.stop):
+        if not (var1.var.start >= var2.var.stop or
+                var2.var.start >= var1.var.stop):
             return None
-        elif var1.start >= var2.stop:
-            return var1.start - var2.stop
-        return var2.start - var1.stop
+        if var1.var.start >= var2.var.stop:
+            return var1.var.start - var2.var.stop
+        return var2.var.start - var1.var.stop
 
     @staticmethod
     def any_variants_overlap(variants):
         for var1, var2 in combinations(variants, 2):
-            if not (var1.start >= var2.stop or var2.start >= var1.stop):
+            if not (var1.var.start >= var2.var.stop or
+                    var2.var.start >= var1.var.stop):
                 return True
         return False
 
@@ -595,28 +599,31 @@ class SnpData(object):
             context_vars, up_context_seq, dn_context_seq, context_ref_start,
             context_rel_var_start, context_rel_var_end):
         # annotate upstream sequence
-        ann_up_seq = ''
+        ann_up_seq = []
         prev_end = 0
-        for context_var, alt_seq in context_vars:
-            if context_var.stop - context_ref_start > context_rel_var_start:
+        for context_var, np_alt_seq in context_vars:
+            if context_var.var.stop - context_ref_start > context_rel_var_start:
                 break
-            ann_up_seq += up_context_seq[
-                prev_end:context_var.start - context_ref_start] + alt_seq
-            prev_end = context_var.stop - context_ref_start
-        ann_up_seq += up_context_seq[prev_end:]
+            ann_up_seq.extend((up_context_seq[
+                prev_end:context_var.var.start - context_ref_start],
+                               np_alt_seq))
+            prev_end = context_var.var.stop - context_ref_start
+        ann_up_seq.append(up_context_seq[prev_end:])
+        ann_up_seq = np.concatenate(ann_up_seq)
 
         # annotate downstream sequence
-        ann_dn_seq = ''
+        ann_dn_seq = []
         prev_end = 0
-        for context_var, alt_seq in context_vars:
-            if context_var.start - context_ref_start < context_rel_var_end:
+        for context_var, np_alt_seq in context_vars:
+            if context_var.var.start - context_ref_start < context_rel_var_end:
                 continue
-            ann_dn_seq += dn_context_seq[
-                prev_end:context_var.start - context_ref_start -
-                context_rel_var_end] + alt_seq
-            prev_end = (context_var.stop - context_ref_start -
+            ann_dn_seq.extend((dn_context_seq[
+                prev_end:context_var.var.start - context_ref_start -
+                context_rel_var_end], np_alt_seq))
+            prev_end = (context_var.var.stop - context_ref_start -
                         context_rel_var_end)
-        ann_dn_seq += dn_context_seq[prev_end:]
+        ann_dn_seq.append(dn_context_seq[prev_end:])
+        ann_dn_seq = np.concatenate(ann_dn_seq)
 
         return ann_up_seq, ann_dn_seq
 
@@ -629,19 +636,17 @@ class SnpData(object):
             """ Single variants can have multiple alternative sequences,
             so iterate over those here
             """
-            vars_w_alts = [[(var, alt) for alt in var.alts]
+            vars_w_alts = [[(var, np_alt) for np_alt in var.np_alts]
                            for var in variants]
             for vars_w_alt in product(*vars_w_alts):
-                yield sorted(vars_w_alt, key=lambda x: x[0].start)
+                yield sorted(vars_w_alt, key=lambda x: x[0].var.start)
             return
 
-        dist_vars = dict((k, list(v)) for k, v in groupby(
-            context_variants,
-            lambda var: SnpData.compute_variant_distance(variant, var)))
-        # remove overlapping/mutually-exclusive variants (None distance)
-        # better to ask forgiveness than permission
-        try: del dist_vars[None]
-        except KeyError: pass
+        dist_vars = defaultdict(list)
+        for context_var in context_variants:
+            var_dist = SnpData.compute_variant_distance(variant, context_var)
+            if var_dist is not None:
+                dist_vars[var_dist].append(context_var)
 
         used_vars = []
         # sort list by distance to a variant in order to report most
@@ -690,15 +695,16 @@ class SnpData(object):
             curr_var = curr_vars[curr_var_idx]
             # add relevant variants
             while (next_var is not None and
-                   next_var.start - context_max_dist <= curr_var.stop):
+                   next_var.var.start - context_max_dist <= curr_var.var.stop):
                 curr_vars.append(next_var)
                 next_var = next_var_or_none()
             # remove variants that end before the variant of interest
             n_vars_removed = sum(
-                var.stop + context_max_dist < curr_var.start + 1
+                var.var.stop + context_max_dist < curr_var.var.start + 1
                 for var in curr_vars)
-            curr_vars = [var for var in curr_vars
-                         if var.stop + context_max_dist >= curr_var.start + 1]
+            curr_vars = [
+                var for var in curr_vars
+                if var.var.stop + context_max_dist >= curr_var.var.start + 1]
             curr_var_idx -= n_vars_removed - 1
             # yeild variants in range of current variant
             yield curr_var, curr_vars
@@ -707,10 +713,12 @@ class SnpData(object):
         while len(curr_vars) < curr_var_idx:
             curr_var = curr_vars[curr_var_idx]
             # remove variants that end before the variant of interest
-            n_vars_removed = sum(var.stop + context_max_dist < curr_var.start
-                                 for var in curr_vars)
-            curr_vars = [var for var in curr_vars
-                         if var.stop + context_max_dist >= curr_var.start]
+            n_vars_removed = sum(
+                var.var.stop + context_max_dist < curr_var.var.start
+                for var in curr_vars)
+            curr_vars = [
+                var for var in curr_vars
+                if var.var.stop + context_max_dist >= curr_var.var.start]
             curr_var_idx -= n_vars_removed - 1
             # yeild variants in range of current variant
             yield curr_var, curr_vars
@@ -746,17 +754,20 @@ class SnpData(object):
             if max(np.abs(len(site_var.ref) - len(alt))
                    for alt in site_var.alts) > self.max_indel_size:
                 continue
-            variants.append(site_var)
+            np_ref = mh.seq_to_int(site_var.ref)
+            np_alts = [mh.seq_to_int(alt) for alt in site_var.alts]
+            variants.append(VARIANT_DATA(site_var, np_ref, np_alts))
 
         return variants
 
-    def iter_snps(self, read_ref_pos, strand_read_ref_seq, max_contexts=16):
+    def iter_snps(self, read_ref_pos, strand_read_np_ref_seq, max_contexts=16):
         """Iterator over SNPs overlapping the read mapped position.
 
         Args:
             read_ref_pos: Read reference mapping position
                 (`megalodon.mapping.MAP_POS`)
-            strand_read_ref_seq: read centric mapped reference sequence.
+            strand_read_np_ref_seq: read centric mapped reference sequence
+                integer encoded.
                 Reverse complement if read is mapped to reverse strand.
             max_contexts: Maximum number of context variant combinations to
                 include around each variant.
@@ -778,31 +789,31 @@ class SnpData(object):
         the max_contexts most proximal to the variant in question will be
         returned.
         """
-        def revcomp_variant(context_seqs, var_ref, var_alts):
+        def revcomp_variant(context_seqs, np_var_ref, var_alts):
             rc_context_seqs = [
-                (mh.revcomp(dn_context_seq), mh.revcomp(up_context_seq))
+                (mh.revcomp_np(dn_context_seq), mh.revcomp_np(up_context_seq))
                 for up_context_seq, dn_context_seq in context_seqs]
-            return rc_context_seqs, mh.revcomp(var_ref), [
-                mh.revcomp(alt) for alt in var_alts]
+            return rc_context_seqs, mh.revcomp_np(np_var_ref), [
+                mh.revcomp_np(np_alt) for np_alt in np_var_alts]
 
         def extract_variant_contexts(variant, context_vars):
             # compute various relative coordinates (in reference coordinates
             # not on read strand, to make it easier to work with variants)
             # select single base substitution or indel context width
             var_context_bases = self.substitution_context if all(
-                variant.rlen == len(alt)
-                for alt in variant.alts) else self.indel_context
-            context_ref_start = variant.start - var_context_bases
+                variant.var.rlen == len(alt)
+                for alt in variant.var.alts) else self.indel_context
+            context_ref_start = variant.var.start - var_context_bases
             if context_ref_start < read_ref_pos.start:
                 context_ref_start = read_ref_pos.start
-            context_ref_end = variant.stop + var_context_bases
+            context_ref_end = variant.var.stop + var_context_bases
             if context_ref_end > read_ref_pos.end:
                 context_ref_end = read_ref_pos.end
             context_read_start = context_ref_start - read_ref_pos.start
             context_read_end = context_ref_end - read_ref_pos.start
 
-            context_rel_var_start = variant.start - context_ref_start
-            context_rel_var_end = context_rel_var_start + variant.rlen
+            context_rel_var_start = variant.var.start - context_ref_start
+            context_rel_var_end = context_rel_var_start + variant.var.rlen
 
             context_ref_seq = read_ref_seq[context_read_start:context_read_end]
             # first context is always reference sequence
@@ -833,8 +844,8 @@ class SnpData(object):
         if read_ref_pos.end - read_ref_pos.start <= 2 * self.edge_buffer:
             raise mh.MegaError('Mapped region too short for variant calling.')
         # convert to forward strand sequence in order to annotate with variants
-        read_ref_seq = (strand_read_ref_seq if read_ref_pos.strand == 1 else
-                        mh.revcomp(strand_read_ref_seq))
+        read_ref_seq = (strand_read_np_ref_seq if read_ref_pos.strand == 1 else
+                        mh.revcomp_np(strand_read_np_ref_seq))
         try:
             fetch_res = self.variants_idx.fetch(
                 read_ref_pos.chrm, read_ref_pos.start + self.edge_buffer,
@@ -846,35 +857,34 @@ class SnpData(object):
         for variant, context_variants in self.iter_context_variants(
                 read_variants, mh.CONTEXT_MAX_DIST):
             (context_ref_start, context_read_start, context_read_end,
-             context_seqs) = extract_variant_contexts(variant, context_variants)
+             np_context_seqs) = extract_variant_contexts(
+                 variant, context_variants)
 
             # revcomp seqs for strand and convert to numpy arrays
-            var_ref, var_alts = variant.ref, variant.alts
+            np_var_ref, np_var_alts = variant.np_ref, variant.np_alts
             if read_ref_pos.strand == -1:
-                context_seqs, var_ref, var_alts = revcomp_variant(
-                    context_seqs, var_ref, var_alts)
+                np_context_seqs, np_var_ref, np_var_alts = revcomp_variant(
+                    np_context_seqs, np_var_ref, np_var_alts)
                 context_read_start, context_read_end = (
-                    len(strand_read_ref_seq) - context_read_end,
-                    len(strand_read_ref_seq) - context_read_start)
-            try:
-                np_s_var_ref_seq = mh.seq_to_int(var_ref)
-                np_s_var_alt_seqs = [mh.seq_to_int(alt) for alt in var_alts]
-                np_s_context_seqs = [
-                    (mh.seq_to_int(up_context_seq),
-                     mh.seq_to_int(dn_context_seq))
-                    for up_context_seq, dn_context_seq in context_seqs]
-            except mh.MegaError:
+                    strand_read_np_ref_seq.shape[0] - context_read_end,
+                    strand_read_np_ref_seq.shape[0] - context_read_start)
+            if max(
+                    max(np_var_ref),
+                    max(max(np_alt) for np_alt in np_var_alts),
+                    max(max(max(up_seq), max(dn_seq))
+                        for up_seq, dn_seq in np_context_seqs)) > len(
+                                mh.ALPHABET):
                 # some sequence contained invalid characters
                 logger.debug(
                     'Invalid sequence encountered for variant ' +
                     '"{}" at {}:{}'.format(
-                        variant.id, variant.chrom, variant.start))
+                        variant.var.id, variant.var.chrom, variant.var.start))
                 continue
 
             yield (
-                np_s_var_ref_seq, np_s_var_alt_seqs, np_s_context_seqs,
-                context_read_start, context_read_end, variant.ref,
-                variant.alts, variant.id, variant.start)
+                np_var_ref, np_var_alts, np_context_seqs,
+                context_read_start, context_read_end, variant.var.ref,
+                variant.var.alts, variant.var.id, variant.var.start)
 
         return
 
