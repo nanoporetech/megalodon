@@ -26,7 +26,7 @@ from megalodon import (
 from megalodon._version import MEGALODON_VERSION
 
 
-_DO_PROFILE = True
+_DO_PROFILE = False
 _UNEXPECTED_ERROR_CODE = 'Unexpected error'
 _UNEXPECTED_ERROR_FN = 'unexpected_snp_calling_errors.{}.err'
 _MAX_NUM_UNEXP_ERRORS = 50
@@ -602,7 +602,8 @@ def snps_validation(args, is_cat_mod, output_size, aligner):
             args.snp_all_paths, args.write_snps_text,
             args.variant_context_bases, snp_calib_fn,
             snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE,
-            args.refs_include_snps, aligner, edge_buffer=args.edge_buffer)
+            args.refs_include_snps, aligner, edge_buffer=args.edge_buffer,
+            context_min_alt_prob=args.context_min_alt_prob)
     except mh.MegaError as e:
         logger.error(str(e))
         sys.exit(1)
@@ -781,6 +782,12 @@ def get_parser():
         'Only ouput to database.')
 
     snp_grp.add_argument(
+        '--context-min-alt-prob', type=float,
+        default=mh.DEFAULT_CONTEXT_MIN_ALT_PROB,
+        help=hidden_help('Minimum alternative alleles probability to ' +
+                         'include variant in computation of nearby variants. ' +
+                         'Default: %(default)f'))
+    snp_grp.add_argument(
         '--disable-snp-calibration', action='store_true',
         help=hidden_help('Use raw SNP scores from the network. ' +
                          'Default: Calibrate score with ' +
@@ -928,7 +935,7 @@ def get_parser():
                          'on application crash), 1 (DB corruption on system ' +
                          'crash), 2 (DB safe mode). Default: %(default)d'))
     misc_grp.add_argument(
-        '--edge-buffer', type=int, default=100,
+        '--edge-buffer', type=int, default=mh.DEFAULT_EDGE_BUFFER,
         help=hidden_help('Do not process sequence variant or modified base ' +
                          'calls near edge of read mapping. ' +
                          'Default: %(default)d'))

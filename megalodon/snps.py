@@ -93,7 +93,8 @@ def logsumexp(x):
 
 def write_per_read_debug(
         snp_ref_pos, snp_id, read_ref_pos, np_s_snp_ref_seq, np_s_snp_alt_seqs,
-        np_s_context_seqs, loc_contexts_ref_lps, loc_contexts_alts_lps, logger):
+        np_s_context_seqs, loc_contexts_ref_lps, loc_contexts_alts_lps,
+        w_context, logger):
     ref_seq = mh.int_to_seq(np_s_snp_ref_seq)
     if read_ref_pos.strand == -1:
         ref_seq = mh.revcomp(ref_seq)
@@ -113,11 +114,12 @@ def write_per_read_debug(
     for ref_lp, alt_lps, (up_seq, dn_seq) in zip(
             loc_contexts_ref_lps, zip(*loc_contexts_alts_lps), context_seqs):
         out_txt += ('VARIANT_FULL_DATA: {}\t{}\t{}\t{}\t{}[{}]{}\t{}\t' +
-                    '{:.2f}\t{}\n').format(
+                    '{:.2f}\t{}\t{}\n').format(
                         read_ref_pos.chrm, read_ref_pos.strand, snp_ref_pos,
                         snp_id, up_seq, ref_seq, dn_seq, ','.join(alts_seq),
                         ref_lp, ','.join(('{:.2f}'.format(alt_lp)
-                                          for alt_lp in alt_lps)))
+                                          for alt_lp in alt_lps)),
+                        'WITH_CONTEXT' if w_context else 'NO_CONTEXT')
     logger.debug(out_txt)
     return
 
@@ -147,50 +149,57 @@ def score_seq(tpost, seq, tpost_start=0, tpost_end=None,
 def call_read_snps(
         snps_data, read_ref_pos, strand_read_np_ref_seq, rl_cumsum, r_to_q_poss,
         r_post, post_mapped_start):
+    if read_ref_pos.end - read_ref_pos.start <= 2 * snps_data.edge_buffer:
+        raise mh.MegaError('Mapped region too short for variant calling.')
+
     # call all snps overlapping this read
     r_snp_calls = []
     logger = logging.get_logger('per_read_snps')
+    read_cached_scores = {}
+    read_variants = snps_data.fetch_read_variants(read_ref_pos)
+    filt_read_variants = []
+    # first pass over variants assuming the reference ground truth
+    # (not including context variants)
     for (np_s_snp_ref_seq, np_s_snp_alt_seqs, np_s_context_seqs,
-         s_ref_start, s_ref_end, snp_ref_seq, snp_alt_seqs, snp_id,
-         snp_ref_pos) in snps_data.iter_snps(
-             read_ref_pos, strand_read_np_ref_seq):
+         s_ref_start, s_ref_end, variant) in snps_data.iter_snps(
+             read_variants, read_ref_pos, strand_read_np_ref_seq,
+             context_max_dist=0):
         blk_start  = rl_cumsum[r_to_q_poss[s_ref_start]]
         blk_end = rl_cumsum[r_to_q_poss[s_ref_end]]
         if blk_end - blk_start < max(
                 len(up_seq) + len(dn_seq)
                 for up_seq, dn_seq in np_s_context_seqs) + max(
-                        len(snp_ref_seq), max(len(snp_alt_seq)
-                                              for snp_alt_seq in snp_alt_seqs)):
+                        np_s_snp_ref_seq.shape[0], max(
+                            snp_alt_seq.shape[0]
+                            for snp_alt_seq in np_s_snp_alt_seqs)):
             # no valid mapping over large inserted query bases
             # i.e. need as many "events/strides" as bases for valid mapping
             continue
 
-        ref_context_seqs = (
-            np.concatenate([up_context_seq, np_s_snp_ref_seq, dn_context_seq])
-            for up_context_seq, dn_context_seq in np_s_context_seqs)
-        loc_contexts_ref_lps = np.array([score_seq(
-            r_post, ref_seq, post_mapped_start + blk_start,
+        np_ref_seq = np.concatenate([
+            np_s_context_seqs[0][0], np_s_snp_ref_seq, np_s_context_seqs[0][1]])
+        loc_ref_lp = score_seq(
+            r_post, np_ref_seq, post_mapped_start + blk_start,
             post_mapped_start + blk_end, snps_data.all_paths)
-                                         for ref_seq in ref_context_seqs])
-        loc_ref_lp = logsumexp(loc_contexts_ref_lps)
+
+        loc_alt_lps = []
         loc_alt_llrs = []
         if _DEBUG_PER_READ:
             loc_contexts_alts_lps = []
-        for np_s_snp_alt_seq in np_s_snp_alt_seqs:
-            alt_context_seqs = (
-                np.concatenate([
-                    up_context_seq, np_s_snp_alt_seq, dn_context_seq])
-                for up_context_seq, dn_context_seq in np_s_context_seqs)
-            loc_contexts_alt_lps = np.array([score_seq(
-                r_post, alt_seq, post_mapped_start + blk_start,
+        for np_s_snp_alt_seq, var_alt_seq in zip(
+                np_s_snp_alt_seqs, variant.var.alts):
+            np_alt_seq = np.concatenate([
+                np_s_context_seqs[0][0], np_s_snp_alt_seq,
+                np_s_context_seqs[0][1]])
+            loc_alt_lp = score_seq(
+                r_post, np_alt_seq, post_mapped_start + blk_start,
                 post_mapped_start + blk_end, snps_data.all_paths)
-                                             for alt_seq in alt_context_seqs])
-            loc_alt_lp = logsumexp(loc_contexts_alt_lps)
+            loc_alt_lps.append(loc_alt_lp)
             if _DEBUG_PER_READ:
-                loc_contexts_alts_lps.append(loc_contexts_alt_lps)
+                loc_contexts_alts_lps.append(np.array([loc_alt_lp,]))
             # calibrate log probs
             loc_alt_llrs.append(snps_data.calibrate_llr(
-                loc_ref_lp - loc_alt_lp, snp_ref_seq, snp_alt_seqs))
+                loc_ref_lp - loc_alt_lp, variant.var.ref, var_alt_seq))
 
         # due to calibration mutli-allelic log likelihoods could result in
         # inferred negative reference likelihood, so re-normalize here
@@ -198,14 +207,76 @@ def call_read_snps(
 
         if _DEBUG_PER_READ:
             write_per_read_debug(
-                snp_ref_pos, snp_id, read_ref_pos, np_s_snp_ref_seq,
-                np_s_snp_alt_seqs, np_s_context_seqs,
-                loc_contexts_ref_lps, loc_contexts_alts_lps, logger)
+                variant.var.start, variant.var.id, read_ref_pos,
+                np_s_snp_ref_seq, np_s_snp_alt_seqs, np_s_context_seqs,
+                np.array([loc_ref_lp,]), loc_contexts_alts_lps, False, logger)
+
+        if sum(np.exp(loc_alt_log_ps)) >= snps_data.context_min_alt_prob:
+            filt_read_variants.append(variant)
+            read_cached_scores[
+                (variant.var.id, variant.var.start, variant.var.stop)] = (
+                    loc_ref_lp, loc_alt_lps)
+        else:
+            r_snp_calls.append((
+                variant.var.start, loc_alt_log_ps, variant.var.ref,
+                variant.var.alts, variant.var.id))
+
+    # second round for variants with some evidence for alternative alleles
+    # process with other potential variants as context
+    for (np_s_snp_ref_seq, np_s_snp_alt_seqs, np_s_context_seqs,
+         s_ref_start, s_ref_end, variant) in snps_data.iter_snps(
+             filt_read_variants, read_ref_pos, strand_read_np_ref_seq):
+        blk_start  = rl_cumsum[r_to_q_poss[s_ref_start]]
+        blk_end = rl_cumsum[r_to_q_poss[s_ref_end]]
+        ref_cntxt_ref_lp, ref_cntxt_alt_lps = read_cached_scores[(
+            variant.var.id, variant.var.start, variant.var.stop)]
+
+        # skip first (reference) context seq as this was cached
+        ref_context_seqs = (
+            np.concatenate([up_context_seq, np_s_snp_ref_seq, dn_context_seq])
+            for up_context_seq, dn_context_seq in np_s_context_seqs[1:])
+        loc_contexts_ref_lps = np.array([ref_cntxt_ref_lp] + [score_seq(
+            r_post, ref_seq, post_mapped_start + blk_start,
+            post_mapped_start + blk_end, snps_data.all_paths)
+                                         for ref_seq in ref_context_seqs])
+        loc_ref_lp = logsumexp(loc_contexts_ref_lps)
+
+        loc_alt_llrs = []
+        if _DEBUG_PER_READ:
+            loc_contexts_alts_lps = []
+        for np_s_snp_alt_seq, var_alt_seq, ref_cntxt_alt_lp in zip(
+                np_s_snp_alt_seqs, variant.var.alts, ref_cntxt_alt_lps):
+            alt_context_seqs = (
+                np.concatenate([
+                    up_context_seq, np_s_snp_alt_seq, dn_context_seq])
+                for up_context_seq, dn_context_seq in np_s_context_seqs[1:])
+            loc_contexts_alt_lps = np.array([ref_cntxt_alt_lp,] + [
+                score_seq(r_post, alt_seq, post_mapped_start + blk_start,
+                          post_mapped_start + blk_end, snps_data.all_paths)
+                for alt_seq in alt_context_seqs])
+            loc_alt_lp = logsumexp(loc_contexts_alt_lps)
+            if _DEBUG_PER_READ:
+                loc_contexts_alts_lps.append(loc_contexts_alt_lps)
+            # calibrate log probs
+            loc_alt_llrs.append(snps_data.calibrate_llr(
+                loc_ref_lp - loc_alt_lp, variant.var.ref, var_alt_seq))
+
+        # due to calibration mutli-allelic log likelihoods could result in
+        # inferred negative reference likelihood, so re-normalize here
+        loc_alt_log_ps = calibration.compute_log_probs(np.array(loc_alt_llrs))
+
+        if _DEBUG_PER_READ:
+            write_per_read_debug(
+                variant.var.start, variant.var.id, read_ref_pos,
+                np_s_snp_ref_seq, np_s_snp_alt_seqs, np_s_context_seqs,
+                loc_contexts_ref_lps, loc_contexts_alts_lps, True, logger)
 
         r_snp_calls.append((
-            snp_ref_pos, loc_alt_log_ps, snp_ref_seq, snp_alt_seqs, snp_id))
+            variant.var.start, loc_alt_log_ps, variant.var.ref,
+            variant.var.alts, variant.var.id))
 
-    return r_snp_calls
+    # re-sort variants after adding context-included computations
+    return sorted(r_snp_calls, key=lambda x: x[0])
 
 
 ###############################
@@ -509,7 +580,8 @@ class SnpData(object):
             write_snps_txt, context_bases, snps_calib_fn=None,
             call_mode=DIPLOID_MODE, do_pr_ref_snps=False, aligner=None,
             keep_snp_fp_open=False, do_validate_reference=True,
-            edge_buffer=100):
+            edge_buffer=mh.DEFAULT_EDGE_BUFFER,
+            context_min_alt_prob=mh.DEFAULT_CONTEXT_MIN_ALT_PROB):
         logger = logging.get_logger('snps')
         self.max_indel_size = max_indel_size
         self.all_paths = all_paths
@@ -524,6 +596,7 @@ class SnpData(object):
         self.call_mode = call_mode
         self.do_pr_ref_snps = do_pr_ref_snps
         self.edge_buffer = edge_buffer
+        self.context_min_alt_prob = context_min_alt_prob
         self.variant_fn = variant_fn
         self.variants_idx = None
         if self.variant_fn is None:
@@ -730,9 +803,11 @@ class SnpData(object):
         if this is not done, allele probabilities will not be normalized
         correctly.
         """
+        grouped_vars = defaultdict(list)
+        for var in fetch_res:
+            grouped_vars[(var.start, var.stop)].append(var)
         variants = []
-        for _, site_vars in groupby(
-                fetch_res, lambda var: (var.start, var.stop)):
+        for _, site_vars in sorted(grouped_vars.items()):
             site_vars = list(site_vars)
             if len(site_vars) == 1:
                 site_var = site_vars[0]
@@ -760,10 +835,24 @@ class SnpData(object):
 
         return variants
 
-    def iter_snps(self, read_ref_pos, strand_read_np_ref_seq, max_contexts=16):
+    def fetch_read_variants(self, read_ref_pos):
+        try:
+            fetch_res = self.variants_idx.fetch(
+                read_ref_pos.chrm, read_ref_pos.start + self.edge_buffer,
+                read_ref_pos.end - self.edge_buffer)
+        except ValueError:
+            raise mh.MegaError('Mapped location not valid for variants file.')
+
+        read_variants = self.merge_variants(fetch_res)
+        return read_variants
+
+    def iter_snps(
+            self, read_variants, read_ref_pos, strand_read_np_ref_seq,
+            max_contexts=16, context_max_dist=mh.CONTEXT_MAX_DIST):
         """Iterator over SNPs overlapping the read mapped position.
 
         Args:
+            read_variants: List of variant objects (from fetch_read_variants)
             read_ref_pos: Read reference mapping position
                 (`megalodon.mapping.MAP_POS`)
             strand_read_np_ref_seq: read centric mapped reference sequence
@@ -841,21 +930,11 @@ class SnpData(object):
 
 
         logger = logging.get_logger('snps')
-        if read_ref_pos.end - read_ref_pos.start <= 2 * self.edge_buffer:
-            raise mh.MegaError('Mapped region too short for variant calling.')
         # convert to forward strand sequence in order to annotate with variants
         read_ref_seq = (strand_read_np_ref_seq if read_ref_pos.strand == 1 else
                         mh.revcomp_np(strand_read_np_ref_seq))
-        try:
-            fetch_res = self.variants_idx.fetch(
-                read_ref_pos.chrm, read_ref_pos.start + self.edge_buffer,
-                read_ref_pos.end - self.edge_buffer)
-        except ValueError:
-            raise mh.MegaError('Mapped location not valid for variants file.')
-
-        read_variants = self.merge_variants(fetch_res)
         for variant, context_variants in self.iter_context_variants(
-                read_variants, mh.CONTEXT_MAX_DIST):
+                read_variants, context_max_dist):
             (context_ref_start, context_read_start, context_read_end,
              np_context_seqs) = extract_variant_contexts(
                  variant, context_variants)
@@ -883,8 +962,7 @@ class SnpData(object):
 
             yield (
                 np_var_ref, np_var_alts, np_context_seqs,
-                context_read_start, context_read_end, variant.var.ref,
-                variant.var.alts, variant.var.id, variant.var.start)
+                context_read_start, context_read_end, variant)
 
         return
 
