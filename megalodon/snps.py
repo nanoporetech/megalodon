@@ -947,12 +947,9 @@ class SnpData(object):
                 context_read_start, context_read_end = (
                     strand_read_np_ref_seq.shape[0] - context_read_end,
                     strand_read_np_ref_seq.shape[0] - context_read_start)
-            if max(
-                    max(np_var_ref),
-                    max(max(np_alt) for np_alt in np_var_alts),
-                    max(max(max(up_seq), max(dn_seq))
-                        for up_seq, dn_seq in np_context_seqs)) > len(
-                                mh.ALPHABET):
+            if np.concatenate([np_var_ref,] + np_var_alts + [
+                    seq for cntxt_seqs in np_context_seqs
+                    for seq in cntxt_seqs]).max() > len(mh.ALPHABET):
                 # some sequence contained invalid characters
                 logger.debug(
                     'Invalid sequence encountered for variant ' +
