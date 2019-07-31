@@ -10,7 +10,12 @@ HEADER = """##fileformat=VCFv4.1
 ##source=megalodon_haploid_merge
 {}
 ##phasing=megalodon_haploid_merge
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">
 ##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype Quality">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read Depth">
+##FORMAT=<ID=GL,Number=G,Type=Float,Description="Log10 likelihoods for genotypes">
+##FORMAT=<ID=PL,Number=G,Type=Integer,Description="Normalized, Phred-scaled likelihoods for genotypes">
 #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	SAMPLE
 """
 
@@ -23,7 +28,7 @@ RECORD_LINE = ('{chrm}\t{pos}\t{rid}\t{ref}\t{alts}\t{qual}\t.\tDP={dp:d}\t' +
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        'phased_variants',
+        'diploid_called_variants',
         help='Phased variants from which the diploid calls are derived.')
     parser.add_argument(
         'haplotype1_variants',
@@ -130,7 +135,7 @@ def write_var(
 def main():
     args = get_parser().parse_args()
 
-    vars0_idx = pysam.VariantFile(args.phased_variants)
+    vars0_idx = pysam.VariantFile(args.diploid_called_variants)
     vars1_idx = pysam.VariantFile(args.haplotype1_variants)
     vars2_idx = pysam.VariantFile(args.haplotype2_variants)
     try:
