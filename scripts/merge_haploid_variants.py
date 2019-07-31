@@ -3,7 +3,7 @@ import argparse
 import pysam
 import numpy as np
 
-from megalodon import snps
+from megalodon import snps, megalodon_helper as mh
 
 
 HEADER = """##fileformat=VCFv4.1
@@ -16,7 +16,8 @@ HEADER = """##fileformat=VCFv4.1
 
 CONTIG_HEADER_LINE = "##contig=<ID={},length={}>"
 
-RECORD_LINE = "{}\t{}\t{}\t{}\t{}\t{}\t.\t.\tGT\t{}\n"
+RECORD_LINE = ('{chrm}\t{pos}\t{rid}\t{ref}\t{alts}\t{qual}\t.\tDP={dp:d}\t' +
+               'GT:GQ:DP:GL:PL\t{gt}:{gq:.0f}:{dp:d}:{gl}:{pl}\n')
 
 
 def get_parser():
@@ -47,7 +48,84 @@ def are_same_var(v0, v1, v2):
 def parse_qual(qual):
     if qual is None:
         return 0
-    return qual
+    return int(qual)
+
+def compute_diploid_stats(gl1, gl2):
+    probs, gts = [], []
+    for a2 in range(len(gl1)):
+        for a1 in range(a2 + 1):
+            if a1 == a2:
+                gts.append('{}|{}'.format(a1, a2))
+                probs.append(np.exp(gl1[a1] + gl2[a1]))
+                continue
+            p12 = np.exp(gl1[a1] + gl2[a2])
+            p21 = np.exp(gl1[a2] + gl2[a1])
+            if p12 > p21:
+                gts.append('{}|{}'.format(a1, a2))
+                probs.append(p12)
+            else:
+                gts.append('{}|{}'.format(a2, a1))
+                probs.append(p21)
+    with np.errstate(divide='ignore'):
+        gl = np.maximum(mh.MIN_GL_VALUE, np.log10(probs))
+    raw_pl = -10 * gl
+    # "normalized" PL values stored as decsribed by VCF format
+    pl = np.minimum(raw_pl - raw_pl.min(), mh.MAX_PL_VALUE)
+    s_pl = np.sort(pl)
+
+    gq = np.around(s_pl[1])
+    gt = gts[np.argmax(probs)]
+    try:
+        qual = int(np.minimum(np.around(raw_pl[0]), mh.MAX_PL_VALUE))
+    except ValueError:
+        qual = mh.MAX_PL_VALUE
+
+    return gt, gq, gl, pl, qual
+
+def write_var(
+        curr_v0_rec, curr_v1_rec, curr_v2_rec, out_vars,
+        vars0_contig_iter, vars1_contig_iter, vars2_contig_iter, contig):
+    s0_attrs = next(iter(curr_v0_rec.samples.values()))
+    gt0, gq0, gl0, pl0, dp = (
+        s0_attrs['GT'], s0_attrs['GQ'], s0_attrs['GL'], s0_attrs['PL'],
+        int(s0_attrs['DP']))
+    pos, rid, ref, alts = (curr_v0_rec.pos, curr_v0_rec.id, curr_v0_rec.ref,
+                           ','.join(curr_v0_rec.alts))
+    if are_same_var(curr_v0_rec, curr_v1_rec, curr_v2_rec):
+        s1_attrs = next(iter(curr_v1_rec.samples.values()))
+        s2_attrs = next(iter(curr_v2_rec.samples.values()))
+        # don't let haploid calls change a homozygous call
+        # TODO explore settings where this restriction could
+        # be relaxed
+        if len(set(gt0)) == 1:
+            gt = '{}|{}'.format(*gt0)
+            gq, gl, pl = gq0, gl0, pl0
+            qual = parse_qual(curr_v0_rec.qual)
+        else:
+            gt, gq, gl, pl, qual = compute_diploid_stats(
+                s1_attrs['GL'], s2_attrs['GL'])
+        curr_v0_rec = next(vars0_contig_iter)
+        curr_v1_rec = next(vars1_contig_iter)
+        curr_v2_rec = next(vars2_contig_iter)
+    else:
+        # write un-phased variant back out.
+        qual = parse_qual(curr_v0_rec.qual)
+        gt = '{}|{}'.format(*gt0)
+        gq, gl, pl = gq0, gl0, pl0
+        if curr_v0_rec.pos == curr_v1_rec.pos:
+            curr_v1_rec = next(vars1_contig_iter)
+        if curr_v0_rec.pos == curr_v2_rec.pos:
+            curr_v2_rec = next(vars2_contig_iter)
+        curr_v0_rec = next(vars0_contig_iter)
+
+    qual = '.' if qual == 0 else '{:d}'.format(qual)
+    gl_fmt = ','.join('{:.2f}' for _ in range(len(gl))).format(*gl)
+    pl_fmt = ','.join('{:.0f}' for _ in range(len(pl))).format(*pl)
+    out_vars.write(RECORD_LINE.format(
+        chrm=contig, pos=pos, rid=rid, ref=ref, alts=alts, qual=qual, dp=dp,
+        gt=gt, gq=gq, gl=gl_fmt, pl=pl_fmt))
+
+    return curr_v0_rec, curr_v1_rec, curr_v2_rec
 
 def main():
     args = get_parser().parse_args()
@@ -81,57 +159,21 @@ def main():
             continue
         while True:
             try:
-                gt0 = next(iter(curr_v0_rec.samples.values()))['GT']
-                if are_same_var(curr_v0_rec, curr_v1_rec, curr_v2_rec):
-                    s1_attrs = next(iter(curr_v1_rec.samples.values()))
-                    s2_attrs = next(iter(curr_v2_rec.samples.values()))
-                    # don't let haploid calls change a homozygous call
-                    # TODO explore settings where this restriction could
-                    # be relaxed
-                    if len(set(gt0)) == 1:
-                        gt = '{}|{}'.format(*gt0)
-                        qual = parse_qual(curr_v0_rec.qual)
-                    else:
-                        gt1 = s1_attrs['GT'][0]
-                        gt2 = s2_attrs['GT'][0]
-                        gt = '{}|{}'.format(gt1, gt2)
-                        if gt1 != 0 and gt2 == 0:
-                            qual = parse_qual(curr_v1_rec.qual)
-                        elif gt1 == 0 and gt2 != 0:
-                            qual = parse_qual(curr_v2_rec.qual)
-                        else:
-                            qual = max(parse_qual(curr_v1_rec.qual),
-                                       parse_qual(curr_v2_rec.qual))
-                    if qual == 0: qual = '.'
-                    out_vars.write(RECORD_LINE.format(
-                        contig, curr_v1_rec.pos, curr_v1_rec.id,
-                        curr_v1_rec.ref, ','.join(curr_v1_rec.alts), qual, gt))
-                    curr_v0_rec = next(vars0_contig_iter)
-                    curr_v1_rec = next(vars1_contig_iter)
-                    curr_v2_rec = next(vars2_contig_iter)
-                elif curr_v1_rec.pos < curr_v0_rec.pos:
+                if curr_v1_rec.pos < curr_v0_rec.pos:
                     # variant in haplotype 1 does not exist in phased variants
                     # this should never happen
                     curr_v1_rec = next(vars1_contig_iter)
+                    continue
                 elif curr_v2_rec.pos < curr_v0_rec.pos:
                     # variant in haplotype 2 does not exist in phased variants
                     # this should never happen
                     curr_v2_rec = next(vars2_contig_iter)
-                else:
-                    # write phased variant back out.
-                    if curr_v0_rec.qual is None or curr_v0_rec.qual == 0:
-                        qual = '.'
-                    else:
-                        qual = int(curr_v0_rec.qual)
-                    out_vars.write(RECORD_LINE.format(
-                        contig, curr_v0_rec.pos, curr_v0_rec.id,
-                        curr_v0_rec.ref, ','.join(curr_v0_rec.alts),
-                        qual, '{}|{}'.format(*gt0)))
-                    if curr_v0_rec.pos == curr_v1_rec.pos:
-                        curr_v1_rec = next(vars1_contig_iter)
-                    if curr_v0_rec.pos == curr_v2_rec.pos:
-                        curr_v2_rec = next(vars2_contig_iter)
-                    curr_v0_rec = next(vars0_contig_iter)
+                    continue
+
+                curr_v0_rec, curr_v1_rec, curr_v2_rec = write_var(
+                    curr_v0_rec, curr_v1_rec, curr_v2_rec, out_vars,
+                    vars0_contig_iter, vars1_contig_iter, vars2_contig_iter,
+                    contig)
             except StopIteration:
                 break
 

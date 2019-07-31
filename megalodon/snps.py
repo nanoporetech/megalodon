@@ -1200,6 +1200,8 @@ class AggSnps(mh.AbstractAggregationClass):
 
         all_lps = np.concatenate([ref_lps.reshape(1, -1), alts_lps], axis=0)
         genotype_lps, het_gts, gts = [], [], []
+        # order genotypes as described here under the GL genotype fields section
+        # http://samtools.github.io/hts-specs/VCFv4.1.pdf
         for a2 in range(all_lps.shape[0]):
             for a1 in range(a2 + 1):
                 gts.append('{}/{}'.format(a1, a2))
