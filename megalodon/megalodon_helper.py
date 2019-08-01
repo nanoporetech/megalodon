@@ -38,8 +38,8 @@ SEQ_TO_INT_ARR[19] = 3
 _MAX_QUEUE_SIZE = 1000
 
 # VCF spec text
-MIN_GL_VALUE = -1000
-MAX_PL_VALUE = 255
+MIN_GL_VALUE = -999
+MAX_PL_VALUE = 999
 VCF_VERSION_MI = 'fileformat=VCFv{}'
 FILE_DATE_MI = 'fileDate={}'
 SOURCE_MI = 'source=ont-megalodon.v{}'
