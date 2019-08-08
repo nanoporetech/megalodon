@@ -91,35 +91,36 @@ cdef inline void decode_forward_step(
         float * prev_fwd, float * curr_fwd, size_t * tb):
     cdef size_t nff_state = nbase + nbase
 
-    # ib -- fl[i]p to base states
-    cdef size_t ib, ob, offset_to_state, from_state
+    # to flip base states
+    cdef size_t offset_to_state, to_state, from_state
     cdef float score
-    for ib in range(nbase):
-        offset_to_state = ib * nff_state
+    for to_state in range(nbase):
+        offset_to_state = to_state * nff_state
         # from 0 base state
-        curr_fwd[ib] = curr_logprob[offset_to_state + 0] + prev_fwd[0]
-        tb[ib] = 0
+        curr_fwd[to_state] = curr_logprob[offset_to_state + 0] + prev_fwd[0]
+        tb[to_state] = 0
         for from_state in range(1, nff_state):
             # rest of from base states (either flip or flop)
             score = (curr_logprob[offset_to_state + from_state] +
                      prev_fwd[from_state])
-            if score > curr_fwd[ib]:
-                curr_fwd[ib] = score
-                tb[ib] = from_state
+            if score > curr_fwd[to_state]:
+                curr_fwd[to_state] = score
+                tb[to_state] = from_state
 
     cdef size_t offset_to_flop = nff_state * nbase
-    # ob -- fl[o]p to base state
-    for ob in range(nbase, nff_state):
+    # to flop base state
+    for to_state in range(nbase, nff_state):
         # stay state
-        curr_fwd[ob] = prev_fwd[ob] + curr_logprob[offset_to_flop + ob]
-        tb[ob] = ob
+        curr_fwd[to_state] = prev_fwd[to_state] + curr_logprob[
+            offset_to_flop + to_state]
+        tb[to_state] = to_state
         # move from flip to flop state
-        from_state = ob - nbase
+        from_state = to_state - nbase
         score = (curr_logprob[offset_to_flop + from_state] +
                  prev_fwd[from_state])
-        if score > curr_fwd[ob]:
-            curr_fwd[ob] = score
-            tb[ob] = from_state
+        if score > curr_fwd[to_state]:
+            curr_fwd[to_state] = score
+            tb[to_state] = from_state
 
     return
 
@@ -155,7 +156,7 @@ cdef float flipflop_decode_trans(
     for idx in range(1, nff_state):
         if curr[idx] > score:
             score = curr[idx]
-            max_idx = 0
+            max_idx = idx
 
     free(prev)
     free(curr)
@@ -174,6 +175,51 @@ cdef float flipflop_decode_trans(
     return score
 
 
+cdef inline void decode_forward_step_fb(
+        float * curr_logprob, size_t nbase,
+        float * prev_fwd, float * curr_fwd):
+    cdef size_t nff_state = nbase + nbase
+
+    # to flip base states
+    cdef size_t offset_to_state, to_state, from_state
+    cdef float score
+    for to_state in range(nbase):
+        offset_to_state = to_state * nff_state
+        # from 0 base state
+        curr_fwd[to_state] = curr_logprob[offset_to_state + 0] + prev_fwd[0]
+        for from_state in range(1, nff_state):
+            # rest of from base states (either flip or flop)
+            score = (curr_logprob[offset_to_state + from_state] +
+                     prev_fwd[from_state])
+            curr_fwd[to_state] = fmaxf(curr_fwd[to_state], score) + log1pf(
+                expf(-fabsf(curr_fwd[to_state] - score)))
+
+    cdef size_t offset_to_flop = nff_state * nbase
+    # to flop base state
+    for to_state in range(nbase, nff_state):
+        # stay state
+        curr_fwd[to_state] = prev_fwd[to_state] + curr_logprob[
+            offset_to_flop + to_state]
+        # move from flip to flop state
+        from_state = to_state - nbase
+        score = (curr_logprob[offset_to_flop + from_state] +
+                 prev_fwd[from_state])
+        curr_fwd[to_state] = fmaxf(curr_fwd[to_state], score) + log1pf(
+            expf(-fabsf(curr_fwd[to_state] - score)))
+
+    cdef float row_logsum, tpost_val
+    row_logsum = curr_fwd[0]
+    for from_state in range(1, nff_state):
+        tpost_val = curr_fwd[from_state]
+        row_logsum = fmaxf(row_logsum, tpost_val) + log1pf(
+            expf(-fabsf(row_logsum - tpost_val)))
+
+    for to_state in range(nff_state):
+        curr_fwd[to_state] -= row_logsum
+
+    return
+
+
 cdef void decode_forward(
         np.ndarray[np.float32_t, ndim=2] logprob, size_t nbase, size_t nblk,
         np.ndarray[np.float32_t, ndim=2] fwd):
@@ -182,15 +228,12 @@ cdef void decode_forward(
 
     cdef size_t idx
     for idx in range(nff_state):
-        fwd[0, idx] = 0
+        fwd[0, idx] = -np.log(nff_state)
 
-    cdef size_t * tmp_tb = <size_t *> calloc(nff_state, sizeof(size_t))
     cdef size_t blk
     for blk in range(nblk):
-        decode_forward_step(&logprob[blk,0], nbase, &fwd[blk,0],
-                            &fwd[blk + 1,0], tmp_tb)
-
-    free(tmp_tb)
+        decode_forward_step_fb(&logprob[blk,0], nbase, &fwd[blk,0],
+                               &fwd[blk + 1,0])
 
     return
 
@@ -214,62 +257,61 @@ cdef void flipflop_trans_post(
         prev[idx] = -LARGE_VAL
 
     # Backwards pass
-    cdef size_t blk, ib, ob, st, from_base
-    cdef float score
+    cdef size_t blk, st, to_state, from_state
+    cdef float score, row_logsum, tpost_val
     for blk in range(nblk, 0, -1):
         # swap curr and prev
         tmp = prev
         prev = curr
         curr = tmp
 
-        for ib in range(nbase):
-            # End up in flip state
+        # to flip state
+        for to_state in range(nbase):
             for st in range(nff_state):
-                tpost[blk - 1, ib * nff_state + st] = (
-                    fwd[blk - 1, st] + prev[ib] +
-                    logprob[blk - 1, ib * nff_state + st])
-        for ob in range(nbase, nff_state):
-            # End up in flop state
-            ib = ob - nbase
-            tpost[blk - 1, nff_state * nbase + ob] = (
-                fwd[blk - 1, ob] + prev[ob] +
-                logprob[blk - 1, nff_state * nbase + ob])
-            tpost[blk - 1, nff_state * nbase + ib] = (
-                fwd[blk - 1, ib] + prev[ob] +
-                logprob[blk - 1, nff_state * nbase + ib])
+                tpost[blk - 1, to_state * nff_state + st] = (
+                    fwd[blk - 1, st] + prev[to_state] +
+                    logprob[blk - 1, to_state * nff_state + st])
+        # to flop state
+        for to_state in range(nbase, nff_state):
+            # from flip
+            tpost[blk - 1, nff_state * nbase + to_state - nbase] = (
+                fwd[blk - 1, to_state - nbase] + prev[to_state] +
+                logprob[blk - 1, nff_state * nbase + to_state - nbase])
+            # stay in flop
+            tpost[blk - 1, nff_state * nbase + to_state] = (
+                fwd[blk - 1, to_state] + prev[to_state] +
+                logprob[blk - 1, nff_state * nbase + to_state])
 
         # Update backwards vector
-        # ob -- fl[o]p to base state
-        for ob in range(nbase, nff_state):
-            from_base = ob - nbase
-            # Stay in flop state
-            curr[ob] = logprob[blk - 1, nff_state * nbase + ob] + prev[ob]
+        # to flop state
+        for to_state in range(nbase, nff_state):
             # Move from flip to flop state
-            curr[from_base] = logprob[
-                blk - 1, nff_state * nbase + from_base] + prev[ob]
-        # ib -- fl[i]p to base states
-        for ib in range(nbase):
-            for from_base in range(nff_state):
-                # rest of from base states (either flip or flop)
+            curr[to_state - nbase] = logprob[
+                blk - 1, nff_state * nbase + to_state - nbase] + prev[to_state]
+            # Stay in flop state
+            curr[to_state] = logprob[
+                blk - 1, nff_state * nbase + to_state] + prev[to_state]
+        # to flip state
+        for to_state in range(nbase):
+            for from_state in range(nff_state):
                 score = (
-                    logprob[blk - 1, ib * nff_state + from_base] +
-                    prev[ib])
-                if score > curr[from_base]:
-                    curr[from_base] = score
+                    logprob[blk - 1, to_state * nff_state + from_state] +
+                    prev[to_state])
+                curr[from_state] = fmaxf(curr[from_state], score) + log1pf(
+                    expf(-fabsf(curr[from_state] - score)))
+
+        # normalize backwards scores
+        row_logsum = curr[0]
+        for from_state in range(1, nff_state):
+            tpost_val = curr[from_state]
+            row_logsum = fmaxf(row_logsum, tpost_val) + log1pf(
+                expf(-fabsf(row_logsum - tpost_val)))
+
+        for to_state in range(nff_state):
+            curr[to_state] -= row_logsum
 
     free(curr)
     free(prev)
-
-    #log_row_normalise_inplace(&tpost[0,0], nblk, ntrans_state)
-    cdef float row_logsum, tpost_val
-    for blk in range(nblk):
-        row_logsum = tpost[blk, 0]
-        for st in range(1, ntrans_state):
-            tpost_val = tpost[blk, st]
-            row_logsum = fmaxf(row_logsum, tpost_val) + log1pf(
-                expf(-fabsf(row_logsum - tpost_val)))
-        for st in range(ntrans_state):
-            tpost[blk, st] -= row_logsum
 
     return
 
