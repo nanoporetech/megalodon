@@ -169,6 +169,8 @@ def _process_reads_worker(
         model_info, snps_data, mods_info, device):
     model_info.prep_model_worker(device)
     snps_data.reopen_variant_index()
+    logger = logging.get_logger('main')
+    logger.debug('Starting read worker {}'.format(mp.current_process()))
 
     while True:
         try:
@@ -181,7 +183,10 @@ def _process_reads_worker(
             if fast5_fn is None:
                 if caller_conn is not None:
                     caller_conn.send(True)
+                logger.debug('Gracefully exiting read worker {}'.format(
+                    mp.current_process()))
                 break
+            logger.debug('Analyzing read {}'.format(read_id))
 
             raw_sig = fast5_io.get_signal(fast5_fn, read_id, scale=True)
             process_read(
@@ -189,18 +194,22 @@ def _process_reads_worker(
                 snps_q, mods_q, mods_info, fast5_fn, failed_reads_q)
             failed_reads_q.put((
                 False, True, None, None, None, raw_sig.shape[0]))
+            logger.debug('Successfully processed read {}'.format(read_id))
         except KeyboardInterrupt:
             failed_reads_q.put((
                 True, True, 'Keyboard interrupt', fast5_fn, None, 0))
+            logger.debug('Keyboard interrupt during read {}'.format(read_id))
             return
         except mh.MegaError as e:
             failed_reads_q.put((
                 True, True, str(e), fast5_fn + ':::' + read_id, None,
                 raw_sig.shape[0]))
+            logger.debug('Error for read {}'.format(read_id))
         except:
             failed_reads_q.put((
                 True, True, _UNEXPECTED_ERROR_CODE, fast5_fn + ':::' + read_id,
                 traceback.format_exc(), 0))
+            logger.debug('Unexpected Error for read {}'.format(read_id))
 
     return
 
