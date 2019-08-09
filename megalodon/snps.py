@@ -756,10 +756,10 @@ class SnpData(object):
         curr_vars = [next(vars_iter),]
         next_var = next(vars_iter)
         if next_var is None:
-            if curr_vars[0] is None:
+            if curr_vars[0] is not None:
                 yield curr_vars[0], []
             return
-        curr_var_idx = -1
+        curr_var_idx = 0
 
         while next_var is not None:
             if curr_var_idx == len(curr_vars) and next_var is not None:
@@ -798,13 +798,18 @@ class SnpData(object):
 
         return
 
-    def merge_variants(self, fetch_res):
+    def merge_variants(self, fetch_res, read_ref_pos):
         """ Group variants by start and stop and merge into multi-allelic sites
         if this is not done, allele probabilities will not be normalized
         correctly.
         """
         grouped_vars = defaultdict(list)
         for var in fetch_res:
+            # fetch results include any overlap where only inclusive overlap
+            # are valid here
+            if (var.stop + self.edge_buffer > read_ref_pos.end or
+                var.start - self.edge_buffer < read_ref_pos.start):
+                continue
             grouped_vars[(var.start, var.stop)].append(var)
         variants = []
         for _, site_vars in sorted(grouped_vars.items()):
@@ -843,7 +848,7 @@ class SnpData(object):
         except ValueError:
             raise mh.MegaError('Mapped location not valid for variants file.')
 
-        read_variants = self.merge_variants(fetch_res)
+        read_variants = self.merge_variants(fetch_res, read_ref_pos)
         return read_variants
 
     def iter_snps(
