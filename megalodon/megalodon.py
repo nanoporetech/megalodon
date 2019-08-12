@@ -357,19 +357,19 @@ def _get_fail_queue(
             if not suppress_progress:
                 try:
                     bar.set_postfix({
-                        'ksample/s':(sig_called / 1000) /
+                        'ksamp/s':(sig_called / 1000) /
                         bar.format_dict['elapsed']})
                 except AttributeError:
                     # sometimes get no format_dict error
                     # so don't include ksample/s if so
                     pass
                 bar.update(1)
+                if num_update_errors > 0:
+                    bar.write(prog_prefix + format_fail_summ(
+                        bar_header,
+                        [(len(fns), err) for err, fns in failed_reads.items()],
+                        reads_called, num_update_errors), file=sys.stderr)
             reads_called += 1
-        if num_update_errors > 0:
-            bar.write(prog_prefix + format_fail_summ(
-                bar_header,
-                [(len(fns), err) for err, fns in failed_reads.items()],
-                reads_called, num_update_errors), file=sys.stderr)
 
         return reads_called, unexp_err_fp
 

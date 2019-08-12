@@ -226,10 +226,24 @@ def call_read_snps(
     for (np_s_snp_ref_seq, np_s_snp_alt_seqs, np_s_context_seqs,
          s_ref_start, s_ref_end, variant) in snps_data.iter_snps(
              filt_read_variants, read_ref_pos, strand_read_np_ref_seq):
-        blk_start  = rl_cumsum[r_to_q_poss[s_ref_start]]
-        blk_end = rl_cumsum[r_to_q_poss[s_ref_end]]
         ref_cntxt_ref_lp, ref_cntxt_alt_lps = read_cached_scores[(
             variant.var.id, variant.var.start, variant.var.stop)]
+
+        blk_start  = rl_cumsum[r_to_q_poss[s_ref_start]]
+        blk_end = rl_cumsum[r_to_q_poss[s_ref_end]]
+        if blk_end - blk_start < max(
+                len(up_seq) + len(dn_seq)
+                for up_seq, dn_seq in np_s_context_seqs) + max(
+                        np_s_snp_ref_seq.shape[0], max(
+                            snp_alt_seq.shape[0]
+                            for snp_alt_seq in np_s_snp_alt_seqs)):
+            # if some context sequences are too long for signal
+            # just use cached lps
+            # TODO could also filter out invalid context sequences
+            r_snp_calls.append((
+                variant.var.start, ref_cntxt_alt_lps, variant.var.ref,
+                variant.var.alts, variant.var.id))
+            continue
 
         # skip first (reference) context seq as this was cached
         ref_context_seqs = (
