@@ -765,7 +765,7 @@ class SnpData(object):
         curr_var_idx = -1
 
         while next_var is not None:
-            if curr_var_idx == len(curr_vars) and next_var is not None:
+            if curr_var_idx == len(curr_vars):
                 curr_vars.append(next_var)
                 next_var = next_var_or_none()
             curr_var = curr_vars[curr_var_idx]
@@ -820,12 +820,16 @@ class SnpData(object):
             # if all ids are None leave id as None
             site_var_ids = (';'.join(sorted(site_var_ids))
                             if len(site_var_ids) > 0 else None)
-            alts = tuple(sorted(set(
-                alt for var in site_vars
-                for alt in var.alts)))
-            np_alts = tuple(map(np.array, sorted(set(
-                tuple(np_alt) for var in site_vars
-                for np_alt in var.np_alts))))
+            # assuming atomized variants with single alt
+            alts = tuple(sorted(set(var.alts[0] for var in site_vars)))
+            # np arrays aren't hash-able, so test for equality manually here
+            np_alts = []
+            for var in site_vars:
+                if any((len(var.np_alts[0]) == len(added_np_alt) and
+                        np.all(var.np_alts[0] == added_np_alt))
+                       for added_np_alt in np_alts):
+                    continue
+                np_alts.append(var.np_alts[0])
             variants.append(VARIANT_DATA(
                 ref=site_vars[0].ref, alts=alts,
                 ref_start=site_vars[0].ref_start,
@@ -909,8 +913,8 @@ class SnpData(object):
                            ref=mh.ALPHABET[np_ref_base],
                            alts=(mh.ALPHABET[np_alt_base],),
                            ref_start=var.start + sub_offset,
-                           np_ref=np.array([np_ref_base]),
-                           np_alts=(np.array([np_alt_base]),),
+                           np_ref=np.array([np_ref_base], dtype=np.uintp),
+                           np_alts=(np.array([np_alt_base], dtype=np.uintp),),
                            id=var.id, chrom=var.chrom,
                            start=var.start + sub_offset,
                            stop=var.start + sub_offset + 1))
@@ -923,7 +927,7 @@ class SnpData(object):
             # trim context bases from seq
             np_ref_seq, np_alt_seq, start_trim, _ = simplify_snp_seq(
                 np_ref_seq, np_alt_seq)
-            var_start = var.start - start_trim
+            var_start = var.start + start_trim
             try:
                 # expand seqs to include ambiguous locations
                 np_ref_seq, np_alt_seq, var_start = self.expand_ambig_variant(
@@ -939,7 +943,7 @@ class SnpData(object):
                 read_ref_pos)
 
             yield (var_start, var_start + np_ref_seq.shape[0]), VARIANT_DATA(
-                ref=out_ref_seq, alts=(out_alt_seq,), ref_start=var_start,
+                ref=out_ref_seq, alts=(out_alt_seq,), ref_start=out_start,
                 np_ref=np_ref_seq, np_alts=(np_alt_seq,),
                 id=var.id, chrom=var.chrom,
                 start=var_start, stop=var_start + np_ref_seq.shape[0])

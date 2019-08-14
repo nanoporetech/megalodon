@@ -163,6 +163,7 @@ def seq_to_int(seq, error_on_invalid=False):
     return np_seq
 
 def int_to_seq(np_seq, alphabet=ALPHABET):
+    if np_seq.shape[0] == 0: return ''
     if np_seq.max() >= len(alphabet):
         raise MegaError('Invalid character in sequence')
     return ''.join(alphabet[b] for b in np_seq)
