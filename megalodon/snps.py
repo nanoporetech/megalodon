@@ -139,12 +139,12 @@ def score_seq(tpost, seq, tpost_start=0, tpost_end=None,
     seq = seq.astype(np.uintp)
     if tpost_end is None:
         tpost_end = post.shape[0]
+    if seq.shape[0] <= tpost_end - tpost_start:
+        raise mh.MegaError('Mapped signal too short for proposed sequence.')
 
     score = decode.score_seq(tpost, seq, tpost_start, tpost_end, all_paths)
     if np.isnan(score):
-        raise mh.MegaError(
-            'Score computation error (mapped signal too short for ' +
-            'proposed sequence or memory error)')
+        raise mh.MegaError('Score computation error (likely  memory error).')
 
     return score
 
@@ -171,7 +171,7 @@ def call_read_snps(
              read_variants, read_ref_pos, read_ref_fwd_seq, context_max_dist=0):
         blk_start  = rl_cumsum[r_to_q_poss[s_ref_start]]
         blk_end = rl_cumsum[r_to_q_poss[s_ref_end]]
-        if blk_end - blk_start < max(
+        if blk_end - blk_start <= max(
                 len(up_seq) + len(dn_seq)
                 for up_seq, dn_seq in np_s_context_seqs) + max(
                         np_s_snp_ref_seq.shape[0], max(
@@ -235,7 +235,7 @@ def call_read_snps(
 
         blk_start  = rl_cumsum[r_to_q_poss[s_ref_start]]
         blk_end = rl_cumsum[r_to_q_poss[s_ref_end]]
-        if blk_end - blk_start < max(
+        if blk_end - blk_start <= max(
                 len(up_seq) + len(dn_seq)
                 for up_seq, dn_seq in np_s_context_seqs) + max(
                         np_s_snp_ref_seq.shape[0], max(
@@ -245,8 +245,8 @@ def call_read_snps(
             # just use cached lps
             # TODO could also filter out invalid context sequences
             r_snp_calls.append((
-                variant.var.start, ref_cntxt_alt_lps, variant.var.ref,
-                variant.var.alts, variant.var.id))
+                variant.start, ref_cntxt_alt_lps, variant.ref,
+                variant.alts, variant.id))
             continue
 
         # skip first (reference) context seq as this was cached
@@ -857,12 +857,13 @@ class SnpData(object):
     def expand_ambig_variant(
             np_ref_seq, np_alt_seq, var_start, read_ref_fwd_seq, read_ref_pos):
         # don't try to expand complex variants
-        # expand ambiguous insertion sequence
         if np_ref_seq.shape[0] != 0 and np_alt_seq.shape[0] != 0:
             return np_ref_seq, np_alt_seq, var_start
         elif np_ref_seq.shape[0] == 0:
+            # expand ambiguous insertion sequence
             indel_seq = np_alt_seq
         else:
+            # expand ambiguous deletion sequence
             indel_seq = np_ref_seq
 
         expand_dnstrm_seq = []
