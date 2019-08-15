@@ -22,8 +22,10 @@ from megalodon._version import MEGALODON_VERSION
 _DEBUG_PER_READ = False
 
 VARIANT_DATA = namedtuple('VARIANT_DATA', (
-    'ref', 'alts', 'ref_start', 'np_ref', 'np_alts',
-    'id', 'chrom', 'start', 'stop'))
+    'np_ref', 'np_alts', 'id', 'chrom', 'start', 'stop',
+    'ref', 'alts', 'ref_start', ))
+# set default value of None for ref, alts and ref_start
+VARIANT_DATA.__new__.__defaults__ = (None, None, None)
 
 DIPLOID_MODE = 'diploid'
 HAPLIOD_MODE = 'haploid'
@@ -139,7 +141,7 @@ def score_seq(tpost, seq, tpost_start=0, tpost_end=None,
     seq = seq.astype(np.uintp)
     if tpost_end is None:
         tpost_end = post.shape[0]
-    if seq.shape[0] <= tpost_end - tpost_start:
+    if seq.shape[0] >= tpost_end - tpost_start:
         raise mh.MegaError('Mapped signal too short for proposed sequence.')
 
     score = decode.score_seq(tpost, seq, tpost_start, tpost_end, all_paths)
@@ -815,7 +817,24 @@ class SnpData(object):
 
         return
 
-    def merge_variants(self, grouped_read_vars):
+    @staticmethod
+    def add_indel_context_base(
+            np_ref_seq, np_alt_seqs, var_start, read_ref_fwd_seq,
+            read_ref_pos):
+        if np_ref_seq.shape[0] == 0 or any(
+                np_alt.shape[0] == 0 for np_alt in np_alt_seqs):
+            upstrm_base = mh.ALPHABET[read_ref_fwd_seq[
+                var_start - read_ref_pos.start - 1]]
+            var_start -= 1
+        else:
+            upstrm_base = ''
+        ref_seq = upstrm_base + mh.int_to_seq(np_ref_seq)
+        alt_seqs = tuple((upstrm_base + mh.int_to_seq(np_alt)
+                          for np_alt in np_alt_seqs))
+        return ref_seq, alt_seqs, var_start
+
+    def merge_variants(
+            self, grouped_read_vars, read_ref_fwd_seq, read_ref_pos):
         """ Merge atomized variants into multi-allelic sites.
         if this is not done, allele probabilities will not be normalized
         correctly.
@@ -823,8 +842,16 @@ class SnpData(object):
         variants = []
         for _, site_vars in sorted(grouped_read_vars.items()):
             if len(site_vars) == 1:
-                variants.append(site_vars[0])
+                # add upstream seq to simple indels
+                (out_ref_seq, out_alt_seqs,
+                 out_start) = self.add_indel_context_base(
+                     site_vars[0].np_ref, site_vars[0].np_alts,
+                     site_vars[0].start, read_ref_fwd_seq, read_ref_pos)
+                site_var = site_vars[0]._replace(
+                    ref=out_ref_seq, alts=out_alt_seqs, ref_start=out_start)
+                variants.append(site_var)
                 continue
+
             # join all valid ids
             # skip None ids ('.' in VCF)
             site_var_ids = set(
@@ -835,7 +862,6 @@ class SnpData(object):
             site_var_ids = (';'.join(sorted(site_var_ids))
                             if len(site_var_ids) > 0 else None)
             # assuming atomized variants with single alt
-            alts = tuple(sorted(set(var.alts[0] for var in site_vars)))
             # np arrays aren't hash-able, so test for equality manually here
             np_alts = []
             for var in site_vars:
@@ -844,12 +870,17 @@ class SnpData(object):
                        for added_np_alt in np_alts):
                     continue
                 np_alts.append(var.np_alts[0])
+
+            # add upstream seq to simple indels
+            out_ref_seq, out_alt_seqs, out_start = self.add_indel_context_base(
+                site_vars[0].np_ref, np_alts, site_vars[0].start,
+                read_ref_fwd_seq, read_ref_pos)
+
             variants.append(VARIANT_DATA(
-                ref=site_vars[0].ref, alts=alts,
-                ref_start=site_vars[0].ref_start,
                 np_ref=site_vars[0].np_ref, np_alts=np_alts,
                 id=site_var_ids, chrom=site_vars[0].chrom,
-                start=site_vars[0].start, stop=site_vars[0].stop))
+                start=site_vars[0].start, stop=site_vars[0].stop,
+                ref=out_ref_seq, alts=out_alt_seqs, ref_start=out_start))
 
         return variants
 
@@ -903,19 +934,6 @@ class SnpData(object):
         var_start -= len(expand_upstrm_seq)
         return np_ref_seq, np_alt_seq, var_start
 
-    @staticmethod
-    def add_indel_context_base(
-            np_ref_seq, np_alt_seq, var_start, read_ref_fwd_seq, read_ref_pos):
-        if np_ref_seq.shape[0] == 0 or np_ref_seq.shape[0] == 0:
-            upstrm_base = mh.ALPHABET[read_ref_fwd_seq[
-                var_start - read_ref_pos.start - 1]]
-            var_start -= 1
-        else:
-            upstrm_base = ''
-        ref_seq = upstrm_base + mh.int_to_seq(np_ref_seq)
-        alt_seq = upstrm_base + mh.int_to_seq(np_alt_seq)
-        return ref_seq, alt_seq, var_start
-
     def iter_atomized_variants(
             self, var, np_ref_seq, np_alt_seq, read_ref_fwd_seq, read_ref_pos):
         # substitutions
@@ -923,16 +941,15 @@ class SnpData(object):
             # convert all substitutions into single base substitutions
             for sub_offset, (np_ref_base, np_alt_base) in enumerate(zip(
                     np_ref_seq, np_alt_seq)):
-                yield ((var.start + sub_offset, var.start + sub_offset + 1),
-                       VARIANT_DATA(
-                           ref=mh.ALPHABET[np_ref_base],
-                           alts=(mh.ALPHABET[np_alt_base],),
-                           ref_start=var.start + sub_offset,
-                           np_ref=np.array([np_ref_base], dtype=np.uintp),
-                           np_alts=(np.array([np_alt_base], dtype=np.uintp),),
-                           id=var.id, chrom=var.chrom,
-                           start=var.start + sub_offset,
-                           stop=var.start + sub_offset + 1))
+                if np_ref_base == np_alt_base: continue
+                yield (
+                    (var.start + sub_offset, var.start + sub_offset + 1),
+                    VARIANT_DATA(
+                        np_ref=np.array([np_ref_base], dtype=np.uintp),
+                        np_alts=(np.array([np_alt_base], dtype=np.uintp),),
+                        id=var.id, chrom=var.chrom,
+                        start=var.start + sub_offset,
+                        stop=var.start + sub_offset + 1))
         else:
             # skip large indels
             if np.abs(np_ref_seq.shape[0] -
@@ -952,16 +969,11 @@ class SnpData(object):
                 # if variant is ambiguous to the end of the read, then skip it
                 return
 
-            # add upstream seq to simple indels
-            out_ref_seq, out_alt_seq, out_start = self.add_indel_context_base(
-                np_ref_seq, np_alt_seq, var_start, read_ref_fwd_seq,
-                read_ref_pos)
-
-            yield (var_start, var_start + np_ref_seq.shape[0]), VARIANT_DATA(
-                ref=out_ref_seq, alts=(out_alt_seq,), ref_start=out_start,
-                np_ref=np_ref_seq, np_alts=(np_alt_seq,),
-                id=var.id, chrom=var.chrom,
-                start=var_start, stop=var_start + np_ref_seq.shape[0])
+            yield ((var_start, var_start + np_ref_seq.shape[0]),
+                   VARIANT_DATA(
+                       np_ref=np_ref_seq, np_alts=(np_alt_seq,), id=var.id,
+                       chrom=var.chrom, start=var_start,
+                       stop=var_start + np_ref_seq.shape[0]))
         return
 
     def atomize_variants(self, fetch_res, read_ref_fwd_seq, read_ref_pos):
@@ -992,7 +1004,8 @@ class SnpData(object):
 
         grouped_read_vars = self.atomize_variants(
             fetch_res, read_ref_fwd_seq, read_ref_pos)
-        read_variants = self.merge_variants(grouped_read_vars)
+        read_variants = self.merge_variants(
+            grouped_read_vars, read_ref_fwd_seq, read_ref_pos)
         return read_variants
 
     def iter_snps(
