@@ -20,6 +20,7 @@ from megalodon._version import MEGALODON_VERSION
 
 
 _DEBUG_PER_READ = False
+_RAISE_VARIANT_PROCESSING_ERRORS = False
 
 VARIANT_DATA = namedtuple('VARIANT_DATA', (
     'np_ref', 'np_alts', 'id', 'chrom', 'start', 'stop',
@@ -308,7 +309,8 @@ def call_read_snps(
 ###############################
 
 def log_prob_to_phred(log_prob):
-    return -10 * np.log10(1 - np.exp(log_prob))
+    with np.errstate(divide='ignore'):
+        return -10 * np.log10(1 - np.exp(log_prob))
 
 def simplify_snp_seq(ref_seq, alt_seq):
     trim_before = trim_after = 0
@@ -342,12 +344,12 @@ def iter_non_overlapping_snps(r_snp_calls):
         most_prob_snp = None
         for snp_data in snp_grp:
             ref_lp = np.log1p(-np.exp(snp_data[1]).sum())
-            snp_max_lp = max(ref_lp, snp_data[1].max())
+            snp_max_lp = max(ref_lp, max(snp_data[1]))
             if most_prob_snp is None or snp_max_lp > most_prob_snp[0]:
                 most_prob_snp = (snp_max_lp, ref_lp, snp_data)
 
         _, ref_lp, (snp_pos, alt_lps, snp_ref_seq,
-                    snp_alt_seqs, _) = most_prob_snp
+                    snp_alt_seqs, _, _, _) = most_prob_snp
         return snp_pos, alt_lps, snp_ref_seq, snp_alt_seqs, ref_lp
 
 
@@ -381,8 +383,8 @@ def annotate_snps(r_start, ref_seq, r_snp_calls, strand):
     # ref_seq is read-centric so flop order to process snps in genomic order
     if strand == -1:
         ref_seq = ref_seq[::-1]
-    for (snp_pos, alt_lps, snp_ref_seq, snp_alt_seqs, ref_lp, test_start,
-         test_end) in iter_non_overlapping_snps(r_snp_calls):
+    for (snp_pos, alt_lps, snp_ref_seq, snp_alt_seqs,
+         ref_lp) in iter_non_overlapping_snps(r_snp_calls):
         prev_len = snp_pos - r_start - prev_pos
         # called canonical
         if ref_lp >= max(alt_lps):
@@ -552,8 +554,11 @@ def _get_snps_queue(
                 r_snp_calls, read_id, chrm, strand, r_start, ref_seq, read_len,
                 q_st, q_en, cigar)
         except Exception as e:
-            logger.debug('Error processing variant output for read: ' +
-                         '{}\nError type: {}'.format(read_id, str(e)))
+            logger.debug((
+                'Error processing variant output for read: {}\nSet' +
+                ' _RAISE_VARIANT_PROCESSING_ERRORS in megalodon/snps.py to ' +
+                'see full error.\nError type: {}').format(read_id, str(e)))
+            if _RAISE_VARIANT_PROCESSING_ERRORS: raise
 
     while not snps_q.empty():
         r_snp_calls, (read_id, chrm, strand, r_start, ref_seq, read_len,
@@ -563,8 +568,11 @@ def _get_snps_queue(
                 r_snp_calls, read_id, chrm, strand, r_start, ref_seq, read_len,
                 q_st, q_en, cigar)
         except Exception as e:
-            logger.debug('Error processing variant output for read: ' +
-                         '{}\nError type: {}'.format(read_id, str(e)))
+            logger.debug((
+                'Error processing variant output for read: {}\nSet' +
+                ' _RAISE_VARIANT_PROCESSING_ERRORS in megalodon/snps.py to ' +
+                'see full error.\nError type: {}').format(read_id, str(e)))
+            if _RAISE_VARIANT_PROCESSING_ERRORS: raise
     if snps_txt_fp is not None: snps_txt_fp.close()
     if pr_refs_fn is not None: pr_refs_fp.close()
     if whatshap_map_fn is not None: whatshap_map_fp.close()
