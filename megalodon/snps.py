@@ -31,7 +31,7 @@ DIPLOID_MODE = 'diploid'
 HAPLIOD_MODE = 'haploid'
 
 FIELD_NAMES = ('read_id', 'chrm', 'strand', 'pos', 'score',
-               'ref_seq', 'alt_seq', 'snp_id')
+               'ref_seq', 'alt_seq', 'snp_id', 'test_start', 'test_end')
 SNP_DATA = namedtuple('SNP_DATA', FIELD_NAMES)
 CREATE_SNPS_TBLS = """
 CREATE TABLE snps (
@@ -42,24 +42,25 @@ CREATE TABLE snps (
     {} FLOAT,
     {} TEXT,
     {} TEXT,
-    {} TEXT
+    {} TEXT,
+    {} INTEGER,
+    {} INTEGER
 )""".format(*FIELD_NAMES)
 
 SET_NO_ROLLBACK_MODE='PRAGMA journal_mode = OFF'
 SET_ASYNC_MODE='PRAGMA synchronous = OFF'
 
-ADDMANY_SNPS = "INSERT INTO snps VALUES (?,?,?,?,?,?,?,?)"
+ADDMANY_SNPS = "INSERT INTO snps VALUES (?,?,?,?,?,?,?,?,?,?)"
 CREATE_SNPS_IDX = '''
-CREATE INDEX snp_pos ON snps (chrm, pos, ref_seq, alt_seq, snp_id)'''
+CREATE INDEX snp_pos ON snps (chrm, test_start, test_end)'''
 
 COUNT_UNIQ_SNPS = """
 SELECT COUNT(*) FROM (
-SELECT DISTINCT chrm, pos, snp_id, ref_seq FROM snps)"""
+SELECT DISTINCT chrm, test_start, test_end FROM snps)"""
 SEL_UNIQ_SNP_ID = '''
-SELECT DISTINCT chrm, pos, snp_id, ref_seq FROM snps'''
+SELECT DISTINCT chrm, test_start, test_end FROM snps'''
 SEL_SNP_STATS = '''
-SELECT * FROM snps WHERE chrm IS ? AND pos IS ? AND
-snp_id IS ? AND ref_seq IS ?'''
+SELECT * FROM snps WHERE chrm IS ? AND test_start IS ? AND test_end IS ?'''
 
 SAMPLE_NAME = 'SAMPLE'
 # specified by sam format spec
@@ -225,7 +226,8 @@ def call_read_snps(
         else:
             r_snp_calls.append((
                 variant.ref_start, loc_alt_log_ps, variant.ref,
-                variant.alts, variant.id))
+                variant.alts, variant.id, variant.start,
+                variant.start + variant.np_ref.shape[0]))
 
     # second round for variants with some evidence for alternative alleles
     # process with other potential variants as context
@@ -248,7 +250,8 @@ def call_read_snps(
             # TODO could also filter out invalid context sequences
             r_snp_calls.append((
                 variant.start, ref_cntxt_alt_lps, variant.ref,
-                variant.alts, variant.id))
+                variant.alts, variant.id, variant.start,
+                variant.start + variant.np_ref.shape[0]))
             continue
 
         # skip first (reference) context seq as this was cached
@@ -293,7 +296,8 @@ def call_read_snps(
 
         r_snp_calls.append((
             variant.ref_start, loc_alt_log_ps, variant.ref,
-            variant.alts, variant.id))
+            variant.alts, variant.id, variant.start,
+            variant.start + variant.np_ref.shape[0]))
 
     # re-sort variants after adding context-included computations
     return sorted(r_snp_calls, key=lambda x: x[0])
@@ -321,7 +325,7 @@ def simplify_snp_seq(ref_seq, alt_seq):
 
     return ref_seq, alt_seq, trim_before, trim_after
 
-def iter_non_overlapping_snps(snp_calls):
+def iter_non_overlapping_snps(r_snp_calls):
     def get_max_prob_allele_snp(snp_grp):
         """ For overlapping SNPs return the snp with the highest probability
         single allele as this one will be added to the reference sequence.
@@ -347,13 +351,13 @@ def iter_non_overlapping_snps(snp_calls):
         return snp_pos, alt_lps, snp_ref_seq, snp_alt_seqs, ref_lp
 
 
-    if len(snp_calls) == 0: return
-    snp_calls_iter = iter(snp_calls)
+    if len(r_snp_calls) == 0: return
+    r_snp_calls_iter = iter(r_snp_calls)
     # initialize snp_grp with first snp
-    snp_data = next(snp_calls_iter)
+    snp_data = next(r_snp_calls_iter)
     prev_snp_end = snp_data[0] + len(snp_data[2])
     snp_grp = [snp_data]
-    for snp_data in sorted(snp_calls, key=itemgetter(0)):
+    for snp_data in sorted(r_snp_calls_iter, key=itemgetter(0)):
         if snp_data[0] < prev_snp_end:
             prev_snp_end = max(snp_data[0] + len(snp_data[2]), prev_snp_end)
             snp_grp.append(snp_data)
@@ -377,8 +381,8 @@ def annotate_snps(r_start, ref_seq, r_snp_calls, strand):
     # ref_seq is read-centric so flop order to process snps in genomic order
     if strand == -1:
         ref_seq = ref_seq[::-1]
-    for (snp_pos, alt_lps, snp_ref_seq, snp_alt_seqs,
-         ref_lp) in iter_non_overlapping_snps(r_snp_calls):
+    for (snp_pos, alt_lps, snp_ref_seq, snp_alt_seqs, ref_lp, test_start,
+         test_end) in iter_non_overlapping_snps(r_snp_calls):
         prev_len = snp_pos - r_start - prev_pos
         # called canonical
         if ref_lp >= max(alt_lps):
@@ -467,8 +471,9 @@ def _get_snps_queue(
         # note strand is +1 for fwd or -1 for rev
         snps_db.executemany(ADDMANY_SNPS, [
             (read_id, chrm, strand, pos, alt_lp,
-             snp_ref_seq, snp_alt_seq, snp_id)
-            for pos, alt_lps, snp_ref_seq, snp_alt_seqs, snp_id in r_snp_calls
+             snp_ref_seq, snp_alt_seq, snp_id, test_start, test_end)
+            for pos, alt_lps, snp_ref_seq, snp_alt_seqs, snp_id,
+            test_start, test_end in r_snp_calls
             for alt_lp, snp_alt_seq in zip(alt_lps, snp_alt_seqs)])
         if snps_txt_fp is not None and len(r_snp_calls) > 0:
             snps_txt_fp.write('\n'.join((
@@ -476,8 +481,8 @@ def _get_snps_queue(
                     read_id, chrm, strand, pos,
                     np.log1p(-np.exp(alt_lps).sum()), alt_lp,
                     snp_ref_seq, snp_alt_seq, snp_id)
-                for pos, alt_lps, snp_ref_seq, snp_alt_seqs, snp_id
-                in r_snp_calls
+                for pos, alt_lps, snp_ref_seq, snp_alt_seqs, snp_id,
+                test_start, test_end in r_snp_calls
                 for alt_lp, snp_alt_seq in zip(alt_lps, snp_alt_seqs))) + '\n')
             snps_txt_fp.flush()
         if do_ann_snps:
