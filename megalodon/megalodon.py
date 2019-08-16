@@ -204,12 +204,13 @@ def _process_reads_worker(
             failed_reads_q.put((
                 True, True, str(e), fast5_fn + ':::' + read_id, None,
                 raw_sig.shape[0]))
-            logger.debug('Error for read {}'.format(read_id))
+            logger.debug('Incomplete processing for read {} ::: {}'.format(
+                read_id, str(e)))
         except:
             failed_reads_q.put((
                 True, True, _UNEXPECTED_ERROR_CODE, fast5_fn + ':::' + read_id,
                 traceback.format_exc(), 0))
-            logger.debug('Unexpected Error for read {}'.format(read_id))
+            logger.debug('Unexpected error for read {}'.format(read_id))
 
     return
 
