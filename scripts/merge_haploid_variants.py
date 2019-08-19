@@ -115,6 +115,7 @@ def write_var(curr_v0_rec, curr_v1_rec, curr_v2_rec, out_vars, contig):
         gt = '{}|{}'.format(*gt0)
         gq, gl, pl = gq0, gl0, pl0
 
+    if rid is None: rid = '.'
     qual = '.' if qual == 0 else '{:d}'.format(qual)
     gl_fmt = ','.join('{:.2f}' for _ in range(len(gl))).format(*gl)
     pl_fmt = ','.join('{:.0f}' for _ in range(len(pl))).format(*pl)
