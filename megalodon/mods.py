@@ -123,7 +123,7 @@ class ModsDb(object):
                             '{} {}'.format(*ft) for ft in tbl.items()))))
                 except sqlite3.OperationalError:
                     raise mh.MegaError(
-                        'Modified bases data base already exists. Either ' +
+                        'Modified bases database already exists. Either ' +
                         'provide location for new database or open in ' +
                         'read_only mode.')
 
@@ -156,7 +156,7 @@ class ModsDb(object):
                     (chrm,)).fetchone()[0]
         except (TypeError, KeyError):
             raise mh.MegaError('Reference record (chromosome) not found in ' +
-                               'data base.')
+                               'database.')
         return chrm_id
 
     def get_chrm(self, chrm_id):
@@ -166,7 +166,7 @@ class ModsDb(object):
                 (chrm_id,)).fetchone()[0]
         except TypeError:
             raise mh.MegaError('Reference record (chromosome) not found in ' +
-                               'mods data base.')
+                               'mods database.')
         return chrm
 
     def get_pos_id(self, chrm, strand, pos, chrm_id=None):
@@ -182,7 +182,7 @@ class ModsDb(object):
                     'AND pos=?', (chrm_id, strand, pos)).fetchone()[0]
         except (TypeError, KeyError):
             raise mh.MegaError(
-                'Reference position not found in data base.')
+                'Reference position not found in database.')
 
         return pos_id
 
@@ -210,7 +210,7 @@ class ModsDb(object):
                     'motif_pos=? AND raw_motif=?',
                     (mod_base, motif, motif_pos, raw_motif)).fetchone()[0]
         except (TypeError, KeyError):
-            raise mh.MegaError('Modified base not found in mods data base.')
+            raise mh.MegaError('Modified base not found in mods database.')
         return mod_id
 
     def get_mod_base_id_or_insert(self, mod_base, motif, motif_pos, raw_motif):
@@ -282,7 +282,7 @@ class ModsDb(object):
 
     def create_data_covering_index(self):
         self.cur.execute('CREATE INDEX data_cov_idx ON data(' +
-                         'score_pos, score_mod, score_read)')
+                         'score_pos, score_mod, score_read, score)')
         return
 
     def close(self):
@@ -382,7 +382,6 @@ class ModsDb(object):
         return read_id
 
     def create_data_read_index(self):
-        # TODO convert this into a covering index
         self.cur.execute('CREATE INDEX data_read_idx ON data(score_read)')
         return
 

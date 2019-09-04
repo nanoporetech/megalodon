@@ -267,7 +267,6 @@ def aggregate_stats(
         0, 0, queue.Queue(), queue.Queue())
     if mh.SNP_NAME in outputs:
         snps_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_SNP_NAME)
-        # TODO move counting into separate process with pipe to progress process
         logger.info('Computing number of unique variants.')
         num_snps = snps.AggSnps(snps_db_fn).num_uniq()
         logger.info('Spawning variant aggregation processes.')
