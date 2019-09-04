@@ -44,8 +44,8 @@ This output contains the following fields: ``read_id``, ``chrm``, ``strand``, ``
 Aggregated Modified Bases
 -------------------------
 
-The default aggregated modified base output is the bedMethyl format (`description here https://www.encodeproject.org/data-standards/wgbs/`_).
-Alternative formats are `wiggle https://genome.ucsc.edu/goldenPath/help/wiggle.html`_ (variableStep) and VCF (treating the modified base as if it were a sequence variant).
+The default aggregated modified base output is the bedMethyl format (`description here <https://www.encodeproject.org/data-standards/wgbs/>`_).
+Alternative formats are `wiggle <https://genome.ucsc.edu/goldenPath/help/wiggle.html>`_ (variableStep) and VCF (treating the modified base as if it were a sequence variant).
 
 --------------------------
 Per-read Sequence Variants
