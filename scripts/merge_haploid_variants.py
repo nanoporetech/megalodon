@@ -49,7 +49,7 @@ def are_same_var(v0, v1, v2):
             v0.pos == v1.pos == v2.pos and
             v0.ref == v1.ref == v2.ref and
             len(v0.alts) == len(v1.alts) == len(v2.alts) and
-            all((v1i == v1i == v2i)
+            all((v0i == v1i == v2i)
                 for v0i, v1i, v2i in zip(v0.alts, v1.alts, v2.alts)))
 
 def parse_qual(qual):
