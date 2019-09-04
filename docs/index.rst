@@ -67,3 +67,4 @@ Contents
    advanced_arguments
    computing_considerations
    variant_phasing
+   file_formats
