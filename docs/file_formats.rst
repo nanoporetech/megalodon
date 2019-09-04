@@ -28,7 +28,7 @@ The primary output for per-read modified base results is an `sqlite database <ht
 This database contains an indexed table with per-read, per-position, modified base scores, as well as auxiliary tables with read, modification type and reference position information.
 The read table (``read``) contains the read UUID.
 The modification type table (``mod``) contains the single letter modified base code, the location sequence match motif, the raw (including ambiguous bases) motif, and the relative modified base position within the motifs.
-The reference position table (``pos``) contains the mapped 0-based position, strand (1=froward, -1=reverse) and chromosome (via a final ``chrm`` table which contains the chromosome text).
+The reference position table (``pos``) contains the mapped 0-based position, strand (1=forward, -1=reverse) and chromosome (via a final ``chrm`` table which contains the chromosome text).
 
 This database may be accessed via the ``megalodon.mods.ModsDb`` object.
 
