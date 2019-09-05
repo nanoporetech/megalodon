@@ -21,7 +21,7 @@ MED_NORM_FACTOR = 1.4826
 ALPHABET = 'ACGT'
 COMP_BASES = dict(zip(map(ord, 'ACGT'), map(ord, 'TGCA')))
 
-_MAX_QUEUE_SIZE = 1000
+_MAX_QUEUE_SIZE = 10000
 
 # VCF spec text
 MAX_PL_VALUE = 255
