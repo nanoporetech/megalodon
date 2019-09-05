@@ -43,11 +43,13 @@ def get_parser():
     return parser
 
 def are_same_var(v0, v1, v2):
+    if v1 is None or v2 is None:
+        return False
     return (v0.chrom == v1.chrom == v2.chrom and
             v0.pos == v1.pos == v2.pos and
             v0.ref == v1.ref == v2.ref and
             len(v0.alts) == len(v1.alts) == len(v2.alts) and
-            all((v1i == v1i == v2i)
+            all((v0i == v1i == v2i)
                 for v0i, v1i, v2i in zip(v0.alts, v1.alts, v2.alts)))
 
 def parse_qual(qual):
@@ -87,9 +89,7 @@ def compute_diploid_stats(gl1, gl2):
 
     return gt, gq, gl, pl, qual
 
-def write_var(
-        curr_v0_rec, curr_v1_rec, curr_v2_rec, out_vars,
-        vars0_contig_iter, vars1_contig_iter, vars2_contig_iter, contig):
+def write_var(curr_v0_rec, curr_v1_rec, curr_v2_rec, out_vars, contig):
     s0_attrs = next(iter(curr_v0_rec.samples.values()))
     gt0, gq0, gl0, pl0, dp = (
         s0_attrs['GT'], s0_attrs['GQ'], s0_attrs['GL'], s0_attrs['PL'],
@@ -109,20 +109,13 @@ def write_var(
         else:
             gt, gq, gl, pl, qual = compute_diploid_stats(
                 s1_attrs['GL'], s2_attrs['GL'])
-        curr_v0_rec = next(vars0_contig_iter)
-        curr_v1_rec = next(vars1_contig_iter)
-        curr_v2_rec = next(vars2_contig_iter)
     else:
         # write un-phased variant back out.
         qual = parse_qual(curr_v0_rec.qual)
         gt = '{}|{}'.format(*gt0)
         gq, gl, pl = gq0, gl0, pl0
-        if curr_v0_rec.pos == curr_v1_rec.pos:
-            curr_v1_rec = next(vars1_contig_iter)
-        if curr_v0_rec.pos == curr_v2_rec.pos:
-            curr_v2_rec = next(vars2_contig_iter)
-        curr_v0_rec = next(vars0_contig_iter)
 
+    if rid is None: rid = '.'
     qual = '.' if qual == 0 else '{:d}'.format(qual)
     gl_fmt = ','.join('{:.2f}' for _ in range(len(gl))).format(*gl)
     pl_fmt = ','.join('{:.0f}' for _ in range(len(pl))).format(*pl)
@@ -130,7 +123,71 @@ def write_var(
         chrm=contig, pos=pos, rid=rid, ref=ref, alts=alts, qual=qual, dp=dp,
         gt=gt, gq=gq, gl=gl_fmt, pl=pl_fmt))
 
-    return curr_v0_rec, curr_v1_rec, curr_v2_rec
+    return
+
+def iter_contig_vars(vars0_contig_iter, vars1_contig_iter, vars2_contig_iter):
+    def next_or_none(vars_iter):
+        try:
+            return next(vars_iter)
+        except StopIteration:
+            return None
+
+    def get_uniq_pos(var):
+        return var.pos, var.ref, var.alts
+
+    def get_pos_vars(curr_recs, next_rec, vars_iter, v0_vars=None):
+        if (v0_vars is not None and
+            list(v0_vars.keys())[0][0] < list(curr_recs.keys())[0][0]):
+            return curr_recs, next_rec
+        while (next_rec is not None and
+               next_rec.pos == list(curr_recs.keys())[0][0]):
+            curr_recs[get_uniq_pos(next_rec)] = next_rec
+            next_rec = next_or_none(vars_iter)
+        return curr_recs, next_rec
+
+
+    first_v0_rec = next_or_none(vars0_contig_iter)
+    first_v1_rec = next_or_none(vars1_contig_iter)
+    first_v2_rec = next_or_none(vars2_contig_iter)
+    if any(rec is None for rec in (first_v0_rec, first_v1_rec, first_v2_rec)):
+        return
+    curr_v0_recs = dict([(get_uniq_pos(first_v0_rec), first_v0_rec)])
+    curr_v1_recs = dict([(get_uniq_pos(first_v1_rec), first_v1_rec)])
+    curr_v2_recs = dict([(get_uniq_pos(first_v2_rec), first_v2_rec)])
+    next_v0_rec = next_or_none(vars0_contig_iter)
+    next_v1_rec = next_or_none(vars1_contig_iter)
+    next_v2_rec = next_or_none(vars2_contig_iter)
+
+    while any(next_rec is not None for next_rec in (
+            next_v0_rec, next_v1_rec, next_v2_rec)):
+        curr_v0_recs, next_v0_rec = get_pos_vars(
+            curr_v0_recs, next_v0_rec, vars0_contig_iter)
+        curr_v1_recs, next_v1_rec = get_pos_vars(
+            curr_v1_recs, next_v1_rec, vars1_contig_iter, curr_v0_recs)
+        curr_v2_recs, next_v2_rec = get_pos_vars(
+            curr_v2_recs, next_v2_rec, vars2_contig_iter, curr_v0_recs)
+        for pos in set(curr_v0_recs).union(curr_v1_recs).union(curr_v2_recs):
+            if pos not in curr_v0_recs: continue
+            yield (curr_v0_recs[pos],
+                   curr_v1_recs[pos] if pos in curr_v1_recs else None,
+                   curr_v2_recs[pos] if pos in curr_v2_recs else None)
+        curr_v0_recs = (
+            dict([(get_uniq_pos(next_v0_rec), next_v0_rec)])
+            if next_v0_rec is not None else {(-1,):None})
+        curr_v1_recs = (
+            dict([(get_uniq_pos(next_v1_rec), next_v1_rec)])
+            if next_v1_rec is not None else {(-1,):None})
+        curr_v2_recs = (
+            dict([(get_uniq_pos(next_v2_rec), next_v2_rec)])
+            if next_v2_rec is not None else {(-1,):None})
+
+    for pos in set(curr_v0_recs).union(curr_v1_recs).union(curr_v2_recs):
+        if pos not in curr_v0_recs: continue
+        yield (curr_v0_recs[pos],
+               curr_v1_recs[pos] if pos in curr_v1_recs else None,
+               curr_v2_recs[pos] if pos in curr_v2_recs else None)
+
+    return
 
 def main():
     args = get_parser().parse_args()
@@ -153,34 +210,12 @@ def main():
     out_vars.write(HEADER.format('\n'.join((CONTIG_HEADER_LINE.format(
         ctg.name, ctg.length) for ctg in vars0_idx.header.contigs.values()))))
     for contig in set(contigs0).intersection(contigs1).intersection(contigs2):
-        vars0_contig_iter = iter(vars0_idx.fetch(contig))
-        vars1_contig_iter = iter(vars1_idx.fetch(contig))
-        vars2_contig_iter = iter(vars2_idx.fetch(contig))
-        try:
-            curr_v0_rec = next(vars0_contig_iter)
-            curr_v1_rec = next(vars1_contig_iter)
-            curr_v2_rec = next(vars2_contig_iter)
-        except StopIteration:
-            continue
-        while True:
-            try:
-                if curr_v1_rec.pos < curr_v0_rec.pos:
-                    # variant in haplotype 1 does not exist in phased variants
-                    # this should never happen
-                    curr_v1_rec = next(vars1_contig_iter)
-                    continue
-                elif curr_v2_rec.pos < curr_v0_rec.pos:
-                    # variant in haplotype 2 does not exist in phased variants
-                    # this should never happen
-                    curr_v2_rec = next(vars2_contig_iter)
-                    continue
-
-                curr_v0_rec, curr_v1_rec, curr_v2_rec = write_var(
-                    curr_v0_rec, curr_v1_rec, curr_v2_rec, out_vars,
-                    vars0_contig_iter, vars1_contig_iter, vars2_contig_iter,
-                    contig)
-            except StopIteration:
-                break
+        for curr_v0_rec, curr_v1_rec, curr_v2_rec in iter_contig_vars(
+                iter(vars0_idx.fetch(contig)),
+                iter(vars1_idx.fetch(contig)),
+                iter(vars2_idx.fetch(contig))):
+            if curr_v0_rec is None: continue
+            write_var(curr_v0_rec, curr_v1_rec, curr_v2_rec, out_vars, contig)
 
     out_vars.close()
 
