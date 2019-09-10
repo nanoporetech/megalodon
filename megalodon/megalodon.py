@@ -47,7 +47,7 @@ from taiyaki import (alphabet, fast5utils, mapping as tai_mapping,
 
 def get_remapping(
         sig_fn, dacs, scale_params, ref_seq, stride, alphabet, read_id,
-        r_to_q_poss, rl_cumsum):
+        r_to_q_poss, rl_cumsum, q_start_trim):
     channel_info = dict(fast5utils.get_channel_info(
         fast5_interface.get_fast5_file(sig_fn, 'r').get_read(read_id)).items())
     rd_factor = channel_info['range'] / channel_info['digitisation']
@@ -61,8 +61,9 @@ def get_remapping(
     path = np.full((dacs.shape[0] // stride) + 1, -1)
     s_rq_poss = sorted(r_to_q_poss.items())
     ref_start = s_rq_poss[0][0]
-    for ref_pos, q_pos in s_rq_poss:
-        path[rl_cumsum[q_pos] // stride] = ref_pos - ref_start
+    # skip last value since this is where the two seqs end
+    for ref_pos, q_pos in s_rq_poss[:-1]:
+        path[rl_cumsum[q_pos + q_start_trim]] = ref_pos - ref_start
     remapping = tai_mapping.Mapping.from_remapping_path(
         sig, path, ref_seq, stride)
     remapping.add_integer_reference(alphabet)
@@ -152,7 +153,7 @@ def process_read(
         fast5_fn, dacs, scale_params, stride = sig_map_data
         sig_map_q.put(get_remapping(
             fast5_fn, dacs, scale_params, r_ref_seq, stride, mods_info.alphabet,
-            read_id, r_to_q_poss, rl_cumsum))
+            read_id, r_to_q_poss, rl_cumsum, r_ref_pos.q_trim_start))
 
     # get mapped start in post and run len to mapped bit of output
     post_mapped_start = rl_cumsum[r_ref_pos.q_trim_start]
@@ -557,6 +558,7 @@ def process_all_reads(
                 pr_refs_fn, pr_ref_filts))
     sig_map_q = sig_map_p = sig_map_conn = None
     if _COMPUTE_SIGNAL_MAPPING:
+        outputs.append('signal_mapping')
         sig_map_fn = os.path.join(out_dir, 'signal_mappings.hdf5')
         flat_alphabet = model_info.output_alphabet[0]
         can_base = model_info.output_alphabet[0]
@@ -619,7 +621,7 @@ def process_all_reads(
         for on, p, main_conn in (
                 (mh.BC_NAME, bc_p, main_bc_conn),
                 (mh.MAP_NAME, mo_p, main_mo_conn),
-                ('', sig_map_p, sig_map_conn),
+                ('signal_mapping', sig_map_p, sig_map_conn),
                 (mh.PR_SNP_NAME, snps_p, main_snps_conn),
                 (mh.PR_MOD_NAME, mods_p, main_mods_conn)):
             if on in outputs and p.is_alive():
