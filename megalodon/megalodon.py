@@ -58,7 +58,7 @@ def get_remapping(
     sig.range = channel_info['range']
     sig.digitisation = channel_info['digitisation']
 
-    path = np.full(dacs.shape[0] // stride, -1)
+    path = np.full((dacs.shape[0] // stride) + 1, -1)
     s_rq_poss = sorted(r_to_q_poss.items())
     ref_start = s_rq_poss[0][0]
     for ref_pos, q_pos in s_rq_poss:
@@ -88,7 +88,6 @@ def write_signal_mappings(sig_map_q, sig_map_conn, sig_map_fn, alphabet_info):
             yield read_mapping
 
         return
-
 
 
     prepare_mapping_funcs.generate_output_from_results(
@@ -565,9 +564,11 @@ def process_all_reads(
             if base in model_info.can_alphabet:
                 can_base = base
             flat_alphabet += can_base
+        mod_long_names = [] if len(model_info.mod_long_names) == 0 else \
+                         list(zip(*model_info.mod_long_names))[1]
         alphabet_info = alphabet.AlphabetInfo(
             model_info.output_alphabet, flat_alphabet,
-            list(zip(*model_info.mod_long_names))[1], do_reorder=True)
+            mod_long_names, do_reorder=True)
         sig_map_q, sig_map_p, sig_map_conn = mh.create_getter_q(
             write_signal_mappings, (sig_map_fn, alphabet_info))
 
