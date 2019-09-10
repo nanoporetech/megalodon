@@ -63,6 +63,8 @@ def get_remapping(
     ref_start = s_rq_poss[0][0]
     # skip last value since this is where the two seqs end
     for ref_pos, q_pos in s_rq_poss[:-1]:
+        # if the query position maps to the end of the mapping skip it
+        if rl_cumsum[q_pos + q_start_trim] >= path.shape[0]: continue
         path[rl_cumsum[q_pos + q_start_trim]] = ref_pos - ref_start
     remapping = tai_mapping.Mapping.from_remapping_path(
         sig, path, ref_seq, stride)
