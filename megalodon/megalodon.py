@@ -142,7 +142,7 @@ def _get_bc_queue(
         except queue.Empty:
             if bc_conn.poll():
                 break
-            sleep(0.1)
+            sleep(0.001)
             continue
 
     while not bc_q.empty():
@@ -177,7 +177,7 @@ def _process_reads_worker(
             try:
                 fast5_fn, read_id = read_file_q.get(block=False)
             except queue.Empty:
-                sleep(0.1)
+                sleep(0.001)
                 continue
 
             if fast5_fn is None:
@@ -235,7 +235,7 @@ def post_process_whatshap(out_dir, map_fmt, ref_fn):
         target=mapping.sort_and_index_mapping,
         args=(whatshap_map_fn, whatshap_sort_fn, ref_fn), daemon=True)
     whatshap_p.start()
-    sleep(0.01)
+    sleep(0.001)
 
     return whatshap_sort_fn, whatshap_p
 
@@ -247,7 +247,7 @@ def post_process_mapping(out_dir, map_fmt, ref_fn):
         target=mapping.sort_and_index_mapping,
         args=(map_fn, map_sort_fn, ref_fn), daemon=True)
     map_p.start()
-    sleep(0.01)
+    sleep(0.001)
 
     return map_p
 
@@ -399,7 +399,7 @@ def _get_fail_queue(
                     # if all reads are done signal was sent from main thread
                     if f_conn.poll():
                         break
-                sleep(0.1)
+                sleep(0.001)
                 continue
         except KeyboardInterrupt:
             # exit gracefully on keyboard inturrupt
@@ -486,8 +486,9 @@ def process_all_reads(
                        if mods_info.write_mods_txt else None)
         mods_q, mods_p, main_mods_conn = mh.create_getter_q(
             mods._get_mods_queue, (
-                mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME), mods_txt_fn,
-                db_safety, pr_refs_fn, pr_ref_filts))
+                mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME), db_safety,
+                aligner.ref_names_and_lens, mods_txt_fn,
+                pr_refs_fn, pr_ref_filts))
 
     proc_reads_ps, map_conns = [], []
     for device in model_info.process_devices:
@@ -503,6 +504,7 @@ def process_all_reads(
         p.daemon = True
         p.start()
         proc_reads_ps.append(p)
+    # ensure process all start up before initializing mapping threads
     sleep(0.1)
 
     # perform mapping in threads for mappy shared memory interface
@@ -719,6 +721,14 @@ def mkdir(out_dir, overwrite):
 ########## Main ##########
 ##########################
 
+class SelectiveRawFormatter(argparse.HelpFormatter):
+    def _split_lines(self, text, width):
+        # special splitlines command for options output for better readability
+        if text.startswith('O|'):
+            return text[2:].splitlines()
+        # else use standard RawTextHelpFormatter._split_lines
+        return argparse.HelpFormatter._split_lines(self, text, width)
+
 def get_parser():
     # hide more complex arguments for standard help output
     show_hidden_args = '--help-long' in sys.argv
@@ -727,8 +737,7 @@ def get_parser():
             return argparse.SUPPRESS
         return help_msg
 
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.RawTextHelpFormatter)
+    parser = argparse.ArgumentParser(formatter_class=SelectiveRawFormatter)
     parser.add_argument(
         'fast5s_dir',
         help='Directory containing raw fast5 (will be searched recursively).')
@@ -743,7 +752,7 @@ def get_parser():
     out_grp.add_argument(
         '--outputs', nargs='+',
         default=['basecalls',], choices=tuple(mh.OUTPUT_DESCS.keys()),
-        help='Desired output(s).\nOptions:\n' +
+        help='O|Desired output(s).\nOptions:\n' +
         '\n'.join(('\t{}: {}'.format(*out_desc)
                    for out_desc in mh.OUTPUT_DESCS.items())) +
         '\nDefault: %(default)s')
@@ -1018,7 +1027,7 @@ def _main():
         if whatshap_p.is_alive():
             logger.info('Waiting for whatshap mappings sort')
             while whatshap_p.is_alive():
-                sleep(0.1)
+                sleep(0.001)
         logger.info(snps.get_whatshap_command(
             index_variant_fn, whatshap_sort_fn,
             mh.add_fn_suffix(variant_fn, 'phased')))
@@ -1027,7 +1036,7 @@ def _main():
         if map_p.is_alive():
             logger.info('Waiting for mappings sort')
             while map_p.is_alive():
-                sleep(0.1)
+                sleep(0.001)
 
     return
 

@@ -103,7 +103,7 @@ Outputs
 
     - Per-read SQL DB containing scores at each tested reference location
 
-      - Contains a single ``mods`` table indexed by reference position
+      - Contains an indexed table with per-read, per-position, modified base scores, as well as auxiliary tables with read, modification type and reference position information.
     - Tab-delimited output can be produced by adding the ``--write-mods-text`` flag
   - Aggregated calls
 

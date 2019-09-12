@@ -229,7 +229,7 @@ def _process_reads_worker(
         try:
             fast5_fn, read_id = fast5_q.get(block=False)
         except queue.Empty:
-            sleep(0.01)
+            sleep(0.001)
             continue
 
         if fast5_fn is None:
