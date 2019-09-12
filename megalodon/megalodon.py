@@ -722,6 +722,14 @@ def profile_validation(args):
 ########## Main ##########
 ##########################
 
+class SelectiveRawFormatter(argparse.HelpFormatter):
+    def _split_lines(self, text, width):
+        # special splitlines command for options output for better readability
+        if text.startswith('O|'):
+            return text[2:].splitlines()
+        # else use standard RawTextHelpFormatter._split_lines
+        return argparse.HelpFormatter._split_lines(self, text, width)
+
 def get_parser():
     # hide more complex arguments for standard help output
     show_hidden_args = '--help-long' in sys.argv
@@ -730,8 +738,7 @@ def get_parser():
             return argparse.SUPPRESS
         return help_msg
 
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.RawTextHelpFormatter)
+    parser = argparse.ArgumentParser(formatter_class=SelectiveRawFormatter)
     parser.add_argument(
         'fast5s_dir',
         help='Directory containing raw fast5 (will be searched recursively).')
@@ -746,7 +753,7 @@ def get_parser():
     out_grp.add_argument(
         '--outputs', nargs='+',
         default=['basecalls',], choices=tuple(mh.OUTPUT_DESCS.keys()),
-        help='Desired output(s).\nOptions:\n' +
+        help='O|Desired output(s).\nOptions:\n' +
         '\n'.join(('\t{}: {}'.format(*out_desc)
                    for out_desc in mh.OUTPUT_DESCS.items())) +
         '\nDefault: %(default)s')
