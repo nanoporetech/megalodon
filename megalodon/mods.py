@@ -581,13 +581,6 @@ def _get_mods_queue(
         mods_db.insert_chrm(ref_name)
     mods_db.create_chrm_index()
 
-    logger = logging.get_logger('mods_getter')
-    mods_db = sqlite3.connect(mods_db_fn)
-    if db_safety < 2:
-        mods_db.execute(SET_ASYNC_MODE)
-    if db_safety < 1:
-        mods_db.execute(SET_NO_ROLLBACK_MODE)
-    mods_db.execute(CREATE_MODS_TBLS)
     if mods_txt_fn is None:
         mods_txt_fp = None
     else:
@@ -711,7 +704,8 @@ class ModInfo(object):
             self, model_info, all_mod_motifs_raw=None, mod_all_paths=False,
             write_mods_txt=None, mod_context_bases=None,
             do_output_mods=False, do_pr_ref_mods=False, mods_calib_fn=None,
-            mod_output_fmts=[mh.MOD_BEDMETHYL_NAME], edge_buffer=100):
+            mod_output_fmts=[mh.MOD_BEDMETHYL_NAME],
+            edge_buffer=mh.DEFAULT_EDGE_BUFFER):
         logger = logging.get_logger()
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other alphabet info
