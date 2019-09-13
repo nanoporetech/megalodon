@@ -428,26 +428,36 @@ def score_mod_seq(
         all_paths)
 
 def call_read_mods(
-        r_ref_pos, edge_buffer, r_ref_seq, np_ref_seq, rl_cumsum,
-        r_to_q_poss, r_post, post_mapped_start, mods_info):
+        r_ref_pos, r_ref_seq, rl_cumsum, r_to_q_poss, r_post,
+        post_mapped_start, mods_info):
     def iter_motif_sites(r_ref_seq):
-        max_pos = len(r_ref_seq) - edge_buffer
+        max_pos = len(r_ref_seq) - mods_info.edge_buffer
         for motif, rel_pos, mod_bases, raw_motif in mods_info.all_mod_motifs:
             for motif_match in motif.finditer(r_ref_seq):
                 m_pos = motif_match.start() + rel_pos
-                if m_pos < edge_buffer: continue
+                if m_pos < mods_info.edge_buffer: continue
                 if m_pos > max_pos: break
                 yield m_pos, mod_bases, motif_match.group(), rel_pos, raw_motif
         return
 
 
+    logger = logging.get_logger('mods')
     # call all mods overlapping this read
     r_mod_scores = []
     for (pos, mod_bases, ref_motif, rel_pos,
          raw_motif) in iter_motif_sites(r_ref_seq):
         pos_bb, pos_ab = min(mods_info.mod_context_bases, pos), min(
-            mods_info.mod_context_bases, np_ref_seq.shape[0] - pos - 1)
-        pos_ref_seq = np_ref_seq[pos - pos_bb:pos + pos_ab + 1]
+            mods_info.mod_context_bases, len(r_ref_seq) - pos - 1)
+        try:
+            pos_ref_seq = mh.seq_to_int(
+                r_ref_seq[pos - pos_bb:pos + pos_ab + 1])
+        except mh.MegaError:
+            ref_pos = r_ref_pos.start + pos if r_ref_pos.strand == 1 else \
+                      r_ref_pos.start + len(r_ref_seq) - pos - 1
+            logger.debug(
+                'Invalid sequence encountered calling modified base ' +
+                'at {}:{}'.format(r_ref_pos.chrm, ref_pos))
+            continue
         pos_can_mods = np.zeros_like(pos_ref_seq)
 
         blk_start, blk_end = (rl_cumsum[r_to_q_poss[pos - pos_bb]],
@@ -523,18 +533,16 @@ def annotate_mods(r_start, ref_seq, r_mod_scores, strand):
 def _get_mods_queue(
         mods_q, mods_conn, mods_db_fn, db_safety, ref_names_and_lens,
         mods_txt_fn, pr_refs_fn, pr_ref_filts):
-    def get_mod_call(been_warned):
-        # note strand is +1 for fwd or -1 for rev
-        r_mod_scores, (
-            read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
-            cigar) = mods_q.get(block=False)
+    def store_mod_call(
+            r_mod_scores,  read_id, chrm, strand, r_start, ref_seq,
+            read_len, q_st, q_en, cigar, been_warned):
         try:
             mods_db.insert_read_scores(r_mod_scores, read_id, chrm, strand)
         except Exception as e:
             if not been_warned:
                 logger.warning(
                     'Error inserting modified base scores into database. See ' +
-                    'log debyg output for error details.')
+                    'log debug output for error details.')
                 been_warned = True
             import traceback
             var = traceback.format_exc()
@@ -544,7 +552,7 @@ def _get_mods_queue(
 
         if mods_txt_fp is not None and len(r_mod_scores) > 0:
             # would involve batching and creating several conversion tables
-            # for var strings (read_if and chrms).
+            # for var strings (read_id and chrms).
             mods_txt_fp.write('\n'.join((
                 ('\t'.join('{}' for _ in field_names)).format(
                     read_id, chrm, strand, pos, mod_lp,
@@ -587,14 +595,34 @@ def _get_mods_queue(
 
     while True:
         try:
-            been_warned = get_mod_call(been_warned)
+            # note strand is +1 for fwd or -1 for rev
+            r_mod_scores, (
+                read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
+                cigar) = mods_q.get(block=False)
         except queue.Empty:
             if mods_conn.poll():
                 break
             sleep(0.001)
             continue
+        try:
+            been_warned = store_mod_call(
+                r_mod_scores,  read_id, chrm, strand, r_start, ref_seq,
+                read_len, q_st, q_en, cigar, been_warned)
+        except Exception as e:
+            logger.debug('Error processing mods output for read: ' +
+                         '{}\nError type: {}'.format(read_id, str(e)))
+
     while not mods_q.empty():
-        been_warned = get_mod_call(been_warned)
+        r_mod_scores, (
+            read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
+            cigar) = mods_q.get(block=False)
+        try:
+            been_warned = store_mod_call(
+                r_mod_scores,  read_id, chrm, strand, r_start, ref_seq,
+                read_len, q_st, q_en, cigar, been_warned)
+        except Exception as e:
+            logger.debug('Error processing mods output for read: ' +
+                         '{}\nError type: {}'.format(read_id, str(e)))
 
     if mods_txt_fp is not None: mods_txt_fp.close()
     if pr_refs_fn is not None: pr_refs_fp.close()
@@ -676,7 +704,8 @@ class ModInfo(object):
             self, model_info, all_mod_motifs_raw=None, mod_all_paths=False,
             write_mods_txt=None, mod_context_bases=None,
             do_output_mods=False, do_pr_ref_mods=False, mods_calib_fn=None,
-            mod_output_fmts=[mh.MOD_BEDMETHYL_NAME]):
+            mod_output_fmts=[mh.MOD_BEDMETHYL_NAME],
+            edge_buffer=mh.DEFAULT_EDGE_BUFFER):
         logger = logging.get_logger()
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other alphabet info
@@ -690,6 +719,7 @@ class ModInfo(object):
         self.mod_long_names = model_info.mod_long_names
         self.calib_table = calibration.ModCalibrator(mods_calib_fn)
         self.mod_output_fmts = mod_output_fmts
+        self.edge_buffer = edge_buffer
 
         self.alphabet = model_info.can_alphabet
         self.ncan_base = len(self.alphabet)

@@ -45,15 +45,11 @@ def call_snp(
     else:
         pos_ab = min(snp_context_bases,
                      len(ref_seq) - r_snp_pos - len(snp_ref_seq))
-        pos_ref_seq = np.array([
-            mh.ALPHABET.find(b) for b in ref_seq[
-                r_snp_pos - pos_bb:
-                r_snp_pos + pos_ab + len(snp_ref_seq)]], dtype=np.uintp)
+        pos_ref_seq = mh.seq_to_int(ref_seq[
+            r_snp_pos - pos_bb:r_snp_pos + pos_ab + len(snp_ref_seq)]])
 
     pos_alt_seq = np.concatenate([
-        pos_ref_seq[:pos_bb],
-        np.array([mh.ALPHABET.find(b) for b in snp_alt_seq],
-                 dtype=np.uintp),
+        pos_ref_seq[:pos_bb], mh.seq_to_int(snp_alt_seq),
         pos_ref_seq[pos_bb + len(snp_ref_seq):]])
     blk_start  = rl_cumsum[r_to_q_poss[r_snp_pos - pos_bb]]
     blk_end = rl_cumsum[r_to_q_poss[r_snp_pos + pos_ab] + 1]
@@ -138,12 +134,11 @@ def process_read(
         bc_weights = model_info.run_model(raw_sig)
 
     r_post = decode.crf_flipflop_trans_post(bc_weights, log=True)
-    r_seq, score, rl_cumsum, _ = decode.decode_post(r_post, mh.ALPHABET)
+    r_seq, score, rl_cumsum, _ = decode.decode_post(r_post)
 
     r_ref_seq, r_to_q_poss, r_ref_pos, _ = mapping.map_read(
         r_seq, read_id, caller_conn)
-    np_ref_seq = np.array([
-        mh.ALPHABET.find(b) for b in r_ref_seq], dtype=np.uintp)
+    np_ref_seq = mh.seq_to_int(r_ref_seq)
     if np_ref_seq.shape[0] < edge_buffer * 2:
         raise NotImplementedError(
             'Mapping too short for calibration statistic computation.')
