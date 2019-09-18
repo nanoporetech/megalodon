@@ -639,7 +639,11 @@ class SnpData(object):
         vars_idx = pysam.VariantFile(self.variant_fn)
         try:
             contigs = list(vars_idx.header.contigs.keys())
-            vars_idx.fetch(next(iter(contigs)), 0, 0)
+            try:
+                vars_idx.fetch(next(iter(contigs)), 0, 0)
+            except StopIteration:
+                logger.error('Variants file must contain contigs in header.')
+                raise
         except ValueError:
             logger.warn(
                 'Variants file must be indexed. Performing indexing now.')
