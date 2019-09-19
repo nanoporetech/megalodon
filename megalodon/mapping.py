@@ -202,10 +202,9 @@ def _get_map_queue(
         ref_seq, (read_id, q_seq, chrm, strand, r_st, q_st, q_en,
                   cigar) = mo_q.get(block=False)
         write_alignment(read_id, q_seq, chrm, strand, r_st, q_st, q_en, cigar)
-        if do_output_pr_refs:
-            if read_passes_filters(
-                    pr_ref_filts, len(q_seq), q_st, q_en, cigar):
-                write_pr_ref(read_id, ref_seq)
+        if do_output_pr_refs and read_passes_filters(
+                pr_ref_filts, len(q_seq), q_st, q_en, cigar):
+            write_pr_ref(read_id, ref_seq)
         return
 
 

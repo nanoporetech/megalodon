@@ -21,82 +21,15 @@ from tqdm import tqdm
 from tqdm._utils import _term_move_up
 
 from megalodon import (
-    aggregate, backends, decode, fast5_io, logging, mapping, mods, snps,
-    megalodon_helper as mh)
+    aggregate, backends, decode, fast5_io, logging, mapping, mods,
+    signal_mapping, snps, megalodon_helper as mh)
 from megalodon._version import MEGALODON_VERSION
 
-
-_COMPUTE_SIGNAL_MAPPING = True
 
 _DO_PROFILE = False
 _UNEXPECTED_ERROR_CODE = 'Unexpected error'
 _UNEXPECTED_ERROR_FN = 'unexpected_snp_calling_errors.{}.err'
 _MAX_NUM_UNEXP_ERRORS = 50
-
-
-########################
-##### Signal Remap #####
-########################
-
-# TODO move all of this to a signal_mapping module if it is to be merged
-# into master
-
-from ont_fast5_api import fast5_interface
-from taiyaki import (alphabet, fast5utils, mapping as tai_mapping,
-                     prepare_mapping_funcs, signal as tai_signal)
-
-def get_remapping(
-        sig_fn, dacs, scale_params, ref_seq, stride, alphabet, read_id,
-        r_to_q_poss, rl_cumsum, q_start_trim):
-    channel_info = dict(fast5utils.get_channel_info(
-        fast5_interface.get_fast5_file(sig_fn, 'r').get_read(read_id)).items())
-    rd_factor = channel_info['range'] / channel_info['digitisation']
-    shift_from_pA = (scale_params[0] + channel_info['offset']) * rd_factor
-    scale_from_pA = scale_params[1] * rd_factor
-    sig = tai_signal.Signal(dacs=dacs)
-    sig.offset = channel_info['offset']
-    sig.range = channel_info['range']
-    sig.digitisation = channel_info['digitisation']
-
-    path = np.full((dacs.shape[0] // stride) + 1, -1)
-    s_rq_poss = sorted(r_to_q_poss.items())
-    ref_start = s_rq_poss[0][0]
-    # skip last value since this is where the two seqs end
-    for ref_pos, q_pos in s_rq_poss[:-1]:
-        # if the query position maps to the end of the mapping skip it
-        if rl_cumsum[q_pos + q_start_trim] >= path.shape[0]: continue
-        path[rl_cumsum[q_pos + q_start_trim]] = ref_pos - ref_start
-    remapping = tai_mapping.Mapping.from_remapping_path(
-        sig, path, ref_seq, stride)
-    remapping.add_integer_reference(alphabet)
-
-    return (remapping.get_read_dictionary(
-        shift_from_pA, scale_from_pA, read_id),
-            prepare_mapping_funcs.RemapResult.SUCCESS)
-
-def write_signal_mappings(sig_map_q, sig_map_conn, sig_map_fn, alphabet_info):
-    def iter_mappings():
-        while True:
-            try:
-                read_mapping = sig_map_q.get(block=False)
-                yield read_mapping
-            except queue.Empty:
-                if sig_map_conn.poll():
-                    break
-                sleep(0.001)
-                continue
-
-        while not sig_map_q.empty():
-            read_mapping = sig_map_q.get(block=False)
-            yield read_mapping
-
-        return
-
-
-    prepare_mapping_funcs.generate_output_from_results(
-        iter_mappings(), sig_map_fn, alphabet_info)
-
-    return
 
 
 ###########################
@@ -120,10 +53,8 @@ def handle_errors(func, args, r_vals, out_q, fast5_fn, failed_reads_q):
 
 def process_read(
         raw_sig, read_id, model_info, bc_q, caller_conn,
-        sig_map_q, sig_map_data, snps_data, snps_q, mods_q, mods_info,
-        fast5_fn, failed_reads_q):
-        raw_sig, read_id, model_info, bc_q, caller_conn, snps_data, snps_q,
-        mods_q, mods_info, fast5_fn, failed_reads_q):
+        sig_map_q, mod_sig_map_q, sig_map_data, sig_map_filts, sig_map_alphabet,
+        snps_data, snps_q, mods_q, mods_info, fast5_fn, failed_reads_q):
     """ Workhorse per-read megalodon function (connects all the parts)
     """
     if model_info.is_cat_mod:
@@ -152,11 +83,18 @@ def process_read(
         r_seq, read_id, caller_conn)
     np_ref_seq = mh.seq_to_int(r_ref_seq)
 
-    if sig_map_q is not None:
+    sig_map_res = None
+    if sig_map_q is not None or mod_sig_map_q is not None:
+        pass_sig_map_filts = mapping.read_passes_filters(
+            sig_map_filts, len(r_seq), r_ref_pos.q_trim_start,
+            r_ref_pos.q_trim_end, r_cigar)
         fast5_fn, dacs, scale_params, stride = sig_map_data
-        sig_map_q.put(get_remapping(
-            fast5_fn, dacs, scale_params, r_ref_seq, stride, mods_info.alphabet,
-            read_id, r_to_q_poss, rl_cumsum, r_ref_pos.q_trim_start))
+        sig_map_res = (
+            pass_sig_map_filts, fast5_fn, dacs, scale_params, r_ref_seq,
+            stride, sig_map_alphabet, read_id, r_to_q_poss, rl_cumsum,
+            r_ref_pos.q_trim_start)
+        if sig_map_q is not None and pass_sig_map_filts:
+            sig_map_q.put(signal_mapping.get_remapping(*sig_map_res[1:]))
 
     # get mapped start in post and run len to mapped bit of output
     post_mapped_start = rl_cumsum[r_ref_pos.q_trim_start]
@@ -177,7 +115,8 @@ def process_read(
         handle_errors(
             func=mods.call_read_mods,
             args=(r_ref_pos, r_ref_seq, mapped_rl_cumsum, r_to_q_poss,
-                  r_post_w_mods, post_mapped_start, mods_info),
+                  r_post_w_mods, post_mapped_start, mods_info, mod_sig_map_q,
+                  sig_map_res),
             r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
@@ -242,7 +181,8 @@ def _get_bc_queue(
 
 def _process_reads_worker(
         read_file_q, bc_q, snps_q, failed_reads_q, mods_q, caller_conn,
-        sig_map_q, model_info, snps_data, mods_info, device):
+        sig_map_q, mod_sig_map_q, sig_map_filts, sig_map_alphabet, model_info,
+        snps_data, mods_info, device):
     model_info.prep_model_worker(device)
     snps_data.reopen_variant_index()
     stride = model_info.guess_model_stride(model_info.model)
@@ -265,13 +205,19 @@ def _process_reads_worker(
                 break
             logger.debug('Analyzing read {}'.format(read_id))
 
-            dacs = fast5_io.get_signal(fast5_fn, read_id, scale=False)
-            med, mad = mh.med_mad(dacs)
-            raw_sig = (dacs - med) / mad
-            sig_map_data = (fast5_fn, dacs, (med, mad), stride)
+            if sig_map_q is None and mod_sig_map_q is None:
+                # if not processing signal mappings, don't save dacs
+                raw_sig = fast5_io.get_signal(fast5_fn, read_id, scale=True)
+                sig_map_data = None
+            else:
+                dacs = fast5_io.get_signal(fast5_fn, read_id, scale=False)
+                med, mad = mh.med_mad(dacs)
+                raw_sig = (dacs - med) / mad
+                sig_map_data = (fast5_fn, dacs, (med, mad), stride)
             process_read(
                 raw_sig, read_id, model_info, bc_q, caller_conn,
-                sig_map_q, sig_map_data, snps_data, snps_q, mods_q, mods_info,
+                sig_map_q, mod_sig_map_q, sig_map_data, sig_map_filts,
+                sig_map_alphabet, snps_data, snps_q, mods_q, mods_info,
                 fast5_fn, failed_reads_q)
             failed_reads_q.put((
                 False, True, None, None, None, raw_sig.shape[0]))
@@ -510,7 +456,7 @@ def _get_fail_queue(
 def process_all_reads(
         fast5s_dir, recursive, num_reads, read_ids_fn, model_info, outputs,
         out_dir, bc_fmt, aligner, snps_data, num_ps, num_update_errors,
-        suppress_progress, mods_info, db_safety, pr_ref_filts):
+        suppress_progress, mods_info, db_safety, pr_ref_filts, sig_map_filts):
     logger = logging.get_logger()
     logger.info('Preparing workers to process reads.')
     # read filename queue filler
@@ -532,7 +478,9 @@ def process_all_reads(
 
     # start output type getters/writers
     (bc_q, bc_p, main_bc_conn, mo_q, mo_p, main_mo_conn, snps_q, snps_p,
-     main_snps_conn, mods_q, mods_p, main_mods_conn) = [None,] * 12
+     main_snps_conn, mods_q, mods_p, main_mods_conn, sig_map_q, sig_map_p,
+     sig_map_conn, mod_sig_map_q, mod_sig_map_p,
+     mod_sig_map_conn) = [None,] * 18
     if mh.BC_NAME in outputs or mh.BC_MODS_NAME in outputs:
         if mh.BC_NAME not in outputs:
             outputs.append(mh.BC_NAME)
@@ -570,23 +518,16 @@ def process_all_reads(
                 mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME), db_safety,
                 aligner.ref_names_and_lens, mods_txt_fn,
                 pr_refs_fn, pr_ref_filts))
-    sig_map_q = sig_map_p = sig_map_conn = None
-    if _COMPUTE_SIGNAL_MAPPING:
-        outputs.append('signal_mapping')
-        sig_map_fn = os.path.join(out_dir, 'signal_mappings.hdf5')
-        flat_alphabet = model_info.output_alphabet[0]
-        can_base = model_info.output_alphabet[0]
-        for base in model_info.output_alphabet[1:]:
-            if base in model_info.can_alphabet:
-                can_base = base
-            flat_alphabet += can_base
-        mod_long_names = [] if len(model_info.mod_long_names) == 0 else \
-                         list(zip(*model_info.mod_long_names))[1]
-        alphabet_info = alphabet.AlphabetInfo(
-            model_info.output_alphabet, flat_alphabet,
-            mod_long_names, do_reorder=True)
+    if mh.SIG_MAP_NAME in outputs:
+        alphabet_info = signal_mapping.get_alphabet_info(model_info)
+        sig_map_fn = mh.get_megalodon_fn(out_dir, mh.SIG_MAP_NAME)
         sig_map_q, sig_map_p, sig_map_conn = mh.create_getter_q(
-            write_signal_mappings, (sig_map_fn, alphabet_info))
+            signal_mapping.write_signal_mappings, (sig_map_fn, alphabet_info))
+    if mh.MOD_SIG_MAP_NAME in outputs:
+        alphabet_info = signal_mapping.get_alphabet_info(model_info)
+        sig_map_fn = mh.get_megalodon_fn(out_dir, mh.SIG_MAP_NAME)
+        mod_sig_map_q, mod_sig_map_p, mod_sig_map_conn = mh.create_getter_q(
+            signal_mapping.write_signal_mappings, (sig_map_fn, alphabet_info))
 
     proc_reads_ps, map_conns = [], []
     for device in model_info.process_devices:
@@ -598,7 +539,8 @@ def process_all_reads(
         p = mp.Process(
             target=_process_reads_worker, args=(
                 read_file_q, bc_q, snps_q, failed_reads_q, mods_q, caller_conn,
-                sig_map_q, model_info, snps_data, mods_info, device))
+                sig_map_q, mod_sig_map_q, sig_map_filts, alphabet_info.alphabet,
+                model_info, snps_data, mods_info, device))
         p.daemon = True
         p.start()
         proc_reads_ps.append(p)
@@ -634,7 +576,8 @@ def process_all_reads(
         for on, p, main_conn in (
                 (mh.BC_NAME, bc_p, main_bc_conn),
                 (mh.MAP_NAME, mo_p, main_mo_conn),
-                ('signal_mapping', sig_map_p, sig_map_conn),
+                (mh.SIG_MAP_NAME, sig_map_p, sig_map_conn),
+                (mh.MOD_SIG_MAP_NAME, mod_sig_map_p, mod_sig_map_conn),
                 (mh.PR_SNP_NAME, snps_p, main_snps_conn),
                 (mh.PR_MOD_NAME, mods_p, main_mods_conn)):
             if on in outputs and p.is_alive():
@@ -798,6 +741,32 @@ def parse_pr_ref_output(args):
         min_len=min_len, max_len=max_len)
 
     return args, pr_ref_filts
+
+def parse_sig_map_output(args):
+    logger = logging.get_logger()
+    if args.output_signal_mappings:
+        if args.signal_map_include_mods:
+            args.outputs.append(mh.MOD_SIG_MAP_NAME)
+            if mh.PR_MOD_NAME not in args.outputs:
+                args.outputs.append(mh.PR_MOD_NAME)
+                logger.warning('--signal-map-include-mods set, so adding ' +
+                               '"per_read_mods" to --outputs.')
+        else:
+            args.outputs.append(mh.SIG_MAP_NAME)
+    else:
+        if args.signal_map_include_mods:
+            logger.warning(
+                '--signal-map-include-mods but not --output-signal-mappings ' +
+                'set. Ignoring --signal-map-include-mods.')
+    min_len, max_len = (args.signal_map_length_range
+                        if args.signal_map_length_range is not None else
+                        (None, None))
+    sig_map_filts = mh.PR_REF_FILTERS(
+        pct_idnt=args.signal_map_percent_identity_threshold,
+        pct_cov=args.signal_map_percent_coverage_threshold,
+        min_len=min_len, max_len=max_len)
+
+    return args, sig_map_filts
 
 def mkdir(out_dir, overwrite):
     logger = logging.get_logger()
@@ -1031,6 +1000,27 @@ def get_parser():
         help=hidden_help('Only include reads with specified read length ' +
                          'in per-read reference output.'))
 
+    sigmap_grp = parser.add_argument_group('Signal Mapping Output Arguments')
+    sigmap_grp.add_argument(
+        '--output-signal-mappings', action='store_true',
+        help=hidden_help('Output signal mapped file (see taiyaki).'))
+    sigmap_grp.add_argument(
+        '--signal-map-include-mods', action='store_true',
+        help=hidden_help('Include modified base calls in signal ' +
+                         'mapping output.'))
+    sigmap_grp.add_argument(
+        '--signal-map-percent-identity-threshold', type=float,
+        help=hidden_help('Only include reads with higher percent identity ' +
+                         'in signal mapping output.'))
+    sigmap_grp.add_argument(
+        '--signal-map-percent-coverage-threshold', type=float,
+        help=hidden_help('Only include reads with higher read alignment ' +
+                         'coverage in signal mapping output.'))
+    sigmap_grp.add_argument(
+        '--signal-map-length-range', type=int, nargs=2,
+        help=hidden_help('Only include reads with specified read length ' +
+                         'in signal mapping output.'))
+
     misc_grp = parser.add_argument_group('Miscellaneous Arguments')
     misc_grp.add_argument(
         '--help-long', help='Show all options.', action='help')
@@ -1081,6 +1071,7 @@ def _main():
         logger.warning('Running profiling. This may slow processing.')
 
     args, pr_ref_filts = parse_pr_ref_output(args)
+    args, sig_map_filts = parse_sig_map_output(args)
     tai_model_fn = mh.get_model_fn(args.taiyaki_model_filename)
     model_info = backends.ModelInfo(
         tai_model_fn, args.devices,
@@ -1096,7 +1087,7 @@ def _main():
         args.read_ids_filename, model_info, args.outputs,
         args.output_directory, args.basecalls_format, aligner, snps_data,
         args.processes, args.verbose_read_progress, args.suppress_progress,
-        mods_info, args.database_safety, pr_ref_filts)
+        mods_info, args.database_safety, pr_ref_filts, sig_map_filts)
 
     if mh.MAP_NAME in args.outputs:
         logger.info('Spawning process to sort mappings')

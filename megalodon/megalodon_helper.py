@@ -59,9 +59,10 @@ WHATSHAP_MAP_NAME = 'whatshap_mappings'
 SNP_NAME = 'snps'
 PR_MOD_NAME = 'per_read_mods'
 PR_MOD_TXT_NAME = 'per_read_mods_text'
-# TOOD add wig/bedgraph modified base output
 MOD_NAME = 'mods'
 PR_REF_NAME = 'per_read_ref'
+SIG_MAP_NAME = 'signal_mapping'
+MOD_SIG_MAP_NAME = 'mod_signal_mapping'
 OUTPUT_FNS = {
     BC_NAME:'basecalls',
     BC_MODS_NAME:'basecalls.modified_base_scores.hdf5',
@@ -74,7 +75,9 @@ OUTPUT_FNS = {
     PR_MOD_NAME:'per_read_modified_base_calls.db',
     PR_MOD_TXT_NAME:'per_read_modified_base_calls.txt',
     MOD_NAME:'modified_bases',
-    PR_REF_NAME:'per_read_references.fasta'
+    PR_REF_NAME:'per_read_references.fasta',
+    SIG_MAP_NAME:'signal_mappings.hdf5',
+    MOD_SIG_MAP_NAME:'signal_mappings.with_modified_bases.hdf5'
 }
 LOG_FILENAME = 'log.txt'
 # outputs to be selected with command line --outputs argument
@@ -104,8 +107,9 @@ MOD_OUTPUT_EXTNS = {
     MOD_WIG_NAME:'wig'
 }
 
-ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, PR_SNP_NAME, SNP_NAME,
-                     WHATSHAP_MAP_NAME, PR_MOD_NAME, MOD_NAME))
+ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, SIG_MAP_NAME, MOD_SIG_MAP_NAME,
+                     PR_SNP_NAME, SNP_NAME, WHATSHAP_MAP_NAME, PR_MOD_NAME,
+                     MOD_NAME))
 
 PR_REF_FILTERS = namedtuple(
     'pr_ref_filters', ('pct_idnt', 'pct_cov', 'min_len', 'max_len'))
