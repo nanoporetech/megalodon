@@ -72,7 +72,7 @@ def write_signal_mappings(sig_map_q, sig_map_conn, sig_map_fn, alphabet_info):
 
 
     prepare_mapping_funcs.generate_output_from_results(
-        iter_mappings(), sig_map_fn, alphabet_info)
+        iter_mappings(), sig_map_fn, alphabet_info, verbose=False)
 
     return
 
