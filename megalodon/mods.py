@@ -551,8 +551,6 @@ def _get_mods_queue(
                 str(e) + '\n' + var)
 
         if mods_txt_fp is not None and len(r_mod_scores) > 0:
-            # would involve batching and creating several conversion tables
-            # for var strings (read_id and chrms).
             mods_txt_fp.write('\n'.join((
                 ('\t'.join('{}' for _ in field_names)).format(
                     read_id, chrm, strand, pos, mod_lp,

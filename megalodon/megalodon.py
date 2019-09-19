@@ -899,8 +899,9 @@ def get_parser():
         help='Overlap between chunks to be stitched together. ' +
         'Default: %(default)d')
     tai_grp.add_argument(
-        '--devices', type=int, nargs='+',
-        help='CUDA GPU devices to use (only valid for taiyaki), default: CPU')
+        '--devices', nargs='+', help='GPU devices for taiyaki basecalling ' +
+        'backend (--processes will be distributed even over specified ' +
+        '--devices).')
     tai_grp.add_argument(
         '--max-concurrent-chunks', type=int, default=200,
         help='Only process N chunks concurrently per-read (to avoid GPU ' +

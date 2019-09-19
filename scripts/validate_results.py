@@ -19,6 +19,8 @@ from megalodon import megalodon_helper as mh
 
 VERBOSE = False
 
+MAX_LOG_PROB = -1e-10
+MIN_LOG_PROB = np.log1p(-np.exp(MAX_LOG_PROB))
 PLOT_MIN_BC_ACC = 80
 MOD_BANDWIDTH = 0.2
 MOD_GRIDSIZE = 1000
@@ -35,6 +37,11 @@ BC_CONTROL_NAME = 'Control'
 
 
 def report_mod_metrics(m_dat, args, out_fp, pdf_fp):
+    # cap 0 and -inf log probs
+    m_dat['mod_log_prob'] = np.maximum(
+        MIN_LOG_PROB, np.minimum(MAX_LOG_PROB, m_dat['mod_log_prob']))
+    m_dat['can_log_prob'] = np.maximum(
+        MIN_LOG_PROB, np.minimum(MAX_LOG_PROB, m_dat['can_log_prob']))
     m_dat['llr'] = m_dat['mod_log_prob'] - m_dat['can_log_prob']
     uniq_grps = m_dat.groupby(['mod_base', 'motif']).size().reset_index()
     for mod_base, motif in zip(uniq_grps.mod_base, uniq_grps.motif):
