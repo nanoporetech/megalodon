@@ -343,7 +343,8 @@ def iter_non_overlapping_snps(r_snp_calls):
         """
         most_prob_snp = None
         for snp_data in snp_grp:
-            ref_lp = np.log1p(-np.exp(snp_data[1]).sum())
+            with np.errstate(divide='ignore'):
+                ref_lp = np.log1p(-np.exp(snp_data[1]).sum())
             snp_max_lp = max(ref_lp, max(snp_data[1]))
             if most_prob_snp is None or snp_max_lp > most_prob_snp[0]:
                 most_prob_snp = (snp_max_lp, ref_lp, snp_data)
@@ -478,15 +479,18 @@ def _get_snps_queue(
             test_start, test_end in r_snp_calls
             for alt_lp, snp_alt_seq in zip(alt_lps, snp_alt_seqs)])
         if snps_txt_fp is not None and len(r_snp_calls) > 0:
-            snps_txt_fp.write('\n'.join((
-                ('\t'.join('{}' for _ in field_names)).format(
-                    read_id, chrm, strand, pos,
-                    np.log1p(-np.exp(alt_lps).sum()), alt_lp,
-                    snp_ref_seq, snp_alt_seq, snp_id)
-                for pos, alt_lps, snp_ref_seq, snp_alt_seqs, snp_id,
-                test_start, test_end in r_snp_calls
-                for alt_lp, snp_alt_seq in zip(alt_lps, snp_alt_seqs))) + '\n')
-            snps_txt_fp.flush()
+            snp_out_text = ''
+            for (pos, alt_lps, snp_ref_seq, snp_alt_seqs, snp_id,
+                 test_start, test_end) in r_snp_calls:
+                with np.errstate(divide='ignore'):
+                    ref_lp = np.log1p(-np.exp(alt_lps).sum())
+                snp_out_text += '\n'.join((
+                    ('\t'.join('{}' for _ in field_names)).format(
+                        read_id, chrm, strand, pos, ref_lp, alt_lp,
+                        snp_ref_seq, snp_alt_seq, snp_id)
+                    for alt_lp, snp_alt_seq in zip(
+                            alt_lps, snp_alt_seqs))) + '\n'
+            snps_txt_fp.write(snp_out_text)
         if do_ann_snps:
             if not mapping.read_passes_filters(
                     pr_ref_filts, read_len, q_st, q_en, cigar):
@@ -495,7 +499,6 @@ def _get_snps_queue(
                 r_start, ref_seq, r_snp_calls, strand)
             if pr_refs_fn is not None:
                 pr_refs_fp.write('>{}\n{}\n'.format(read_id, snp_seq))
-                pr_refs_fp.flush()
             if whatshap_map_fn is not None:
                 write_whatshap_alignment(
                     read_id, snp_seq, snp_quals, chrm, strand, r_start,

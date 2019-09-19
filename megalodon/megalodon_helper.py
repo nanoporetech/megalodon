@@ -25,9 +25,6 @@ DEFAULT_CONTEXT_MIN_ALT_PROB = 0.05
 
 MED_NORM_FACTOR = 1.4826
 
-# maximum log probability to avoid reporting 0 and 1 probs
-MAX_LOG_PROB = -1e-10
-
 ALPHABET = 'ACGT'
 COMP_BASES = dict(zip(map(ord, 'ACGT'), map(ord, 'TGCA')))
 NP_COMP_BASES = np.array([3, 2, 1, 0], dtype=np.uintp)

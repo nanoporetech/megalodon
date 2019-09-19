@@ -516,7 +516,8 @@ def annotate_mods(r_start, ref_seq, r_mod_scores, strand):
     if strand == -1:
         ref_seq = ref_seq[::-1]
     for mod_pos, mod_lps, mod_bases, _, _, _ in sorted(r_mod_scores):
-        can_lp = np.log1p(-np.exp(mod_lps).sum())
+        with np.errstate(divide='ignore'):
+            can_lp = np.log1p(-np.exp(mod_lps).sum())
         # called canonical
         if can_lp >= mod_lps.max(): continue
         most_prob_mod = np.argmax(mod_lps)
@@ -551,14 +552,17 @@ def _get_mods_queue(
                 str(e) + '\n' + var)
 
         if mods_txt_fp is not None and len(r_mod_scores) > 0:
-            mods_txt_fp.write('\n'.join((
-                ('\t'.join('{}' for _ in field_names)).format(
-                    read_id, chrm, strand, pos, mod_lp,
-                    np.log1p(-np.exp(mod_lps).sum()), mod_base,
-                    '{}:{}'.format(raw_motif, rel_pos))
-                for pos, mod_lps, mod_bases, ref_motif, rel_pos, raw_motif
-                in r_mod_scores
-                for mod_lp, mod_base in zip(mod_lps, mod_bases))) + '\n')
+            mod_out_text = ''
+            for (pos, mod_lps, mod_bases, ref_motif, rel_pos,
+                 raw_motif) in r_mod_scores:
+                with np.errstate(divide='ignore'):
+                    can_lp = np.log1p(-np.exp(mod_lps).sum())
+                mod_out_text += '\n'.join((
+                    ('\t'.join('{}' for _ in field_names)).format(
+                        read_id, chrm, strand, pos, mod_lp,
+                        can_lp, mod_base, '{}:{}'.format(raw_motif, rel_pos))
+                    for mod_lp, mod_base in zip(mod_lps, mod_bases))) + '\n'
+            mods_txt_fp.write(mod_out_text)
         if pr_refs_fn is not None:
             if not mapping.read_passes_filters(
                     pr_ref_filts, read_len, q_st, q_en, cigar):
@@ -1099,7 +1103,8 @@ class AggMods(mh.AbstractAggregationClass):
         mods_cov = dict((mt, 0) for mt in mod_types)
         for read_pos_lps in pos_scores.values():
             mt_lps = np.array(list(read_pos_lps.values()))
-            can_lp = np.log1p(-np.exp(mt_lps).sum())
+            with np.errstate(divide='ignore'):
+                can_lp = np.log1p(-np.exp(mt_lps).sum())
             if can_lp > mt_lps.max():
                 if np.exp(can_lp) > self.binary_thresh:
                     valid_cov += 1

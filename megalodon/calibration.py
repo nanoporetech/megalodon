@@ -185,7 +185,7 @@ def compute_log_probs(alt_llrs):
     """
     ref_lp = np.log(1) - np.log1p(np.sum(1 / np.exp(alt_llrs)))
     # set maximum log probability to avoid reporting 0 and 1 probabilities
-    return np.minimum(mh.MAX_LOG_PROB, ref_lp - alt_llrs)
+    return ref_lp - alt_llrs
 
 
 ###############################
