@@ -121,7 +121,9 @@ def handle_errors(func, args, r_vals, out_q, fast5_fn, failed_reads_q):
 def process_read(
         raw_sig, read_id, model_info, bc_q, caller_conn,
         sig_map_q, sig_map_data, snps_data, snps_q, mods_q, mods_info,
-        fast5_fn, failed_reads_q, edge_buffer):
+        fast5_fn, failed_reads_q):
+        raw_sig, read_id, model_info, bc_q, caller_conn, snps_data, snps_q,
+        mods_q, mods_info, fast5_fn, failed_reads_q):
     """ Workhorse per-read megalodon function (connects all the parts)
     """
     if model_info.is_cat_mod:
@@ -148,8 +150,7 @@ def process_read(
     # map read and record mapping from reference to query positions
     r_ref_seq, r_to_q_poss, r_ref_pos, r_cigar = mapping.map_read(
         r_seq, read_id, caller_conn)
-    np_ref_seq = np.array([
-        mh.ALPHABET.find(b) for b in r_ref_seq], dtype=np.uintp)
+    np_ref_seq = mh.seq_to_int(r_ref_seq)
 
     if sig_map_q is not None:
         fast5_fn, dacs, scale_params, stride = sig_map_data
@@ -165,22 +166,23 @@ def process_read(
     if snps_q is not None:
         handle_errors(
             func=snps.call_read_snps,
-            args=(snps_data, r_ref_pos, edge_buffer, np_ref_seq,
-                  mapped_rl_cumsum, r_to_q_poss, r_post, post_mapped_start),
+            args=(snps_data, r_ref_pos, np_ref_seq, mapped_rl_cumsum,
+                  r_to_q_poss, r_post, post_mapped_start),
             r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
-            out_q=snps_q, fast5_fn=fast5_fn, failed_reads_q=failed_reads_q)
+            out_q=snps_q, fast5_fn=fast5_fn + ':::' + read_id,
+            failed_reads_q=failed_reads_q)
     if mods_q is not None:
         handle_errors(
             func=mods.call_read_mods,
-            args=(r_ref_pos, edge_buffer, r_ref_seq, np_ref_seq,
-                  mapped_rl_cumsum, r_to_q_poss, r_post_w_mods,
-                  post_mapped_start, mods_info),
+            args=(r_ref_pos, r_ref_seq, mapped_rl_cumsum, r_to_q_poss,
+                  r_post_w_mods, post_mapped_start, mods_info),
             r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
-            out_q=mods_q, fast5_fn=fast5_fn, failed_reads_q=failed_reads_q)
+            out_q=mods_q, fast5_fn=fast5_fn + ':::' + read_id,
+            failed_reads_q=failed_reads_q)
 
     return
 
@@ -240,11 +242,12 @@ def _get_bc_queue(
 
 def _process_reads_worker(
         read_file_q, bc_q, snps_q, failed_reads_q, mods_q, caller_conn,
-        sig_map_q,
-        model_info, snps_data, mods_info, edge_buffer, device):
+        sig_map_q, model_info, snps_data, mods_info, device):
     model_info.prep_model_worker(device)
     snps_data.reopen_variant_index()
     stride = model_info.guess_model_stride(model_info.model)
+    logger = logging.get_logger('main')
+    logger.debug('Starting read worker {}'.format(mp.current_process()))
 
     while True:
         try:
@@ -257,7 +260,10 @@ def _process_reads_worker(
             if fast5_fn is None:
                 if caller_conn is not None:
                     caller_conn.send(True)
+                logger.debug('Gracefully exiting read worker {}'.format(
+                    mp.current_process()))
                 break
+            logger.debug('Analyzing read {}'.format(read_id))
 
             dacs = fast5_io.get_signal(fast5_fn, read_id, scale=False)
             med, mad = mh.med_mad(dacs)
@@ -266,20 +272,26 @@ def _process_reads_worker(
             process_read(
                 raw_sig, read_id, model_info, bc_q, caller_conn,
                 sig_map_q, sig_map_data, snps_data, snps_q, mods_q, mods_info,
-                fast5_fn, failed_reads_q, edge_buffer)
+                fast5_fn, failed_reads_q)
             failed_reads_q.put((
                 False, True, None, None, None, raw_sig.shape[0]))
+            logger.debug('Successfully processed read {}'.format(read_id))
         except KeyboardInterrupt:
             failed_reads_q.put((
                 True, True, 'Keyboard interrupt', fast5_fn, None, 0))
+            logger.debug('Keyboard interrupt during read {}'.format(read_id))
             return
         except mh.MegaError as e:
             failed_reads_q.put((
-                True, True, str(e), fast5_fn, None, raw_sig.shape[0]))
+                True, True, str(e), fast5_fn + ':::' + read_id, None,
+                raw_sig.shape[0]))
+            logger.debug('Incomplete processing for read {} ::: {}'.format(
+                read_id, str(e)))
         except:
             failed_reads_q.put((
-                True, True, _UNEXPECTED_ERROR_CODE, fast5_fn,
+                True, True, _UNEXPECTED_ERROR_CODE, fast5_fn + ':::' + read_id,
                 traceback.format_exc(), 0))
+            logger.debug('Unexpected error for read {}'.format(read_id))
 
     return
 
@@ -427,19 +439,19 @@ def _get_fail_queue(
             if not suppress_progress:
                 try:
                     bar.set_postfix({
-                        'ksample/s':(sig_called / 1000) /
+                        'ksamp/s':(sig_called / 1000) /
                         bar.format_dict['elapsed']})
                 except AttributeError:
                     # sometimes get no format_dict error
                     # so don't include ksample/s if so
                     pass
                 bar.update(1)
+                if num_update_errors > 0:
+                    bar.write(prog_prefix + format_fail_summ(
+                        bar_header,
+                        [(len(fns), err) for err, fns in failed_reads.items()],
+                        reads_called, num_update_errors), file=sys.stderr)
             reads_called += 1
-        if num_update_errors > 0:
-            bar.write(prog_prefix + format_fail_summ(
-                bar_header,
-                [(len(fns), err) for err, fns in failed_reads.items()],
-                reads_called, num_update_errors), file=sys.stderr)
 
         return reads_called, unexp_err_fp
 
@@ -498,7 +510,7 @@ def _get_fail_queue(
 def process_all_reads(
         fast5s_dir, recursive, num_reads, read_ids_fn, model_info, outputs,
         out_dir, bc_fmt, aligner, snps_data, num_ps, num_update_errors,
-        suppress_progress, mods_info, db_safety, edge_buffer, pr_ref_filts):
+        suppress_progress, mods_info, db_safety, pr_ref_filts):
     logger = logging.get_logger()
     logger.info('Preparing workers to process reads.')
     # read filename queue filler
@@ -585,9 +597,8 @@ def process_all_reads(
         map_conns.append(map_conn)
         p = mp.Process(
             target=_process_reads_worker, args=(
-                read_file_q, bc_q, snps_q, failed_reads_q, mods_q,
-                caller_conn, sig_map_q, model_info, snps_data, mods_info,
-                edge_buffer, device))
+                read_file_q, bc_q, snps_q, failed_reads_q, mods_q, caller_conn,
+                sig_map_q, model_info, snps_data, mods_info, device))
         p.daemon = True
         p.start()
         proc_reads_ps.append(p)
@@ -702,7 +713,8 @@ def snps_validation(args, is_cat_mod, output_size, aligner):
             args.snp_all_paths, args.write_snps_text,
             args.variant_context_bases, snp_calib_fn,
             snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE,
-            args.refs_include_snps, aligner)
+            args.refs_include_snps, aligner, edge_buffer=args.edge_buffer,
+            context_min_alt_prob=args.context_min_alt_prob)
     except mh.MegaError as e:
         logger.error(str(e))
         sys.exit(1)
@@ -748,7 +760,7 @@ def mods_validation(args, model_info):
         model_info, args.mod_motif, args.mod_all_paths,
         args.write_mods_text, args.mod_context_bases,
         mh.BC_MODS_NAME in args.outputs, args.refs_include_mods, mod_calib_fn,
-        args.mod_output_formats)
+        args.mod_output_formats, args.edge_buffer)
     return args, mods_info
 
 def parse_pr_ref_output(args):
@@ -803,21 +815,18 @@ def mkdir(out_dir, overwrite):
 
     return
 
-def profile_validation(args):
-    logger = logging.get_logger()
-    if args.processes > 1:
-        msg = ('Running profiling with multiple processes is ' +
-               'not allowed. Setting to single process.')
-        args.processes = 1
-    else:
-        msg = 'Running profiling. This may slow processing.'
-    logger.warning(msg)
-    return args
-
 
 ##########################
 ########## Main ##########
 ##########################
+
+class SelectiveRawFormatter(argparse.HelpFormatter):
+    def _split_lines(self, text, width):
+        # special splitlines command for options output for better readability
+        if text.startswith('O|'):
+            return text[2:].splitlines()
+        # else use standard RawTextHelpFormatter._split_lines
+        return argparse.HelpFormatter._split_lines(self, text, width)
 
 def get_parser():
     # hide more complex arguments for standard help output
@@ -827,8 +836,7 @@ def get_parser():
             return argparse.SUPPRESS
         return help_msg
 
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.RawTextHelpFormatter)
+    parser = argparse.ArgumentParser(formatter_class=SelectiveRawFormatter)
     parser.add_argument(
         'fast5s_dir',
         help='Directory containing raw fast5 (will be searched recursively).')
@@ -843,7 +851,7 @@ def get_parser():
     out_grp.add_argument(
         '--outputs', nargs='+',
         default=['basecalls',], choices=tuple(mh.OUTPUT_DESCS.keys()),
-        help='Desired output(s).\nOptions:\n' +
+        help='O|Desired output(s).\nOptions:\n' +
         '\n'.join(('\t{}: {}'.format(*out_desc)
                    for out_desc in mh.OUTPUT_DESCS.items())) +
         '\nDefault: %(default)s')
@@ -892,6 +900,12 @@ def get_parser():
         'Only ouput to database.')
 
     snp_grp.add_argument(
+        '--context-min-alt-prob', type=float,
+        default=mh.DEFAULT_CONTEXT_MIN_ALT_PROB,
+        help=hidden_help('Minimum alternative alleles probability to ' +
+                         'include variant in computation of nearby variants. ' +
+                         'Default: %(default)f'))
+    snp_grp.add_argument(
         '--disable-snp-calibration', action='store_true',
         help=hidden_help('Use raw SNP scores from the network. ' +
                          'Default: Calibrate score with ' +
@@ -917,7 +931,8 @@ def get_parser():
                          'megalodon/scripts/calibrate_snp_llr_scores.py. ' +
                          'Default: Load default calibration file.'))
     snp_grp.add_argument(
-        '--variant-context-bases', type=int, nargs=2, default=[10, 30],
+        '--variant-context-bases', type=int, nargs=2,
+        default=[mh.DEFAULT_SNV_CONTEXT, mh.DEFAULT_INDEL_CONTEXT],
         help=hidden_help('Context bases for single base SNP and indel ' +
                          'calling. Default: %(default)s'))
     snp_grp.add_argument(
@@ -960,7 +975,7 @@ def get_parser():
                          'megalodon/scripts/calibrate_mod_llr_scores.py. ' +
                          'Default: Load default calibration file.'))
     mod_grp.add_argument(
-        '--mod-context-bases', type=int, default=10,
+        '--mod-context-bases', type=int, default=mh.DEFAULT_MOD_CONTEXT,
         help=hidden_help('Context bases for modified base calling. ' +
                          'Default: %(default)d'))
     mod_grp.add_argument(
@@ -983,8 +998,9 @@ def get_parser():
         help='Overlap between chunks to be stitched together. ' +
         'Default: %(default)d')
     tai_grp.add_argument(
-        '--devices', type=int, nargs='+',
-        help='CUDA GPU devices to use (only valid for taiyaki), default: CPU')
+        '--devices', nargs='+', help='GPU devices for taiyaki basecalling ' +
+        'backend (--processes will be distributed even over specified ' +
+        '--devices).')
     tai_grp.add_argument(
         '--max-concurrent-chunks', type=int, default=200,
         help='Only process N chunks concurrently per-read (to avoid GPU ' +
@@ -1038,7 +1054,7 @@ def get_parser():
                          'on application crash), 1 (DB corruption on system ' +
                          'crash), 2 (DB safe mode). Default: %(default)d'))
     misc_grp.add_argument(
-        '--edge-buffer', type=int, default=100,
+        '--edge-buffer', type=int, default=mh.DEFAULT_EDGE_BUFFER,
         help=hidden_help('Do not process sequence variant or modified base ' +
                          'calls near edge of read mapping. ' +
                          'Default: %(default)d'))
@@ -1061,9 +1077,8 @@ def _main():
     logging.init_logger(args.output_directory)
     logger = logging.get_logger()
     logger.debug('Command: """' + ' '.join(sys.argv) + '"""')
-
     if _DO_PROFILE:
-        args = profile_validation(args)
+        logger.warning('Running profiling. This may slow processing.')
 
     args, pr_ref_filts = parse_pr_ref_output(args)
     tai_model_fn = mh.get_model_fn(args.taiyaki_model_filename)
@@ -1081,7 +1096,7 @@ def _main():
         args.read_ids_filename, model_info, args.outputs,
         args.output_directory, args.basecalls_format, aligner, snps_data,
         args.processes, args.verbose_read_progress, args.suppress_progress,
-        mods_info, args.database_safety, args.edge_buffer, pr_ref_filts)
+        mods_info, args.database_safety, pr_ref_filts)
 
     if mh.MAP_NAME in args.outputs:
         logger.info('Spawning process to sort mappings')

@@ -12,47 +12,65 @@ Workflow
 
 ::
 
+   reads_dir="fast5s"
+   ref="reference.fasta"
+   variants_vcf="variants.vcf.gz"
+   out_dir="megalodon_results"
+   nproc=16
+   gpu_devices="0 1"
+
    # run megalodon to produce whatshap_mappings
    megalodon \
-       fast5s --outputs whatshap_mappings --processes 4 \
-       --reference reference.fasta --variant-filename variants.vcf.gz --overwrite
+       $reads_dir --outputs mappings snps whatshap_mappings \
+       --reference $ref --variant-filename $variants_vcf \
+       --output-directory $out_dir \
+       --processes $nproc --devices $gpu_devices \
+       --verbose-read-progress 3
+
+   # filter whatshap incompatible variants and create indices
+   python \
+       megalodon/scripts/filter_whatshap.py $out_dir/variants.sorted.vcf \
+       $out_dir/variants.sorted.whatshap_filt.vcf \
+       --filtered-records $out_dir/whatshap_filt.txt
+   bgzip $out_dir/variants.sorted.whatshap_filt.vcf
+   tabix $out_dir/variants.sorted.whatshap_filt.vcf.gz
+   samtools index $out_dir/whatshap_mappings.sorted.bam
 
    # run whatshap with produced mappings and variants
-   samtools index megalodon_results/whatshap_mappings.sorted.bam
    whatshap \
        phase --indels --distrust-genotypes \
-       -o megalodon_results/variants.phased.vcf \
-       megalodon_results/variants.sorted.vcf.gz \
-       megalodon_results/whatshap_mappings.sorted.bam
+       -o $out_dir/variants.phased.vcf \
+       $out_dir/variants.sorted.whatshap_filt.vcf.gz \
+       $out_dir/whatshap_mappings.sorted.bam
 
-   # color reads against the phased variants
-   bgzip megalodon_results/variants.phased.vcf
-   tabix megalodon_results/variants.phased.vcf.gz
+   # assign haplotypes to reads
+   bgzip $out_dir/variants.phased.vcf
+   tabix $out_dir/variants.phased.vcf.gz
    whatshap \
-       haplotag megalodon_results/variants.phased.vcf.gz \
-       megalodon_results/whatshap_mappings.sorted.bam \
-       -o megalodon_results/whatshap_mappings.haplotagged.bam
+       haplotag $out_dir/variants.phased.vcf.gz \
+       $out_dir/whatshap_mappings.sorted.bam \
+       -o $out_dir/whatshap_mappings.haplotagged.bam
 
-   # extract relevant reads and call haploid variants (more accurate)
+   # extract haplotype reads and call haploid variants
    python \
        megalodon/scripts/extract_haplotype_read_ids.py \
-       megalodon_results/whatshap_mappings.haplotagged.bam \
-       megalodon_results/whatshap_mappings.haploid_reads
+       $out_dir/whatshap_mappings.haplotagged.bam \
+       $out_dir/whatshap_mappings
    python \
        megalodon/scripts/run_aggregation.py \
        --outputs snps --haploid --output-suffix haplotype_1 \
-       --read-ids-filename megalodon_results/whatshap_mappings.haploid_reads.haplotype_1_read_ids.txt \
-       --reference reference.fasta
+       --read-ids-filename $out_dir/whatshap_mappings.haplotype_1_read_ids.txt \
+       --reference $ref --processes $nproc
    python \
        megalodon/scripts/run_aggregation.py \
        --outputs snps --haploid --output-suffix haplotype_2 \
-       --read-ids-filename megalodon_results/whatshap_mappings.haploid_reads.haplotype_2_read_ids.txt \
-       --reference reference.fasta
+       --read-ids-filename $out_dir/whatshap_mappings.haplotype_2_read_ids.txt \
+       --reference $ref --processes $nproc
 
    # merge haploid variants to produce diploid variants
    python \
        megalodon/scripts/merge_haploid_variants.py \
-       megalodon_results/variants.phased.vcf.gz \
-       megalodon_results/variants.haplotype_1.sorted.vcf.gz \
-       megalodon_results/variants.haplotype_2.sorted.vcf.gz \
-       --out-vcf megalodon_results/variants.haploid_merged.vcf
+       $out_dir/variants.sorted.vcf.gz \
+       $out_dir/variants.haplotype_1.sorted.vcf.gz \
+       $out_dir/variants.haplotype_2.sorted.vcf.gz \
+       --out-vcf $out_dir/variants.haploid_merged.vcf

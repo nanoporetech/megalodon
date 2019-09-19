@@ -302,7 +302,7 @@ def aggregate_stats(
                 out_dir, mod_names, ref_names_and_lens, out_suffix,
                 write_mod_lp, mod_output_fmts))
         # create process to fill mod locs queue
-        mod_filler_q = mp.Queue(maxsize=100000)
+        mod_filler_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
         mod_fill_limit = _N_MOD_PROF if _DO_PROF else None
         mod_filler_p = mp.Process(
             target=_fill_locs_queue,

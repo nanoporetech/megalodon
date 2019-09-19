@@ -184,6 +184,7 @@ def compute_log_probs(alt_llrs):
     against the reference allele
     """
     ref_lp = np.log(1) - np.log1p(np.sum(1 / np.exp(alt_llrs)))
+    # set maximum log probability to avoid reporting 0 and 1 probabilities
     return ref_lp - alt_llrs
 
 

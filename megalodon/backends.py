@@ -1,3 +1,4 @@
+import re
 import sys
 import string
 import numpy as np
@@ -14,6 +15,17 @@ MOD_ALPHABET = CAN_ALPHABET + ''.join(
     b for b in string.ascii_uppercase[::-1] if b not in CAN_ALPHABET)
 
 
+def parse_device(device):
+    if device is None or device == 'cpu':
+        return 'cpu'
+    # add colon for UGE/SGE device type
+    if re.match('cuda[0-9]+', device) is not None:
+        return 'cuda:{}'.format(device[4:])
+    # if integer device is specified
+    elif not device.startswith('cuda'):
+        return 'cuda:{}'.format(device)
+    return device
+
 class ModelInfo(object):
     def _load_taiyaki_model(self):
         if any(arg is None for arg in (
@@ -27,17 +39,9 @@ class ModelInfo(object):
 
         if self.devices is None:
             self.devices = ['cpu',]
-        base_proc_per_device = int(np.ceil(self.num_proc / len(self.devices)))
-        procs_per_device = np.repeat(
-            base_proc_per_device, len(self.devices))
-        if base_proc_per_device * len(self.devices) > self.num_proc:
-            procs_per_device[
-                -(base_proc_per_device * len(self.devices) -
-                  self.num_proc):] -= 1
-        assert sum(procs_per_device) == self.num_proc
-        self.process_devices = [
-            dv for dv, n_dv in zip(self.devices, procs_per_device)
-            for _ in range(n_dv)]
+        self.process_devices = [parse_device(self.devices[i]) for i in np.tile(
+            np.arange(len(self.devices)),
+            (self.num_proc // len(self.devices)) + 1)][:self.num_proc]
 
         try:
             # import modules

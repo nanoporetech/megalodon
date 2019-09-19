@@ -35,6 +35,13 @@ BC_CONTROL_NAME = 'Control'
 
 
 def report_mod_metrics(m_dat, args, out_fp, pdf_fp):
+    # cap -inf log probs to lowest other value
+    mod_is_ninf = np.isneginf(m_dat['mod_log_prob'])
+    m_dat.loc[mod_is_ninf, 'mod_log_prob'] = np.min(
+        m_dat['mod_log_prob'][~mod_is_ninf])
+    can_is_ninf = np.isneginf(m_dat['can_log_prob'])
+    m_dat.loc[can_is_ninf, 'can_log_prob'] = np.min(
+        m_dat['can_log_prob'][~can_is_ninf])
     m_dat['llr'] = m_dat['mod_log_prob'] - m_dat['can_log_prob']
     uniq_grps = m_dat.groupby(['mod_base', 'motif']).size().reset_index()
     for mod_base, motif in zip(uniq_grps.mod_base, uniq_grps.motif):

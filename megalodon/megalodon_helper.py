@@ -16,15 +16,30 @@ import numpy as np
 DEFAULT_SNV_HET_FACTOR = 2.1
 DEFAULT_INDEL_HET_FACTOR = 1.6
 
+DEFAULT_EDGE_BUFFER = 0
+CONTEXT_MAX_DIST = 5
+DEFAULT_SNV_CONTEXT = 15
+DEFAULT_INDEL_CONTEXT = 30
+DEFAULT_MOD_CONTEXT = 15
+DEFAULT_CONTEXT_MIN_ALT_PROB = 0.05
+
 MED_NORM_FACTOR = 1.4826
 
 ALPHABET = 'ACGT'
 COMP_BASES = dict(zip(map(ord, 'ACGT'), map(ord, 'TGCA')))
+NP_COMP_BASES = np.array([3, 2, 1, 0], dtype=np.uintp)
+SEQ_MIN = np.array(['A'], dtype='S1').view(np.uint8)[0]
+SEQ_TO_INT_ARR = np.full(26, -1, dtype=np.uintp)
+SEQ_TO_INT_ARR[0] = 0
+SEQ_TO_INT_ARR[2] = 1
+SEQ_TO_INT_ARR[6] = 2
+SEQ_TO_INT_ARR[19] = 3
 
 _MAX_QUEUE_SIZE = 10000
 
 # VCF spec text
-MAX_PL_VALUE = 255
+MIN_GL_VALUE = -999
+MAX_PL_VALUE = 999
 VCF_VERSION_MI = 'fileformat=VCFv{}'
 FILE_DATE_MI = 'fileDate={}'
 SOURCE_MI = 'source=ont-megalodon.v{}'
@@ -113,6 +128,10 @@ class MegaError(Exception):
     """
     pass
 
+############################
+##### Helper Functions #####
+############################
+
 def nstate_to_nbase(nstate):
     return int(np.sqrt(0.25 + (0.5 * nstate)) - 0.5)
 
@@ -122,16 +141,43 @@ def comp(seq):
 def revcomp(seq):
     return seq.translate(COMP_BASES)[::-1]
 
-def resolve_path(fn_path):
-    """Helper function to resolve relative and linked paths that might
-    give other packages problems.
-    """
-    return os.path.realpath(os.path.expanduser(fn_path))
+def comp_np(np_seq):
+    return NP_COMP_BASES[np_seq]
+
+def revcomp_np(np_seq):
+    return NP_COMP_BASES[np_seq][::-1]
+
+def seq_to_int(seq, error_on_invalid=False):
+    try:
+        np_seq = SEQ_TO_INT_ARR[
+            np.array(list(seq), dtype='c').view(np.uint8) - SEQ_MIN]
+    except IndexError:
+        if error_on_invalid:
+            raise MegaError('Invalid character in sequence')
+        else:
+            # use slower string find method to convert seq with
+            # invalid characters
+            np_seq = np.array([ALPHABET.find(b) for b in seq], dtype=np.uintp)
+    if error_on_invalid and np_seq.shape[0] > 0 and np_seq.max() >= 4:
+        raise MegaError('Invalid character in sequence')
+    return np_seq
+
+def int_to_seq(np_seq, alphabet=ALPHABET):
+    if np_seq.shape[0] == 0: return ''
+    if np_seq.max() >= len(alphabet):
+        raise MegaError('Invalid character in sequence')
+    return ''.join(alphabet[b] for b in np_seq)
 
 
 ###############################
 ##### Filename Extraction #####
 ###############################
+
+def resolve_path(fn_path):
+    """Helper function to resolve relative and linked paths that might
+    give other packages problems.
+    """
+    return os.path.realpath(os.path.expanduser(fn_path))
 
 def get_megalodon_fn(out_dir, out_type):
     return os.path.join(out_dir, OUTPUT_FNS[out_type])

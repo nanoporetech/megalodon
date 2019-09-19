@@ -19,10 +19,11 @@ def main():
         try:
             hp = dict(rec.tags)['HP']
         except KeyError:
+            # skip un-tagged reads
             continue
         if hp not in out_fps:
-            out_fps[hp] = open(args.out_basename +
-                               '.haplotype_{}_read_ids.txt'.format(hp), 'w')
+            out_fps[hp] = open('{}.haplotype_{}_read_ids.txt'.format(
+                args.out_basename, hp), 'w')
         out_fps[hp].write(rec.qname + '\n')
 
     for fp in out_fps.values():
