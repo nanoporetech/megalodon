@@ -32,10 +32,15 @@ def get_parser():
         help='Bayesian prior factor for snv and indel heterozygous calls ' +
         '(compared to 1.0 for hom ref/alt). Default: %(default)s')
     parser.add_argument(
+        '--mod-aggregate-method', choices=list(mods.AGG_METHOD_NAMES),
+        default=mods.EM_NAME,
+        help='Modified base aggregation method. Default: %(default)s')
+    parser.add_argument(
         '--mod-binary-threshold', type=float, nargs=1,
-        default=mods.DEFAULT_AGG_INFO.binary_threshold,
+        default=mods.DEFAULT_BINARY_THRESH,
         help='Threshold for modified base aggregation (probability of ' +
-        'modified/canonical base). Default: %(default)s')
+        'modified/canonical base). Only applicable for ' +
+        '"--mod-aggregate-method binary_threshold". Default: %(default)s')
     parser.add_argument(
         '--mod-output-formats', nargs='+',
         default=[mh.MOD_BEDMETHYL_NAME,],
@@ -81,8 +86,11 @@ def main():
     logging.init_logger(args.output_directory, out_suffix=log_suffix)
     logger = logging.get_logger()
 
-    mod_agg_info = mods.AGG_INFO(
-        mods.BIN_THRESH_NAME, args.mod_binary_threshold)
+    if args.mod_aggregate_method == mods.EM_NAME:
+        mod_agg_info = mods.AGG_INFO(mods.EM_NAME, None)
+    elif args.mod_aggregate_method == mods.BIN_THRESH_NAME:
+        mod_agg_info = mods.AGG_INFO(
+            mods.BIN_THRESH_NAME, args.mod_binary_threshold)
     mod_names = []
     if mh.MOD_NAME in args.outputs:
         logger.info('Loading model.')
