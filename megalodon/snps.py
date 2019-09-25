@@ -1339,6 +1339,12 @@ class AggSnps(mh.AbstractAggregationClass):
     """
     def __init__(self, snps_db_fn, write_vcf_log_probs=False):
         # open as read only database
+        if not os.path.exists(snps_db_fn):
+            logger = logging.get_logger('snps')
+            logger.error((
+                'SNP per-read database file ({}) does ' +
+                'not exist.').format(snps_db_fn))
+            raise mh.MegaError('Invalid snps DB filename.')
         self.snps_db = sqlite3.connect(snps_db_fn, uri=True)
         self.n_uniq_snps = None
         self.write_vcf_log_probs = write_vcf_log_probs

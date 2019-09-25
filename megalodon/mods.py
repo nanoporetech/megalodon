@@ -1,3 +1,4 @@
+import os
 import re
 import sys
 import queue
@@ -91,6 +92,12 @@ class ModsDb(object):
         self.cm_idx_in_mem = mod_chrm_index_in_memory
 
         if read_only:
+            if not os.path.exists(fn):
+                logger = logging.get_logger('mods')
+                logger.error((
+                    'Modified base per-read database file ({}) does ' +
+                    'not exist.').format(fn))
+                raise mh.MegaError('Invalid mods DB filename.')
             self.db = sqlite3.connect('file:' + fn + '?mode=ro', uri=True)
         else:
             self.db = sqlite3.connect(fn)
