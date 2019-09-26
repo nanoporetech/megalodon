@@ -89,7 +89,7 @@ def process_read(
 
     if snps_q is not None:
         handle_errors(
-            func=snps.call_read_snps,
+            func=snps.call_read_vars,
             args=(snps_data, r_ref_pos, np_ref_seq, mapped_rl_cumsum,
                   r_to_q_poss, r_post, post_mapped_start),
             r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand,

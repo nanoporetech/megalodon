@@ -5,9 +5,8 @@ import sqlite3
 import datetime
 from time import sleep
 from array import array
-import multiprocessing as mp
 from operator import itemgetter
-from itertools import product, combinations, groupby
+from itertools import product, combinations
 from collections import defaultdict, namedtuple, OrderedDict
 
 import pysam
@@ -20,48 +19,16 @@ from megalodon._version import MEGALODON_VERSION
 
 
 _DEBUG_PER_READ = False
-_RAISE_VARIANT_PROCESSING_ERRORS = False
+_RAISE_VARIANT_PROCESSING_ERRORS = True
 
 VARIANT_DATA = namedtuple('VARIANT_DATA', (
     'np_ref', 'np_alts', 'id', 'chrom', 'start', 'stop',
-    'ref', 'alts', 'ref_start', ))
+    'ref', 'alts', 'ref_start'))
 # set default value of None for ref, alts and ref_start
 VARIANT_DATA.__new__.__defaults__ = (None, None, None)
 
 DIPLOID_MODE = 'diploid'
 HAPLIOD_MODE = 'haploid'
-
-FIELD_NAMES = ('read_id', 'chrm', 'strand', 'pos', 'score',
-               'ref_seq', 'alt_seq', 'snp_id', 'test_start', 'test_end')
-SNP_DATA = namedtuple('SNP_DATA', FIELD_NAMES)
-CREATE_SNPS_TBLS = """
-CREATE TABLE snps (
-    {} TEXT,
-    {} TEXT,
-    {} INTEGER,
-    {} INTEGER,
-    {} FLOAT,
-    {} TEXT,
-    {} TEXT,
-    {} TEXT,
-    {} INTEGER,
-    {} INTEGER
-)""".format(*FIELD_NAMES)
-
-SET_NO_ROLLBACK_MODE='PRAGMA journal_mode = OFF'
-SET_ASYNC_MODE='PRAGMA synchronous = OFF'
-
-ADDMANY_SNPS = "INSERT INTO snps VALUES (?,?,?,?,?,?,?,?,?,?)"
-CREATE_SNPS_IDX = '''
-CREATE INDEX snp_pos ON snps (chrm, test_start, test_end)'''
-
-COUNT_UNIQ_SNPS = """
-SELECT COUNT(*) FROM (
-SELECT DISTINCT chrm, test_start, test_end FROM snps)"""
-SEL_UNIQ_SNP_ID = '''
-SELECT DISTINCT chrm, test_start, test_end FROM snps'''
-SEL_SNP_STATS = '''
-SELECT * FROM snps WHERE chrm IS ? AND test_start IS ? AND test_end IS ?'''
 
 SAMPLE_NAME = 'SAMPLE'
 # specified by sam format spec
@@ -82,6 +49,360 @@ FORMAT_LOG_PROB_MI = (
     'FORMAT=<ID=LOG_PROBS,Number=A,Type=String,' +
     'Description="Per-read log10 likelihoods for alternative ' +
     'alleles (semi-colon separated)">')
+
+
+#######################
+##### Variants DB #####
+#######################
+
+class VarsDb(object):
+    # note foreign key constraint is not applied here as this
+    # drastically reduces efficiency. Namely the search for pos_id
+    # when inserting into the data table forces a scan of a very
+    # large table or maintainance of a very large pos table index
+    # both of which slow data base speed
+    # thus foreign key constraint must be handled by the class
+    db_tables = OrderedDict((
+        ('chrm', OrderedDict((
+            ('chrm_id', 'INTEGER PRIMARY KEY'),
+            ('chrm', 'TEXT')))),
+        ('loc', OrderedDict((
+            ('loc_id', 'INTEGER PRIMARY KEY'),
+            ('loc_chrm', 'INTEGER'),
+            ('test_start', 'INTEGER'),
+            ('test_end', 'INTEGER'),
+            ('var_name', 'TEXT'),
+            ('pos', 'INTEGER'),
+            ('ref_seq', 'TEXT')))),
+        ('alt', OrderedDict((
+            ('alt_id', 'INTEGER PRIMARY KEY'),
+            ('alt_seq', 'TEXT')))),
+        ('read', OrderedDict((
+            ('read_id', 'INTEGER PRIMARY KEY'),
+            ('uuid', 'TEXT'),
+            ('strand', 'INTEGER')))),
+        ('data', OrderedDict((
+            ('score', 'FLOAT'),
+            ('score_loc', 'INTEGER'),
+            ('score_alt', 'INTEGER'),
+            ('score_read', 'INTEGER'))))))
+
+    # namedtuple for returning var info from a single position
+    var_data = namedtuple('var_data', [
+        'score', 'read_id', 'chrm', 'alt_seq', 'pos', 'ref_seq', 'var_name'])
+
+    def __init__(self, fn, read_only=True, db_safety=1,
+                 loc_index_in_memory=False, chrm_index_in_memory=True,
+                 alt_index_in_memory=True):
+        """ Interface to database containing sequence variant statistics.
+
+        Default settings are for optimal read_only performance.
+        """
+        self.fn = mh.resolve_path(fn)
+        self.read_only = read_only
+        self.loc_idx_in_mem = loc_index_in_memory
+        self.chrm_idx_in_mem = chrm_index_in_memory
+        self.alt_idx_in_mem = alt_index_in_memory
+
+        if read_only:
+            if not os.path.exists(fn):
+                logger = logging.get_logger('vars')
+                logger.error((
+                    'Variant per-read database file ({}) does ' +
+                    'not exist.').format(fn))
+                raise mh.MegaError('Invalid variant DB filename.')
+            self.db = sqlite3.connect('file:' + fn + '?mode=ro', uri=True)
+        else:
+            self.db = sqlite3.connect(fn)
+
+        self.cur = self.db.cursor()
+        if self.read_only:
+            # use memory mapped file access
+            self.db.execute('PRAGMA mmap_size = {}'.format(mh.MEMORY_MAP_LIMIT))
+            if self.chrm_idx_in_mem:
+                self.load_chrm_read_index()
+            if self.loc_idx_in_mem:
+                self.load_loc_read_index()
+            if self.alt_idx_in_mem:
+                self.load_alt_read_index()
+        else:
+            if db_safety < 2:
+                # set asynchronous mode to off for max speed
+                self.db.execute('PRAGMA synchronous = OFF')
+            if db_safety < 1:
+                # set no rollback mode
+                self.db.execute('PRAGMA journal_mode = OFF')
+
+            # create tables
+            for tbl_name, tbl in self.db_tables.items():
+                try:
+                    self.db.execute("CREATE TABLE {} ({})".format(
+                        tbl_name, ','.join((
+                            '{} {}'.format(*ft) for ft in tbl.items()))))
+                except sqlite3.OperationalError:
+                    raise mh.MegaError(
+                        'Sequence variants database already exists. Either ' +
+                        'provide location for new database or open in ' +
+                        'read_only mode.')
+
+            if self.loc_idx_in_mem:
+                self.loc_idx = {}
+            else:
+                self.create_loc_index()
+            if self.chrm_idx_in_mem:
+                self.chrm_idx = {}
+            else:
+                self.create_chrm_index()
+            if self.alt_idx_in_mem:
+                self.alt_idx = {}
+            else:
+                self.create_alt_index()
+
+        return
+
+    def insert_chrm(self, chrm):
+        self.cur.execute('INSERT INTO chrm (chrm) VALUES (?)', (chrm,))
+        if self.chrm_idx_in_mem:
+            self.chrm_idx[chrm] = self.cur.lastrowid
+        return self.cur.lastrowid
+
+    def get_chrm_id(self, chrm):
+        try:
+            if self.chrm_idx_in_mem:
+                chrm_id = self.chrm_idx[chrm]
+            else:
+                chrm_id = self.cur.execute(
+                    'SELECT chrm_id FROM chrm WHERE chrm=?',
+                    (chrm,)).fetchone()[0]
+        except (TypeError, KeyError):
+            raise mh.MegaError('Reference record (chromosome) not found in ' +
+                               'database.')
+        return chrm_id
+
+    def get_chrm(self, chrm_id):
+        try:
+            if self.chrm_idx_in_mem:
+                chrm = self.chrm_read_idx[chrm_id]
+            else:
+                chrm = self.cur.execute(
+                    'SELECT chrm FROM chrm WHERE chrm_id=?',
+                    (chrm_id,)).fetchone()[0]
+        except (TypeError, KeyError):
+            raise mh.MegaError('Reference record (chromosome) not found in ' +
+                               'vars database.')
+        return chrm
+
+    def get_loc_id(self, chrm, test_start, test_end, chrm_id=None):
+        if chrm_id is None:
+            chrm_id = self.get_chrm_id(chrm)
+
+        try:
+            if self.loc_idx_in_mem:
+                loc_id = self.loc_idx[(chrm_id, test_start, test_end)]
+            else:
+                loc_id = self.cur.execute(
+                    'SELECT loc_id FROM loc WHERE loc_chrm=? AND ' +
+                    'test_start=? AND test_end=?', (
+                        chrm_id, test_start, test_end)).fetchone()[0]
+        except (TypeError, KeyError):
+            raise mh.MegaError(
+                'Reference position not found in database.')
+
+        return loc_id
+
+    def get_loc_id_or_insert(self, chrm, test_start, test_end, var_name,
+                             pos, ref_seq, chrm_id=None):
+        if chrm_id is None:
+            chrm_id = self.get_chrm_id(chrm)
+        try:
+            loc_id = self.get_loc_id(None, test_start, test_end, chrm_id)
+        except mh.MegaError:
+            self.cur.execute(
+                'INSERT INTO loc (loc_chrm, test_start, test_end, var_name, ' +
+                'pos, ref_seq) VALUES (?,?,?,?,?,?)',
+                (chrm_id, test_start, test_end,var_name, pos, ref_seq))
+            loc_id = self.cur.lastrowid
+            if self.loc_idx_in_mem:
+                self.loc_idx[(chrm_id, test_start, test_end)] = loc_id
+        return loc_id
+
+    def get_loc_data(self, loc_id):
+        try:
+            if self.loc_idx_in_mem:
+                loc_data = self.loc_read_idx[chrm_id]
+            else:
+                loc_data = self.cur.execute(
+                    'SELECT pos, ref_seq, var_name FROM loc ' +
+                    'WHERE loc_id = ?', (loc_id, )).fetchone()
+        except (TypeError, KeyError):
+            raise mh.MegaError('Variant location data not found in ' +
+                               'vars database.')
+        return loc_data
+
+    def get_alt_id(self, alt_seq):
+        try:
+            if self.alt_idx_in_mem:
+                alt_id = self.alt_idx[alt_seq]
+            else:
+                alt_id = self.cur.execute(
+                    'SELECT alt_id FROM var WHERE alt_seq=?',
+                    (var_name, )).fetchone()[0]
+        except (TypeError, KeyError):
+            raise mh.MegaError('Variant not found in var table.')
+        return alt_id
+
+    def get_alt_id_or_insert(self, alt_seq):
+        try:
+            alt_id = self.get_alt_id(alt_seq)
+        except mh.MegaError:
+            self.cur.execute(
+                'INSERT INTO alt (alt_seq) VALUES (?)', (alt_seq, ))
+            alt_id = self.cur.lastrowid
+            if self.alt_idx_in_mem:
+                self.alt_idx[alt_seq] = alt_id
+        return alt_id
+
+    def get_alt_seq(self, alt_id):
+        try:
+            if self.alt_idx_in_mem:
+                alt_seq = self.alt_read_idx[alt_id]
+            else:
+                alt_seq = self.cur.execute(
+                    'SELECT alt_seq FROM alt WHERE alt_id=?',
+                    (alt_id,)).fetchone()[0]
+        except (TypeError, KeyError):
+            raise mh.MegaError('Alt sequence not found in vars database.')
+        return alt_seq
+
+    def insert_read_scores(self, r_var_scores, uuid, chrm, strand):
+        self.cur.execute('INSERT INTO read (uuid, strand) VALUES (?,?)',
+                         (uuid, strand))
+        read_id = self.cur.lastrowid
+        chrm_id = self.get_chrm_id(chrm)
+        read_insert_data = []
+        for (pos, alt_lps, snp_ref_seq, snp_alt_seqs, var_name,
+             test_start, test_end) in r_var_scores:
+            loc_id = self.get_loc_id_or_insert(
+                None, test_start, test_end, var_name, pos, snp_ref_seq, chrm_id)
+            for alt_lp, alt_seq in zip(alt_lps, snp_alt_seqs):
+                alt_id = self.get_alt_id_or_insert(alt_seq)
+                read_insert_data.append((alt_lp, loc_id, alt_id, read_id))
+
+        self.cur.executemany(
+            'INSERT INTO data VALUES (?,?,?,?)', read_insert_data)
+        return
+
+    def create_chrm_index(self):
+        self.cur.execute('CREATE UNIQUE INDEX chrm_idx ON chrm(chrm)')
+        return
+
+    def load_chrm_read_index(self):
+        self.cur.execute('SELECT chrm_id, chrm FROM chrm')
+        self.chrm_read_idx = dict(self.cur.fetchall())
+        return
+
+    def create_alt_index(self):
+        self.cur.execute('CREATE UNIQUE INDEX alt_idx ON alt(alt_seq)')
+        return
+
+    def load_alt_read_index(self):
+        self.cur.execute('SELECT alt_id, alt_seq FROM alt')
+        self.alt_read_idx = dict(self.cur.fetchall())
+        return
+
+    def create_loc_index(self):
+        self.cur.execute('CREATE UNIQUE INDEX loc_idx ON loc' +
+                         '(loc_chrm, test_start, test_end)')
+        return
+
+    def load_loc_read_index(self):
+        self.cur.execute('SELECT loc_id, pos, ref_seq, var_name FROM loc')
+        self.loc_read_idx = dict(
+            (loc_id, (pos, ref_seq, var_name))
+            for loc_id, pos, ref_seq, var_name in self.cur)
+        return
+
+    def create_data_covering_index(self):
+        self.cur.execute('CREATE INDEX data_cov_idx ON data(' +
+                         'score_loc, score_alt, score_read, score)')
+        return
+
+    def close(self):
+        self.db.commit()
+        self.db.close()
+        return
+
+    def get_num_uniq_var_loc(self):
+        return self.cur.execute('SELECT MAX(loc_id) FROM loc').fetchone()[0]
+
+    def iter_loc_id(self):
+        self.cur.execute('SELECT loc_id FROM loc')
+        for loc_id in self.cur:
+            yield loc_id[0]
+
+        return
+
+    def iter_locs(self):
+        self.cur.execute(
+            'SELECT loc_id, loc_chrm, test_start, test_end FROM loc')
+        for loc in self.cur:
+            yield loc
+
+        return
+
+    def iter_loc_id_ordered(self):
+        self.cur.execute('SELECT loc_id FROM loc ORDER BY loc_id')
+        for loc_id in self.cur:
+            yield loc_id[0]
+
+        return
+
+    def iter_loc_ordered(self):
+        self.cur.execute(
+            'SELECT loc_id, loc_chrm, test_start, test_end FROM loc ' +
+            'ORDER BY loc_id')
+        for loc in self.cur:
+            yield loc
+
+        return
+
+    def get_loc_stats(self, loc_data, return_uuids=False):
+        read_id_conv = self.get_uuid if return_uuids else lambda x: x
+        loc_id, chrm_id, test_start, test_end = loc_data
+        self.cur.execute(
+            'SELECT score, score_read, score_alt, score_loc FROM data ' +
+            'WHERE score_loc=?', (loc_id, ))
+        return [
+            self.var_data(score, read_id_conv(read_id),
+                          self.get_chrm(chrm_id),
+                          self.get_alt_seq(alt_id),
+                          *self.get_loc_data(loc_id))
+            for score, read_id, alt_id, loc_id in self.cur]
+
+    def get_read_id(self, uuid):
+        try:
+            read_id = self.cur.execute(
+                'SELECT read_id FROM read WHERE uuid=?', (uuid,)).fetchone()[0]
+        except TypeError:
+            raise mh.MegaError('Read ID not found in vars database.')
+        return read_id
+
+    def get_read_id_or_insert(self, uuid):
+        try:
+            read_id = self.get_read_id(uuid)
+        except mh.MegaError:
+            self.cur.execute('INSERT INTO read (uuid) VALUES (?)', (uuid,))
+            read_id = self.cur.lastrowid
+        return read_id
+
+    def create_data_read_index(self):
+        self.cur.execute('CREATE INDEX data_read_idx ON data(score_read)')
+        return
+
+    def get_read_stats(self, uuid):
+        # TODO implement this for API
+        raise NotImplementedError
+        return
 
 
 ############################
@@ -152,10 +473,10 @@ def score_seq(tpost, seq, tpost_start=0, tpost_end=None,
 
     return score
 
-def call_read_snps(
-        snps_data, read_ref_pos, strand_read_np_ref_seq, rl_cumsum, r_to_q_poss,
+def call_read_vars(
+        vars_data, read_ref_pos, strand_read_np_ref_seq, rl_cumsum, r_to_q_poss,
         r_post, post_mapped_start):
-    if read_ref_pos.end - read_ref_pos.start <= 2 * snps_data.edge_buffer:
+    if read_ref_pos.end - read_ref_pos.start <= 2 * vars_data.edge_buffer:
         raise mh.MegaError('Mapped region too short for variant calling.')
 
     # convert to forward strand sequence in order to annotate with variants
@@ -163,15 +484,15 @@ def call_read_snps(
                         mh.revcomp_np(strand_read_np_ref_seq))
     # call all snps overlapping this read
     r_snp_calls = []
-    logger = logging.get_logger('per_read_snps')
+    logger = logging.get_logger('per_read_vars')
     read_cached_scores = {}
-    read_variants = snps_data.fetch_read_variants(
+    read_variants = vars_data.fetch_read_variants(
         read_ref_pos, read_ref_fwd_seq)
     filt_read_variants = []
     # first pass over variants assuming the reference ground truth
     # (not including context variants)
     for (np_s_snp_ref_seq, np_s_snp_alt_seqs, np_s_context_seqs,
-         s_ref_start, s_ref_end, variant) in snps_data.iter_snps(
+         s_ref_start, s_ref_end, variant) in vars_data.iter_snps(
              read_variants, read_ref_pos, read_ref_fwd_seq, context_max_dist=0):
         blk_start  = rl_cumsum[r_to_q_poss[s_ref_start]]
         blk_end = rl_cumsum[r_to_q_poss[s_ref_end]]
@@ -189,7 +510,7 @@ def call_read_snps(
             np_s_context_seqs[0][0], np_s_snp_ref_seq, np_s_context_seqs[0][1]])
         loc_ref_lp = score_seq(
             r_post, np_ref_seq, post_mapped_start + blk_start,
-            post_mapped_start + blk_end, snps_data.all_paths)
+            post_mapped_start + blk_end, vars_data.all_paths)
 
         loc_alt_lps = []
         loc_alt_llrs = []
@@ -202,12 +523,12 @@ def call_read_snps(
                 np_s_context_seqs[0][1]])
             loc_alt_lp = score_seq(
                 r_post, np_alt_seq, post_mapped_start + blk_start,
-                post_mapped_start + blk_end, snps_data.all_paths)
+                post_mapped_start + blk_end, vars_data.all_paths)
             loc_alt_lps.append(loc_alt_lp)
             if _DEBUG_PER_READ:
                 loc_contexts_alts_lps.append(np.array([loc_alt_lp,]))
             # calibrate log probs
-            loc_alt_llrs.append(snps_data.calibrate_llr(
+            loc_alt_llrs.append(vars_data.calibrate_llr(
                 loc_ref_lp - loc_alt_lp, variant.ref, var_alt_seq))
 
         # due to calibration mutli-allelic log likelihoods could result in
@@ -220,7 +541,7 @@ def call_read_snps(
                 np_s_snp_ref_seq, np_s_snp_alt_seqs, np_s_context_seqs,
                 np.array([loc_ref_lp,]), loc_contexts_alts_lps, False, logger)
 
-        if sum(np.exp(loc_alt_log_ps)) >= snps_data.context_min_alt_prob:
+        if sum(np.exp(loc_alt_log_ps)) >= vars_data.context_min_alt_prob:
             filt_read_variants.append(variant)
             read_cached_scores[(variant.id, variant.start, variant.stop)] = (
                 loc_ref_lp, loc_alt_lps)
@@ -233,7 +554,7 @@ def call_read_snps(
     # second round for variants with some evidence for alternative alleles
     # process with other potential variants as context
     for (np_s_snp_ref_seq, np_s_snp_alt_seqs, np_s_context_seqs,
-         s_ref_start, s_ref_end, variant) in snps_data.iter_snps(
+         s_ref_start, s_ref_end, variant) in vars_data.iter_snps(
              filt_read_variants, read_ref_pos, read_ref_fwd_seq):
         ref_cntxt_ref_lp, ref_cntxt_alt_lps = read_cached_scores[(
             variant.id, variant.start, variant.stop)]
@@ -261,7 +582,7 @@ def call_read_snps(
             for up_context_seq, dn_context_seq in np_s_context_seqs[1:])
         loc_contexts_ref_lps = np.array([ref_cntxt_ref_lp] + [score_seq(
             r_post, ref_seq, post_mapped_start + blk_start,
-            post_mapped_start + blk_end, snps_data.all_paths)
+            post_mapped_start + blk_end, vars_data.all_paths)
                                          for ref_seq in ref_context_seqs])
         loc_ref_lp = logsumexp(loc_contexts_ref_lps)
 
@@ -276,13 +597,13 @@ def call_read_snps(
                 for up_context_seq, dn_context_seq in np_s_context_seqs[1:])
             loc_contexts_alt_lps = np.array([ref_cntxt_alt_lp,] + [
                 score_seq(r_post, alt_seq, post_mapped_start + blk_start,
-                          post_mapped_start + blk_end, snps_data.all_paths)
+                          post_mapped_start + blk_end, vars_data.all_paths)
                 for alt_seq in alt_context_seqs])
             loc_alt_lp = logsumexp(loc_contexts_alt_lps)
             if _DEBUG_PER_READ:
                 loc_contexts_alts_lps.append(loc_contexts_alt_lps)
             # calibrate log probs
-            loc_alt_llrs.append(snps_data.calibrate_llr(
+            loc_alt_llrs.append(vars_data.calibrate_llr(
                 loc_ref_lp - loc_alt_lp, variant.ref, var_alt_seq))
 
         # due to calibration mutli-allelic log likelihoods could result in
@@ -443,7 +764,7 @@ def annotate_snps(r_start, ref_seq, r_snp_calls, strand):
     return snp_seq, snp_quals, snp_cigar
 
 def _get_snps_queue(
-        snps_q, snps_conn, snps_db_fn, snps_txt_fn, db_safety, pr_refs_fn,
+        snps_q, snps_conn, vars_db_fn, snps_txt_fn, db_safety, pr_refs_fn,
         pr_ref_filts, whatshap_map_fn, ref_names_and_lens, ref_fn):
     def write_whatshap_alignment(
             read_id, snp_seq, snp_quals, chrm, strand, r_st, snp_cigar):
@@ -471,13 +792,7 @@ def _get_snps_queue(
     def get_snp_call(
             r_snp_calls, read_id, chrm, strand, r_start, ref_seq, read_len,
             q_st, q_en, cigar):
-        # note strand is +1 for fwd or -1 for rev
-        snps_db.executemany(ADDMANY_SNPS, [
-            (read_id, chrm, strand, pos, alt_lp,
-             snp_ref_seq, snp_alt_seq, snp_id, test_start, test_end)
-            for pos, alt_lps, snp_ref_seq, snp_alt_seqs, snp_id,
-            test_start, test_end in r_snp_calls
-            for alt_lp, snp_alt_seq in zip(alt_lps, snp_alt_seqs)])
+        snps_db.insert_read_scores(r_snp_calls, read_id, chrm, strand)
         if snps_txt_fp is not None and len(r_snp_calls) > 0:
             snp_out_text = ''
             for (pos, alt_lps, snp_ref_seq, snp_alt_seqs, snp_id,
@@ -507,13 +822,13 @@ def _get_snps_queue(
         return
 
 
-    logger = logging.get_logger('snps_getter')
-    snps_db = sqlite3.connect(snps_db_fn)
-    if db_safety < 2:
-        snps_db.execute(SET_ASYNC_MODE)
-    if db_safety < 1:
-        snps_db.execute(SET_NO_ROLLBACK_MODE)
-    snps_db.execute(CREATE_SNPS_TBLS)
+    logger = logging.get_logger('vars_getter')
+    # TODO convert loc index to command line option
+    snps_db = VarsDb(vars_db_fn, db_safety=db_safety, read_only=False,
+                     loc_index_in_memory=True)
+    for ref_name in ref_names_and_lens[0]:
+        snps_db.insert_chrm(ref_name)
+    snps_db.create_chrm_index()
     if snps_txt_fn is None:
         snps_txt_fp = None
     else:
@@ -579,8 +894,10 @@ def _get_snps_queue(
     if snps_txt_fp is not None: snps_txt_fp.close()
     if pr_refs_fn is not None: pr_refs_fp.close()
     if whatshap_map_fn is not None: whatshap_map_fp.close()
-    snps_db.execute(CREATE_SNPS_IDX)
-    snps_db.commit()
+    snps_db.create_alt_index()
+    if not snps_db.loc_idx_in_mem:
+        snps_db.create_loc_index()
+    snps_db.create_data_covering_index()
     snps_db.close()
 
     return
@@ -602,7 +919,7 @@ class SnpData(object):
                 ref_seq = aligner.seq(contig, var_data.start, var_data.stop)
                 if ref_seq != var_data.ref:
                     # variant reference sequence does not match reference
-                    logger = logging.get_logger()
+                    logger = logging.get_logger('vars')
                     logger.debug((
                         'Reference sequence does not match variant reference ' +
                         'sequence at {} expected "{}" got "{}"').format(
@@ -618,7 +935,7 @@ class SnpData(object):
             keep_snp_fp_open=False, do_validate_reference=True,
             edge_buffer=mh.DEFAULT_EDGE_BUFFER,
             context_min_alt_prob=mh.DEFAULT_CONTEXT_MIN_ALT_PROB):
-        logger = logging.get_logger('snps')
+        logger = logging.get_logger('vars')
         self.max_indel_size = max_indel_size
         self.all_paths = all_paths
         self.write_snps_txt = write_snps_txt
@@ -1112,7 +1429,7 @@ class SnpData(object):
                     context_seqs)
 
 
-        logger = logging.get_logger('snps')
+        logger = logging.get_logger('vars')
         for variant, context_variants in self.iter_context_variants(
                 read_variants, context_max_dist):
             (context_ref_start, context_read_start, context_read_end,
@@ -1225,7 +1542,7 @@ class Variant(object):
         try:
             qual = int(np.around(np.minimum(raw_pl[0], mh.MAX_PL_VALUE)))
         except ValueError:
-            logger = logging.get_logger()
+            logger = logging.get_logger('vars')
             logger.debug(
                 'NAN quality value encountered. gts:{}, probs:{}'.format(
                     str(gts), str(probs)))
@@ -1253,7 +1570,7 @@ class Variant(object):
         try:
             qual = int(np.minimum(np.around(raw_pl[0]), mh.MAX_PL_VALUE))
         except ValueError:
-            logger = logging.get_logger()
+            logger = logging.get_logger('vars')
             logger.debug(
                 'NAN quality value encountered. gts:{}, probs:{}'.format(
                     str(gts), str(probs)))
@@ -1337,33 +1654,24 @@ class AggSnps(mh.AbstractAggregationClass):
     """ Class to assist in database queries for per-site aggregation of
     SNP calls over reads.
     """
-    def __init__(self, snps_db_fn, write_vcf_log_probs=False):
+    def __init__(self, vars_db_fn, write_vcf_log_probs=False,
+                 loc_index_in_memory=False):
         # open as read only database
-        if not os.path.exists(snps_db_fn):
-            logger = logging.get_logger('snps')
-            logger.error((
-                'SNP per-read database file ({}) does ' +
-                'not exist.').format(snps_db_fn))
-            raise mh.MegaError('Invalid snps DB filename.')
-        self.snps_db = sqlite3.connect(snps_db_fn, uri=True)
+        self.snps_db = VarsDb(
+            vars_db_fn, loc_index_in_memory=loc_index_in_memory)
         self.n_uniq_snps = None
         self.write_vcf_log_probs = write_vcf_log_probs
         return
 
     def num_uniq(self):
         if self.n_uniq_snps is None:
-            self.n_uniq_snps = self.snps_db.execute(
-                COUNT_UNIQ_SNPS).fetchone()[0]
+            self.n_uniq_snps = self.snps_db.get_num_uniq_var_loc()
         return self.n_uniq_snps
 
     def iter_uniq(self):
-        for q_val in self.snps_db.execute(SEL_UNIQ_SNP_ID):
+        for q_val in self.snps_db.iter_locs():
             yield q_val
         return
-
-    def get_per_read_snp_stats(self, snp_loc):
-        return [SNP_DATA(*snp_stats) for snp_stats in self.snps_db.execute(
-            SEL_SNP_STATS, snp_loc)]
 
     def compute_diploid_probs(self, ref_lps, alts_lps, het_factor=1.0):
         def compute_het_lp(a1, a2):
@@ -1414,7 +1722,7 @@ class AggSnps(mh.AbstractAggregationClass):
         assert call_mode in (HAPLIOD_MODE, DIPLOID_MODE), (
             'Invalid SNP aggregation ploidy call mode: {}.'.format(call_mode))
 
-        pr_snp_stats = self.get_per_read_snp_stats(snp_loc)
+        pr_snp_stats = self.snps_db.get_loc_stats(snp_loc)
         alt_seqs = sorted(set(r_stats.alt_seq for r_stats in pr_snp_stats))
         pr_alt_lps = defaultdict(dict)
         for r_stats in pr_snp_stats:
@@ -1440,7 +1748,7 @@ class AggSnps(mh.AbstractAggregationClass):
         r0_stats = pr_snp_stats[0]
         snp_var = Variant(
             chrom=r0_stats.chrm, pos=r0_stats.pos, ref=r0_stats.ref_seq,
-            alts=alt_seqs, id=r0_stats.snp_id)
+            alts=alt_seqs, id=r0_stats.var_name)
         snp_var.add_tag('DP', '{}'.format(ref_lps.shape[0]))
         snp_var.add_sample_field('DP', '{}'.format(ref_lps.shape[0]))
 

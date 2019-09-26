@@ -37,6 +37,9 @@ SEQ_TO_INT_ARR[19] = 3
 
 _MAX_QUEUE_SIZE = 10000
 
+# allow 64GB for memory mapped sqlite file access
+MEMORY_MAP_LIMIT = 64000000000
+
 # VCF spec text
 MIN_GL_VALUE = -999
 MAX_PL_VALUE = 999

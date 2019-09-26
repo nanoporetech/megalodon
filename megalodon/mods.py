@@ -37,9 +37,6 @@ FORMAT_LOG_PROB_MI = (
 
 OUT_BUFFER_LIMIT = 10000
 
-# allow 64GB for memory mapped sqlite file access
-MEMORY_MAP_LIMIT = 64000000000
-
 
 ###################
 ##### Mods DB #####
@@ -51,29 +48,30 @@ class ModsDb(object):
     # when inserting into the data table forces a scan of a very
     # large table or maintainance of a very large pos table index
     # both of which slow data base speed
-    # thus foreign constraint must be handled by the class
-    chrm_tbl = OrderedDict((
-        ('chrm_id', 'INTEGER PRIMARY KEY'),
-        ('chrm', 'TEXT')))
-    pos_tbl = OrderedDict((
-        ('pos_id', 'INTEGER PRIMARY KEY'),
-        ('pos_chrm', 'INTEGER'),
-        ('strand', 'INTEGER'),
-        ('pos', 'INTEGER')))
-    mod_tbl = OrderedDict((
-        ('mod_id', 'INTEGER PRIMARY KEY'),
-        ('mod_base', 'TEXT'),
-        ('motif', 'TEXT'),
-        ('motif_pos', 'INTEGER'),
-        ('raw_motif', 'TEXT')))
-    read_tbl = OrderedDict((
-        ('read_id', 'INTEGER PRIMARY KEY'),
-        ('uuid', 'TEXT')))
-    data_tbl = OrderedDict((
-        ('score', 'FLOAT'),
-        ('score_pos', 'INTEGER'),
-        ('score_mod', 'INTEGER'),
-        ('score_read', 'INTEGER')))
+    # thus foreign key constraint must be handled by the class
+    db_tables = OrderedDict((
+        ('chrm', OrderedDict((
+            ('chrm_id', 'INTEGER PRIMARY KEY'),
+            ('chrm', 'TEXT')))),
+        ('pos', OrderedDict((
+            ('pos_id', 'INTEGER PRIMARY KEY'),
+            ('pos_chrm', 'INTEGER'),
+            ('strand', 'INTEGER'),
+            ('pos', 'INTEGER')))),
+        ('mod', OrderedDict((
+            ('mod_id', 'INTEGER PRIMARY KEY'),
+            ('mod_base', 'TEXT'),
+            ('motif', 'TEXT'),
+            ('motif_pos', 'INTEGER'),
+            ('raw_motif', 'TEXT')))),
+        ('read', OrderedDict((
+            ('read_id', 'INTEGER PRIMARY KEY'),
+            ('uuid', 'TEXT')))),
+        ('data', OrderedDict((
+            ('score', 'FLOAT'),
+            ('score_pos', 'INTEGER'),
+            ('score_mod', 'INTEGER'),
+            ('score_read', 'INTEGER'))))))
 
     # namedtuple for returning mods from a single position
     mod_data = namedtuple('mod_data', [
@@ -105,7 +103,7 @@ class ModsDb(object):
         self.cur = self.db.cursor()
         if read_only:
             # use memory mapped file access
-            self.db.execute('PRAGMA mmap_size = {}'.format(MEMORY_MAP_LIMIT))
+            self.db.execute('PRAGMA mmap_size = {}'.format(mh.MEMORY_MAP_LIMIT))
             if self.cm_idx_in_mem:
                 self.load_chrm_read_index()
                 self.load_mod_read_index()
@@ -120,10 +118,7 @@ class ModsDb(object):
                 self.db.execute('PRAGMA journal_mode = OFF')
 
             # create tables
-            for tbl_name, tbl in (
-                    ('chrm', self.chrm_tbl), ('pos', self.pos_tbl),
-                    ('mod', self.mod_tbl), ('read', self.read_tbl),
-                    ('data', self.data_tbl)):
+            for tbl_name, tbl in self.db_tables.items():
                 try:
                     self.db.execute("CREATE TABLE {} ({})".format(
                         tbl_name, ','.join((
@@ -636,6 +631,8 @@ def _get_mods_queue(
     if mods_txt_fp is not None: mods_txt_fp.close()
     if pr_refs_fn is not None: pr_refs_fp.close()
     mods_db.create_mod_index()
+    if not mods_db.pos_idx_in_mem:
+        mods_db.create_pos_index()
     mods_db.create_data_covering_index()
     mods_db.close()
 
