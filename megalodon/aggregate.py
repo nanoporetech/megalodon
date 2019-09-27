@@ -202,7 +202,6 @@ def _agg_prog_worker(
         mod_bar = tqdm(desc='Mods', unit=' sites', total=num_mods,
                        position=0, smoothing=0, dynamic_ncols=True)
 
-    logger = logging.get_logger()
     while True:
         try:
             snp_prog_q.get(block=False)

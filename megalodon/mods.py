@@ -108,7 +108,7 @@ class ModsDb(object):
                 self.load_chrm_read_index()
                 self.load_mod_read_index()
             if self.pos_idx_in_mem:
-                self.load_pos_index()
+                self.load_pos_read_index()
         else:
             if db_safety < 2:
                 # set asynchronous mode to off for max speed
@@ -163,9 +163,12 @@ class ModsDb(object):
 
     def get_chrm(self, chrm_id):
         try:
-            chrm = self.cur.execute(
-                'SELECT chrm FROM chrm WHERE chrm_id=?',
-                (chrm_id,)).fetchone()[0]
+            if self.cm_idx_in_mem:
+                chrm = self.chrm_read_idx[chrm_id]
+            else:
+                chrm = self.cur.execute(
+                    'SELECT chrm FROM chrm WHERE chrm_id=?',
+                    (chrm_id,)).fetchone()[0]
         except TypeError:
             raise mh.MegaError('Reference record (chromosome) not found in ' +
                                'mods database.')
@@ -215,6 +218,18 @@ class ModsDb(object):
             raise mh.MegaError('Modified base not found in mods database.')
         return mod_id
 
+    def get_mod_base_data(self, mod_id):
+        try:
+            if self.cm_idx_in_mem:
+                mod_base_data = self.mod_read_idx[mod_id]
+            else:
+                mod_base_data = self.cur.execute(
+                    'SELECT mod_base, motif, motif_pos, raw_motif FROM mod ' +
+                    'WHERE mod_id=?', (mod_id,)).fetchone()
+        except (TypeError, KeyError):
+            raise mh.MegaError('Modified base not found in mods database.')
+        return mod_base_data
+
     def get_mod_base_id_or_insert(self, mod_base, motif, motif_pos, raw_motif):
         try:
             mod_base_id = self.get_mod_base_id(
@@ -236,6 +251,7 @@ class ModsDb(object):
         read_insert_data = []
         for (pos, mod_lps, mod_bases, ref_motif, rel_pos,
              raw_motif) in r_mod_scores:
+            # TODO convert to execute many for pos and mod_base inserts
             pos_id = self.get_pos_id_or_insert(None, strand, pos, chrm_id)
             for mod_lp, mod_base in zip(mod_lps, mod_bases):
                 mod_base_id = self.get_mod_base_id_or_insert(
@@ -251,10 +267,8 @@ class ModsDb(object):
         return
 
     def load_chrm_read_index(self):
-        self.chrm_read_idx = {}
         self.cur.execute('SELECT chrm_id, chrm FROM chrm')
-        for chrm_id, chrm in self.cur:
-            self.chrm_read_idx[chrm_id] = chrm
+        self.chrm_read_idx = dict(self.cur.fetchall())
         return
 
     def create_mod_index(self):
@@ -263,11 +277,11 @@ class ModsDb(object):
         return
 
     def load_mod_read_index(self):
-        self.mod_read_idx = {}
         self.cur.execute(
             'SELECT mod_id, mod_base, motif, motif_pos, raw_motif FROM mod')
-        for mod_id, mod_base, motif, motif_pos, raw_motif in self.cur:
-            self.mod_read_idx[mod_id] = (mod_base, motif, motif_pos, raw_motif)
+        self.mod_read_idx = dict((
+            (mod_id, (mod_base, motif, motif_pos, raw_motif))
+            for mod_id, mod_base, motif, motif_pos, raw_motif in self.cur))
         return
 
     def create_pos_index(self):
@@ -275,11 +289,11 @@ class ModsDb(object):
                          '(pos_chrm, strand, pos)')
         return
 
-    def load_pos_index(self):
-        self.pos_read_idx = {}
+    def load_pos_read_index(self):
         self.cur.execute('SELECT pos_id, pos_chrm, strand, pos FROM pos')
-        for pos_id, chrm_id, strand, pos in self.cur:
-            self.pos_read_idx[pos_id] = (chrm_id, strand, pos)
+        self.pos_read_idx = dict((
+            (pos_id, (chrm_id, strand, pos))
+            for pos_id, chrm_id, strand, pos in self.cur))
         return
 
     def create_data_covering_index(self):
@@ -295,110 +309,28 @@ class ModsDb(object):
     def get_num_uniq_mod_pos(self):
         return self.cur.execute('SELECT MAX(pos_id) FROM pos').fetchone()[0]
 
-    def iter_pos_id(self):
-        self.cur.execute('SELECT pos_id FROM pos')
-        for pos_id in self.cur:
-            yield pos_id[0]
-
-        return
-
     def iter_pos(self):
         self.cur.execute('SELECT pos_id, pos_chrm, strand, pos FROM pos')
         for pos in self.cur:
             yield pos
-
-        return
-
-    def iter_pos_id_ordered(self):
-        self.cur.execute('SELECT pos_id FROM pos ORDER BY pos_id')
-        for pos_id in self.cur:
-            yield pos_id[0]
-
-        return
-
-    def iter_pos_ordered(self):
-        self.cur.execute('SELECT pos_id, pos_chrm, strand, pos FROM pos ' +
-                         'ORDER BY pos_id')
-        for pos in self.cur:
-            yield pos
-
         return
 
     def get_pos_stats(self, pos_data, return_uuids=False):
+        read_id_conv = self.get_uuid if return_uuids else lambda x: x
+        # these attributes are specified in self.iter_pos
         pos_id, chrm_id, strand, pos = pos_data
-        if self.cm_idx_in_mem:
-            if return_uuids:
-                self.cur.execute(
-                    'SELECT read.uuid, data.score, data.score_mod ' +
-                    'FROM data ' +
-                    'INNER JOIN read ON read.read_id = data.score_read ' +
-                    'WHERE score_pos=?', (pos_id, ))
-            else:
-                # simplest query using covering index
-                self.cur.execute(
-                    'SELECT score_read, score, score_mod ' +
-                    'FROM data ' +
-                    'WHERE score_pos=?', (pos_id, ))
-            return [
-                self.mod_data(read_id, self.chrm_read_idx[chrm_id], strand,
-                              pos, score, *self.mod_read_idx[mod_id])
-                for read_id, score, mod_id in self.cur]
-
-        # perform full query from on-disk database
-        chrm = self.cur.execute(
-            'SELECT chrm FROM chrm WHERE chrm_id=?', (chrm_id,)).fetchone()[0]
-        if return_uuids:
-            self.cur.execute(
-                'SELECT read.uuid, data.score, mod.mod_base, mod.motif, ' +
-                'mod.motif_pos, mod.raw_motif ' +
-                'FROM data ' +
-                'INNER JOIN read ON read.read_id = data.score_read ' +
-                'INNER JOIN mod ON mod.mod_id = data.score_mod ' +
-                'WHERE score_pos=?', (pos_id, ))
-        else:
-            self.cur.execute(
-                'SELECT data.score_read, data.score, mod.mod_base, ' +
-                'mod.motif, mod.motif_pos, mod.raw_motif ' +
-                'FROM data ' +
-                'INNER JOIN mod ON mod.mod_id = data.score_mod ' +
-                'WHERE score_pos=?', (pos_id, ))
-        return [self.mod_data(read_id, chrm, strand, pos, score, mod_base,
-                              motif, motif_pos, raw_motif)
-                for read_id, score, mod_base, motif, motif_pos, raw_motif in
-                self.cur]
-
-    def get_read_id(self, uuid):
-        try:
-            read_id = self.cur.execute(
-                'SELECT read_id FROM read WHERE uuid=?', (uuid,)).fetchone()[0]
-        except TypeError:
-            raise mh.MegaError('Read ID not found in mods data base.')
-        return read_id
-
-    def get_read_id_or_insert(self, uuid):
-        try:
-            read_id = self.get_read_id(uuid)
-        except mh.MegaError:
-            self.cur.execute('INSERT INTO read (uuid) VALUES (?)', (uuid,))
-            read_id = self.cur.lastrowid
-        return read_id
-
-    def create_data_read_index(self):
-        self.cur.execute('CREATE INDEX data_read_idx ON data(score_read)')
-        return
+        self.cur.execute(
+            'SELECT score_read, score, score_mod FROM data ' +
+            'WHERE score_pos=?', (pos_id, ))
+        return [
+            self.mod_data(read_id_conv(read_id), self.get_chrm(chrm_id),
+                          strand, pos, score, *self.get_mod_base_data(mod_id))
+            for read_id, score, mod_id in self.cur]
 
     def get_read_stats(self, uuid):
-        # TODO optimize this as with position query
-        self.cur.execute(
-            'SELECT uuid, chrm.chrm, pos.strand, pos.pos, data.score, ' +
-            ' mod.mod_base, mod.motif, mod.motif_pos, mod.raw_motif ' +
-            'FROM read ' +
-            'INNER JOIN data ON data.score_read = read.uuid ' +
-            'INNER JOIN pos ON pos.pos_id = data.score_pos ' +
-            'INNER JOIN mod ON mod.mod_id = data.score_mod ' +
-            'INNER JOIN chrm ON chrm.chrm_id = pos.pos_chrm ' +
-            'WHERE uuid=?', (uuid,))
-        return [self.mod_data(*pos_data_i) for pos_data_i in self.cur]
+        # TODO implement this for API
+        raise NotImplementedError
+        return
 
 
 ################################
@@ -1090,9 +1022,6 @@ class AggMods(mh.AbstractAggregationClass):
         return self.n_uniq_mods
 
     def iter_uniq(self):
-        # fill queue with only pos_ids for faster queue filling
-        # and let workers extract pos info from an order query
-        #for q_val in self.mods_db.iter_pos_id_ordered():
         # fill queue with full position information to make
         # workers avoid the ordered pos data extraction
         for q_val in self.mods_db.iter_pos():

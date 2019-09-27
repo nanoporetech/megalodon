@@ -89,7 +89,7 @@ class VarsDb(object):
 
     # namedtuple for returning var info from a single position
     var_data = namedtuple('var_data', [
-        'score', 'read_id', 'chrm', 'alt_seq', 'pos', 'ref_seq', 'var_name'])
+        'score', 'pos', 'ref_seq', 'var_name', 'read_id', 'chrm', 'alt_seq'])
 
     def __init__(self, fn, read_only=True, db_safety=1,
                  loc_index_in_memory=False, chrm_index_in_memory=True,
@@ -226,19 +226,6 @@ class VarsDb(object):
                 self.loc_idx[(chrm_id, test_start, test_end)] = loc_id
         return loc_id
 
-    def get_loc_data(self, loc_id):
-        try:
-            if self.loc_idx_in_mem:
-                loc_data = self.loc_read_idx[chrm_id]
-            else:
-                loc_data = self.cur.execute(
-                    'SELECT pos, ref_seq, var_name FROM loc ' +
-                    'WHERE loc_id = ?', (loc_id, )).fetchone()
-        except (TypeError, KeyError):
-            raise mh.MegaError('Variant location data not found in ' +
-                               'vars database.')
-        return loc_data
-
     def get_alt_id(self, alt_seq):
         try:
             if self.alt_idx_in_mem:
@@ -282,6 +269,7 @@ class VarsDb(object):
         read_insert_data = []
         for (pos, alt_lps, snp_ref_seq, snp_alt_seqs, var_name,
              test_start, test_end) in r_var_scores:
+            # TODO convert to execute many for loc and alt inserts
             loc_id = self.get_loc_id_or_insert(
                 None, test_start, test_end, var_name, pos, snp_ref_seq, chrm_id)
             for alt_lp, alt_seq in zip(alt_lps, snp_alt_seqs):
@@ -335,32 +323,9 @@ class VarsDb(object):
     def get_num_uniq_var_loc(self):
         return self.cur.execute('SELECT MAX(loc_id) FROM loc').fetchone()[0]
 
-    def iter_loc_id(self):
-        self.cur.execute('SELECT loc_id FROM loc')
-        for loc_id in self.cur:
-            yield loc_id[0]
-
-        return
-
     def iter_locs(self):
         self.cur.execute(
-            'SELECT loc_id, loc_chrm, test_start, test_end FROM loc')
-        for loc in self.cur:
-            yield loc
-
-        return
-
-    def iter_loc_id_ordered(self):
-        self.cur.execute('SELECT loc_id FROM loc ORDER BY loc_id')
-        for loc_id in self.cur:
-            yield loc_id[0]
-
-        return
-
-    def iter_loc_ordered(self):
-        self.cur.execute(
-            'SELECT loc_id, loc_chrm, test_start, test_end FROM loc ' +
-            'ORDER BY loc_id')
+            'SELECT loc_id, loc_chrm, pos, ref_seq, var_name FROM loc')
         for loc in self.cur:
             yield loc
 
@@ -368,36 +333,16 @@ class VarsDb(object):
 
     def get_loc_stats(self, loc_data, return_uuids=False):
         read_id_conv = self.get_uuid if return_uuids else lambda x: x
-        loc_id, chrm_id, test_start, test_end = loc_data
+        # these attributes are specified in self.iter_locs
+        loc_id, chrm_id, pos, ref_seq, var_name = loc_data
         self.cur.execute(
             'SELECT score, score_read, score_alt, score_loc FROM data ' +
             'WHERE score_loc=?', (loc_id, ))
         return [
-            self.var_data(score, read_id_conv(read_id),
-                          self.get_chrm(chrm_id),
-                          self.get_alt_seq(alt_id),
-                          *self.get_loc_data(loc_id))
+            self.var_data(
+                score, pos, ref_seq, var_name, read_id_conv(read_id),
+                self.get_chrm(chrm_id), self.get_alt_seq(alt_id))
             for score, read_id, alt_id, loc_id in self.cur]
-
-    def get_read_id(self, uuid):
-        try:
-            read_id = self.cur.execute(
-                'SELECT read_id FROM read WHERE uuid=?', (uuid,)).fetchone()[0]
-        except TypeError:
-            raise mh.MegaError('Read ID not found in vars database.')
-        return read_id
-
-    def get_read_id_or_insert(self, uuid):
-        try:
-            read_id = self.get_read_id(uuid)
-        except mh.MegaError:
-            self.cur.execute('INSERT INTO read (uuid) VALUES (?)', (uuid,))
-            read_id = self.cur.lastrowid
-        return read_id
-
-    def create_data_read_index(self):
-        self.cur.execute('CREATE INDEX data_read_idx ON data(score_read)')
-        return
 
     def get_read_stats(self, uuid):
         # TODO implement this for API
