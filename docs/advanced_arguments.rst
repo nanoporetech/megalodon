@@ -45,6 +45,9 @@ SNP Arguments
 - ``--variant-context-bases``
 
   - Context bases for single base SNP and indel calling. Default: [10, 30]
+- ``--variant-locations-on-disk``
+
+  - Force sequence variant locations to be stored only within on disk database table. This option will reduce the RAM memory requirement, but may drastically slow processing. Default: Store locations in memory and on disk.
 - ``--write-vcf-log-probs``
 
   - Write per-read alt log probabilities out in non-standard VCF field.
@@ -99,6 +102,9 @@ Modified Base Arguments
       - A genotype field ``VALID_DP`` indicates the number of reads included in the proportion modified calculation.
       - Modified base proportion estimates are stored in genotype fields specified by the single letter modified base encodings (definied in the model file).
 
+- ``--mod-positions-on-disk``
+
+  - Force modified base positions to be stored only within on disk database table. This option will reduce the RAM memory requirement, but may drastically slow processing. Default: Store positions in memory and on disk.
 - ``--write-mod-log-probs``
 
   - Write per-read modified base log probabilities out in non-standard VCF field.

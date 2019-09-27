@@ -480,7 +480,8 @@ def process_all_reads(
             snps._get_snps_queue, (
                 mh.get_megalodon_fn(out_dir, mh.PR_SNP_NAME),
                 snps_txt_fn, db_safety, pr_refs_fn, pr_ref_filts,
-                whatshap_map_fn, aligner.ref_names_and_lens, aligner.ref_fn))
+                whatshap_map_fn, aligner.ref_names_and_lens, aligner.ref_fn,
+                snps_data.loc_index_in_memory))
     if mh.PR_MOD_NAME in outputs:
         pr_refs_fn = mh.get_megalodon_fn(out_dir, mh.PR_REF_NAME) if (
             mh.PR_REF_NAME in outputs and mods_info.do_pr_ref_mods) else None
@@ -490,7 +491,7 @@ def process_all_reads(
             mods._get_mods_queue, (
                 mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME), db_safety,
                 aligner.ref_names_and_lens, mods_txt_fn,
-                pr_refs_fn, pr_ref_filts))
+                pr_refs_fn, pr_ref_filts, mods_info.pos_index_in_memory))
 
     proc_reads_ps, map_conns = [], []
     for device in model_info.process_devices:
@@ -617,7 +618,8 @@ def snps_validation(args, is_cat_mod, output_size, aligner):
             args.variant_context_bases, snp_calib_fn,
             snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE,
             args.refs_include_snps, aligner, edge_buffer=args.edge_buffer,
-            context_min_alt_prob=args.context_min_alt_prob)
+            context_min_alt_prob=args.context_min_alt_prob,
+            loc_index_in_memory=not args.variant_locations_on_disk)
     except mh.MegaError as e:
         logger.error(str(e))
         sys.exit(1)
@@ -663,7 +665,8 @@ def mods_validation(args, model_info):
         model_info, args.mod_motif, args.mod_all_paths,
         args.write_mods_text, args.mod_context_bases,
         mh.BC_MODS_NAME in args.outputs, args.refs_include_mods, mod_calib_fn,
-        args.mod_output_formats, args.edge_buffer)
+        args.mod_output_formats, args.edge_buffer,
+        not args.mod_positions_on_disk)
     return args, mods_info
 
 def parse_pr_ref_output(args):
@@ -833,6 +836,13 @@ def get_parser():
                          'megalodon/scripts/calibrate_snp_llr_scores.py. ' +
                          'Default: Load default calibration file.'))
     snp_grp.add_argument(
+        '--variant-locations-on-disk', action='store_true',
+        help=hidden_help('Force sequence variant locations to be stored ' +
+                         'only within on disk database table. This option ' +
+                         'will reduce the RAM memory requirement, but may ' +
+                         'drastically slow processing. Default: Store ' +
+                         'locations in memory and on disk.'))
+    snp_grp.add_argument(
         '--variant-context-bases', type=int, nargs=2,
         default=[mh.DEFAULT_SNV_CONTEXT, mh.DEFAULT_INDEL_CONTEXT],
         help=hidden_help('Context bases for single base SNP and indel ' +
@@ -886,6 +896,13 @@ def get_parser():
         choices=tuple(mh.MOD_OUTPUT_FMTS.keys()),
         help=hidden_help('Modified base aggregated output format(s). ' +
                          'Default: %(default)s'))
+    mod_grp.add_argument(
+        '--mod-positions-on-disk', action='store_true',
+        help=hidden_help('Force modified base positions to be stored ' +
+                         'only within on disk database table. This option ' +
+                         'will reduce the RAM memory requirement, but may ' +
+                         'drastically slow processing. Default: Store ' +
+                         'positions in memory and on disk.'))
     mod_grp.add_argument(
         '--write-mod-log-probs', action='store_true',
         help=hidden_help('Write per-read modified base log probabilities ' +

@@ -472,7 +472,7 @@ def annotate_mods(r_start, ref_seq, r_mod_scores, strand):
 
 def _get_mods_queue(
         mods_q, mods_conn, mods_db_fn, db_safety, ref_names_and_lens,
-        mods_txt_fn, pr_refs_fn, pr_ref_filts):
+        mods_txt_fn, pr_refs_fn, pr_ref_filts, pos_index_in_memory):
     def store_mod_call(
             r_mod_scores,  read_id, chrm, strand, r_start, ref_seq,
             read_len, q_st, q_en, cigar, been_warned):
@@ -517,7 +517,7 @@ def _get_mods_queue(
     been_warned = False
 
     mods_db = ModsDb(mods_db_fn, db_safety=db_safety, read_only=False,
-                     pos_index_in_memory=True)
+                     pos_index_in_memory=pos_index_in_memory)
     for ref_name in ref_names_and_lens[0]:
         mods_db.insert_chrm(ref_name)
     mods_db.create_chrm_index()
@@ -568,7 +568,7 @@ def _get_mods_queue(
     if mods_txt_fp is not None: mods_txt_fp.close()
     if pr_refs_fn is not None: pr_refs_fp.close()
     mods_db.create_mod_index()
-    if not mods_db.pos_idx_in_mem:
+    if mods_db.pos_idx_in_mem:
         mods_db.create_pos_index()
     mods_db.create_data_covering_index()
     mods_db.close()
@@ -648,7 +648,7 @@ class ModInfo(object):
             write_mods_txt=None, mod_context_bases=None,
             do_output_mods=False, do_pr_ref_mods=False, mods_calib_fn=None,
             mod_output_fmts=[mh.MOD_BEDMETHYL_NAME],
-            edge_buffer=mh.DEFAULT_EDGE_BUFFER):
+            edge_buffer=mh.DEFAULT_EDGE_BUFFER, pos_index_in_memory=True):
         logger = logging.get_logger()
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other alphabet info
@@ -663,6 +663,7 @@ class ModInfo(object):
         self.calib_table = calibration.ModCalibrator(mods_calib_fn)
         self.mod_output_fmts = mod_output_fmts
         self.edge_buffer = edge_buffer
+        self.pos_index_in_memory = pos_index_in_memory
 
         self.alphabet = model_info.can_alphabet
         self.ncan_base = len(self.alphabet)

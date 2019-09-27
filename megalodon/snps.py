@@ -710,7 +710,8 @@ def annotate_snps(r_start, ref_seq, r_snp_calls, strand):
 
 def _get_snps_queue(
         snps_q, snps_conn, vars_db_fn, snps_txt_fn, db_safety, pr_refs_fn,
-        pr_ref_filts, whatshap_map_fn, ref_names_and_lens, ref_fn):
+        pr_ref_filts, whatshap_map_fn, ref_names_and_lens, ref_fn,
+        loc_index_in_memory):
     def write_whatshap_alignment(
             read_id, snp_seq, snp_quals, chrm, strand, r_st, snp_cigar):
         a = pysam.AlignedSegment()
@@ -768,9 +769,8 @@ def _get_snps_queue(
 
 
     logger = logging.get_logger('vars_getter')
-    # TODO convert loc index to command line option
     snps_db = VarsDb(vars_db_fn, db_safety=db_safety, read_only=False,
-                     loc_index_in_memory=True)
+                     loc_index_in_memory=loc_index_in_memory)
     for ref_name in ref_names_and_lens[0]:
         snps_db.insert_chrm(ref_name)
     snps_db.create_chrm_index()
@@ -840,7 +840,7 @@ def _get_snps_queue(
     if pr_refs_fn is not None: pr_refs_fp.close()
     if whatshap_map_fn is not None: whatshap_map_fp.close()
     snps_db.create_alt_index()
-    if not snps_db.loc_idx_in_mem:
+    if snps_db.loc_idx_in_mem:
         snps_db.create_loc_index()
     snps_db.create_data_covering_index()
     snps_db.close()
@@ -879,7 +879,8 @@ class SnpData(object):
             call_mode=DIPLOID_MODE, do_pr_ref_snps=False, aligner=None,
             keep_snp_fp_open=False, do_validate_reference=True,
             edge_buffer=mh.DEFAULT_EDGE_BUFFER,
-            context_min_alt_prob=mh.DEFAULT_CONTEXT_MIN_ALT_PROB):
+            context_min_alt_prob=mh.DEFAULT_CONTEXT_MIN_ALT_PROB,
+            loc_index_in_memory=True):
         logger = logging.get_logger('vars')
         self.max_indel_size = max_indel_size
         self.all_paths = all_paths
@@ -895,6 +896,7 @@ class SnpData(object):
         self.do_pr_ref_snps = do_pr_ref_snps
         self.edge_buffer = edge_buffer
         self.context_min_alt_prob = context_min_alt_prob
+        self.loc_index_in_memory = loc_index_in_memory
         self.variant_fn = variant_fn
         self.variants_idx = None
         if self.variant_fn is None:
