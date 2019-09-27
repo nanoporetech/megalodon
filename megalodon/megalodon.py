@@ -418,6 +418,8 @@ def _get_fail_queue(
                 [(len(fns), err) for err, fns in failed_reads.items()
                  if len(fns) > 0], reads_called))
         # TODO flag to output failed read names to file
+    else:
+        logger.info('All reads processed successfully.')
 
     return
 
@@ -704,9 +706,8 @@ def mkdir(out_dir, overwrite):
     logger = logging.get_logger()
     if os.path.exists(out_dir):
         if not overwrite:
-            sys.stderr.write(
-                'ERROR: --output-directory exists and --overwrite is ' +
-                'not set.\n')
+            logger.error(
+                '--output-directory exists and --overwrite is not set.')
             sys.exit(1)
         if os.path.isfile(out_dir) or os.path.islink(out_dir):
             os.remove(out_dir)
