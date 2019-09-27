@@ -78,32 +78,20 @@ def _get_snp_stats_queue(
 def _agg_mods_worker(
         locs_q, mod_stats_q, mod_prog_q, mods_db_fn, mod_agg_info,
         valid_read_ids, write_mod_lp):
-    def get_pos_id():
-        return locs_q.get(block=False)
-    def get_loc_data_from_id(q_pos_id):
-        # function for profiling purposes
-        if q_pos_id is None: return None
-        for pos_id, chrm_id, strand, pos in locs_iter:
-            if q_pos_id == pos_id:
-                return pos_id, chrm_id, strand, pos
+    # functions for profiling purposes
     def get_loc_data():
         return locs_q.get(block=False)
     def put_mod_site(mod_site):
-        # function for profiling purposes
         mod_stats_q.put(mod_site)
         return
     def do_sleep():
-        # function for profiling purposes
         sleep(0.0001)
         return
 
-    # needed if only pos id is loaded into queue
-    #locs_iter = mods.ModsDb(mods_db_fn).iter_pos_ordered()
     agg_mods = mods.AggMods(mods_db_fn, mod_agg_info, write_mod_lp)
 
     while True:
         try:
-            #loc_data = get_loc_data_from_id(get_pos_id())
             loc_data = get_loc_data()
         except queue.Empty:
             do_sleep()
@@ -236,7 +224,7 @@ def _agg_prog_worker(
     return
 
 def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps, limit=None):
-    agg_db = agg_class(db_fn)
+    agg_db = agg_class(db_fn, load_in_mem_indices=False)
     for i, loc in enumerate(agg_db.iter_uniq()):
         locs_q.put(loc)
         if limit is not None and i >= limit: break
@@ -266,7 +254,8 @@ def aggregate_stats(
         0, 0, queue.Queue(), queue.Queue())
     if mh.SNP_NAME in outputs:
         snps_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_SNP_NAME)
-        num_snps = snps.AggSnps(snps_db_fn).num_uniq()
+        num_snps = snps.AggSnps(
+            snps_db_fn, load_in_mem_indices=False).num_uniq()
         logger.info('Spawning variant aggregation processes.')
         # create process to collect snp stats from workers
         snp_stats_q, snp_stats_p, main_snp_stats_conn = mh.create_getter_q(
@@ -292,7 +281,8 @@ def aggregate_stats(
 
     if mh.MOD_NAME in outputs:
         mods_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME)
-        num_mods = mods.AggMods(mods_db_fn).num_uniq()
+        num_mods = mods.AggMods(
+            mods_db_fn, load_in_mem_indices=False).num_uniq()
         logger.info('Spawning modified base aggregation processes.')
         # create process to collect mods stats from workers
         mod_stats_q, mod_stats_p, main_mod_stats_conn = mh.create_getter_q(

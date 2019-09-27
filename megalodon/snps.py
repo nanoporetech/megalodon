@@ -1599,11 +1599,15 @@ class AggSnps(mh.AbstractAggregationClass):
     """ Class to assist in database queries for per-site aggregation of
     SNP calls over reads.
     """
-    def __init__(self, vars_db_fn, write_vcf_log_probs=False,
-                 loc_index_in_memory=False):
+    def __init__(
+            self, vars_db_fn, write_vcf_log_probs=False,
+            load_in_mem_indices=True):
         # open as read only database
-        self.snps_db = VarsDb(
-            vars_db_fn, loc_index_in_memory=loc_index_in_memory)
+        if load_in_mem_indices:
+            self.snps_db = VarsDb(vars_db_fn)
+        else:
+            self.snps_db = VarsDb(vars_db_fn, chrm_index_in_memory=False,
+                                  alt_index_in_memory=False)
         self.n_uniq_snps = None
         self.write_vcf_log_probs = write_vcf_log_probs
         return

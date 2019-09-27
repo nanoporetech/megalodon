@@ -79,7 +79,8 @@ class ModsDb(object):
         'motif_pos', 'raw_motif'])
 
     def __init__(self, fn, read_only=True, db_safety=1,
-                 pos_index_in_memory=False, mod_chrm_index_in_memory=True):
+                 pos_index_in_memory=False, chrm_index_in_memory=True,
+                 mod_index_in_memory=True):
         """ Interface to database containing modified base statistics.
 
         Default settings are for optimal read_only performance.
@@ -87,7 +88,8 @@ class ModsDb(object):
         self.fn = mh.resolve_path(fn)
         self.read_only = read_only
         self.pos_idx_in_mem = pos_index_in_memory
-        self.cm_idx_in_mem = mod_chrm_index_in_memory
+        self.chrm_idx_in_mem = chrm_index_in_memory
+        self.mod_idx_in_mem = mod_index_in_memory
 
         if read_only:
             if not os.path.exists(fn):
@@ -104,8 +106,9 @@ class ModsDb(object):
         if read_only:
             # use memory mapped file access
             self.db.execute('PRAGMA mmap_size = {}'.format(mh.MEMORY_MAP_LIMIT))
-            if self.cm_idx_in_mem:
+            if self.chrm_idx_in_mem:
                 self.load_chrm_read_index()
+            if self.mod_idx_in_mem:
                 self.load_mod_read_index()
             if self.pos_idx_in_mem:
                 self.load_pos_read_index()
@@ -133,24 +136,26 @@ class ModsDb(object):
                 self.pos_idx = {}
             else:
                 self.create_pos_index()
-            if self.cm_idx_in_mem:
+            if self.chrm_idx_in_mem:
                 self.chrm_idx = {}
+            else:
+                self.create_chrm_index()
+            if self.mod_idx_in_mem:
                 self.mod_idx = {}
             else:
                 self.create_mod_index()
-                self.create_chrm_index()
 
         return
 
     def insert_chrm(self, chrm):
         self.cur.execute('INSERT INTO chrm (chrm) VALUES (?)', (chrm,))
-        if self.cm_idx_in_mem:
+        if self.chrm_idx_in_mem:
             self.chrm_idx[chrm] = self.cur.lastrowid
         return self.cur.lastrowid
 
     def get_chrm_id(self, chrm):
         try:
-            if self.cm_idx_in_mem:
+            if self.chrm_idx_in_mem:
                 chrm_id = self.chrm_idx[chrm]
             else:
                 chrm_id = self.cur.execute(
@@ -163,7 +168,7 @@ class ModsDb(object):
 
     def get_chrm(self, chrm_id):
         try:
-            if self.cm_idx_in_mem:
+            if self.chrm_idx_in_mem:
                 chrm = self.chrm_read_idx[chrm_id]
             else:
                 chrm = self.cur.execute(
@@ -207,7 +212,7 @@ class ModsDb(object):
 
     def get_mod_base_id(self, mod_base, motif, motif_pos, raw_motif):
         try:
-            if self.cm_idx_in_mem:
+            if self.mod_idx_in_mem:
                 mod_id = self.mod_idx[(mod_base, motif, motif_pos, raw_motif)]
             else:
                 mod_id = self.cur.execute(
@@ -220,7 +225,7 @@ class ModsDb(object):
 
     def get_mod_base_data(self, mod_id):
         try:
-            if self.cm_idx_in_mem:
+            if self.mod_idx_in_mem:
                 mod_base_data = self.mod_read_idx[mod_id]
             else:
                 mod_base_data = self.cur.execute(
@@ -239,7 +244,7 @@ class ModsDb(object):
                 'INSERT INTO mod (mod_base, motif, motif_pos, raw_motif) ' +
                 'VALUES (?,?,?,?)', (mod_base, motif, motif_pos, raw_motif))
             mod_base_id = self.cur.lastrowid
-            if self.cm_idx_in_mem:
+            if self.mod_idx_in_mem:
                 self.mod_idx[(mod_base, motif, motif_pos,
                               raw_motif)] = mod_base_id
         return mod_base_id
@@ -1005,10 +1010,13 @@ class AggMods(mh.AbstractAggregationClass):
     CpG sites).
     """
     def __init__(self, mods_db_fn, agg_info=DEFAULT_AGG_INFO,
-                 write_mod_lp=False, pos_index_in_memory=False):
+                 write_mod_lp=False, load_in_mem_indices=True):
         # open as read only database (default)
-        self.mods_db = ModsDb(
-            mods_db_fn, pos_index_in_memory=pos_index_in_memory)
+        if load_in_mem_indices:
+            self.mods_db = ModsDb(mods_db_fn)
+        else:
+            self.mods_db = ModsDb(mods_db_fn, chrm_index_in_memory=False,
+                                  mod_index_in_memory=False)
         self.n_uniq_mods = None
         assert agg_info.method in AGG_METHOD_NAMES
         self.agg_method = agg_info.method
