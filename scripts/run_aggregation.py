@@ -9,7 +9,7 @@ import argparse
 from time import sleep
 
 from megalodon import (
-    aggregate, backends, logging, mapping, mods, snps, megalodon_helper as mh)
+    aggregate, backends, logging, mapping, mods, variants, megalodon_helper as mh)
 
 
 def get_parser():
@@ -20,12 +20,13 @@ def get_parser():
         'names). Default: Load default model ({})'.format(mh.MODEL_PRESET_DESC))
     parser.add_argument(
         '--outputs', nargs='+',
-        default=[mh.SNP_NAME, mh.MOD_NAME],
-        choices=[mh.SNP_NAME, mh.MOD_NAME],
+        default=[mh.VAR_NAME, mh.MOD_NAME],
+        choices=[mh.VAR_NAME, mh.MOD_NAME],
         help='Output type(s) to produce. Default: %(default)s')
     parser.add_argument(
         '--haploid', action='store_true',
-        help='Compute SNP aggregation for haploid genotypes. Default: diploid')
+        help='Compute sequence variant aggregation for haploid genotypes. ' +
+        'Default: diploid')
     parser.add_argument(
         '--heterozygous-factors', type=float, nargs=2,
         default=[mh.DEFAULT_SNV_HET_FACTOR, mh.DEFAULT_INDEL_HET_FACTOR],
@@ -100,21 +101,21 @@ def main():
     aggregate.aggregate_stats(
         args.outputs, args.output_directory, args.processes,
         args.write_vcf_log_probs, args.heterozygous_factors,
-        snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE,
+        variants.HAPLIOD_MODE if args.haploid else variants.DIPLOID_MODE,
         mod_names, mod_agg_info, args.write_mod_log_probs,
         args.mod_output_formats, args.suppress_progress,
         aligner.ref_names_and_lens, valid_read_ids, args.output_suffix)
 
     # note reference is required in order to annotate contigs for VCF writing
-    if mh.SNP_NAME in args.outputs and args.reference is not None:
+    if mh.VAR_NAME in args.outputs and args.reference is not None:
         logger.info('Sorting output variant file')
         variant_fn = mh.add_fn_suffix(
-            mh.get_megalodon_fn(args.output_directory, mh.SNP_NAME),
+            mh.get_megalodon_fn(args.output_directory, mh.VAR_NAME),
             args.output_suffix)
         sort_variant_fn = mh.add_fn_suffix(variant_fn, 'sorted')
-        snps.sort_variants(variant_fn, sort_variant_fn)
+        variants.sort_variants(variant_fn, sort_variant_fn)
         logger.info('Indexing output variant file')
-        index_var_fn = snps.index_variants(sort_variant_fn)
+        index_var_fn = variants.index_variants(sort_variant_fn)
 
     return
 

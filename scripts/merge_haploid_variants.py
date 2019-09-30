@@ -3,7 +3,7 @@ import argparse
 import pysam
 import numpy as np
 
-from megalodon import snps, megalodon_helper as mh
+from megalodon import variats, megalodon_helper as mh
 
 
 HEADER = """##fileformat=VCFv4.1
@@ -219,7 +219,7 @@ def main():
 
     out_vars.close()
 
-    index_var_fn = snps.index_variants(args.out_vcf)
+    index_var_fn = variants.index_variants(args.out_vcf)
 
     return
 
