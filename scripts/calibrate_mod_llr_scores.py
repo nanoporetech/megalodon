@@ -134,7 +134,7 @@ def main():
             plot_calib(pdf_fp, mod_base, *plot_data)
     if pdf_fp is not None: pdf_fp.close()
 
-    # save calibration table for reading into SNP table
+    # save calibration table for reading into mod calibration table
     sys.stderr.write('Saving calibrations to file.\n')
     mod_bases = list(mod_base_llrs.keys())
     np.savez(

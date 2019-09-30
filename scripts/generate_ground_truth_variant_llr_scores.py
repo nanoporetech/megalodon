@@ -13,7 +13,7 @@ from tqdm import tqdm
 
 from megalodon import (
     decode, fast5_io, megalodon_helper as mh,
-    megalodon, backends, mapping, snps)
+    megalodon, backends, mapping, variants)
 
 
 CONTEXT_BASES = [10, 30]
@@ -29,44 +29,44 @@ CAN_BASES_SET = set(CAN_BASES)
 _DO_PROFILE = False
 
 
-def call_snp(
-        r_post, post_mapped_start, r_snp_pos, rl_cumsum, r_to_q_poss,
-        snp_ref_seq, snp_alt_seq, context_bases, all_paths,
+def call_variant(
+        r_post, post_mapped_start, r_var_pos, rl_cumsum, r_to_q_poss,
+        var_ref_seq, var_alt_seq, context_bases, all_paths,
         np_ref_seq=None, ref_seq=None):
-    snp_context_bases = (context_bases[0]
-                         if len(snp_ref_seq) == len(snp_alt_seq) else
+    var_context_bases = (context_bases[0]
+                         if len(var_ref_seq) == len(var_alt_seq) else
                          context_bases[1])
-    pos_bb = min(snp_context_bases, r_snp_pos)
+    pos_bb = min(var_context_bases, r_var_pos)
     if ref_seq is None:
-        pos_ab = min(snp_context_bases,
-                     np_ref_seq.shape[0] - r_snp_pos - len(snp_ref_seq))
-        pos_ref_seq = np_ref_seq[r_snp_pos - pos_bb:
-                                 r_snp_pos + pos_ab + len(snp_ref_seq)]
+        pos_ab = min(var_context_bases,
+                     np_ref_seq.shape[0] - r_var_pos - len(var_ref_seq))
+        pos_ref_seq = np_ref_seq[r_var_pos - pos_bb:
+                                 r_var_pos + pos_ab + len(var_ref_seq)]
     else:
-        pos_ab = min(snp_context_bases,
-                     len(ref_seq) - r_snp_pos - len(snp_ref_seq))
+        pos_ab = min(var_context_bases,
+                     len(ref_seq) - r_var_pos - len(var_ref_seq))
         pos_ref_seq = mh.seq_to_int(ref_seq[
-            r_snp_pos - pos_bb:r_snp_pos + pos_ab + len(snp_ref_seq)]])
+            r_var_pos - pos_bb:r_var_pos + pos_ab + len(var_ref_seq)]])
 
     pos_alt_seq = np.concatenate([
-        pos_ref_seq[:pos_bb], mh.seq_to_int(snp_alt_seq),
-        pos_ref_seq[pos_bb + len(snp_ref_seq):]])
-    blk_start  = rl_cumsum[r_to_q_poss[r_snp_pos - pos_bb]]
-    blk_end = rl_cumsum[r_to_q_poss[r_snp_pos + pos_ab] + 1]
+        pos_ref_seq[:pos_bb], mh.seq_to_int(var_alt_seq),
+        pos_ref_seq[pos_bb + len(var_ref_seq):]])
+    blk_start  = rl_cumsum[r_to_q_poss[r_var_pos - pos_bb]]
+    blk_end = rl_cumsum[r_to_q_poss[r_var_pos + pos_ab] + 1]
 
     if blk_end - blk_start < max(len(pos_ref_seq), len(pos_alt_seq)):
         return np.NAN
-    loc_ref_score = snps.score_seq(
+    loc_ref_score = variants.score_seq(
         r_post, pos_ref_seq, post_mapped_start + blk_start,
         post_mapped_start + blk_end, all_paths)
-    loc_alt_score = snps.score_seq(
+    loc_alt_score = variants.score_seq(
         r_post, pos_alt_seq, post_mapped_start + blk_start,
         post_mapped_start + blk_end, all_paths)
 
     return loc_ref_score - loc_alt_score
 
 def call_alt_true_indel(
-        indel_size, r_snp_pos, true_ref_seq, r_seq, map_thr_buf, context_bases,
+        indel_size, r_var_pos, true_ref_seq, r_seq, map_thr_buf, context_bases,
         r_post, rl_cumsum, all_paths):
     def run_aligner():
         return next(mappy.Aligner(
@@ -76,27 +76,27 @@ def call_alt_true_indel(
 
     if indel_size == 0:
         false_base = choice(
-            list(set(CAN_BASES).difference(true_ref_seq[r_snp_pos])))
+            list(set(CAN_BASES).difference(true_ref_seq[r_var_pos])))
         false_ref_seq = (
-            true_ref_seq[:r_snp_pos] + false_base +
-            true_ref_seq[r_snp_pos + 1:])
-        snp_ref_seq = false_base
-        snp_alt_seq = true_ref_seq[r_snp_pos]
+            true_ref_seq[:r_var_pos] + false_base +
+            true_ref_seq[r_var_pos + 1:])
+        var_ref_seq = false_base
+        var_alt_seq = true_ref_seq[r_var_pos]
     elif indel_size > 0:
         # test alt truth reference insertion
         false_ref_seq = (
-            true_ref_seq[:r_snp_pos + 1] +
-            true_ref_seq[r_snp_pos + indel_size + 1:])
-        snp_ref_seq = true_ref_seq[r_snp_pos]
-        snp_alt_seq = true_ref_seq[r_snp_pos:r_snp_pos + indel_size + 1]
+            true_ref_seq[:r_var_pos + 1] +
+            true_ref_seq[r_var_pos + indel_size + 1:])
+        var_ref_seq = true_ref_seq[r_var_pos]
+        var_alt_seq = true_ref_seq[r_var_pos:r_var_pos + indel_size + 1]
     else:
         # test alt truth reference deletion
         deleted_seq = ''.join(choice(CAN_BASES) for _ in range(-indel_size))
         false_ref_seq = (
-            true_ref_seq[:r_snp_pos + 1] + deleted_seq +
-            true_ref_seq[r_snp_pos + 1:])
-        snp_ref_seq = true_ref_seq[r_snp_pos] + deleted_seq
-        snp_alt_seq = true_ref_seq[r_snp_pos]
+            true_ref_seq[:r_var_pos + 1] + deleted_seq +
+            true_ref_seq[r_var_pos + 1:])
+        var_ref_seq = true_ref_seq[r_var_pos] + deleted_seq
+        var_alt_seq = true_ref_seq[r_var_pos]
 
     try:
         r_algn = run_aligner()
@@ -108,19 +108,19 @@ def call_alt_true_indel(
         raise mh.MegaError('Indel mapped read mapped to reverse strand.')
 
     r_to_q_poss = mapping.parse_cigar(r_algn.cigar, r_algn.strand)
-    if (r_algn.r_st > r_snp_pos - context_bases[1] or
-        r_algn.r_en < r_snp_pos + context_bases[1]):
-        raise mh.MegaError('Indel mapped read clipped snp position.')
+    if (r_algn.r_st > r_var_pos - context_bases[1] or
+        r_algn.r_en < r_var_pos + context_bases[1]):
+        raise mh.MegaError('Indel mapped read clipped variant position.')
 
     post_mapped_start = rl_cumsum[r_algn.q_st]
     mapped_rl_cumsum = rl_cumsum[
         r_algn.q_st:r_algn.q_en + 1] - post_mapped_start
 
-    score = call_snp(
-        r_post, post_mapped_start, r_snp_pos, rl_cumsum, r_to_q_poss,
-        snp_ref_seq, snp_alt_seq, context_bases, all_paths, ref_seq=r_ref_seq)
+    score = call_variant(
+        r_post, post_mapped_start, r_var_pos, rl_cumsum, r_to_q_poss,
+        var_ref_seq, var_alt_seq, context_bases, all_paths, ref_seq=r_ref_seq)
 
-    return score, snp_ref_seq, snp_alt_seq
+    return score, var_ref_seq, var_alt_seq
 
 def process_read(
         raw_sig, read_id, model_info, caller_conn, map_thr_buf, do_false_ref,
@@ -147,22 +147,22 @@ def process_read(
     mapped_rl_cumsum = rl_cumsum[
         r_ref_pos.q_trim_start:r_ref_pos.q_trim_end + 1] - post_mapped_start
 
-    # candidate SNP locations within a read
-    snp_poss = list(range(
+    # candidate variant locations within a read
+    var_poss = list(range(
         edge_buffer, np_ref_seq.shape[0] - edge_buffer,
         every_n))[:max_pos_per_read]
-    read_snp_calls = []
+    read_var_calls = []
 
     if do_false_ref:
         # first process reference false calls (need to spoof an incorrect
         # reference for mapping and signal remapping)
-        for r_snp_pos in snp_poss:
+        for r_var_pos in var_poss:
             # first test single base swap SNPs
             try:
-                score, snp_ref_seq, snp_alt_seq = call_alt_true_indel(
-                    0, r_snp_pos, r_ref_seq, r_seq, map_thr_buf,
+                score, var_ref_seq, var_alt_seq = call_alt_true_indel(
+                    0, r_var_pos, r_ref_seq, r_seq, map_thr_buf,
                     context_bases, r_post, rl_cumsum, all_paths)
-                read_snp_calls.append((False, score, snp_ref_seq, snp_alt_seq))
+                read_var_calls.append((False, score, var_ref_seq, var_alt_seq))
             except mh.MegaError:
                 # introduced error either causes read not to map or
                 # mapping trims the location of interest
@@ -170,58 +170,58 @@ def process_read(
             # then test small indels
             for indel_size in range(1, max_indel_len + 1):
                 try:
-                    score, snp_ref_seq, snp_alt_seq = call_alt_true_indel(
-                        indel_size, r_snp_pos, r_ref_seq, r_seq, map_thr_buf,
+                    score, var_ref_seq, var_alt_seq = call_alt_true_indel(
+                        indel_size, r_var_pos, r_ref_seq, r_seq, map_thr_buf,
                         context_bases, r_post, rl_cumsum, all_paths)
-                    read_snp_calls.append((
-                        False, score, snp_ref_seq, snp_alt_seq))
+                    read_var_calls.append((
+                        False, score, var_ref_seq, var_alt_seq))
                 except mh.MegaError:
                     pass
                 try:
-                    score, snp_ref_seq, snp_alt_seq = call_alt_true_indel(
-                        -indel_size, r_snp_pos, r_ref_seq, r_seq, map_thr_buf,
+                    score, var_ref_seq, var_alt_seq = call_alt_true_indel(
+                        -indel_size, r_var_pos, r_ref_seq, r_seq, map_thr_buf,
                         context_bases, r_post, rl_cumsum, all_paths)
-                    read_snp_calls.append((
-                        False, score, snp_ref_seq, snp_alt_seq))
+                    read_var_calls.append((
+                        False, score, var_ref_seq, var_alt_seq))
                 except mh.MegaError:
                     pass
 
-    # now test reference correct SNPs
-    for r_snp_pos in snp_poss:
+    # now test reference correct variants
+    for r_var_pos in var_poss:
         # test simple SNP first
-        snp_ref_seq = r_ref_seq[r_snp_pos]
-        for snp_alt_seq in CAN_BASES_SET.difference(snp_ref_seq):
-            score = call_snp(
-                r_post, post_mapped_start, r_snp_pos, mapped_rl_cumsum,
-                r_to_q_poss, snp_ref_seq, snp_alt_seq, context_bases, all_paths,
+        var_ref_seq = r_ref_seq[r_var_pos]
+        for var_alt_seq in CAN_BASES_SET.difference(var_ref_seq):
+            score = call_variant(
+                r_post, post_mapped_start, r_var_pos, mapped_rl_cumsum,
+                r_to_q_poss, var_ref_seq, var_alt_seq, context_bases, all_paths,
                 np_ref_seq=np_ref_seq)
-            read_snp_calls.append((True, score, snp_ref_seq, snp_alt_seq))
+            read_var_calls.append((True, score, var_ref_seq, var_alt_seq))
 
         # then test indels
         for indel_size in range(1, max_indel_len + 1):
             # test deletion
-            snp_ref_seq = r_ref_seq[r_snp_pos:r_snp_pos + indel_size + 1]
-            snp_alt_seq = r_ref_seq[r_snp_pos]
-            score = call_snp(
-                r_post, post_mapped_start, r_snp_pos, mapped_rl_cumsum,
-                r_to_q_poss, snp_ref_seq, snp_alt_seq, context_bases,
+            var_ref_seq = r_ref_seq[r_var_pos:r_var_pos + indel_size + 1]
+            var_alt_seq = r_ref_seq[r_var_pos]
+            score = call_variant(
+                r_post, post_mapped_start, r_var_pos, mapped_rl_cumsum,
+                r_to_q_poss, var_ref_seq, var_alt_seq, context_bases,
                 all_paths, np_ref_seq=np_ref_seq)
-            read_snp_calls.append((True, score, snp_ref_seq, snp_alt_seq))
+            read_var_calls.append((True, score, var_ref_seq, var_alt_seq))
 
             # test random insertion
-            snp_ref_seq = r_ref_seq[r_snp_pos]
-            snp_alt_seq = snp_ref_seq + ''.join(
+            var_ref_seq = r_ref_seq[r_var_pos]
+            var_alt_seq = var_ref_seq + ''.join(
                 choice(CAN_BASES) for _ in range(indel_size))
-            score = call_snp(
-                r_post, post_mapped_start, r_snp_pos, mapped_rl_cumsum,
-                r_to_q_poss, snp_ref_seq, snp_alt_seq, context_bases,
+            score = call_variant(
+                r_post, post_mapped_start, r_var_pos, mapped_rl_cumsum,
+                r_to_q_poss, var_ref_seq, var_alt_seq, context_bases,
                 all_paths, np_ref_seq=np_ref_seq)
-            read_snp_calls.append((True, score, snp_ref_seq, snp_alt_seq))
+            read_var_calls.append((True, score, var_ref_seq, var_alt_seq))
 
-    return read_snp_calls
+    return read_var_calls
 
 def _process_reads_worker(
-        fast5_q, snp_calls_q, caller_conn, model_info, device, do_false_ref):
+        fast5_q, var_calls_q, caller_conn, model_info, device, do_false_ref):
     model_info.prep_model_worker(device)
     map_thr_buf = mappy.ThreadBuffer()
 
@@ -239,12 +239,12 @@ def _process_reads_worker(
 
         try:
             raw_sig = fast5_io.get_signal(fast5_fn, read_id)
-            read_snp_calls = process_read(
+            read_var_calls = process_read(
                 raw_sig, read_id, model_info, caller_conn, map_thr_buf,
                 do_false_ref)
-            snp_calls_q.put((True, read_snp_calls))
+            var_calls_q.put((True, read_var_calls))
         except Exception as e:
-            snp_calls_q.put((False, str(e)))
+            var_calls_q.put((False, str(e)))
             pass
 
     return
@@ -254,12 +254,12 @@ if _DO_PROFILE:
     def _process_reads_worker(*args):
         import cProfile
         cProfile.runctx('_process_reads_wrapper(*args)', globals(), locals(),
-                        filename='snp_calibration.prof')
+                        filename='variant_calibration.prof')
         return
 
 
-def _get_snp_calls(
-        snp_calls_q, snp_calls_conn, out_fn, getter_num_reads_conn,
+def _get_variant_calls(
+        var_calls_q, var_calls_conn, out_fn, getter_num_reads_conn,
         suppress_progress):
     out_fp = open(out_fn, 'w')
     bar = None
@@ -269,13 +269,13 @@ def _get_snp_calls(
     err_types = defaultdict(int)
     while True:
         try:
-            valid_res, read_snp_calls = snp_calls_q.get(block=False)
+            valid_res, read_var_calls = var_calls_q.get(block=False)
             if valid_res:
-                for snp_call in read_snp_calls:
-                    out_fp.write('{}\t{}\t{}\t{}\n'.format(*snp_call))
+                for var_call in read_var_calls:
+                    out_fp.write('{}\t{}\t{}\t{}\n'.format(*var_call))
                 out_fp.flush()
             else:
-                err_types[read_snp_calls] += 1
+                err_types[read_var_calls] += 1
             if not suppress_progress:
                 bar.update(1)
         except queue.Empty:
@@ -283,16 +283,16 @@ def _get_snp_calls(
                 if getter_num_reads_conn.poll():
                     bar.total = getter_num_reads_conn.recv()
             else:
-                if snp_calls_conn.poll():
+                if var_calls_conn.poll():
                     break
             sleep(0.01)
             continue
 
-    while not snp_calls_q.empty():
-        valid_res, read_snp_calls = snp_calls_q.get(block=False)
+    while not var_calls_q.empty():
+        valid_res, read_var_calls = var_calls_q.get(block=False)
         if valid_res:
-            for snp_call in read_snp_calls:
-                out_fp.write('{}\t{}\t{}\t{}\n'.format(*snp_call))
+            for var_call in read_var_calls:
+                out_fp.write('{}\t{}\t{}\t{}\n'.format(*var_call))
             out_fp.flush()
         else:
             err_types[str(e)] += 1
@@ -325,8 +325,9 @@ def process_all_reads(
         daemon=True)
     files_p.start()
 
-    snp_calls_q, snp_calls_p, main_sc_conn = mh.create_getter_q(
-            _get_snp_calls, (out_fn, getter_num_reads_conn, suppress_progress))
+    var_calls_q, var_calls_p, main_sc_conn = mh.create_getter_q(
+        _get_variant_calls,
+        (out_fn, getter_num_reads_conn, suppress_progress))
 
     proc_reads_ps, map_conns = [], []
     for device in model_info.process_devices:
@@ -337,7 +338,7 @@ def process_all_reads(
         map_conns.append(map_conn)
         p = mp.Process(
             target=_process_reads_worker, args=(
-                fast5_q, snp_calls_q, caller_conn, model_info, device,
+                fast5_q, var_calls_q, caller_conn, model_info, device,
                 do_false_ref))
         p.daemon = True
         p.start()
@@ -358,9 +359,9 @@ def process_all_reads(
     if map_read_ts is not None:
         for map_t in map_read_ts:
             map_t.join()
-    if snp_calls_p.is_alive():
+    if var_calls_p.is_alive():
         main_sc_conn.send(True)
-        snp_calls_p.join()
+        var_calls_p.join()
 
     return
 
@@ -383,7 +384,7 @@ def get_parser():
 
     out_grp = parser.add_argument_group('Output Arguments')
     out_grp.add_argument(
-        '--output', default='snp_calibration_statistics.txt',
+        '--output', default='variant_calibration_statistics.txt',
         help='Filename to output statistics. Default: %(default)s')
     out_grp.add_argument(
         '--num-reads', type=int,

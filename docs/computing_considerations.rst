@@ -36,12 +36,12 @@ A separate thread is linked to each per-read processing worker in order to acces
 Thus users may notice threads opened for this processing.
 These threads will generally consume very little compute.
 
------------------------------
-SNP and Modified Base Calling
------------------------------
+---------------------------------
+Variant and Modified Base Calling
+---------------------------------
 
-SNP and modified base calling is computed within the per-read processing workers using CPU resources.
+Sequence variant and modified base calling is computed within the per-read processing workers using CPU resources.
 Generally, this portion of processing will comsume a minority of the compute resources.
-Proposing many SNPs (e.g. all possible 3+ base indels) may show a bottle neck at this portion of processing.
+Proposing many variants (e.g. all possible 3+ base indels) may show a bottle neck at this portion of processing.
 Internal testing shows that proposal of all possible single base substitutions shows minimal processing at this portion of per-read processing.
-Note that the data bases storing per-read SNP variants may show slower indexing with very large proposed SNP sets (performed at the end of per-read processing).
+Note that the database storing per-read variant score may show slower indexing with a very large number of proposed variant sets (performed at the end of per-read processing).
