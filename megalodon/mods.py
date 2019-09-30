@@ -151,17 +151,17 @@ class ModsDb(object):
     def insert_chrms(self, chrms):
         next_chrm_id = self.get_num_uniq_chrms() + 1
         self.cur.executemany('INSERT INTO chrm (chrm) VALUES (?)',
-                             [(chrm,) for chrm in chrms])
+                             ((chrm,) for chrm in chrms))
         if self.chrm_idx_in_mem:
             self.chrm_idx.update(zip(
                 chrms, range(next_chrm_id, next_chrm_id + len(chrms))))
         return
 
     def get_pos_ids_or_insert(self, r_mod_scores, chrm_id, strand):
-        r_pos = list(zip(*r_mod_scores))[0]
+        r_pos = tuple(zip(*r_mod_scores))[0]
         r_uniq_pos = set(((chrm_id, strand, pos) for pos in r_pos))
         if self.pos_idx_in_mem:
-            pos_to_add = list(r_uniq_pos.difference(self.pos_idx))
+            pos_to_add = tuple(r_uniq_pos.difference(self.pos_idx))
         else:
             pos_ids = dict(
                 ((chrm_id, strand, pos_and_id[0]), pos_and_id[1])
@@ -170,7 +170,7 @@ class ModsDb(object):
                         'SELECT pos, pos_id FROM pos ' +
                         'WHERE pos_chrm=? AND strand=? AND pos=?',
                         pos_key).fetchall())
-            pos_to_add = list(r_uniq_pos.difference(pos_ids))
+            pos_to_add = tuple(r_uniq_pos.difference(pos_ids))
 
         if len(pos_to_add) > 0:
             next_pos_id = self.get_num_uniq_mod_pos() + 1
@@ -196,7 +196,7 @@ class ModsDb(object):
         r_uniq_mod_bases = set((
             mod_key for pos_mods in r_mod_bases for mod_key, _ in pos_mods))
         if self.mod_idx_in_mem:
-            mod_bases_to_add = list(r_uniq_mod_bases.difference(self.mod_idx))
+            mod_bases_to_add = tuple(r_uniq_mod_bases.difference(self.mod_idx))
         else:
             mod_base_ids = dict(
                 (mod_data_w_id[:-1], mod_data_w_id[-1])
@@ -205,7 +205,7 @@ class ModsDb(object):
                     'SELECT mod_base, motif, motif_pos, raw_motif, ' +
                     'mod_id FROM mod WHERE mod_base=? AND motif=? AND ' +
                     'motif_pos=? AND raw_motif=?', mod_data).fetchall())
-            mod_bases_to_add = list(r_uniq_mod_bases.difference(mod_base_ids))
+            mod_bases_to_add = tuple(r_uniq_mod_bases.difference(mod_base_ids))
 
         if len(mod_bases_to_add) > 0:
             next_mod_base_id = self.get_num_uniq_mod_bases() + 1
