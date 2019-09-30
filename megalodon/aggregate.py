@@ -76,11 +76,11 @@ def _get_snp_stats_queue(
     return
 
 def _agg_mods_worker(
-        locs_q, mod_stats_q, mod_prog_q, mods_db_fn, mod_agg_info,
+        pos_q, mod_stats_q, mod_prog_q, mods_db_fn, mod_agg_info,
         valid_read_ids, write_mod_lp):
     # functions for profiling purposes
-    def get_loc_data():
-        return locs_q.get(block=False)
+    def get_pos_data():
+        return pos_q.get(block=False)
     def put_mod_site(mod_site):
         mod_stats_q.put(mod_site)
         return
@@ -92,16 +92,16 @@ def _agg_mods_worker(
 
     while True:
         try:
-            loc_data = get_loc_data()
+            pos_data = get_pos_data()
         except queue.Empty:
             do_sleep()
             continue
-        if loc_data is None:
+        if pos_data is None:
             break
 
         try:
             mod_site = agg_mods.compute_mod_stats(
-                loc_data, valid_read_ids=valid_read_ids)
+                pos_data, valid_read_ids=valid_read_ids)
             put_mod_site(mod_site)
         except mh.MegaError:
             # no valid reads cover location

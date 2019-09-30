@@ -160,39 +160,17 @@ class VarsDb(object):
 
         return
 
-    def insert_chrm(self, chrm):
-        self.cur.execute('INSERT INTO chrm (chrm) VALUES (?)', (chrm,))
+    # insert data function
+    def insert_chrms(self, chrms):
+        next_chrm_id = self.get_num_uniq_chrms() + 1
+        self.cur.executemany('INSERT INTO chrm (chrm) VALUES (?)',
+                             [(chrm,) for chrm in chrms])
         if self.chrm_idx_in_mem:
-            self.chrm_idx[chrm] = self.cur.lastrowid
-        return self.cur.lastrowid
+            self.chrm_idx.update(zip(
+                chrms, range(next_chrm_id, next_chrm_id + len(chrms))))
+        return
 
-    def get_chrm_id(self, chrm):
-        try:
-            if self.chrm_idx_in_mem:
-                chrm_id = self.chrm_idx[chrm]
-            else:
-                chrm_id = self.cur.execute(
-                    'SELECT chrm_id FROM chrm WHERE chrm=?',
-                    (chrm,)).fetchone()[0]
-        except (TypeError, KeyError):
-            raise mh.MegaError('Reference record (chromosome) not found in ' +
-                               'database.')
-        return chrm_id
-
-    def get_chrm(self, chrm_id):
-        try:
-            if self.chrm_idx_in_mem:
-                chrm = self.chrm_read_idx[chrm_id]
-            else:
-                chrm = self.cur.execute(
-                    'SELECT chrm FROM chrm WHERE chrm_id=?',
-                    (chrm_id,)).fetchone()[0]
-        except (TypeError, KeyError):
-            raise mh.MegaError('Reference record (chromosome) not found in ' +
-                               'vars database.')
-        return chrm
-
-    def get_loc_ids_or_insert_locations(self, r_var_scores, chrm_id):
+    def get_loc_ids_or_insert(self, r_var_scores, chrm_id):
         """ Extract all location IDs and add those locations not currently
         found in the database
         """
@@ -203,7 +181,8 @@ class VarsDb(object):
         if self.loc_idx_in_mem:
             locs_to_add = list(set(r_locs).difference(self.loc_idx))
         else:
-            test_starts, test_ends = map(set, list(zip(*r_uniq_locs))[1:])
+            test_starts, test_ends = map(
+                set, list(zip(*r_locs.keys()))[1:])
             loc_ids = dict((
                 ((chrm_id, test_start, test_end), loc_id)
                 for chrm_id, test_start, test_end, loc_id in  self.cur.execute(
@@ -222,26 +201,18 @@ class VarsDb(object):
                 'pos, ref_seq, var_name) VALUES (?,?,?,?,?,?)',
                 ((*loc_key, *r_locs[loc_key]) for loc_key in locs_to_add))
 
-        if self.loc_idx_in_mem:
-            if len(locs_to_add) > 0:
-                self.loc_idx.update(zip(
-                    locs_to_add,
-                    range(next_loc_id, next_loc_id + len(locs_to_add))))
-            r_loc_ids = [
-                self.loc_idx[(chrm_id, test_start, test_end)]
-                for _, _, _, _, _, test_start, test_end in r_var_scores]
-        else:
-            if len(locs_to_add) > 0:
-                loc_ids.update(zip(
-                    locs_to_add,
-                    range(next_loc_id, next_loc_id + len(locs_to_add))))
-            r_loc_ids = [
-                loc_ids[(chrm_id, test_start, test_end)]
-                for _, _, _, _, _, test_start, test_end in r_var_scores]
+        loc_idx = self.loc_idx if self.loc_idx_in_mem else loc_ids
+        if len(locs_to_add) > 0:
+            loc_idx.update(zip(
+                locs_to_add,
+                range(next_loc_id, next_loc_id + len(locs_to_add))))
+        r_loc_ids = [
+            loc_idx[(chrm_id, test_start, test_end)]
+            for _, _, _, _, _, test_start, test_end in r_var_scores]
 
         return r_loc_ids
 
-    def get_alt_ids_or_insert_alt_seqs(self, r_var_scores):
+    def get_alt_ids_or_insert(self, r_var_scores):
         r_seqs_and_lps = [
             tuple(zip(alt_seqs, alt_lps))
             for _, alt_lps, _, alt_seqs, _, _, _ in r_var_scores]
@@ -264,46 +235,25 @@ class VarsDb(object):
             self.cur.executemany(
                 'INSERT INTO alt (alt_seq) VALUES (?)', alts_to_add)
 
-        if self.alt_idx_in_mem:
-            if len(alts_to_add) > 0:
-                self.alt_idx.update(zip(
-                    alts_to_add,
-                    range(next_alt_id, next_alt_id + len(alts_to_add))))
-            r_alt_ids = [
-                tuple((self.alt_idx[alt_seq], alt_lp)
-                      for alt_seq, alt_lp in loc_seqs_lps)
-                for loc_seqs_lps in r_seqs_and_lps]
-        else:
-            if len(alts_to_add) > 0:
-                alt_ids.update(zip(
-                    alts_to_add,
-                    range(next_alt_id, next_alt_id + len(alts_to_add))))
-            r_alt_ids = [
-                tuple((alt_ids[alt_seq], alt_lp)
-                      for alt_seq, alt_lp in loc_seqs_lps)
-                for loc_seqs_lps in r_seqs_and_lps]
+        alt_idx = self.alt_idx if self.alt_idx_in_mem else alt_ids
+        if len(alts_to_add) > 0:
+            alt_idx.update(zip(
+                alts_to_add,
+                range(next_alt_id, next_alt_id + len(alts_to_add))))
+        r_alt_ids = [
+            tuple((alt_idx[alt_seq], alt_lp)
+                  for alt_seq, alt_lp in loc_seqs_lps)
+            for loc_seqs_lps in r_seqs_and_lps]
 
         return r_alt_ids
-
-    def get_alt_seq(self, alt_id):
-        try:
-            if self.alt_idx_in_mem:
-                alt_seq = self.alt_read_idx[alt_id]
-            else:
-                alt_seq = self.cur.execute(
-                    'SELECT alt_seq FROM alt WHERE alt_id=?',
-                    (alt_id,)).fetchone()[0]
-        except (TypeError, KeyError):
-            raise mh.MegaError('Alt sequence not found in vars database.')
-        return alt_seq
 
     def insert_read_scores(self, r_var_scores, uuid, chrm, strand):
         self.cur.execute('INSERT INTO read (uuid, strand) VALUES (?,?)',
                          (uuid, strand))
         read_id = self.cur.lastrowid
         chrm_id = self.get_chrm_id(chrm)
-        loc_ids = self.get_loc_ids_or_insert_locations(r_var_scores, chrm_id)
-        alt_ids = self.get_alt_ids_or_insert_alt_seqs(r_var_scores)
+        loc_ids = self.get_loc_ids_or_insert(r_var_scores, chrm_id)
+        alt_ids = self.get_alt_ids_or_insert(r_var_scores)
 
         read_insert_data = ((alt_lp, loc_id, alt_id, read_id)
                             for loc_id, loc_alts in zip(loc_ids, alt_ids)
@@ -313,6 +263,7 @@ class VarsDb(object):
             'INSERT INTO data VALUES (?,?,?,?)', read_insert_data)
         return
 
+    # create and load index functions
     def create_chrm_index(self):
         self.cur.execute('CREATE UNIQUE INDEX chrm_idx ON chrm(chrm)')
         return
@@ -348,10 +299,60 @@ class VarsDb(object):
                          'score_loc, score_alt, score_read, score)')
         return
 
-    def close(self):
-        self.db.commit()
-        self.db.close()
-        return
+    # reader functions
+    def get_chrm_id(self, chrm):
+        try:
+            if self.chrm_idx_in_mem:
+                chrm_id = self.chrm_idx[chrm]
+            else:
+                chrm_id = self.cur.execute(
+                    'SELECT chrm_id FROM chrm WHERE chrm=?',
+                    (chrm,)).fetchone()[0]
+        except (TypeError, KeyError):
+            raise mh.MegaError('Reference record (chromosome) not found in ' +
+                               'database.')
+        return chrm_id
+
+    def get_chrm(self, chrm_id):
+        try:
+            if self.chrm_idx_in_mem:
+                chrm = self.chrm_read_idx[chrm_id]
+            else:
+                chrm = self.cur.execute(
+                    'SELECT chrm FROM chrm WHERE chrm_id=?',
+                    (chrm_id,)).fetchone()[0]
+        except (TypeError, KeyError):
+            raise mh.MegaError('Reference record (chromosome) not found in ' +
+                               'vars database.')
+        return chrm
+
+    def get_alt_seq(self, alt_id):
+        try:
+            if self.alt_idx_in_mem:
+                alt_seq = self.alt_read_idx[alt_id]
+            else:
+                alt_seq = self.cur.execute(
+                    'SELECT alt_seq FROM alt WHERE alt_id=?',
+                    (alt_id,)).fetchone()[0]
+        except (TypeError, KeyError):
+            raise mh.MegaError('Alt sequence not found in vars database.')
+        return alt_seq
+
+    def get_uuid(self, read_id):
+        try:
+            uuid = self.cur.execute(
+                'SELECT uuid FROM read WHERE read_id=?',
+                    (read_id,)).fetchone()[0]
+        except TypeError:
+            raise mh.MegaError('Read ID not found in vars database.')
+        return uuid
+
+    def get_num_uniq_chrms(self):
+        num_chrms = self.cur.execute(
+            'SELECT MAX(chrm_id) FROM chrm').fetchone()[0]
+        if num_chrms is None:
+            num_chrms = 0
+        return num_chrms
 
     def get_num_uniq_var_loc(self):
         num_locs = self.cur.execute('SELECT MAX(loc_id) FROM loc').fetchone()[0]
@@ -377,18 +378,18 @@ class VarsDb(object):
         read_id_conv = self.get_uuid if return_uuids else lambda x: x
         # these attributes are specified in self.iter_locs
         loc_id, chrm_id, pos, ref_seq, var_name = loc_data
-        self.cur.execute(
-            'SELECT score, score_read, score_alt, score_loc FROM data ' +
-            'WHERE score_loc=?', (loc_id, ))
+        chrm = self.get_chrm(chrm_id)
         return [
             self.var_data(
                 score, pos, ref_seq, var_name, read_id_conv(read_id),
-                self.get_chrm(chrm_id), self.get_alt_seq(alt_id))
-            for score, read_id, alt_id, loc_id in self.cur]
+                chrm, self.get_alt_seq(alt_id))
+            for score, read_id, alt_id, loc_id in self.cur.execute(
+                    'SELECT score, score_read, score_alt, score_loc FROM data ' +
+                    'WHERE score_loc=?', (loc_id,)).fetchall()]
 
-    def get_read_stats(self, uuid):
-        # TODO implement this for API
-        raise NotImplementedError
+    def close(self):
+        self.db.commit()
+        self.db.close()
         return
 
 
@@ -813,8 +814,7 @@ def _get_snps_queue(
     logger = logging.get_logger('vars_getter')
     snps_db = VarsDb(vars_db_fn, db_safety=db_safety, read_only=False,
                      loc_index_in_memory=loc_index_in_memory)
-    for ref_name in ref_names_and_lens[0]:
-        snps_db.insert_chrm(ref_name)
+    snps_db.insert_chrms(ref_names_and_lens[0])
     snps_db.create_chrm_index()
     if snps_txt_fn is None:
         snps_txt_fp = None
