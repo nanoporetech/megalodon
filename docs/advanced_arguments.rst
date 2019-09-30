@@ -17,15 +17,15 @@ Output Arguments
   - A file containing ``read_ids`` to process (one per line).
   - Used in the variant phasing pipeline.
 
--------------
-SNP Arguments
--------------
+--------------------------
+Sequence Variant Arguments
+--------------------------
 
-- ``--disable-snp-calibration``
+- ``--disable-variant-calibration``
 
-  - Use raw neural network SNP scores.
+  - Use raw neural network sequence variant scores.
   - This option should be set when calibrating a new model.
-  - Default: Calibrate scores as described in ``--snp-calibration-filename``
+  - Default: Calibrate scores as described in ``--variant-calibration-filename``
 - ``--heterozygous-factors``
 
   - Bayes factor used when computing heterozygous probabilities in diploid variant calling mode.
@@ -33,14 +33,14 @@ SNP Arguments
 - ``--max-indel-size``
 
   - Maximum indel size to include in testing. Default: 50
-- ``--snp-all-paths``
+- ``--variant-all-paths``
 
   - Compute the forward algorithm all paths score.
   - Default: Viterbi best-path score.
-- ``--snp-calibration-filename``
+- ``--variant-calibration-filename``
 
-  - File containing emperical calibration for SNP scores.
-  - As created by megalodon/scripts/calibrate_snp_llr_scores.py.
+  - File containing emperical calibration for sequence variant scores.
+  - As created by megalodon/scripts/calibrate_variant_llr_scores.py.
   - Default: Load default calibration file.
 - ``--variant-context-bases``
 
@@ -126,9 +126,9 @@ This output category is intended for use in generating reference sequences for t
 - ``--refs-include-mods``
 
   - Include modified base calls in per-read reference output.
-- ``--refs-include-snps``
+- ``--refs-include-variants``
 
-  - Include SNP calls in per-read reference output.
+  - Include sequence variant calls in per-read reference output.
 - ``--refs-percent-identity-threshold``
 
   - Only include reads with higher percent identity in per-read reference output.

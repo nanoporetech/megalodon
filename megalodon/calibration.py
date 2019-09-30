@@ -11,7 +11,7 @@ DEFAULT_SMOOTH_MAX = 200
 DEFAULT_SMOOTH_NVALS = 1001
 DEFAULT_MIN_DENSITY = 5e-6
 
-SNP_CALIB_TYPE = 'snp_type_indel_len'
+VAR_CALIB_TYPE = 'snp_type_indel_len'
 GENERIC_BASE = 'N'
 SNP_CALIB_TMPLT = 'snp_{}_{}_calibration'
 SNP_LLR_RNG_TMPLT = 'snp_{}_{}_llr_range'
@@ -192,11 +192,11 @@ def compute_log_probs(alt_llrs):
 ##### Calibration Readers #####
 ###############################
 
-class SnpCalibrator(object):
+class VarCalibrator(object):
     def _load_calibration(self):
         calib_data = np.load(self.fn)
         self.stratify_type = str(calib_data['stratify_type'])
-        assert self.stratify_type == SNP_CALIB_TYPE
+        assert self.stratify_type == VAR_CALIB_TYPE
 
         self.num_calib_vals = np.int(calib_data['smooth_nvals'])
         self.max_indel_len = np.int(calib_data['max_indel_len'])
@@ -246,15 +246,15 @@ class SnpCalibrator(object):
 
         return
 
-    def __init__(self, snps_calib_fn):
-        self.fn = snps_calib_fn
+    def __init__(self, vars_calib_fn):
+        self.fn = vars_calib_fn
         if self.fn is not None:
             self._load_calibration()
         self.calib_loaded = self.fn is not None
         return
 
     def calibrate_llr(self, llr, read_ref_seq, read_alt_seq):
-        def simplify_snp_seq(ref_seq, alt_seq):
+        def simplify_var_seq(ref_seq, alt_seq):
             while (len(ref_seq) > 0 and len(alt_seq) > 0 and
                    ref_seq[0] == alt_seq[0]):
                 ref_seq = ref_seq[1:]
@@ -268,7 +268,7 @@ class SnpCalibrator(object):
         if not self.calib_loaded:
             return llr
         if len(read_ref_seq) == len(read_alt_seq):
-            ref_seq, alt_seq = simplify_snp_seq(read_ref_seq, read_alt_seq)
+            ref_seq, alt_seq = simplify_var_seq(read_ref_seq, read_alt_seq)
             # default to a "generic" SNP type that is the total of all SNP types
             snp_type = ((ref_seq, alt_seq) if (ref_seq, alt_seq)
                         in self.snp_calib_tables else

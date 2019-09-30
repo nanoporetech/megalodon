@@ -7,7 +7,7 @@ import multiprocessing as mp
 
 from tqdm import tqdm
 
-from megalodon import logging, mods, snps, megalodon_helper as mh
+from megalodon import logging, mods, variants, megalodon_helper as mh
 
 _DO_PROFILE_AGG_MOD = False
 _DO_PROFILE_GET_MODS = False
@@ -16,62 +16,62 @@ _DO_PROF = _DO_PROFILE_AGG_MOD or _DO_PROFILE_AGG_FILLER or _DO_PROFILE_GET_MODS
 _N_MOD_PROF = 200000
 
 
-#######################################
-##### Aggregate SNP and Mod Stats #####
-#######################################
+############################################
+##### Aggregate Variants and Mod Stats #####
+############################################
 
-def _agg_snps_worker(
-        locs_q, snp_stats_q, snp_prog_q, snps_db_fn, write_vcf_lp,
+def _agg_vars_worker(
+        locs_q, var_stats_q, var_prog_q, vars_db_fn, write_vcf_lp,
         het_factors, call_mode, valid_read_ids):
-    agg_snps = snps.AggSnps(snps_db_fn, write_vcf_lp)
+    agg_vars = variants.AggVars(vars_db_fn, write_vcf_lp)
 
     while True:
         try:
-            snp_loc = locs_q.get(block=False)
+            var_loc = locs_q.get(block=False)
         except queue.Empty:
             sleep(0.001)
             continue
-        if snp_loc is None:
+        if var_loc is None:
             break
 
         try:
-            snp_var = agg_snps.compute_snp_stats(
-                snp_loc, het_factors, call_mode, valid_read_ids)
-            snp_stats_q.put(snp_var)
+            var_var = agg_vars.compute_var_stats(
+                var_loc, het_factors, call_mode, valid_read_ids)
+            var_stats_q.put(var_var)
         except mh.MegaError:
             # something not right with the stats at this loc
             pass
-        snp_prog_q.put(1)
+        var_prog_q.put(1)
 
     return
 
-def _get_snp_stats_queue(
-        snp_stats_q, snp_conn, out_dir, ref_names_and_lens, out_suffix,
+def _get_var_stats_queue(
+        var_stats_q, var_conn, out_dir, ref_names_and_lens, out_suffix,
         write_vcf_lp):
-    agg_snp_fn = mh.get_megalodon_fn(out_dir, mh.SNP_NAME)
+    agg_var_fn = mh.get_megalodon_fn(out_dir, mh.VAR_NAME)
     if out_suffix is not None:
-        base_fn, fn_ext = os.path.splitext(agg_snp_fn)
-        agg_snp_fn = base_fn + '.' + out_suffix + fn_ext
-    agg_snp_fp = snps.VcfWriter(
-        agg_snp_fn, 'w', ref_names_and_lens=ref_names_and_lens,
+        base_fn, fn_ext = os.path.splitext(agg_var_fn)
+        agg_var_fn = base_fn + '.' + out_suffix + fn_ext
+    agg_var_fp = variants.VcfWriter(
+        agg_var_fn, 'w', ref_names_and_lens=ref_names_and_lens,
         write_vcf_lp=write_vcf_lp)
 
     while True:
         try:
-            snp_var = snp_stats_q.get(block=False)
-            if snp_var is None: continue
-            agg_snp_fp.write_variant(snp_var)
+            var_var = var_stats_q.get(block=False)
+            if var_var is None: continue
+            agg_var_fp.write_variant(var_var)
         except queue.Empty:
-            if snp_conn.poll():
+            if var_conn.poll():
                 break
             sleep(0.001)
             continue
 
-    while not snp_stats_q.empty():
-        snp_var = snp_stats_q.get(block=False)
-        agg_snp_fp.write_variant(snp_var)
+    while not var_stats_q.empty():
+        var_var = var_stats_q.get(block=False)
+        agg_var_fp.write_variant(var_var)
 
-    agg_snp_fp.close()
+    agg_var_fp.close()
 
     return
 
@@ -174,17 +174,17 @@ if _DO_PROFILE_GET_MODS:
         return
 
 def _agg_prog_worker(
-        snp_prog_q, mod_prog_q, num_snps, num_mods, prog_conn,
+        var_prog_q, mod_prog_q, num_vars, num_mods, prog_conn,
         suppress_progress):
-    snp_bar, mod_bar = None, None
-    if num_snps > 0:
+    var_bar, mod_bar = None, None
+    if num_vars > 0:
         if num_mods > 0 and not suppress_progress:
             mod_bar = tqdm(desc='Mods', unit=' sites', total=num_mods,
                            position=1, smoothing=0, dynamic_ncols=True)
-            snp_bar = tqdm(desc='SNPs', unit=' sites', total=num_snps,
+            var_bar = tqdm(desc='Variants', unit=' sites', total=num_vars,
                            position=0, smoothing=0, dynamic_ncols=True)
         elif not suppress_progress:
-            snp_bar = tqdm(desc='SNPs', unit=' sites', total=num_snps,
+            var_bar = tqdm(desc='Variants', unit=' sites', total=num_vars,
                            position=0, smoothing=0, dynamic_ncols=True)
     elif num_mods > 0 and  not suppress_progress:
         mod_bar = tqdm(desc='Mods', unit=' sites', total=num_mods,
@@ -192,15 +192,15 @@ def _agg_prog_worker(
 
     while True:
         try:
-            snp_prog_q.get(block=False)
+            var_prog_q.get(block=False)
             if not suppress_progress:
-                if snp_bar is not None: snp_bar.update(1)
+                if var_bar is not None: var_bar.update(1)
                 if mod_bar is not None: mod_bar.update(0)
         except queue.Empty:
             try:
                 mod_prog_q.get(block=False)
                 if not suppress_progress:
-                    if snp_bar is not None: snp_bar.update(0)
+                    if var_bar is not None: var_bar.update(0)
                     if mod_bar is not None: mod_bar.update(1)
             except queue.Empty:
                 sleep(0.001)
@@ -208,17 +208,17 @@ def _agg_prog_worker(
                     break
                 continue
 
-    while not snp_prog_q.empty():
-        snp_prog_q.get(block=False)
-        if not suppress_progress: snp_bar.update(1)
+    while not var_prog_q.empty():
+        var_prog_q.get(block=False)
+        if not suppress_progress: var_bar.update(1)
     while not mod_prog_q.empty():
         mod_prog_q.get(block=False)
         if not suppress_progress: mod_bar.update(1)
-    if snp_bar is not None:
-        snp_bar.close()
+    if var_bar is not None:
+        var_bar.close()
     if mod_bar is not None:
         mod_bar.close()
-    if num_mods > 0 and num_snps > 0 and not suppress_progress:
+    if num_mods > 0 and num_vars > 0 and not suppress_progress:
         sys.stderr.write('\n\n')
 
     return
@@ -246,38 +246,39 @@ def aggregate_stats(
         mod_names, mod_agg_info, write_mod_lp, mod_output_fmts,
         suppress_progress, ref_names_and_lens, valid_read_ids=None,
         out_suffix=None):
-    if mh.SNP_NAME in outputs and mh.MOD_NAME in outputs:
+    if mh.VAR_NAME in outputs and mh.MOD_NAME in outputs:
         num_ps = max(num_ps // 2, 1)
 
     logger = logging.get_logger('agg')
-    num_snps, num_mods, snp_prog_q, mod_prog_q = (
+    num_vars, num_mods, var_prog_q, mod_prog_q = (
         0, 0, queue.Queue(), queue.Queue())
-    if mh.SNP_NAME in outputs:
-        snps_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_SNP_NAME)
-        num_snps = snps.AggSnps(
-            snps_db_fn, load_in_mem_indices=False).num_uniq()
+    if mh.VAR_NAME in outputs:
+        vars_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_VAR_NAME)
+        num_vars = variants.AggVars(
+            vars_db_fn, load_in_mem_indices=False).num_uniq()
         logger.info('Spawning variant aggregation processes.')
-        # create process to collect snp stats from workers
-        snp_stats_q, snp_stats_p, main_snp_stats_conn = mh.create_getter_q(
-            _get_snp_stats_queue, (
+        # create process to collect var stats from workers
+        var_stats_q, var_stats_p, main_var_stats_conn = mh.create_getter_q(
+            _get_var_stats_queue, (
                 out_dir, ref_names_and_lens, out_suffix, write_vcf_lp))
-        # create process to fill snp locs queue
-        snp_filler_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
-        snp_filler_p = mp.Process(
+        # create process to fill variant locs queue
+        var_filler_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
+        var_filler_p = mp.Process(
             target=_fill_locs_queue,
-            args=(snp_filler_q, snps_db_fn, snps.AggSnps, num_ps), daemon=True)
-        snp_filler_p.start()
-        # create worker processes to aggregate snps
-        snp_prog_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
-        agg_snps_ps = []
+            args=(var_filler_q, vars_db_fn, variants.AggVars, num_ps),
+            daemon=True)
+        var_filler_p.start()
+        # create worker processes to aggregate variants
+        var_prog_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
+        agg_vars_ps = []
         for _ in range(num_ps):
             p = mp.Process(
-                target=_agg_snps_worker,
-                args=(snp_filler_q, snp_stats_q, snp_prog_q, snps_db_fn,
+                target=_agg_vars_worker,
+                args=(var_filler_q, var_stats_q, var_prog_q, vars_db_fn,
                       write_vcf_lp, het_factors, call_mode, valid_read_ids),
                 daemon=True)
             p.start()
-            agg_snps_ps.append(p)
+            agg_vars_ps.append(p)
 
     if mh.MOD_NAME in outputs:
         mods_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME)
@@ -311,25 +312,25 @@ def aggregate_stats(
 
     # create progress process
     logger.info(
-        'Aggregating {} SNPs and {} mod sites over reads.'.format(
-            num_snps, num_mods))
+        'Aggregating {} variants and {} modified base sites over reads.'.format(
+            num_vars, num_mods))
     main_prog_conn, prog_conn = mp.Pipe()
     prog_p = mp.Process(
         target=_agg_prog_worker,
-        args=(snp_prog_q, mod_prog_q, num_snps, num_mods, prog_conn,
+        args=(var_prog_q, mod_prog_q, num_vars, num_mods, prog_conn,
               suppress_progress),
         daemon=True)
     prog_p.start()
 
     # join filler processes first
-    if mh.SNP_NAME in outputs:
-        snp_filler_p.join()
-        for agg_snps_p in agg_snps_ps:
-            agg_snps_p.join()
+    if mh.VAR_NAME in outputs:
+        var_filler_p.join()
+        for agg_vars_p in agg_vars_ps:
+            agg_vars_p.join()
         # send to conn
-        if snp_stats_p.is_alive():
-            main_snp_stats_conn.send(True)
-        snp_stats_p.join()
+        if var_stats_p.is_alive():
+            main_var_stats_conn.send(True)
+        var_stats_p.join()
     if mh.MOD_NAME in outputs:
         for agg_mods_p in agg_mods_ps:
             agg_mods_p.join()

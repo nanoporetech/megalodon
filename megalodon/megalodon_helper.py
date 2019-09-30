@@ -56,10 +56,10 @@ BC_MODS_NAME = 'mod_basecalls'
 MAP_NAME = 'mappings'
 MAP_SUMM_NAME = 'mappings_summary'
 MAP_OUT_FMTS = ('bam', 'cram', 'sam')
-PR_SNP_NAME = 'per_read_snps'
-PR_SNP_TXT_NAME = 'per_read_snps_text'
+PR_VAR_NAME = 'per_read_variants'
+PR_VAR_TXT_NAME = 'per_read_variants_text'
 WHATSHAP_MAP_NAME = 'whatshap_mappings'
-SNP_NAME = 'snps'
+VAR_NAME = 'variants'
 PR_MOD_NAME = 'per_read_mods'
 PR_MOD_TXT_NAME = 'per_read_mods_text'
 # TOOD add wig/bedgraph modified base output
@@ -70,9 +70,9 @@ OUTPUT_FNS = {
     BC_MODS_NAME:'basecalls.modified_base_scores.hdf5',
     MAP_NAME:'mappings',
     MAP_SUMM_NAME:'mappings.summary.txt',
-    PR_SNP_NAME:'per_read_snp_calls.db',
-    PR_SNP_TXT_NAME:'per_read_snp_calls.txt',
-    SNP_NAME:'variants.vcf',
+    PR_VAR_NAME:'per_read_variant_calls.db',
+    PR_VAR_TXT_NAME:'per_read_variant_calls.txt',
+    VAR_NAME:'variants.vcf',
     WHATSHAP_MAP_NAME:'whatshap_mappings',
     PR_MOD_NAME:'per_read_modified_base_calls.db',
     PR_MOD_TXT_NAME:'per_read_modified_base_calls.txt',
@@ -85,9 +85,10 @@ OUTPUT_DESCS = {
     BC_NAME:'Called bases (FASTA)',
     BC_MODS_NAME:'Basecall-anchored modified base scores (HDF5)',
     MAP_NAME:'Mapped reads (BAM/CRAM/SAM)',
-    PR_SNP_NAME:'Per-read, per-site SNP scores database',
-    SNP_NAME:'Sample-level aggregated SNP calls (VCF)',
-    WHATSHAP_MAP_NAME:'SNP annotated mappings for use with whatshap',
+    PR_VAR_NAME:'Per-read, per-site sequence variant scores database',
+    VAR_NAME:'Sample-level aggregated sequence variant calls (VCF)',
+    WHATSHAP_MAP_NAME:(
+        'Sequence variant annotated mappings for use with whatshap'),
     PR_MOD_NAME:'Per-read, per-site modified base scores database',
     MOD_NAME:'Sample-level aggregated modified base calls (modVCF)'
 }
@@ -107,7 +108,7 @@ MOD_OUTPUT_EXTNS = {
     MOD_WIG_NAME:'wig'
 }
 
-ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, PR_SNP_NAME, SNP_NAME,
+ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, PR_VAR_NAME, VAR_NAME,
                      WHATSHAP_MAP_NAME, PR_MOD_NAME, MOD_NAME))
 
 PR_REF_FILTERS = namedtuple(
@@ -122,7 +123,7 @@ MODEL_PRESET_DESC = (
 DEFAULT_MODEL_PRESET = MODEL_PRESETS[0]
 MODEL_DATA_DIR_NAME =  'model_data'
 MODEL_FN = 'model.checkpoint'
-SNP_CALIBRATION_FN = 'megalodon_snp_calibration.npz'
+VAR_CALIBRATION_FN = 'megalodon_variant_calibration.npz'
 MOD_CALIBRATION_FN = 'megalodon_mod_calibration.npz'
 
 
@@ -196,22 +197,22 @@ def add_fn_suffix(fn, suffix):
 ##### Calibration File Loading #####
 ####################################
 
-def get_snp_calibration_fn(
-        snp_calib_fn=None, disable_snp_calib=False, preset_str=None):
-    if disable_snp_calib:
+def get_var_calibration_fn(
+        var_calib_fn=None, disable_var_calib=False, preset_str=None):
+    if disable_var_calib:
         return None
-    elif snp_calib_fn is not None:
-        return resolve_path(snp_calib_fn)
+    elif var_calib_fn is not None:
+        return resolve_path(var_calib_fn)
     elif preset_str is not None:
         if preset_str not in MODEL_PRESETS:
             raise MegaError('Invalid model preset: {}'.format(preset_str))
         resolve_path(pkg_resources.resource_filename(
             'megalodon', os.path.join(
-                MODEL_DATA_DIR_NAME, preset_str, SNP_CALIBRATION_FN)))
-    # else return default snp calibration file
+                MODEL_DATA_DIR_NAME, preset_str, VAR_CALIBRATION_FN)))
+    # else return default variant calibration file
     return resolve_path(pkg_resources.resource_filename(
         'megalodon', os.path.join(
-            MODEL_DATA_DIR_NAME, DEFAULT_MODEL_PRESET, SNP_CALIBRATION_FN)))
+            MODEL_DATA_DIR_NAME, DEFAULT_MODEL_PRESET, VAR_CALIBRATION_FN)))
 
 def get_mod_calibration_fn(
         mod_calib_fn=None, disable_mod_calib=False, preset_str=None):
@@ -224,8 +225,8 @@ def get_mod_calibration_fn(
             raise MegaError('Invalid model preset: {}'.format(preset_str))
         resolve_path(pkg_resources.resource_filename(
             'megalodon', os.path.join(
-                MODEL_DATA_DIR_NAME, preset_str, SNP_CALIBRATION_FN)))
-    # else return default snp calibration file
+                MODEL_DATA_DIR_NAME, preset_str, VAR_CALIBRATION_FN)))
+    # else return default modified base calibration file
     return resolve_path(pkg_resources.resource_filename(
         'megalodon', os.path.join(
             MODEL_DATA_DIR_NAME, DEFAULT_MODEL_PRESET, MOD_CALIBRATION_FN)))
@@ -239,7 +240,7 @@ def get_model_fn(model_fn=None, preset_str=None):
         resolve_path(pkg_resources.resource_filename(
             'megalodon', os.path.join(
                 MODEL_DATA_DIR_NAME, preset_str, MODEL_FN)))
-    # else return default snp calibration file
+    # else return default model file
     return resolve_path(pkg_resources.resource_filename(
         'megalodon', os.path.join(
             MODEL_DATA_DIR_NAME, DEFAULT_MODEL_PRESET, MODEL_FN)))
