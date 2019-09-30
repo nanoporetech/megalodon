@@ -46,7 +46,7 @@ def call_variant(
         pos_ab = min(var_context_bases,
                      len(ref_seq) - r_var_pos - len(var_ref_seq))
         pos_ref_seq = mh.seq_to_int(ref_seq[
-            r_var_pos - pos_bb:r_var_pos + pos_ab + len(var_ref_seq)]])
+            r_var_pos - pos_bb:r_var_pos + pos_ab + len(var_ref_seq)])
 
     pos_alt_seq = np.concatenate([
         pos_ref_seq[:pos_bb], mh.seq_to_int(var_alt_seq),
@@ -430,7 +430,7 @@ def main():
 
     sys.stderr.write('Loading model.\n')
     model_info = backends.ModelInfo(
-        args.taiyaki_model_filename, args.devices,
+        mh.get_model_fn(args.taiyaki_model_filename), args.devices,
         args.processes, args.chunk_size, args.chunk_overlap,
         args.max_concurrent_chunks)
     sys.stderr.write('Loading reference.\n')
