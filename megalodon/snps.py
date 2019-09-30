@@ -192,62 +192,98 @@ class VarsDb(object):
                                'vars database.')
         return chrm
 
-    def get_loc_id(self, chrm, test_start, test_end, chrm_id=None):
-        if chrm_id is None:
-            chrm_id = self.get_chrm_id(chrm)
+    def get_loc_ids_or_insert_locations(self, r_var_scores, chrm_id):
+        """ Extract all location IDs and add those locations not currently
+        found in the database
+        """
+        r_locs = dict((
+            ((chrm_id, test_start, test_end), (pos, ref_seq, var_name))
+            for pos, _, ref_seq, _, var_name,
+            test_start, test_end in r_var_scores))
+        if self.loc_idx_in_mem:
+            locs_to_add = list(set(r_locs).difference(self.loc_idx))
+        else:
+            test_starts, test_ends = map(set, list(zip(*r_uniq_locs))[1:])
+            loc_ids = dict((
+                ((chrm_id, test_start, test_end), loc_id)
+                for chrm_id, test_start, test_end, loc_id in  self.cur.execute(
+                        ('SELECT loc_chrm, test_start, test_end, loc_id ' +
+                         'FROM loc WHERE loc_chrm=? AND ' +
+                         'test_start in ({0}) AND test_end in ({1})').format(
+                             ','.join(['?',] * len(test_starts)),
+                             ','.join(['?',] * len(test_ends))),
+                        (chrm_id, *test_starts, *test_ends)).fetchall()))
+            locs_to_add = list(set(r_locs).difference(loc_ids))
 
-        try:
-            if self.loc_idx_in_mem:
-                loc_id = self.loc_idx[(chrm_id, test_start, test_end)]
-            else:
-                loc_id = self.cur.execute(
-                    'SELECT loc_id FROM loc WHERE loc_chrm=? AND ' +
-                    'test_start=? AND test_end=?', (
-                        chrm_id, test_start, test_end)).fetchone()[0]
-        except (TypeError, KeyError):
-            raise mh.MegaError(
-                'Reference position not found in database.')
+        if len(locs_to_add) > 0:
+            next_loc_id = self.get_num_uniq_var_loc() + 1
+            self.cur.executemany(
+                'INSERT INTO loc (loc_chrm, test_start, test_end, ' +
+                'pos, ref_seq, var_name) VALUES (?,?,?,?,?,?)',
+                ((*loc_key, *r_locs[loc_key]) for loc_key in locs_to_add))
 
-        return loc_id
+        if self.loc_idx_in_mem:
+            if len(locs_to_add) > 0:
+                self.loc_idx.update(zip(
+                    locs_to_add,
+                    range(next_loc_id, next_loc_id + len(locs_to_add))))
+            r_loc_ids = [
+                self.loc_idx[(chrm_id, test_start, test_end)]
+                for _, _, _, _, _, test_start, test_end in r_var_scores]
+        else:
+            if len(locs_to_add) > 0:
+                loc_ids.update(zip(
+                    locs_to_add,
+                    range(next_loc_id, next_loc_id + len(locs_to_add))))
+            r_loc_ids = [
+                loc_ids[(chrm_id, test_start, test_end)]
+                for _, _, _, _, _, test_start, test_end in r_var_scores]
 
-    def get_loc_id_or_insert(self, chrm, test_start, test_end, var_name,
-                             pos, ref_seq, chrm_id=None):
-        if chrm_id is None:
-            chrm_id = self.get_chrm_id(chrm)
-        try:
-            loc_id = self.get_loc_id(None, test_start, test_end, chrm_id)
-        except mh.MegaError:
-            self.cur.execute(
-                'INSERT INTO loc (loc_chrm, test_start, test_end, var_name, ' +
-                'pos, ref_seq) VALUES (?,?,?,?,?,?)',
-                (chrm_id, test_start, test_end,var_name, pos, ref_seq))
-            loc_id = self.cur.lastrowid
-            if self.loc_idx_in_mem:
-                self.loc_idx[(chrm_id, test_start, test_end)] = loc_id
-        return loc_id
+        return r_loc_ids
 
-    def get_alt_id(self, alt_seq):
-        try:
-            if self.alt_idx_in_mem:
-                alt_id = self.alt_idx[alt_seq]
-            else:
-                alt_id = self.cur.execute(
-                    'SELECT alt_id FROM var WHERE alt_seq=?',
-                    (var_name, )).fetchone()[0]
-        except (TypeError, KeyError):
-            raise mh.MegaError('Variant not found in var table.')
-        return alt_id
+    def get_alt_ids_or_insert_alt_seqs(self, r_var_scores):
+        r_seqs_and_lps = [
+            tuple(zip(alt_seqs, alt_lps))
+            for _, alt_lps, _, alt_seqs, _, _, _ in r_var_scores]
+        r_uniq_seqs = set((seq_lp_i[0] for loc_seqs_lps in r_seqs_and_lps
+                           for seq_lp_i in loc_seqs_lps))
+        if self.alt_idx_in_mem:
+            alts_to_add = list(r_uniq_seqs.difference(self.alt_idx))
+        else:
+            alt_ids = dict((
+                (alt_seq, alt_id)
+                for alt_seq, alt_id in  self.cur.execute(
+                        ('SELECT alt_seq, alt_id ' +
+                         'FROM alt WHERE alt_seq in ({})').format(
+                             ','.join(['?',] * len(r_uniq_seqs))),
+                        r_uniq_seqs).fetchall()))
+            alts_to_add = list(r_uniq_seqs.difference(alt_ids))
 
-    def get_alt_id_or_insert(self, alt_seq):
-        try:
-            alt_id = self.get_alt_id(alt_seq)
-        except mh.MegaError:
-            self.cur.execute(
-                'INSERT INTO alt (alt_seq) VALUES (?)', (alt_seq, ))
-            alt_id = self.cur.lastrowid
-            if self.alt_idx_in_mem:
-                self.alt_idx[alt_seq] = alt_id
-        return alt_id
+        if len(alts_to_add) > 0:
+            next_alt_id = self.get_num_uniq_alt_seqs() + 1
+            self.cur.executemany(
+                'INSERT INTO alt (alt_seq) VALUES (?)', alts_to_add)
+
+        if self.alt_idx_in_mem:
+            if len(alts_to_add) > 0:
+                self.alt_idx.update(zip(
+                    alts_to_add,
+                    range(next_alt_id, next_alt_id + len(alts_to_add))))
+            r_alt_ids = [
+                tuple((self.alt_idx[alt_seq], alt_lp)
+                      for alt_seq, alt_lp in loc_seqs_lps)
+                for loc_seqs_lps in r_seqs_and_lps]
+        else:
+            if len(alts_to_add) > 0:
+                alt_ids.update(zip(
+                    alts_to_add,
+                    range(next_alt_id, next_alt_id + len(alts_to_add))))
+            r_alt_ids = [
+                tuple((alt_ids[alt_seq], alt_lp)
+                      for alt_seq, alt_lp in loc_seqs_lps)
+                for loc_seqs_lps in r_seqs_and_lps]
+
+        return r_alt_ids
 
     def get_alt_seq(self, alt_id):
         try:
@@ -266,15 +302,12 @@ class VarsDb(object):
                          (uuid, strand))
         read_id = self.cur.lastrowid
         chrm_id = self.get_chrm_id(chrm)
-        read_insert_data = []
-        for (pos, alt_lps, snp_ref_seq, snp_alt_seqs, var_name,
-             test_start, test_end) in r_var_scores:
-            # TODO convert to execute many for loc and alt inserts
-            loc_id = self.get_loc_id_or_insert(
-                None, test_start, test_end, var_name, pos, snp_ref_seq, chrm_id)
-            for alt_lp, alt_seq in zip(alt_lps, snp_alt_seqs):
-                alt_id = self.get_alt_id_or_insert(alt_seq)
-                read_insert_data.append((alt_lp, loc_id, alt_id, read_id))
+        loc_ids = self.get_loc_ids_or_insert_locations(r_var_scores, chrm_id)
+        alt_ids = self.get_alt_ids_or_insert_alt_seqs(r_var_scores)
+
+        read_insert_data = ((alt_lp, loc_id, alt_id, read_id)
+                            for loc_id, loc_alts in zip(loc_ids, alt_ids)
+                            for alt_id, alt_lp in loc_alts)
 
         self.cur.executemany(
             'INSERT INTO data VALUES (?,?,?,?)', read_insert_data)
@@ -321,7 +354,16 @@ class VarsDb(object):
         return
 
     def get_num_uniq_var_loc(self):
-        return self.cur.execute('SELECT MAX(loc_id) FROM loc').fetchone()[0]
+        num_locs = self.cur.execute('SELECT MAX(loc_id) FROM loc').fetchone()[0]
+        if num_locs is None:
+            num_locs = 0
+        return num_locs
+
+    def get_num_uniq_alt_seqs(self):
+        num_alts = self.cur.execute('SELECT MAX(alt_id) FROM alt').fetchone()[0]
+        if num_alts is None:
+            num_alts = 0
+        return num_alts
 
     def iter_locs(self):
         self.cur.execute(
