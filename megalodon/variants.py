@@ -19,7 +19,7 @@ from megalodon._version import MEGALODON_VERSION
 
 
 _DEBUG_PER_READ = False
-_RAISE_VARIANT_PROCESSING_ERRORS = True
+_RAISE_VARIANT_PROCESSING_ERRORS = False
 
 VARIANT_DATA = namedtuple('VARIANT_DATA', (
     'np_ref', 'np_alts', 'id', 'chrom', 'start', 'stop',
