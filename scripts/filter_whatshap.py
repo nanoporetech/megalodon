@@ -3,7 +3,7 @@ import argparse
 
 from tqdm import tqdm
 
-from megalodon import snps
+from megalodon import variants
 
 parser = argparse.ArgumentParser(
     description='Remove variants incompatible with whatshap')
@@ -16,7 +16,7 @@ def is_complex_variant(ref, alts):
     # single base swaps aren't complex
     if any(len(allele) > 1 for allele in alts + [ref]):
         for alt in alts:
-            simp_ref, simp_alt, _, _ = snps.simplify_snp_seq(ref, alt)
+            simp_ref, simp_alt, _, _ = variants.simplify_var_seq(ref, alt)
             # if an allele simplifies to a SNV continue
             if len(simp_ref) == 0 and len(simp_alt) == 0:
                 continue

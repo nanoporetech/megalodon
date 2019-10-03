@@ -6,10 +6,10 @@
 Megalodon
 """""""""
 
-Megalodon provides "basecalling augmentation" for raw nanopore sequencing reads, including direct, reference-guided SNP and modified base calling.
+Megalodon provides "basecalling augmentation" for raw nanopore sequencing reads, including direct, reference-guided sequence variant and modified base calling.
 
 Megalodon anchors the information rich neural network basecalling output to a reference genome.
-Variants, modified bases or alternative canonical bases, are then proposed and scored in order to produce highly-accurate reference anchored modified base or SNP calls.
+Variants, modified bases or alternative canonical bases, are then proposed and scored in order to produce highly-accurate reference anchored modified base or sequence variant calls.
 
 Detailed documentation for all ``megalodon`` arguments and algorithms can be found on the `megalodon documentation page <https://nanoporetech.github.io/megalodon/>`_.
 
@@ -48,11 +48,11 @@ Megalodon is accessed via the command line interface ``megalodon`` command.
     # Example command calling variants and CpG methylation
     #   Compute settings: GPU devices 0 and 1 with 8 CPU cores
     megalodon raw_fast5s/ \
-        --outputs basecalls mappings snps mods \
+        --outputs basecalls mappings variants mods \
         --reference reference.fa --variant-filename variants.vcf.gz \
         --mod-motif Z CG 0 --devices 0 1 --processes 8 --verbose-read-progress 3
 
-This command produces the ``megalodon_results`` output directory containing basecalls, mappings, SNP and modified base results.
+This command produces the ``megalodon_results`` output directory containing basecalls, mappings, sequence variants and modified base results.
 The format for each output is described below.
 
 .. note::
@@ -76,7 +76,7 @@ Inputs
   - Format: VCF or BCF
 
     - If not indexed, indexing will be performed
-  - Megalodon currently requires a set of candidate variants for ``--outputs snps``.
+  - Megalodon currently requires a set of candidate variants for ``--outputs variants``.
   - Only small indels (default less than ``50`` bases) are tested by default.
 
     - Specify the ``--max-indel-size`` argument to process larger indels
@@ -108,14 +108,14 @@ Outputs
   - Aggregated calls
 
     - Aggregated calls are output in either bedMethyl format (default; one file per modified base), a VCF variant format (including all modified bases) or wiggle format (one file per modified base/strand combination).
-- SNP Variant Calls
+- Sequence Variant Calls
 
-  - Per-read SNP Calls
+  - Per-read Variant Calls
 
-    - SQL DB containing scores at each tested reference location
+    - SQL DB containing scores for each tested variant
 
-      - Contains a single ``snps`` table indexed by reference position
-    - Tab-delimited output can be produced by adding the ``--write-snps-text`` flag
+      - Contains a single ``variants`` table indexed by reference position
+    - Tab-delimited output can be produced by adding the ``--write-variants-text`` flag
   - Aggregated calls
 
     - Format: VCF
@@ -138,13 +138,13 @@ Note that the model parameters must (currently) be loaded into each GPU process 
 The ``--chunk-size`` and ``--chunk-overlap`` arguments allow users to specify read chunking, but signal normalization is always carried out over the entire read.
 
 A number of helper processes will be spawned in order to perform more minor tasks, which should take minimal compute resources.
-These include enumerating read ids and files, collecting and reporting progress information and getting data from read processing queues and writing outputs (basecalls, mappings, SNPs and modified bases).
+These include enumerating read ids and files, collecting and reporting progress information and getting data from read processing queues and writing outputs (basecalls, mappings, sequence variants and modified bases).
 
 Model Compatibility
 -------------------
 
 The model and calibration files included with megalodon are applicable only to MinION or GridION R9.4.1 flowcells.
-New models trained with taiyaki can be used with megalodon, but in order to obtain the highest performance the megalodon (SNP and modified base) calibration files should be reproduced for any new model (TODO provide walkthrough).
+New models trained with taiyaki can be used with megalodon, but in order to obtain the highest performance the megalodon (variant and modified base) calibration files should be reproduced for any new model (TODO provide walkthrough).
 
 The included model contains 5mC and 6mA capabilities.
 5mC was trained only in the human (CpG) and E. coli (CCWGG) contexts while the 6mA was trained only on the E. coli (GATC) context.

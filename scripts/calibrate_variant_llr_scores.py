@@ -15,7 +15,7 @@ from megalodon import calibration
 
 
 def plot_calib(
-        pdf_fp, snp_type, smooth_ls, s_ref, sm_ref, s_alt, sm_alt,
+        pdf_fp, var_type, smooth_ls, s_ref, sm_ref, s_alt, sm_alt,
         mono_prob, prob_alt):
     f, axarr = plt.subplots(3, sharex=True, figsize=(11, 7))
     axarr[0].plot(smooth_ls, s_ref, color='orange')
@@ -24,7 +24,7 @@ def plot_calib(
     axarr[0].plot(smooth_ls, sm_alt, color='blue')
     axarr[0].set_ylabel(
         'Probability Density\nred/orange=canonical\nblue/grey=modified')
-    axarr[0].set_title(snp_type + ' Calibration')
+    axarr[0].set_title(var_type + ' Calibration')
     axarr[1].plot(smooth_ls, mono_prob, color='orange')
     axarr[1].plot(
         smooth_ls, 1 / (np.exp(smooth_ls) + 1), color='purple')
@@ -85,9 +85,9 @@ def prep_out(out_fn, overwrite):
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--ground-truth-llrs', default='snp_calibration_statistics.txt',
+        '--ground-truth-llrs', default='variant_calibration_statistics.txt',
         help='Ground truth log-likelihood ratio statistics (produced by ' +
-        'generate_ground_truth_snp_llr_scores.py). Default: %(default)s')
+        'generate_ground_truth_variant_llr_scores.py). Default: %(default)s')
     parser.add_argument(
         '--max-input-llr', type=int, default=calibration.DEFAULT_SMOOTH_MAX,
         help='Maximum log-likelihood ratio to compute calibration. ' +
@@ -106,7 +106,7 @@ def get_parser():
         'dynamically adjusts [--max-input-llr] when it is too large. ' +
         'Default: %(default)f')
     parser.add_argument(
-        '--out-filename', default='megalodon_snp_calibration.npz',
+        '--out-filename', default='megalodon_variant_calibration.npz',
         help='Filename to output calibration values. Default: %(default)s')
     parser.add_argument(
         '--out-pdf',
@@ -127,15 +127,15 @@ def main():
     sys.stderr.write('Parsing log-likelihood ratios\n')
     snp_ref_llrs, ins_ref_llrs, del_ref_llrs = extract_llrs(
         args.ground_truth_llrs)
-    # add calibration for a generic SNP (mostly multiple SNPs
+    # add calibration for a generic varaint (mostly multiple SNPs
     # as single variant; but not an indel)
-    generic_snp_llrs = [llr for snp_type_llrs in snp_ref_llrs.values()
+    generic_var_llrs = [llr for snp_type_llrs in snp_ref_llrs.values()
                         for llr in snp_type_llrs]
     # downsample to same level as other snp types
     snp_ref_llrs[
         (calibration.GENERIC_BASE,
          calibration.GENERIC_BASE)] = np.random.choice(
-             generic_snp_llrs, int(len(generic_snp_llrs) / 12), replace=False)
+             generic_var_llrs, int(len(generic_var_llrs) / 12), replace=False)
     max_indel_len = max(ins_ref_llrs)
     assert set(ins_ref_llrs) == set(del_ref_llrs), (
             'Must test same range of lengths for insertions and deletions')
@@ -186,7 +186,7 @@ def main():
     if pdf_fp is not None:
         pdf_fp.close()
 
-    # save calibration table for reading into SNP table
+    # save calibration table for reading into variant calibration table
     sys.stderr.write('Saving calibrations to file.\n')
     snp_llr_range_save_data, snp_calib_save_data = {}, {}
     for (ref_seq, alt_seq), (snp_calib, snp_llr_range) in snp_calibs.items():
@@ -209,7 +209,7 @@ def main():
             calibration.INS_LLR_RNG_TMPLT.format(ins_len)] = ins_llr_range
     np.savez(
         args.out_filename,
-        stratify_type=calibration.SNP_CALIB_TYPE,
+        stratify_type=calibration.VAR_CALIB_TYPE,
         smooth_nvals=args.num_calibration_values,
         max_indel_len=max_indel_len,
         **snp_calib_save_data,

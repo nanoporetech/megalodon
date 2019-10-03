@@ -72,7 +72,8 @@ setup(
     url='http://www.nanoporetech.com',
     long_description=(
         'Megalodon contains base calling augmentation capabilities, mainly ' +
-        'including direct, reference-guided SNP and modified base detection.'),
+        'including direct, reference-guided sequence variant and modified ' +
+        'base detection.'),
 
     classifiers=[
         'Development Status :: 3 - Alpha',
