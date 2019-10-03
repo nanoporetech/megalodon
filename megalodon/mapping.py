@@ -28,7 +28,6 @@ class alignerPlus(mappy.Aligner):
 
         return
 
-
 def align_read(q_seq, aligner, map_thr_buf, read_id=None):
     try:
         # enumerate all alignments to avoid memory leak from mappy
@@ -46,7 +45,6 @@ def align_read(q_seq, aligner, map_thr_buf, read_id=None):
     return [ref_seq, r_algn_data], (
         read_id, q_seq, r_algn.ctg, r_algn.strand, r_algn.r_st,
         r_algn.q_st, r_algn.q_en, r_algn.cigar)
-
 
 def _map_read_worker(aligner, map_conn, mo_q):
     # get mappy aligner thread buffer
@@ -68,7 +66,6 @@ def _map_read_worker(aligner, map_conn, mo_q):
             mo_q.put((map_res[0], full_res))
 
     return
-
 
 def parse_cigar(r_cigar, strand):
     # get each base calls genomic position
@@ -97,7 +94,6 @@ def parse_cigar(r_cigar, strand):
     r_to_q_poss[curr_r_pos] = curr_q_pos
 
     return r_to_q_poss
-
 
 def map_read(q_seq, read_id, caller_conn):
     """Map read (query) sequence and return:
@@ -161,7 +157,6 @@ def test_open_alignment_out_file(out_dir, map_fmt, ref_names_and_lens, ref_fn):
             'file is compressed with bgzip for CRAM output.')
     map_fp.close()
     return
-
 
 def _get_map_queue(
         mo_q, map_conn, out_dir, ref_names_and_lens, map_fmt, ref_fn,

@@ -21,7 +21,7 @@ Workflow
 
    # run megalodon to produce whatshap_mappings
    megalodon \
-       $reads_dir --outputs mappings snps whatshap_mappings \
+       $reads_dir --outputs mappings variants whatshap_mappings \
        --reference $ref --variant-filename $variants_vcf \
        --output-directory $out_dir \
        --processes $nproc --devices $gpu_devices \
@@ -58,12 +58,12 @@ Workflow
        $out_dir/whatshap_mappings
    python \
        megalodon/scripts/run_aggregation.py \
-       --outputs snps --haploid --output-suffix haplotype_1 \
+       --outputs variants --haploid --output-suffix haplotype_1 \
        --read-ids-filename $out_dir/whatshap_mappings.haplotype_1_read_ids.txt \
        --reference $ref --processes $nproc
    python \
        megalodon/scripts/run_aggregation.py \
-       --outputs snps --haploid --output-suffix haplotype_2 \
+       --outputs variants --haploid --output-suffix haplotype_2 \
        --read-ids-filename $out_dir/whatshap_mappings.haplotype_2_read_ids.txt \
        --reference $ref --processes $nproc
 
