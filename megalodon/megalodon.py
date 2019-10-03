@@ -1017,16 +1017,20 @@ def _main():
         args.processes, args.verbose_read_progress, args.suppress_progress,
         mods_info, args.database_safety, pr_ref_filts)
 
-    if aligner is not None: aligner.close()
+    if aligner is not None:
+        ref_fn = aligner.ref_fn
+        map_out_fmt = aligner.out_fmt
+        del aligner
+
     if mh.MAP_NAME in args.outputs:
         logger.info('Spawning process to sort mappings')
         map_p = post_process_mapping(
-            args.output_directory, aligner.out_fmt, aligner.ref_fn)
+            args.output_directory, map_out_fmt, ref_fn)
 
     if mh.WHATSHAP_MAP_NAME in args.outputs:
         logger.info('Spawning process to sort whatshap mappings')
         whatshap_sort_fn, whatshap_p = post_process_whatshap(
-            args.output_directory, aligner.out_fmt, aligner.ref_fn)
+            args.output_directory, map_out_fmt, ref_fn)
 
     if mh.VAR_NAME in args.outputs or mh.MOD_NAME in args.outputs:
         post_process_aggregate(

@@ -87,7 +87,7 @@ def main():
     args = get_parser().parse_args()
     log_suffix = ('aggregation' if args.output_suffix is None else
                   'aggregation.' + args.output_suffix)
-    logging.init_logger(args.output_directory, out_suffix=log_suffix)
+    logging.init_logger(args.megalodon_directory, out_suffix=log_suffix)
     logger = logging.get_logger()
 
     mod_agg_info = mods.AGG_INFO(
@@ -97,24 +97,22 @@ def main():
         logger.info('Loading model.')
         mod_names = backends.ModelInfo(mh.get_model_fn(
             args.taiyaki_model_filename)).mod_long_names
-    if args.reference is not None: logger.info('Loading reference.')
     valid_read_ids = None
     if args.read_ids_filename is not None:
         with open(args.read_ids_filename) as read_ids_fp:
             valid_read_ids = set(line.strip() for line in read_ids_fp)
     aggregate.aggregate_stats(
-        args.outputs, args.output_directory, args.processes,
+        args.outputs, args.megalodon_directory, args.processes,
         args.write_vcf_log_probs, args.heterozygous_factors,
         variants.HAPLIOD_MODE if args.haploid else variants.DIPLOID_MODE,
         mod_names, mod_agg_info, args.write_mod_log_probs,
         args.mod_output_formats, args.suppress_progress,
         valid_read_ids, args.output_suffix)
 
-    # note reference is required in order to annotate contigs for VCF writing
-    if mh.VAR_NAME in args.outputs and args.reference is not None:
+    if mh.VAR_NAME in args.outputs:
         logger.info('Sorting output variant file')
         variant_fn = mh.add_fn_suffix(
-            mh.get_megalodon_fn(args.output_directory, mh.VAR_NAME),
+            mh.get_megalodon_fn(args.megalodon_directory, mh.VAR_NAME),
             args.output_suffix)
         sort_variant_fn = mh.add_fn_suffix(variant_fn, 'sorted')
         variants.sort_variants(variant_fn, sort_variant_fn)

@@ -312,8 +312,13 @@ class ModsDb(object):
         return chrm
 
     def get_all_chrm_and_lens(self):
-        return tuple(map(tuple, zip(*self.cur.execute(
-            'SELECT chrm, chrm_len FROM chrm').fetchall())))
+        try:
+            return tuple(map(tuple, zip(*self.cur.execute(
+                'SELECT chrm, chrm_len FROM chrm').fetchall())))
+        except sqlite3.OperationalError:
+            raise mh.MegaError(
+                'Old megalodon database scheme detected. Please re-run ' +
+                'megalodon processing or downgrade megalodon installation.')
 
     def get_mod_base_data(self, mod_id):
         try:

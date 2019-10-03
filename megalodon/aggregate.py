@@ -256,7 +256,7 @@ def aggregate_stats(
         agg_vars = variants.AggVars(
             vars_db_fn, load_in_mem_indices=False)
         num_vars = agg_vars.num_uniq()
-        ref_names_and_lens = agg_vars.get_all_chrm_and_lens()
+        ref_names_and_lens = agg_vars.vars_db.get_all_chrm_and_lens()
         agg_vars.close()
         logger.info('Spawning variant aggregation processes.')
         # create process to collect var stats from workers
@@ -286,7 +286,7 @@ def aggregate_stats(
         mods_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME)
         agg_mods = mods.AggMods(mods_db_fn, load_in_mem_indices=False)
         num_mods = agg_mods.num_uniq()
-        ref_names_and_lens = agg_mods.get_all_chrm_and_lens()
+        ref_names_and_lens = agg_mods.mods_db.get_all_chrm_and_lens()
         agg_mods.close()
         logger.info('Spawning modified base aggregation processes.')
         # create process to collect mods stats from workers
