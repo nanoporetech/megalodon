@@ -52,7 +52,8 @@ class ModsDb(object):
     db_tables = OrderedDict((
         ('chrm', OrderedDict((
             ('chrm_id', 'INTEGER PRIMARY KEY'),
-            ('chrm', 'TEXT')))),
+            ('chrm', 'TEXT'),
+            ('chrm_len', 'INTEGER')))),
         ('pos', OrderedDict((
             ('pos_id', 'INTEGER PRIMARY KEY'),
             ('pos_chrm', 'INTEGER'),
@@ -80,7 +81,7 @@ class ModsDb(object):
 
     def __init__(self, fn, read_only=True, db_safety=1,
                  pos_index_in_memory=False, chrm_index_in_memory=True,
-                 mod_index_in_memory=True):
+                 mod_index_in_memory=True, uuid_index_in_memory=True):
         """ Interface to database containing modified base statistics.
 
         Default settings are for optimal read_only performance.
@@ -90,6 +91,7 @@ class ModsDb(object):
         self.pos_idx_in_mem = pos_index_in_memory
         self.chrm_idx_in_mem = chrm_index_in_memory
         self.mod_idx_in_mem = mod_index_in_memory
+        self.uuid_idx_in_mem = uuid_index_in_memory
 
         if read_only:
             if not os.path.exists(fn):
@@ -148,13 +150,15 @@ class ModsDb(object):
         return
 
     # insert data functions
-    def insert_chrms(self, chrms):
+    def insert_chrms(self, chrm_names_and_lens):
         next_chrm_id = self.get_num_uniq_chrms() + 1
-        self.cur.executemany('INSERT INTO chrm (chrm) VALUES (?)',
-                             ((chrm,) for chrm in chrms))
+        self.cur.executemany('INSERT INTO chrm (chrm, chrm_len) VALUES (?,?)',
+                             zip(*chrm_names_and_lens))
         if self.chrm_idx_in_mem:
             self.chrm_idx.update(zip(
-                chrms, range(next_chrm_id, next_chrm_id + len(chrms))))
+                chrm_names_and_lens[0],
+                range(next_chrm_id,
+                      next_chrm_id + len(chrm_names_and_lens[0]))))
         return
 
     def get_pos_ids_or_insert(self, r_mod_scores, chrm_id, strand):
@@ -306,6 +310,10 @@ class ModsDb(object):
             raise mh.MegaError('Reference record (chromosome ID) not found ' +
                                'in mods database.')
         return chrm
+
+    def get_all_chrm_and_lens(self):
+        return tuple(map(tuple, zip(*self.cur.execute(
+            'SELECT chrm, chrm_len FROM chrm').fetchall())))
 
     def get_mod_base_data(self, mod_id):
         try:
@@ -552,7 +560,7 @@ def _get_mods_queue(
 
     mods_db = ModsDb(mods_db_fn, db_safety=db_safety, read_only=False,
                      pos_index_in_memory=pos_index_in_memory)
-    mods_db.insert_chrms(ref_names_and_lens[0])
+    mods_db.insert_chrms(ref_names_and_lens)
     mods_db.create_chrm_index()
 
     if mods_txt_fn is None:

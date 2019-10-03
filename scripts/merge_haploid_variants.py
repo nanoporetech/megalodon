@@ -3,7 +3,7 @@ import argparse
 import pysam
 import numpy as np
 
-from megalodon import variats, megalodon_helper as mh
+from megalodon import variants, megalodon_helper as mh
 
 
 HEADER = """##fileformat=VCFv4.1
@@ -35,7 +35,7 @@ def get_parser():
         help='Variant file for haplotype 1.')
     parser.add_argument(
         'haplotype2_variants',
-        help='Variant file for haplotype 1.')
+        help='Variant file for haplotype 2.')
     parser.add_argument(
         '--out-vcf', default='merged_haploid_variants.vcf',
         help='Output name for VCF. Default: %(default)s')

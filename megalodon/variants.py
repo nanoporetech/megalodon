@@ -65,7 +65,8 @@ class VarsDb(object):
     db_tables = OrderedDict((
         ('chrm', OrderedDict((
             ('chrm_id', 'INTEGER PRIMARY KEY'),
-            ('chrm', 'TEXT')))),
+            ('chrm', 'TEXT'),
+            ('chrm_len', 'INTEGER')))),
         ('loc', OrderedDict((
             ('loc_id', 'INTEGER PRIMARY KEY'),
             ('loc_chrm', 'INTEGER'),
@@ -93,7 +94,7 @@ class VarsDb(object):
 
     def __init__(self, fn, read_only=True, db_safety=1,
                  loc_index_in_memory=False, chrm_index_in_memory=True,
-                 alt_index_in_memory=True):
+                 alt_index_in_memory=True, uuid_index_in_memory=True):
         """ Interface to database containing sequence variant statistics.
 
         Default settings are for optimal read_only performance.
@@ -103,6 +104,7 @@ class VarsDb(object):
         self.loc_idx_in_mem = loc_index_in_memory
         self.chrm_idx_in_mem = chrm_index_in_memory
         self.alt_idx_in_mem = alt_index_in_memory
+        self.uuid_idx_in_mem = uuid_index_in_memory
 
         if read_only:
             if not os.path.exists(fn):
@@ -125,6 +127,8 @@ class VarsDb(object):
                 self.load_loc_read_index()
             if self.alt_idx_in_mem:
                 self.load_alt_read_index()
+            if self.uuid_idx_in_mem:
+                self.load_uuid_read_index()
         else:
             if db_safety < 2:
                 # set asynchronous mode to off for max speed
@@ -160,14 +164,16 @@ class VarsDb(object):
 
         return
 
-    # insert data function
-    def insert_chrms(self, chrms):
+    # insert data functions
+    def insert_chrms(self, chrm_names_and_lens):
         next_chrm_id = self.get_num_uniq_chrms() + 1
-        self.cur.executemany('INSERT INTO chrm (chrm) VALUES (?)',
-                             ((chrm,) for chrm in chrms))
+        self.cur.executemany('INSERT INTO chrm (chrm, chrm_len) VALUES (?,?)',
+                             zip(*chrm_names_and_lens))
         if self.chrm_idx_in_mem:
             self.chrm_idx.update(zip(
-                chrms, range(next_chrm_id, next_chrm_id + len(chrms))))
+                chrm_names_and_lens[0],
+                range(next_chrm_id,
+                      next_chrm_id + len(chrm_names_and_lens[0]))))
         return
 
     def get_loc_ids_or_insert(self, r_var_scores, chrm_id):
@@ -275,6 +281,11 @@ class VarsDb(object):
         self.chrm_read_idx = dict(self.cur.fetchall())
         return
 
+    def load_uuid_read_index(self):
+        self.cur.execute('SELECT read_id, uuid FROM read')
+        self.uuid_read_idx = dict(self.cur.fetchall())
+        return
+
     def create_alt_index(self):
         self.cur.execute('CREATE UNIQUE INDEX alt_idx ON alt(alt_seq)')
         return
@@ -328,6 +339,10 @@ class VarsDb(object):
                                'vars database.')
         return chrm
 
+    def get_all_chrm_and_lens(self):
+        return tuple(map(tuple, zip(*self.cur.execute(
+            'SELECT chrm, chrm_len FROM chrm').fetchall())))
+
     def get_alt_seq(self, alt_id):
         try:
             if self.alt_idx_in_mem:
@@ -342,10 +357,13 @@ class VarsDb(object):
 
     def get_uuid(self, read_id):
         try:
-            uuid = self.cur.execute(
-                'SELECT uuid FROM read WHERE read_id=?',
+            if self.uuid_idx_in_mem:
+                uuid = self.uuid_read_idx[read_id]
+            else:
+                uuid = self.cur.execute(
+                    'SELECT uuid FROM read WHERE read_id=?',
                     (read_id,)).fetchone()[0]
-        except TypeError:
+        except (TypeError, KeyError):
             raise mh.MegaError('Read ID not found in vars database.')
         return uuid
 
@@ -817,7 +835,7 @@ def _get_variants_queue(
     logger = logging.get_logger('vars_getter')
     vars_db = VarsDb(vars_db_fn, db_safety=db_safety, read_only=False,
                      loc_index_in_memory=loc_index_in_memory)
-    vars_db.insert_chrms(ref_names_and_lens[0])
+    vars_db.insert_chrms(ref_names_and_lens)
     vars_db.create_chrm_index()
     if vars_txt_fn is None:
         vars_txt_fp = None
@@ -1719,7 +1737,8 @@ class AggVars(mh.AbstractAggregationClass):
             'Invalid variant aggregation ploidy call mode: {}.'.format(
                 call_mode))
 
-        pr_var_stats = self.vars_db.get_loc_stats(var_loc)
+        pr_var_stats = self.vars_db.get_loc_stats(
+            var_loc, valid_read_ids is not None)
         alt_seqs = sorted(set(r_stats.alt_seq for r_stats in pr_var_stats))
         pr_alt_lps = defaultdict(dict)
         for r_stats in pr_var_stats:

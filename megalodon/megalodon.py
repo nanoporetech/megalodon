@@ -253,14 +253,13 @@ def post_process_mapping(out_dir, map_fmt, ref_fn):
 
 def post_process_aggregate(
         mods_info, outputs, mod_bin_thresh, out_dir, num_ps, write_vcf_lp,
-        het_factors, vars_data, write_mod_lp, supp_prog, ref_names_and_lens):
+        het_factors, vars_data, write_mod_lp, supp_prog):
     mod_names = mods_info.mod_long_names if mh.MOD_NAME in outputs else []
     mod_agg_info = mods.AGG_INFO(mods.BIN_THRESH_NAME, mod_bin_thresh)
     aggregate.aggregate_stats(
         outputs, out_dir, num_ps, write_vcf_lp, het_factors,
         vars_data.call_mode, mod_names, mod_agg_info,
-        write_mod_lp, mods_info.mod_output_fmts, supp_prog,
-        ref_names_and_lens)
+        write_mod_lp, mods_info.mod_output_fmts, supp_prog)
     return
 
 
@@ -1018,6 +1017,7 @@ def _main():
         args.processes, args.verbose_read_progress, args.suppress_progress,
         mods_info, args.database_safety, pr_ref_filts)
 
+    if aligner is not None: aligner.close()
     if mh.MAP_NAME in args.outputs:
         logger.info('Spawning process to sort mappings')
         map_p = post_process_mapping(
@@ -1033,7 +1033,7 @@ def _main():
             mods_info, args.outputs, args.mod_binary_threshold,
             args.output_directory, args.processes, args.write_vcf_log_probs,
             args.heterozygous_factors, vars_data, args.write_mod_log_probs,
-            args.suppress_progress, aligner.ref_names_and_lens)
+            args.suppress_progress)
 
     if mh.VAR_NAME in args.outputs:
         logger.info('Sorting output variant file')

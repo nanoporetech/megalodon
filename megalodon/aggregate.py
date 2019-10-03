@@ -244,8 +244,7 @@ if _DO_PROFILE_AGG_FILLER:
 def aggregate_stats(
         outputs, out_dir, num_ps, write_vcf_lp, het_factors, call_mode,
         mod_names, mod_agg_info, write_mod_lp, mod_output_fmts,
-        suppress_progress, ref_names_and_lens, valid_read_ids=None,
-        out_suffix=None):
+        suppress_progress, valid_read_ids=None, out_suffix=None):
     if mh.VAR_NAME in outputs and mh.MOD_NAME in outputs:
         num_ps = max(num_ps // 2, 1)
 
@@ -254,8 +253,11 @@ def aggregate_stats(
         0, 0, queue.Queue(), queue.Queue())
     if mh.VAR_NAME in outputs:
         vars_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_VAR_NAME)
-        num_vars = variants.AggVars(
-            vars_db_fn, load_in_mem_indices=False).num_uniq()
+        agg_vars = variants.AggVars(
+            vars_db_fn, load_in_mem_indices=False)
+        num_vars = agg_vars.num_uniq()
+        ref_names_and_lens = agg_vars.get_all_chrm_and_lens()
+        agg_vars.close()
         logger.info('Spawning variant aggregation processes.')
         # create process to collect var stats from workers
         var_stats_q, var_stats_p, main_var_stats_conn = mh.create_getter_q(
@@ -282,8 +284,10 @@ def aggregate_stats(
 
     if mh.MOD_NAME in outputs:
         mods_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME)
-        num_mods = mods.AggMods(
-            mods_db_fn, load_in_mem_indices=False).num_uniq()
+        agg_mods = mods.AggMods(mods_db_fn, load_in_mem_indices=False)
+        num_mods = agg_mods.num_uniq()
+        ref_names_and_lens = agg_mods.get_all_chrm_and_lens()
+        agg_mods.close()
         logger.info('Spawning modified base aggregation processes.')
         # create process to collect mods stats from workers
         mod_stats_q, mod_stats_p, main_mod_stats_conn = mh.create_getter_q(
