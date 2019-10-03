@@ -265,7 +265,7 @@ man_pages = [
 texinfo_documents = [
   ('index', project, u'{} Documentation'.format(project),
    u'Oxford Nanopore Technologies', project,
-   'Megalodon provides "basecalling augmentation" for raw nanopore sequencing reads, including direct, reference-guided SNP and modified base calling.',
+   'Megalodon provides "basecalling augmentation" for raw nanopore sequencing reads, including direct, reference-guided sequence variant and modified base calling.',
    'Miscellaneous'),
 ]
 

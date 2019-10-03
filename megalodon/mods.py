@@ -1,3 +1,4 @@
+import os
 import re
 import sys
 import queue
@@ -37,9 +38,6 @@ FORMAT_LOG_PROB_MI = (
 
 OUT_BUFFER_LIMIT = 10000
 
-# allow 64GB for memory mapped sqlite file access
-MEMORY_MAP_LIMIT = 64000000000
-
 
 ###################
 ##### Mods DB #####
@@ -51,29 +49,31 @@ class ModsDb(object):
     # when inserting into the data table forces a scan of a very
     # large table or maintainance of a very large pos table index
     # both of which slow data base speed
-    # thus foreign constraint must be handled by the class
-    chrm_tbl = OrderedDict((
-        ('chrm_id', 'INTEGER PRIMARY KEY'),
-        ('chrm', 'TEXT')))
-    pos_tbl = OrderedDict((
-        ('pos_id', 'INTEGER PRIMARY KEY'),
-        ('pos_chrm', 'INTEGER'),
-        ('strand', 'INTEGER'),
-        ('pos', 'INTEGER')))
-    mod_tbl = OrderedDict((
-        ('mod_id', 'INTEGER PRIMARY KEY'),
-        ('mod_base', 'TEXT'),
-        ('motif', 'TEXT'),
-        ('motif_pos', 'INTEGER'),
-        ('raw_motif', 'TEXT')))
-    read_tbl = OrderedDict((
-        ('read_id', 'INTEGER PRIMARY KEY'),
-        ('uuid', 'TEXT')))
-    data_tbl = OrderedDict((
-        ('score', 'FLOAT'),
-        ('score_pos', 'INTEGER'),
-        ('score_mod', 'INTEGER'),
-        ('score_read', 'INTEGER')))
+    # thus foreign key constraint must be handled by the class
+    db_tables = OrderedDict((
+        ('chrm', OrderedDict((
+            ('chrm_id', 'INTEGER PRIMARY KEY'),
+            ('chrm', 'TEXT'),
+            ('chrm_len', 'INTEGER')))),
+        ('pos', OrderedDict((
+            ('pos_id', 'INTEGER PRIMARY KEY'),
+            ('pos_chrm', 'INTEGER'),
+            ('strand', 'INTEGER'),
+            ('pos', 'INTEGER')))),
+        ('mod', OrderedDict((
+            ('mod_id', 'INTEGER PRIMARY KEY'),
+            ('mod_base', 'TEXT'),
+            ('motif', 'TEXT'),
+            ('motif_pos', 'INTEGER'),
+            ('raw_motif', 'TEXT')))),
+        ('read', OrderedDict((
+            ('read_id', 'INTEGER PRIMARY KEY'),
+            ('uuid', 'TEXT')))),
+        ('data', OrderedDict((
+            ('score', 'FLOAT'),
+            ('score_pos', 'INTEGER'),
+            ('score_mod', 'INTEGER'),
+            ('score_read', 'INTEGER'))))))
 
     # namedtuple for returning mods from a single position
     mod_data = namedtuple('mod_data', [
@@ -81,7 +81,8 @@ class ModsDb(object):
         'motif_pos', 'raw_motif'])
 
     def __init__(self, fn, read_only=True, db_safety=1,
-                 pos_index_in_memory=False, mod_chrm_index_in_memory=True):
+                 pos_index_in_memory=False, chrm_index_in_memory=True,
+                 mod_index_in_memory=True, uuid_index_in_memory=True):
         """ Interface to database containing modified base statistics.
 
         Default settings are for optimal read_only performance.
@@ -89,9 +90,17 @@ class ModsDb(object):
         self.fn = mh.resolve_path(fn)
         self.read_only = read_only
         self.pos_idx_in_mem = pos_index_in_memory
-        self.cm_idx_in_mem = mod_chrm_index_in_memory
+        self.chrm_idx_in_mem = chrm_index_in_memory
+        self.mod_idx_in_mem = mod_index_in_memory
+        self.uuid_idx_in_mem = uuid_index_in_memory
 
         if read_only:
+            if not os.path.exists(fn):
+                logger = logging.get_logger('mods')
+                logger.error((
+                    'Modified base per-read database file ({}) does ' +
+                    'not exist.').format(fn))
+                raise mh.MegaError('Invalid mods DB filename.')
             self.db = sqlite3.connect('file:' + fn + '?mode=ro', uri=True)
         else:
             self.db = sqlite3.connect(fn)
@@ -99,12 +108,13 @@ class ModsDb(object):
         self.cur = self.db.cursor()
         if read_only:
             # use memory mapped file access
-            self.db.execute('PRAGMA mmap_size = {}'.format(MEMORY_MAP_LIMIT))
-            if self.cm_idx_in_mem:
+            self.db.execute('PRAGMA mmap_size = {}'.format(mh.MEMORY_MAP_LIMIT))
+            if self.chrm_idx_in_mem:
                 self.load_chrm_read_index()
+            if self.mod_idx_in_mem:
                 self.load_mod_read_index()
             if self.pos_idx_in_mem:
-                self.load_pos_index()
+                self.load_pos_read_index()
         else:
             if db_safety < 2:
                 # set asynchronous mode to off for max speed
@@ -114,10 +124,7 @@ class ModsDb(object):
                 self.db.execute('PRAGMA journal_mode = OFF')
 
             # create tables
-            for tbl_name, tbl in (
-                    ('chrm', self.chrm_tbl), ('pos', self.pos_tbl),
-                    ('mod', self.mod_tbl), ('read', self.read_tbl),
-                    ('data', self.data_tbl)):
+            for tbl_name, tbl in self.db_tables.items():
                 try:
                     self.db.execute("CREATE TABLE {} ({})".format(
                         tbl_name, ','.join((
@@ -132,24 +139,156 @@ class ModsDb(object):
                 self.pos_idx = {}
             else:
                 self.create_pos_index()
-            if self.cm_idx_in_mem:
+            if self.chrm_idx_in_mem:
                 self.chrm_idx = {}
+            else:
+                self.create_chrm_index()
+            if self.mod_idx_in_mem:
                 self.mod_idx = {}
             else:
                 self.create_mod_index()
-                self.create_chrm_index()
 
         return
 
-    def insert_chrm(self, chrm):
-        self.cur.execute('INSERT INTO chrm (chrm) VALUES (?)', (chrm,))
-        if self.cm_idx_in_mem:
-            self.chrm_idx[chrm] = self.cur.lastrowid
-        return self.cur.lastrowid
+    # insert data functions
+    def insert_chrms(self, chrm_names_and_lens):
+        next_chrm_id = self.get_num_uniq_chrms() + 1
+        self.cur.executemany('INSERT INTO chrm (chrm, chrm_len) VALUES (?,?)',
+                             zip(*chrm_names_and_lens))
+        if self.chrm_idx_in_mem:
+            self.chrm_idx.update(zip(
+                chrm_names_and_lens[0],
+                range(next_chrm_id,
+                      next_chrm_id + len(chrm_names_and_lens[0]))))
+        return
 
+    def get_pos_ids_or_insert(self, r_mod_scores, chrm_id, strand):
+        r_pos = tuple(zip(*r_mod_scores))[0]
+        r_uniq_pos = set(((chrm_id, strand, pos) for pos in r_pos))
+        if self.pos_idx_in_mem:
+            pos_to_add = tuple(r_uniq_pos.difference(self.pos_idx))
+        else:
+            pos_ids = dict(
+                ((chrm_id, strand, pos_and_id[0]), pos_and_id[1])
+                for pos_key in r_uniq_pos
+                for pos_and_id in self.cur.execute(
+                        'SELECT pos, pos_id FROM pos ' +
+                        'WHERE pos_chrm=? AND strand=? AND pos=?',
+                        pos_key).fetchall())
+            pos_to_add = tuple(r_uniq_pos.difference(pos_ids))
+
+        if len(pos_to_add) > 0:
+            next_pos_id = self.get_num_uniq_mod_pos() + 1
+            self.cur.executemany(
+                'INSERT INTO pos (pos_chrm, strand, pos) VALUES (?,?,?)',
+                pos_to_add)
+
+        pos_idx = self.pos_idx if self.pos_idx_in_mem else pos_ids
+        if len(pos_to_add) > 0:
+            pos_idx.update(zip(
+                pos_to_add,
+                range(next_pos_id, next_pos_id + len(pos_to_add))))
+        r_pos_ids = [pos_idx[(chrm_id, strand, pos)] for pos in r_pos]
+
+        return r_pos_ids
+
+    def get_mod_base_ids_or_insert(self, r_mod_scores):
+        r_mod_bases = [
+            [((mod_base, motif, motif_pos, raw_motif), mod_lp)
+             for mod_lp, mod_base in zip(mod_lps, mod_bases)]
+            for _, mod_lps, mod_bases, motif, motif_pos, raw_motif in
+            r_mod_scores]
+        r_uniq_mod_bases = set((
+            mod_key for pos_mods in r_mod_bases for mod_key, _ in pos_mods))
+        if self.mod_idx_in_mem:
+            mod_bases_to_add = tuple(r_uniq_mod_bases.difference(self.mod_idx))
+        else:
+            mod_base_ids = dict(
+                (mod_data_w_id[:-1], mod_data_w_id[-1])
+                for mod_data in r_uniq_mod_bases for mod_data_w_id in
+                self.cur.execute(
+                    'SELECT mod_base, motif, motif_pos, raw_motif, ' +
+                    'mod_id FROM mod WHERE mod_base=? AND motif=? AND ' +
+                    'motif_pos=? AND raw_motif=?', mod_data).fetchall())
+            mod_bases_to_add = tuple(r_uniq_mod_bases.difference(mod_base_ids))
+
+        if len(mod_bases_to_add) > 0:
+            next_mod_base_id = self.get_num_uniq_mod_bases() + 1
+            self.cur.executemany(
+                'INSERT INTO mod (mod_base, motif, motif_pos, raw_motif) ' +
+                'VALUES (?,?,?,?)', mod_bases_to_add)
+
+        mod_idx = self.mod_idx if self.mod_idx_in_mem else mod_base_ids
+        if len(mod_bases_to_add) > 0:
+            mod_idx.update(zip(
+                mod_bases_to_add,
+                range(next_mod_base_id,
+                      next_mod_base_id + len(mod_bases_to_add))))
+        r_mod_base_ids = [
+            [(mod_idx[mod_key], mod_lp) for mod_key, mod_lp in pos_mods]
+            for pos_mods in r_mod_bases]
+
+        return r_mod_base_ids
+
+    def insert_read_scores(self, r_mod_scores, uuid, chrm, strand):
+        self.cur.execute('INSERT INTO read (uuid) VALUES (?)', (uuid,))
+        read_id = self.cur.lastrowid
+        chrm_id = self.get_chrm_id(chrm)
+
+        pos_ids = self.get_pos_ids_or_insert(r_mod_scores, chrm_id, strand)
+        mod_base_ids = self.get_mod_base_ids_or_insert(r_mod_scores)
+
+        read_insert_data = [(mod_lp, pos_id, mod_base_id, read_id)
+                            for pos_id, pos_mods in zip(pos_ids, mod_base_ids)
+                            for mod_base_id, mod_lp in pos_mods]
+        self.cur.executemany(
+            'INSERT INTO data VALUES (?,?,?,?)', read_insert_data)
+        return
+
+    # create and load index functions
+    def create_chrm_index(self):
+        self.cur.execute('CREATE UNIQUE INDEX chrm_idx ON chrm(chrm)')
+        return
+
+    def load_chrm_read_index(self):
+        self.cur.execute('SELECT chrm_id, chrm FROM chrm')
+        self.chrm_read_idx = dict(self.cur.fetchall())
+        return
+
+    def create_mod_index(self):
+        self.cur.execute('CREATE UNIQUE INDEX mod_idx ON ' +
+                         'mod(mod_base, motif, motif_pos, raw_motif)')
+        return
+
+    def load_mod_read_index(self):
+        self.cur.execute(
+            'SELECT mod_id, mod_base, motif, motif_pos, raw_motif FROM mod')
+        self.mod_read_idx = dict((
+            (mod_id, (mod_base, motif, motif_pos, raw_motif))
+            for mod_id, mod_base, motif, motif_pos, raw_motif in self.cur))
+        return
+
+    def create_pos_index(self):
+        self.cur.execute('CREATE UNIQUE INDEX pos_idx ON pos' +
+                         '(pos_chrm, strand, pos)')
+        return
+
+    def load_pos_read_index(self):
+        self.cur.execute('SELECT pos_id, pos_chrm, strand, pos FROM pos')
+        self.pos_read_idx = dict((
+            (pos_id, (chrm_id, strand, pos))
+            for pos_id, chrm_id, strand, pos in self.cur))
+        return
+
+    def create_data_covering_index(self):
+        self.cur.execute('CREATE INDEX data_cov_idx ON data(' +
+                         'score_pos, score_mod, score_read, score)')
+        return
+
+    # reader functions
     def get_chrm_id(self, chrm):
         try:
-            if self.cm_idx_in_mem:
+            if self.chrm_idx_in_mem:
                 chrm_id = self.chrm_idx[chrm]
             else:
                 chrm_id = self.cur.execute(
@@ -162,242 +301,89 @@ class ModsDb(object):
 
     def get_chrm(self, chrm_id):
         try:
-            chrm = self.cur.execute(
-                'SELECT chrm FROM chrm WHERE chrm_id=?',
-                (chrm_id,)).fetchone()[0]
-        except TypeError:
-            raise mh.MegaError('Reference record (chromosome) not found in ' +
-                               'mods database.')
+            if self.chrm_idx_in_mem:
+                chrm = self.chrm_read_idx[chrm_id]
+            else:
+                chrm = self.cur.execute(
+                    'SELECT chrm FROM chrm WHERE chrm_id=?',
+                    (chrm_id,)).fetchone()[0]
+        except (TypeError, KeyError):
+            raise mh.MegaError('Reference record (chromosome ID) not found ' +
+                               'in mods database.')
         return chrm
 
-    def get_pos_id(self, chrm, strand, pos, chrm_id=None):
-        if chrm_id is None:
-            chrm_id = self.get_chrm_id(chrm)
-
+    def get_all_chrm_and_lens(self):
         try:
-            if self.pos_idx_in_mem:
-                pos_id = self.pos_idx[(chrm_id, strand, pos)]
-            else:
-                pos_id = self.cur.execute(
-                    'SELECT pos_id FROM pos WHERE pos_chrm=? AND strand=? ' +
-                    'AND pos=?', (chrm_id, strand, pos)).fetchone()[0]
-        except (TypeError, KeyError):
+            return tuple(map(tuple, zip(*self.cur.execute(
+                'SELECT chrm, chrm_len FROM chrm').fetchall())))
+        except sqlite3.OperationalError:
             raise mh.MegaError(
-                'Reference position not found in database.')
+                'Old megalodon database scheme detected. Please re-run ' +
+                'megalodon processing or downgrade megalodon installation.')
 
-        return pos_id
-
-    def get_pos_id_or_insert(self, chrm, strand, pos, chrm_id=None):
-        if chrm_id is None:
-            chrm_id = self.get_chrm_id(chrm)
+    def get_mod_base_data(self, mod_id):
         try:
-            pos_id = self.get_pos_id(chrm, strand, pos, chrm_id)
-        except mh.MegaError:
-            self.cur.execute(
-                'INSERT INTO pos (pos_chrm, strand, pos) VALUES (?,?,?)',
-                (chrm_id, strand, pos))
-            pos_id = self.cur.lastrowid
-            if self.pos_idx_in_mem:
-                self.pos_idx[(chrm_id, strand, pos)] = pos_id
-        return pos_id
-
-    def get_mod_base_id(self, mod_base, motif, motif_pos, raw_motif):
-        try:
-            if self.cm_idx_in_mem:
-                mod_id = self.mod_idx[(mod_base, motif, motif_pos, raw_motif)]
+            if self.mod_idx_in_mem:
+                mod_base_data = self.mod_read_idx[mod_id]
             else:
-                mod_id = self.cur.execute(
-                    'SELECT mod_id FROM mod WHERE mod_base=? AND motif=? AND ' +
-                    'motif_pos=? AND raw_motif=?',
-                    (mod_base, motif, motif_pos, raw_motif)).fetchone()[0]
+                mod_base_data = self.cur.execute(
+                    'SELECT mod_base, motif, motif_pos, raw_motif FROM mod ' +
+                    'WHERE mod_id=?', (mod_id,)).fetchone()
         except (TypeError, KeyError):
             raise mh.MegaError('Modified base not found in mods database.')
-        return mod_id
+        return mod_base_data
 
-    def get_mod_base_id_or_insert(self, mod_base, motif, motif_pos, raw_motif):
+    def get_uuid(self, read_id):
         try:
-            mod_base_id = self.get_mod_base_id(
-                mod_base, motif, motif_pos, raw_motif)
-        except mh.MegaError:
-            self.cur.execute(
-                'INSERT INTO mod (mod_base, motif, motif_pos, raw_motif) ' +
-                'VALUES (?,?,?,?)', (mod_base, motif, motif_pos, raw_motif))
-            mod_base_id = self.cur.lastrowid
-            if self.cm_idx_in_mem:
-                self.mod_idx[(mod_base, motif, motif_pos,
-                              raw_motif)] = mod_base_id
-        return mod_base_id
-
-    def insert_read_scores(self, r_mod_scores, uuid, chrm, strand):
-        self.cur.execute('INSERT INTO read (uuid) VALUES (?)', (uuid,))
-        read_id = self.cur.lastrowid
-        chrm_id = self.get_chrm_id(chrm)
-        read_insert_data = []
-        for (pos, mod_lps, mod_bases, ref_motif, rel_pos,
-             raw_motif) in r_mod_scores:
-            pos_id = self.get_pos_id_or_insert(None, strand, pos, chrm_id)
-            for mod_lp, mod_base in zip(mod_lps, mod_bases):
-                mod_base_id = self.get_mod_base_id_or_insert(
-                    mod_base, ref_motif, rel_pos, raw_motif)
-                read_insert_data.append((mod_lp, pos_id, mod_base_id, read_id))
-
-        self.cur.executemany(
-            'INSERT INTO data VALUES (?,?,?,?)', read_insert_data)
-        return
-
-    def create_chrm_index(self):
-        self.cur.execute('CREATE UNIQUE INDEX chrm_idx ON chrm(chrm)')
-        return
-
-    def load_chrm_read_index(self):
-        self.chrm_read_idx = {}
-        self.cur.execute('SELECT chrm_id, chrm FROM chrm')
-        for chrm_id, chrm in self.cur:
-            self.chrm_read_idx[chrm_id] = chrm
-        return
-
-    def create_mod_index(self):
-        self.cur.execute('CREATE UNIQUE INDEX mod_idx ON ' +
-                         'mod(mod_base, motif, motif_pos, raw_motif)')
-        return
-
-    def load_mod_read_index(self):
-        self.mod_read_idx = {}
-        self.cur.execute(
-            'SELECT mod_id, mod_base, motif, motif_pos, raw_motif FROM mod')
-        for mod_id, mod_base, motif, motif_pos, raw_motif in self.cur:
-            self.mod_read_idx[mod_id] = (mod_base, motif, motif_pos, raw_motif)
-        return
-
-    def create_pos_index(self):
-        self.cur.execute('CREATE UNIQUE INDEX pos_idx ON pos' +
-                         '(pos_chrm, strand, pos)')
-        return
-
-    def load_pos_index(self):
-        self.pos_read_idx = {}
-        self.cur.execute('SELECT pos_id, pos_chrm, strand, pos FROM pos')
-        for pos_id, chrm_id, strand, pos in self.cur:
-            self.pos_read_idx[pos_id] = (chrm_id, strand, pos)
-        return
-
-    def create_data_covering_index(self):
-        self.cur.execute('CREATE INDEX data_cov_idx ON data(' +
-                         'score_pos, score_mod, score_read, score)')
-        return
-
-    def close(self):
-        self.db.commit()
-        self.db.close()
-        return
+            uuid = self.cur.execute(
+                'SELECT uuid FROM read WHERE read_id=?',
+                    (read_id,)).fetchone()[0]
+        except TypeError:
+            raise mh.MegaError('Read ID not found in vars database.')
+        return uuid
 
     def get_num_uniq_mod_pos(self):
-        return self.cur.execute('SELECT MAX(pos_id) FROM pos').fetchone()[0]
+        num_pos = self.cur.execute('SELECT MAX(pos_id) FROM pos').fetchone()[0]
+        if num_pos is None:
+            num_pos = 0
+        return num_pos
 
-    def iter_pos_id(self):
-        self.cur.execute('SELECT pos_id FROM pos')
-        for pos_id in self.cur:
-            yield pos_id[0]
+    def get_num_uniq_mod_bases(self):
+        num_mod_bases = self.cur.execute(
+            'SELECT MAX(mod_id) FROM mod').fetchone()[0]
+        if num_mod_bases is None:
+            num_mod_bases = 0
+        return num_mod_bases
 
-        return
+    def get_num_uniq_chrms(self):
+        num_chrms = self.cur.execute(
+            'SELECT MAX(chrm_id) FROM chrm').fetchone()[0]
+        if num_chrms is None:
+            num_chrms = 0
+        return num_chrms
 
     def iter_pos(self):
         self.cur.execute('SELECT pos_id, pos_chrm, strand, pos FROM pos')
         for pos in self.cur:
             yield pos
-
-        return
-
-    def iter_pos_id_ordered(self):
-        self.cur.execute('SELECT pos_id FROM pos ORDER BY pos_id')
-        for pos_id in self.cur:
-            yield pos_id[0]
-
-        return
-
-    def iter_pos_ordered(self):
-        self.cur.execute('SELECT pos_id, pos_chrm, strand, pos FROM pos ' +
-                         'ORDER BY pos_id')
-        for pos in self.cur:
-            yield pos
-
         return
 
     def get_pos_stats(self, pos_data, return_uuids=False):
+        read_id_conv = self.get_uuid if return_uuids else lambda x: x
+        # these attributes are specified in self.iter_pos
         pos_id, chrm_id, strand, pos = pos_data
-        if self.cm_idx_in_mem:
-            if return_uuids:
-                self.cur.execute(
-                    'SELECT read.uuid, data.score, data.score_mod ' +
-                    'FROM data ' +
-                    'INNER JOIN read ON read.read_id = data.score_read ' +
-                    'WHERE score_pos=?', (pos_id, ))
-            else:
-                # simplest query using covering index
-                self.cur.execute(
-                    'SELECT score_read, score, score_mod ' +
-                    'FROM data ' +
-                    'WHERE score_pos=?', (pos_id, ))
-            return [
-                self.mod_data(read_id, self.chrm_read_idx[chrm_id], strand,
-                              pos, score, *self.mod_read_idx[mod_id])
-                for read_id, score, mod_id in self.cur]
+        chrm = self.get_chrm(chrm_id)
+        return [
+            self.mod_data(read_id_conv(read_id), chrm, strand, pos, score,
+                          *self.get_mod_base_data(mod_id))
+            for read_id, score, mod_id in self.cur.execute(
+                    'SELECT score_read, score, score_mod FROM data ' +
+                    'WHERE score_pos=?', (pos_id,)).fetchall()]
 
-        # perform full query from on-disk database
-        chrm = self.cur.execute(
-            'SELECT chrm FROM chrm WHERE chrm_id=?', (chrm_id,)).fetchone()[0]
-        if return_uuids:
-            self.cur.execute(
-                'SELECT read.uuid, data.score, mod.mod_base, mod.motif, ' +
-                'mod.motif_pos, mod.raw_motif ' +
-                'FROM data ' +
-                'INNER JOIN read ON read.read_id = data.score_read ' +
-                'INNER JOIN mod ON mod.mod_id = data.score_mod ' +
-                'WHERE score_pos=?', (pos_id, ))
-        else:
-            self.cur.execute(
-                'SELECT data.score_read, data.score, mod.mod_base, ' +
-                'mod.motif, mod.motif_pos, mod.raw_motif ' +
-                'FROM data ' +
-                'INNER JOIN mod ON mod.mod_id = data.score_mod ' +
-                'WHERE score_pos=?', (pos_id, ))
-        return [self.mod_data(read_id, chrm, strand, pos, score, mod_base,
-                              motif, motif_pos, raw_motif)
-                for read_id, score, mod_base, motif, motif_pos, raw_motif in
-                self.cur]
-
-    def get_read_id(self, uuid):
-        try:
-            read_id = self.cur.execute(
-                'SELECT read_id FROM read WHERE uuid=?', (uuid,)).fetchone()[0]
-        except TypeError:
-            raise mh.MegaError('Read ID not found in mods data base.')
-        return read_id
-
-    def get_read_id_or_insert(self, uuid):
-        try:
-            read_id = self.get_read_id(uuid)
-        except mh.MegaError:
-            self.cur.execute('INSERT INTO read (uuid) VALUES (?)', (uuid,))
-            read_id = self.cur.lastrowid
-        return read_id
-
-    def create_data_read_index(self):
-        self.cur.execute('CREATE INDEX data_read_idx ON data(score_read)')
+    def close(self):
+        self.db.commit()
+        self.db.close()
         return
-
-    def get_read_stats(self, uuid):
-        # TODO optimize this as with position query
-        self.cur.execute(
-            'SELECT uuid, chrm.chrm, pos.strand, pos.pos, data.score, ' +
-            ' mod.mod_base, mod.motif, mod.motif_pos, mod.raw_motif ' +
-            'FROM read ' +
-            'INNER JOIN data ON data.score_read = read.uuid ' +
-            'INNER JOIN pos ON pos.pos_id = data.score_pos ' +
-            'INNER JOIN mod ON mod.mod_id = data.score_mod ' +
-            'INNER JOIN chrm ON chrm.chrm_id = pos.pos_chrm ' +
-            'WHERE uuid=?', (uuid,))
-        return [self.mod_data(*pos_data_i) for pos_data_i in self.cur]
 
 
 ################################
@@ -549,7 +535,7 @@ def call_read_mods(
 
 def _get_mods_queue(
         mods_q, mods_conn, mods_db_fn, db_safety, ref_names_and_lens,
-        mods_txt_fn, pr_refs_fn, pr_ref_filts):
+        mods_txt_fn, pr_refs_fn, pr_ref_filts, pos_index_in_memory):
     def store_mod_call(
             r_mod_scores,  read_id, chrm, strand, r_start, ref_seq,
             read_len, q_st, q_en, cigar, been_warned):
@@ -594,9 +580,8 @@ def _get_mods_queue(
     been_warned = False
 
     mods_db = ModsDb(mods_db_fn, db_safety=db_safety, read_only=False,
-                     pos_index_in_memory=True)
-    for ref_name in ref_names_and_lens[0]:
-        mods_db.insert_chrm(ref_name)
+                     pos_index_in_memory=pos_index_in_memory)
+    mods_db.insert_chrms(ref_names_and_lens)
     mods_db.create_chrm_index()
 
     if mods_txt_fn is None:
@@ -644,7 +629,10 @@ def _get_mods_queue(
 
     if mods_txt_fp is not None: mods_txt_fp.close()
     if pr_refs_fn is not None: pr_refs_fp.close()
-    mods_db.create_mod_index()
+    if mods_db.mod_idx_in_mem:
+        mods_db.create_mod_index()
+    if mods_db.pos_idx_in_mem:
+        mods_db.create_pos_index()
     mods_db.create_data_covering_index()
     mods_db.close()
 
@@ -723,7 +711,7 @@ class ModInfo(object):
             write_mods_txt=None, mod_context_bases=None,
             do_output_mods=False, do_pr_ref_mods=False, mods_calib_fn=None,
             mod_output_fmts=[mh.MOD_BEDMETHYL_NAME],
-            edge_buffer=mh.DEFAULT_EDGE_BUFFER):
+            edge_buffer=mh.DEFAULT_EDGE_BUFFER, pos_index_in_memory=True):
         logger = logging.get_logger()
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other alphabet info
@@ -738,6 +726,7 @@ class ModInfo(object):
         self.calib_table = calibration.ModCalibrator(mods_calib_fn)
         self.mod_output_fmts = mod_output_fmts
         self.edge_buffer = edge_buffer
+        self.pos_index_in_memory = pos_index_in_memory
 
         self.alphabet = model_info.can_alphabet
         self.ncan_base = len(self.alphabet)
@@ -1085,10 +1074,13 @@ class AggMods(mh.AbstractAggregationClass):
     CpG sites).
     """
     def __init__(self, mods_db_fn, agg_info=DEFAULT_AGG_INFO,
-                 write_mod_lp=False, pos_index_in_memory=False):
+                 write_mod_lp=False, load_in_mem_indices=True):
         # open as read only database (default)
-        self.mods_db = ModsDb(
-            mods_db_fn, pos_index_in_memory=pos_index_in_memory)
+        if load_in_mem_indices:
+            self.mods_db = ModsDb(mods_db_fn)
+        else:
+            self.mods_db = ModsDb(mods_db_fn, chrm_index_in_memory=False,
+                                  mod_index_in_memory=False)
         self.n_uniq_mods = None
         assert agg_info.method in AGG_METHOD_NAMES
         self.agg_method = agg_info.method
@@ -1102,9 +1094,6 @@ class AggMods(mh.AbstractAggregationClass):
         return self.n_uniq_mods
 
     def iter_uniq(self):
-        # fill queue with only pos_ids for faster queue filling
-        # and let workers extract pos info from an order query
-        #for q_val in self.mods_db.iter_pos_id_ordered():
         # fill queue with full position information to make
         # workers avoid the ordered pos data extraction
         for q_val in self.mods_db.iter_pos():
@@ -1177,7 +1166,7 @@ class AggMods(mh.AbstractAggregationClass):
 
         return curr_mix_prop, pos_scores.shape[0]
 
-    def compute_mod_stats(self, mod_loc, agg_method=None, valid_read_ids=None):
+    def compute_mod_stats(self, mod_pos, agg_method=None, valid_read_ids=None):
         if agg_method is None:
             agg_method = self.agg_method
         if agg_method not in AGG_METHOD_NAMES:
@@ -1186,7 +1175,7 @@ class AggMods(mh.AbstractAggregationClass):
                     agg_method))
 
         pr_mod_stats = self.mods_db.get_pos_stats(
-            mod_loc, return_uuids=valid_read_ids is not None)
+            mod_pos, return_uuids=valid_read_ids is not None)
         mod_type_stats = defaultdict(dict)
         for r_stats in pr_mod_stats:
             if (valid_read_ids is not None and

@@ -22,13 +22,13 @@ from tqdm._utils import _term_move_up
 
 from megalodon import (
     aggregate, backends, decode, fast5_io, logging, mapping, mods,
-    signal_mapping, snps, megalodon_helper as mh)
+    signal_mapping, variants, megalodon_helper as mh)
 from megalodon._version import MEGALODON_VERSION
 
 
 _DO_PROFILE = False
 _UNEXPECTED_ERROR_CODE = 'Unexpected error'
-_UNEXPECTED_ERROR_FN = 'unexpected_snp_calling_errors.{}.err'
+_UNEXPECTED_ERROR_FN = 'unexpected_megalodon_errors.{}.err'
 _MAX_NUM_UNEXP_ERRORS = 50
 
 
@@ -54,7 +54,7 @@ def handle_errors(func, args, r_vals, out_q, fast5_fn, failed_reads_q):
 def process_read(
         raw_sig, read_id, model_info, bc_q, caller_conn,
         sig_map_q, mod_sig_map_q, sig_map_data, sig_map_filts, sig_map_alphabet,
-        snps_data, snps_q, mods_q, mods_info, fast5_fn, failed_reads_q):
+        vars_data, vars_q, mods_q, mods_info, fast5_fn, failed_reads_q):
     """ Workhorse per-read megalodon function (connects all the parts)
     """
     if model_info.is_cat_mod:
@@ -101,15 +101,15 @@ def process_read(
     mapped_rl_cumsum = rl_cumsum[
         r_ref_pos.q_trim_start:r_ref_pos.q_trim_end + 1] - post_mapped_start
 
-    if snps_q is not None:
+    if vars_q is not None:
         handle_errors(
-            func=snps.call_read_snps,
-            args=(snps_data, r_ref_pos, np_ref_seq, mapped_rl_cumsum,
+            func=variants.call_read_vars,
+            args=(vars_data, r_ref_pos, np_ref_seq, mapped_rl_cumsum,
                   r_to_q_poss, r_post, post_mapped_start),
             r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
-            out_q=snps_q, fast5_fn=fast5_fn + ':::' + read_id,
+            out_q=vars_q, fast5_fn=fast5_fn + ':::' + read_id,
             failed_reads_q=failed_reads_q)
     if mods_q is not None:
         handle_errors(
@@ -180,11 +180,11 @@ def _get_bc_queue(
     return
 
 def _process_reads_worker(
-        read_file_q, bc_q, snps_q, failed_reads_q, mods_q, caller_conn,
+        read_file_q, bc_q, vars_q, failed_reads_q, mods_q, caller_conn,
         sig_map_q, mod_sig_map_q, sig_map_filts, sig_map_alphabet, model_info,
-        snps_data, mods_info, device):
+        vars_data, mods_info, device):
     model_info.prep_model_worker(device)
-    snps_data.reopen_variant_index()
+    vars_data.reopen_variant_index()
     stride = model_info.guess_model_stride(model_info.model)
     logger = logging.get_logger('main')
     logger.debug('Starting read worker {}'.format(mp.current_process()))
@@ -217,7 +217,7 @@ def _process_reads_worker(
             process_read(
                 raw_sig, read_id, model_info, bc_q, caller_conn,
                 sig_map_q, mod_sig_map_q, sig_map_data, sig_map_filts,
-                sig_map_alphabet, snps_data, snps_q, mods_q, mods_info,
+                sig_map_alphabet, vars_data, vars_q, mods_q, mods_info,
                 fast5_fn, failed_reads_q)
             failed_reads_q.put((
                 False, True, None, None, None, raw_sig.shape[0]))
@@ -280,14 +280,13 @@ def post_process_mapping(out_dir, map_fmt, ref_fn):
 
 def post_process_aggregate(
         mods_info, outputs, mod_bin_thresh, out_dir, num_ps, write_vcf_lp,
-        het_factors, snps_data, write_mod_lp, supp_prog, ref_names_and_lens):
+        het_factors, vars_data, write_mod_lp, supp_prog):
     mod_names = mods_info.mod_long_names if mh.MOD_NAME in outputs else []
     mod_agg_info = mods.AGG_INFO(mods.BIN_THRESH_NAME, mod_bin_thresh)
     aggregate.aggregate_stats(
         outputs, out_dir, num_ps, write_vcf_lp, het_factors,
-        snps_data.call_mode, mod_names, mod_agg_info,
-        write_mod_lp, mods_info.mod_output_fmts, supp_prog,
-        ref_names_and_lens)
+        vars_data.call_mode, mod_names, mod_agg_info,
+        write_mod_lp, mods_info.mod_output_fmts, supp_prog)
     return
 
 
@@ -445,6 +444,8 @@ def _get_fail_queue(
                 [(len(fns), err) for err, fns in failed_reads.items()
                  if len(fns) > 0], reads_called))
         # TODO flag to output failed read names to file
+    else:
+        logger.info('All reads processed successfully.')
 
     return
 
@@ -455,7 +456,7 @@ def _get_fail_queue(
 
 def process_all_reads(
         fast5s_dir, recursive, num_reads, read_ids_fn, model_info, outputs,
-        out_dir, bc_fmt, aligner, snps_data, num_ps, num_update_errors,
+        out_dir, bc_fmt, aligner, vars_data, num_ps, num_update_errors,
         suppress_progress, mods_info, db_safety, pr_ref_filts, sig_map_filts):
     logger = logging.get_logger()
     logger.info('Preparing workers to process reads.')
@@ -477,8 +478,8 @@ def process_all_reads(
                               suppress_progress), max_size=None)
 
     # start output type getters/writers
-    (bc_q, bc_p, main_bc_conn, mo_q, mo_p, main_mo_conn, snps_q, snps_p,
-     main_snps_conn, mods_q, mods_p, main_mods_conn, sig_map_q, sig_map_p,
+    (bc_q, bc_p, main_bc_conn, mo_q, mo_p, main_mo_conn, vars_q, vars_p,
+     main_vars_conn, mods_q, mods_p, main_mods_conn, sig_map_q, sig_map_p,
      sig_map_conn, mod_sig_map_q, mod_sig_map_p,
      mod_sig_map_conn) = [None,] * 18
     if mh.BC_NAME in outputs or mh.BC_MODS_NAME in outputs:
@@ -490,24 +491,25 @@ def process_all_reads(
     if mh.MAP_NAME in outputs:
         do_output_pr_refs = (mh.PR_REF_NAME in outputs and
                              not mods_info.do_pr_ref_mods and
-                             not snps_data.do_pr_ref_snps)
+                             not vars_data.do_pr_ref_vars)
         mo_q, mo_p, main_mo_conn = mh.create_getter_q(
             mapping._get_map_queue, (
                 out_dir, aligner.ref_names_and_lens, aligner.out_fmt,
                 aligner.ref_fn, do_output_pr_refs, pr_ref_filts))
-    if mh.PR_SNP_NAME in outputs:
+    if mh.PR_VAR_NAME in outputs:
         pr_refs_fn = mh.get_megalodon_fn(out_dir, mh.PR_REF_NAME) if (
-            mh.PR_REF_NAME in outputs and snps_data.do_pr_ref_snps) else None
+            mh.PR_REF_NAME in outputs and vars_data.do_pr_ref_vars) else None
         whatshap_map_fn = (
             mh.get_megalodon_fn(out_dir, mh.WHATSHAP_MAP_NAME) + '.' +
             aligner.out_fmt) if mh.WHATSHAP_MAP_NAME in outputs else None
-        snps_txt_fn = (mh.get_megalodon_fn(out_dir, mh.PR_SNP_TXT_NAME)
-                       if snps_data.write_snps_txt else None)
-        snps_q, snps_p, main_snps_conn = mh.create_getter_q(
-            snps._get_snps_queue, (
-                mh.get_megalodon_fn(out_dir, mh.PR_SNP_NAME),
-                snps_txt_fn, db_safety, pr_refs_fn, pr_ref_filts,
-                whatshap_map_fn, aligner.ref_names_and_lens, aligner.ref_fn))
+        vars_txt_fn = (mh.get_megalodon_fn(out_dir, mh.PR_VAR_TXT_NAME)
+                       if vars_data.write_vars_txt else None)
+        vars_q, vars_p, main_vars_conn = mh.create_getter_q(
+            variants._get_variants_queue, (
+                mh.get_megalodon_fn(out_dir, mh.PR_VAR_NAME),
+                vars_txt_fn, db_safety, pr_refs_fn, pr_ref_filts,
+                whatshap_map_fn, aligner.ref_names_and_lens, aligner.ref_fn,
+                vars_data.loc_index_in_memory))
     if mh.PR_MOD_NAME in outputs:
         pr_refs_fn = mh.get_megalodon_fn(out_dir, mh.PR_REF_NAME) if (
             mh.PR_REF_NAME in outputs and mods_info.do_pr_ref_mods) else None
@@ -517,7 +519,7 @@ def process_all_reads(
             mods._get_mods_queue, (
                 mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME), db_safety,
                 aligner.ref_names_and_lens, mods_txt_fn,
-                pr_refs_fn, pr_ref_filts))
+                pr_refs_fn, pr_ref_filts, mods_info.pos_index_in_memory))
     if mh.SIG_MAP_NAME in outputs:
         alphabet_info = signal_mapping.get_alphabet_info(model_info)
         sig_map_fn = mh.get_megalodon_fn(out_dir, mh.SIG_MAP_NAME)
@@ -538,9 +540,9 @@ def process_all_reads(
         map_conns.append(map_conn)
         p = mp.Process(
             target=_process_reads_worker, args=(
-                read_file_q, bc_q, snps_q, failed_reads_q, mods_q, caller_conn,
+                read_file_q, bc_q, vars_q, failed_reads_q, mods_q, caller_conn,
                 sig_map_q, mod_sig_map_q, sig_map_filts, alphabet_info.alphabet,
-                model_info, snps_data, mods_info, device))
+                model_info, vars_data, mods_info, device))
         p.daemon = True
         p.start()
         proc_reads_ps.append(p)
@@ -578,13 +580,13 @@ def process_all_reads(
                 (mh.MAP_NAME, mo_p, main_mo_conn),
                 (mh.SIG_MAP_NAME, sig_map_p, sig_map_conn),
                 (mh.MOD_SIG_MAP_NAME, mod_sig_map_p, mod_sig_map_conn),
-                (mh.PR_SNP_NAME, snps_p, main_snps_conn),
+                (mh.PR_VAR_NAME, vars_p, main_vars_conn),
                 (mh.PR_MOD_NAME, mods_p, main_mods_conn)):
             if on in outputs and p.is_alive():
                 main_conn.send(True)
-                if on == mh.PR_SNP_NAME:
+                if on == mh.PR_VAR_NAME:
                     logger.info(
-                        'Waiting for snps database to complete indexing.')
+                        'Waiting for variants database to complete indexing.')
                 elif on ==  mh.PR_MOD_NAME:
                     logger.info(
                         'Waiting for mods database to complete indexing.')
@@ -631,41 +633,42 @@ def aligner_validation(args):
                 'alignment was requested. Argument will be ignored.')
     return aligner
 
-def snps_validation(args, is_cat_mod, output_size, aligner):
+def vars_validation(args, is_cat_mod, output_size, aligner):
     logger = logging.get_logger()
-    if mh.WHATSHAP_MAP_NAME in args.outputs and not mh.SNP_NAME in args.outputs:
-        args.outputs.append(mh.SNP_NAME)
-    if mh.SNP_NAME in args.outputs and not mh.PR_SNP_NAME in args.outputs:
-        args.outputs.append(mh.PR_SNP_NAME)
-    if mh.PR_SNP_NAME in args.outputs and args.variant_filename is None:
+    if mh.WHATSHAP_MAP_NAME in args.outputs and not mh.VAR_NAME in args.outputs:
+        args.outputs.append(mh.VAR_NAME)
+    if mh.VAR_NAME in args.outputs and not mh.PR_VAR_NAME in args.outputs:
+        args.outputs.append(mh.PR_VAR_NAME)
+    if mh.PR_VAR_NAME in args.outputs and args.variant_filename is None:
         logger.error(
-            '{} output requested, '.format(mh.PR_SNP_NAME) +
+            '{} output requested, '.format(mh.PR_VAR_NAME) +
             'but --variant-filename not provided.')
         sys.exit(1)
-    if mh.PR_SNP_NAME in args.outputs and not (
+    if mh.PR_VAR_NAME in args.outputs and not (
             is_cat_mod or mh.nstate_to_nbase(output_size) == 4):
         logger.error(
-            'SNP calling from naive modified base flip-flop model is ' +
+            'Variant calling from naive modified base flip-flop model is ' +
             'not supported.')
         sys.exit(1)
-    snp_calib_fn = mh.get_snp_calibration_fn(
-        args.snp_calibration_filename, args.disable_snp_calibration)
+    var_calib_fn = mh.get_var_calibration_fn(
+        args.variant_calibration_filename, args.disable_variant_calibration)
     try:
-        snps_data = snps.SnpData(
+        vars_data = variants.VarData(
             args.variant_filename, args.max_indel_size,
-            args.snp_all_paths, args.write_snps_text,
-            args.variant_context_bases, snp_calib_fn,
-            snps.HAPLIOD_MODE if args.haploid else snps.DIPLOID_MODE,
-            args.refs_include_snps, aligner, edge_buffer=args.edge_buffer,
-            context_min_alt_prob=args.context_min_alt_prob)
+            args.variant_all_paths, args.write_variants_text,
+            args.variant_context_bases, var_calib_fn,
+            variants.HAPLIOD_MODE if args.haploid else variants.DIPLOID_MODE,
+            args.refs_include_variants, aligner, edge_buffer=args.edge_buffer,
+            context_min_alt_prob=args.context_min_alt_prob,
+            loc_index_in_memory=not args.variant_locations_on_disk)
     except mh.MegaError as e:
         logger.error(str(e))
         sys.exit(1)
-    if args.variant_filename is not None and mh.PR_SNP_NAME not in args.outputs:
+    if args.variant_filename is not None and mh.PR_VAR_NAME not in args.outputs:
         logger.warning(
-            '--snps-filename provided, but SNP output not requested ' +
+            '--variants-filename provided, but variants output not requested ' +
             '(via --outputs). Argument will be ignored.')
-    return args, snps_data
+    return args, vars_data
 
 def mods_validation(args, model_info):
     logger = logging.get_logger()
@@ -703,31 +706,33 @@ def mods_validation(args, model_info):
         model_info, args.mod_motif, args.mod_all_paths,
         args.write_mods_text, args.mod_context_bases,
         mh.BC_MODS_NAME in args.outputs, args.refs_include_mods, mod_calib_fn,
-        args.mod_output_formats, args.edge_buffer)
+        args.mod_output_formats, args.edge_buffer,
+        not args.mod_positions_on_disk)
     return args, mods_info
 
 def parse_pr_ref_output(args):
     logger = logging.get_logger()
     if args.output_per_read_references:
         args.outputs.append(mh.PR_REF_NAME)
-        if args.refs_include_snps and args.refs_include_mods:
-            logger.error('Cannot output both modified base and SNPs in ' +
+        if args.refs_include_vars and args.refs_include_mods:
+            logger.error('Cannot output both modified base and variants in ' +
                          'per-read references (remove one of ' +
-                         '--refs-include-snps or --refs-include-mods).')
+                         '--refs-include-variants or --refs-include-mods).')
             sys.exit(1)
-        if args.refs_include_snps and mh.PR_SNP_NAME not in args.outputs:
-            args.outputs.append(mh.PR_SNP_NAME)
-            logger.warning('--refs-include-snps set, so adding ' +
-                           'per_read_snps to --outputs.')
+        if args.refs_include_variants and mh.PR_VAR_NAME not in args.outputs:
+            args.outputs.append(mh.PR_VAR_NAME)
+            logger.warning('--refs-include-variants set, so adding ' +
+                           'per_read_variants to --outputs.')
         if args.refs_include_mods and mh.PR_MOD_NAME not in args.outputs:
             args.outputs.append(mh.PR_MOD_NAME)
             logger.warning('--refs-include-mods set, so adding ' +
                            'per_read_mods to --outputs.')
     else:
-        if args.refs_include_snps:
+        if args.refs_include_variants:
             logger.warning(
-                '--refs-include-snps but not --output-per-read-references ' +
-                'set. Ignoring --refs-include-snps.')
+                '--refs-include-variantss but not ' +
+                '--output-per-read-references set. Ignoring ' +
+                '--refs-include-variants.')
         if args.refs_include_mods:
             logger.warning(
                 '--refs-include-mods but not --output-per-read-references ' +
@@ -772,9 +777,8 @@ def mkdir(out_dir, overwrite):
     logger = logging.get_logger()
     if os.path.exists(out_dir):
         if not overwrite:
-            sys.stderr.write(
-                'ERROR: --output-directory exists and --overwrite is ' +
-                'not set.\n')
+            logger.error(
+                '--output-directory exists and --overwrite is not set.')
             sys.exit(1)
         if os.path.isfile(out_dir) or os.path.islink(out_dir):
             os.remove(out_dir)
@@ -855,56 +859,64 @@ def get_parser():
         help='Reference FASTA or minimap2 index file used for mapping ' +
         'called reads.')
 
-    snp_grp = parser.add_argument_group('SNP Arguments')
-    snp_grp.add_argument(
+    var_grp = parser.add_argument_group('Sequence Variant Arguments')
+    var_grp.add_argument(
         '--haploid', action='store_true',
-        help='Compute SNP aggregation for haploid genotypes. Default: diploid')
-    snp_grp.add_argument(
+        help='Compute variant aggregation for haploid genotypes. ' +
+        'Default: diploid')
+    var_grp.add_argument(
         '--variant-filename',
         help='Sequence variants to call for each read in VCF/BCF format ' +
         '(required for variant output).')
-    snp_grp.add_argument(
-        '--write-snps-text', action='store_true',
-        help='Write per-read SNP calls out to a text file. Default: ' +
-        'Only ouput to database.')
+    var_grp.add_argument(
+        '--write-variants-text', action='store_true',
+        help='Write per-read sequence variant calls out to a text file. ' +
+        'Default: Only ouput to database.')
 
-    snp_grp.add_argument(
+    var_grp.add_argument(
         '--context-min-alt-prob', type=float,
         default=mh.DEFAULT_CONTEXT_MIN_ALT_PROB,
         help=hidden_help('Minimum alternative alleles probability to ' +
                          'include variant in computation of nearby variants. ' +
                          'Default: %(default)f'))
-    snp_grp.add_argument(
-        '--disable-snp-calibration', action='store_true',
-        help=hidden_help('Use raw SNP scores from the network. ' +
+    var_grp.add_argument(
+        '--disable-variant-calibration', action='store_true',
+        help=hidden_help('Use raw variant scores from the network. ' +
                          'Default: Calibrate score with ' +
-                         '--snp-calibration-filename'))
-    snp_grp.add_argument(
+                         '--variant-calibration-filename'))
+    var_grp.add_argument(
         '--heterozygous-factors', type=float, nargs=2,
         default=[mh.DEFAULT_SNV_HET_FACTOR, mh.DEFAULT_INDEL_HET_FACTOR],
         help=hidden_help('Bayesian prior factor for snv and indel ' +
                          'heterozygous calls (compared to 1.0 for hom ' +
                          'ref/alt). Default: %(default)s'))
-    snp_grp.add_argument(
+    var_grp.add_argument(
         '--max-indel-size', type=int, default=50,
         help=hidden_help('Maximum difference in number of reference and ' +
                          'alternate bases. Default: %(default)d'))
-    snp_grp.add_argument(
-        '--snp-all-paths', action='store_true',
+    var_grp.add_argument(
+        '--variant-all-paths', action='store_true',
         help=hidden_help('Compute forwards algorithm all paths score. ' +
                          '(Default: Viterbi best-path score)'))
-    snp_grp.add_argument(
-        '--snp-calibration-filename',
+    var_grp.add_argument(
+        '--variant-calibration-filename',
         help=hidden_help('File containing emperical calibration for ' +
-                         'SNP scores. As created by ' +
-                         'megalodon/scripts/calibrate_snp_llr_scores.py. ' +
+                         'variant scores. As created by ' +
+                         'megalodon/scripts/calibrate_variant_llr_scores.py. ' +
                          'Default: Load default calibration file.'))
-    snp_grp.add_argument(
+    var_grp.add_argument(
+        '--variant-locations-on-disk', action='store_true',
+        help=hidden_help('Force sequence variant locations to be stored ' +
+                         'only within on disk database table. This option ' +
+                         'will reduce the RAM memory requirement, but may ' +
+                         'drastically slow processing. Default: Store ' +
+                         'locations in memory and on disk.'))
+    var_grp.add_argument(
         '--variant-context-bases', type=int, nargs=2,
         default=[mh.DEFAULT_SNV_CONTEXT, mh.DEFAULT_INDEL_CONTEXT],
-        help=hidden_help('Context bases for single base SNP and indel ' +
+        help=hidden_help('Context bases for single base variant and indel ' +
                          'calling. Default: %(default)s'))
-    snp_grp.add_argument(
+    var_grp.add_argument(
         '--write-vcf-log-probs', action='store_true',
         help=hidden_help('Write per-read alt log probabilities out in ' +
                          'non-standard VCF field.'))
@@ -954,6 +966,13 @@ def get_parser():
         help=hidden_help('Modified base aggregated output format(s). ' +
                          'Default: %(default)s'))
     mod_grp.add_argument(
+        '--mod-positions-on-disk', action='store_true',
+        help=hidden_help('Force modified base positions to be stored ' +
+                         'only within on disk database table. This option ' +
+                         'will reduce the RAM memory requirement, but may ' +
+                         'drastically slow processing. Default: Store ' +
+                         'positions in memory and on disk.'))
+    mod_grp.add_argument(
         '--write-mod-log-probs', action='store_true',
         help=hidden_help('Write per-read modified base log probabilities ' +
                          'out in non-standard modVCF field.'))
@@ -984,9 +1003,8 @@ def get_parser():
         help=hidden_help('Include modified base calls in per-read ' +
                          'reference output.'))
     refout_grp.add_argument(
-        '--refs-include-snps', action='store_true',
-        help=hidden_help('Include SNP calls in per-read ' +
-                         'reference output.'))
+        '--refs-include-variants', action='store_true',
+        help=hidden_help('Include variant calls in per-read reference output.'))
     refout_grp.add_argument(
         '--refs-percent-identity-threshold', type=float,
         help=hidden_help('Only include reads with higher percent identity ' +
@@ -1079,47 +1097,52 @@ def _main():
         args.max_concurrent_chunks)
     args, mods_info = mods_validation(args, model_info)
     aligner = aligner_validation(args)
-    args, snps_data = snps_validation(
+    args, vars_data = vars_validation(
         args, model_info.is_cat_mod, model_info.output_size, aligner)
 
     process_all_reads(
         args.fast5s_dir, not args.not_recursive, args.num_reads,
         args.read_ids_filename, model_info, args.outputs,
-        args.output_directory, args.basecalls_format, aligner, snps_data,
+        args.output_directory, args.basecalls_format, aligner, vars_data,
         args.processes, args.verbose_read_progress, args.suppress_progress,
         mods_info, args.database_safety, pr_ref_filts, sig_map_filts)
+
+    if aligner is not None:
+        ref_fn = aligner.ref_fn
+        map_out_fmt = aligner.out_fmt
+        del aligner
 
     if mh.MAP_NAME in args.outputs:
         logger.info('Spawning process to sort mappings')
         map_p = post_process_mapping(
-            args.output_directory, aligner.out_fmt, aligner.ref_fn)
+            args.output_directory, map_out_fmt, ref_fn)
 
     if mh.WHATSHAP_MAP_NAME in args.outputs:
         logger.info('Spawning process to sort whatshap mappings')
         whatshap_sort_fn, whatshap_p = post_process_whatshap(
-            args.output_directory, aligner.out_fmt, aligner.ref_fn)
+            args.output_directory, map_out_fmt, ref_fn)
 
-    if mh.SNP_NAME in args.outputs or mh.MOD_NAME in args.outputs:
+    if mh.VAR_NAME in args.outputs or mh.MOD_NAME in args.outputs:
         post_process_aggregate(
             mods_info, args.outputs, args.mod_binary_threshold,
             args.output_directory, args.processes, args.write_vcf_log_probs,
-            args.heterozygous_factors, snps_data, args.write_mod_log_probs,
-            args.suppress_progress, aligner.ref_names_and_lens)
+            args.heterozygous_factors, vars_data, args.write_mod_log_probs,
+            args.suppress_progress)
 
-    if mh.SNP_NAME in args.outputs:
+    if mh.VAR_NAME in args.outputs:
         logger.info('Sorting output variant file')
-        variant_fn = mh.get_megalodon_fn(args.output_directory, mh.SNP_NAME)
+        variant_fn = mh.get_megalodon_fn(args.output_directory, mh.VAR_NAME)
         sort_variant_fn = mh.add_fn_suffix(variant_fn, 'sorted')
-        snps.sort_variants(variant_fn, sort_variant_fn)
+        variants.sort_variants(variant_fn, sort_variant_fn)
         logger.info('Indexing output variant file')
-        index_variant_fn = snps.index_variants(sort_variant_fn)
+        index_variant_fn = variants.index_variants(sort_variant_fn)
 
     if mh.WHATSHAP_MAP_NAME in args.outputs:
         if whatshap_p.is_alive():
             logger.info('Waiting for whatshap mappings sort')
             while whatshap_p.is_alive():
                 sleep(0.001)
-        logger.info(snps.get_whatshap_command(
+        logger.info(variants.get_whatshap_command(
             index_variant_fn, whatshap_sort_fn,
             mh.add_fn_suffix(variant_fn, 'phased')))
 

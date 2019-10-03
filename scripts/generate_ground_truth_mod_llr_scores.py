@@ -50,7 +50,7 @@ def parse_control_mods(args):
         if VERBOSE: sys.stderr.write('Reading control mods data\n')
         try:
             ctrl_dat = pd.read_csv(
-                mh.get_megalodon_fn(args.megalodon_results_dir,
+                mh.get_megalodon_fn(args.control_megalodon_results_dir,
                                     mh.PR_MOD_TXT_NAME), sep='\t')
         except FileNotFoundError:
             ctrl_dat = None

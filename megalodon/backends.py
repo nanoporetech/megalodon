@@ -10,10 +10,6 @@ from megalodon import logging, megalodon_helper as mh
 # model type specific information
 TAI_NAME = 'taiyaki'
 
-CAN_ALPHABET = 'ACGT'
-MOD_ALPHABET = CAN_ALPHABET + ''.join(
-    b for b in string.ascii_uppercase[::-1] if b not in CAN_ALPHABET)
-
 
 def parse_device(device):
     if device is None or device == 'cpu':

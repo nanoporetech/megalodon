@@ -2,7 +2,7 @@
 Megalodon Algorithm Details
 ***************************
 
-This page describes the details of how megalodon processes the raw nanopore signal to produce highly-accurate modified base and SNP calls.
+This page describes the details of how megalodon processes the raw nanopore signal to produce highly-accurate modified base and sequence variant calls.
 
 ------------
 Base Calling
@@ -23,11 +23,11 @@ The neural network output is anchored to the reference via standard read mapping
 If no reference mapping is produced (using ``minimap2`` via the ``mappy`` python interface) that read is not processed further (basecalls will be output if requested).
 This standard read mapping is processed to produce a matching of each basecall with a reference position.
 Reference positions within an insertion or deletion are assigned to the previous mapped read position (left justified).
-This constitutes the reference anchoring used for modified base and SNP calling steps.
+This constitutes the reference anchoring used for modified base and sequence variant calling steps.
 
------------
-SNP Calling
------------
+------------------------
+Sequence Variant Calling
+------------------------
 
 Megalodon currently filters alleles over a certain maximum size (default 50) as performance on larger indels has not currenty been validated.
 
@@ -43,14 +43,14 @@ The difference between these two scores is the assigned score for the proposed v
 Lower (negative) score are evidence for the alternative sequence and higher (positive) scores are evidence for the reference sequence.
 
 These raw scores are softmax values over potential states, to match characteristics of a probability distribution.
-In practice, these scores do not match emperical probabilities for a SNP given a truth dataset.
+In practice, these scores do not match emperical probabilities for a variant given a truth dataset.
 Thus a calibration step is applied to convert these scores to estimated emperical probabilities.
 This enables more accurate aggregation across reads.
 
 Finally, calls across reads at each reference location are aggregated in order make a sample-level call.
 These results will be output into a VCF format file.
 
-Currently ``diploid`` (default) and ``haploid`` SNP aggregation modes are available.
+Currently ``diploid`` (default) and ``haploid`` variant aggregation modes are available.
 In ``haploid`` mode the probability of the reference and alternative alleles are simply the normalized (via Bayes' theorem) product of the individual read probabilities.
 In ``diploid`` mode the probability of each genotype (homozygous reference, heterozygous and homozygous alternative) are computed.
 The probabilities for homozygous alleles are as in the ``haploid`` mode, while the heterozygous probability is given by the weighted sum of the maximal probabilities taken over the sampling distribution (binomial with ``p=0.5``) given a true diploid heterozygous allele.

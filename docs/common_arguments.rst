@@ -35,7 +35,7 @@ Output Arguments
 - ``--outputs``
 
   - Specify desired outputs.
-  - Options are ``basecalls``, ``mod_basecalls``, ``mappings``, ``whatshap_mappings``, ``per_read_snps``, ``per_read_mods``, ``snp``, and ``mods``.
+  - Options are ``basecalls``, ``mod_basecalls``, ``mappings``, ``whatshap_mappings``, ``per_read_variants``, ``per_read_mods``, ``variants``, and ``mods``.
 
     - ``mod_basecalls`` are currently output in an HDF5 file with a data set corresponding to each read (accessed via the ``read_id``).
     - ``whatshap_mappings`` are intended only for obtaining highly accurate phased variant genotypes.
@@ -77,11 +77,11 @@ Sequence Variant Arguments
     - Variants file must be sorted.
     - If variant file is not compressed and indexed this will be performed before further processing.
   - Variants must be matched to the ``--reference`` provided.
-- ``--write-snps-text``
+- ``--write-variants-text``
 
-  - Output per-read SNPs in text format.
+  - Output per-read variants in text format.
 
-    - Output includes columns: ``read_id``, ``chrm``, ``strand``, ``pos``, ``ref_log_prob``, ``alt_log_prob``, ``snp_ref_seq``, ``snp_alt_seq``, ``snp_id``
+    - Output includes columns: ``read_id``, ``chrm``, ``strand``, ``pos``, ``ref_log_prob``, ``alt_log_prob``, ``var_ref_seq``, ``var_alt_seq``, ``var_id``
     - Log probabilities are calibrated to match observed log-likelihood ratios from ground truth samples.
 
       - Reference log probabilities are included to make processing mutliple alternative allele sites easier to process.
