@@ -19,7 +19,6 @@ from megalodon._version import MEGALODON_VERSION
 
 
 _DEBUG_PER_READ = False
-_RAISE_VARIANT_PROCESSING_ERRORS = False
 
 VARIANT_DATA = namedtuple('VARIANT_DATA', (
     'np_ref', 'np_alts', 'id', 'chrom', 'start', 'stop',
@@ -180,6 +179,8 @@ class VarsDb(object):
         """ Extract all location IDs and add those locations not currently
         found in the database
         """
+        if len(r_var_scores) == 0: return []
+
         r_locs = dict((
             ((chrm_id, test_start, test_end), (pos, ref_seq, var_name))
             for pos, _, ref_seq, _, var_name,
@@ -219,6 +220,8 @@ class VarsDb(object):
         return r_loc_ids
 
     def get_alt_ids_or_insert(self, r_var_scores):
+        if len(r_var_scores) == 0: return []
+
         logger = logging.get_logger()
         r_seqs_and_lps = [
             tuple(zip(alt_seqs, alt_lps))
@@ -258,6 +261,8 @@ class VarsDb(object):
     def insert_read_scores(self, r_var_scores, uuid, chrm, strand):
         self.cur.execute('INSERT INTO read (uuid, strand) VALUES (?,?)',
                          (uuid, strand))
+        if len(r_var_scores) == 0: return
+
         read_id = self.cur.lastrowid
         chrm_id = self.get_chrm_id(chrm)
         loc_ids = self.get_loc_ids_or_insert(r_var_scores, chrm_id)
@@ -804,10 +809,22 @@ def _get_variants_queue(
 
         return
 
-    def get_var_call(
+    def store_var_call(
             r_var_calls, read_id, chrm, strand, r_start, ref_seq, read_len,
-            q_st, q_en, cigar):
-        vars_db.insert_read_scores(r_var_calls, read_id, chrm, strand)
+            q_st, q_en, cigar, been_warned):
+        try:
+            vars_db.insert_read_scores(r_var_calls, read_id, chrm, strand)
+        except Exception as e:
+            if not been_warned:
+                logger.warning(
+                    'Error inserting sequence variant scores into database. ' +
+                    'See log debug output for error details.')
+                been_warned = True
+            import traceback
+            logger.debug(
+                'Error inserting modified base scores into database: ' +
+                str(e) + '\n' + traceback.format_exc())
+
         if vars_txt_fp is not None and len(r_var_calls) > 0:
             var_out_text = ''
             for (pos, alt_lps, var_ref_seq, var_alt_seqs, var_id,
@@ -834,10 +851,12 @@ def _get_variants_queue(
                     read_id, var_seq, var_quals, chrm, strand, r_start,
                     var_cigar)
 
-        return
+        return been_warned
 
 
     logger = logging.get_logger('vars_getter')
+    been_warned = False
+
     vars_db = VarsDb(vars_db_fn, db_safety=db_safety, read_only=False,
                      loc_index_in_memory=loc_index_in_memory)
     vars_db.insert_chrms(ref_names_and_lens)
@@ -880,30 +899,16 @@ def _get_variants_queue(
                 break
             sleep(0.001)
             continue
-        try:
-            get_var_call(
-                r_var_calls, read_id, chrm, strand, r_start, ref_seq, read_len,
-                q_st, q_en, cigar)
-        except Exception as e:
-            logger.debug((
-                'Error processing variant output for read: {}\nSet' +
-                ' _RAISE_VARIANT_PROCESSING_ERRORS in megalodon/variants.py to ' +
-                'see full error.\nError type: {}').format(read_id, str(e)))
-            if _RAISE_VARIANT_PROCESSING_ERRORS: raise
-
+        been_warned = store_var_call(
+            r_var_calls, read_id, chrm, strand, r_start, ref_seq, read_len,
+            q_st, q_en, cigar, been_warned)
     while not vars_q.empty():
         r_var_calls, (read_id, chrm, strand, r_start, ref_seq, read_len,
                       q_st, q_en, cigar) = vars_q.get(block=False)
-        try:
-            get_var_call(
-                r_var_calls, read_id, chrm, strand, r_start, ref_seq, read_len,
-                q_st, q_en, cigar)
-        except Exception as e:
-            logger.debug((
-                'Error processing variant output for read: {}\nSet' +
-                ' _RAISE_VARIANT_PROCESSING_ERRORS in megalodon/variants.py ' +
-                'to see full error.\nError type: {}').format(read_id, str(e)))
-            if _RAISE_VARIANT_PROCESSING_ERRORS: raise
+        been_warned = store_var_call(
+            r_var_calls, read_id, chrm, strand, r_start, ref_seq, read_len,
+            q_st, q_en, cigar, been_warned)
+
     if vars_txt_fp is not None: vars_txt_fp.close()
     if pr_refs_fn is not None: pr_refs_fp.close()
     if whatshap_map_fn is not None: whatshap_map_fp.close()

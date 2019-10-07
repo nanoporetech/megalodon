@@ -162,6 +162,8 @@ class ModsDb(object):
         return
 
     def get_pos_ids_or_insert(self, r_mod_scores, chrm_id, strand):
+        if len(r_mod_scores) == 0: return []
+
         r_pos = tuple(zip(*r_mod_scores))[0]
         r_uniq_pos = set(((chrm_id, strand, pos) for pos in r_pos))
         if self.pos_idx_in_mem:
@@ -192,6 +194,8 @@ class ModsDb(object):
         return r_pos_ids
 
     def get_mod_base_ids_or_insert(self, r_mod_scores):
+        if len(r_mod_scores) == 0: return []
+
         r_mod_bases = [
             [((mod_base, motif, motif_pos, raw_motif), mod_lp)
              for mod_lp, mod_base in zip(mod_lps, mod_bases)]
@@ -231,12 +235,12 @@ class ModsDb(object):
 
     def insert_read_scores(self, r_mod_scores, uuid, chrm, strand):
         self.cur.execute('INSERT INTO read (uuid) VALUES (?)', (uuid,))
+        if len(r_mod_scores) == 0: return
+
         read_id = self.cur.lastrowid
         chrm_id = self.get_chrm_id(chrm)
-
         pos_ids = self.get_pos_ids_or_insert(r_mod_scores, chrm_id, strand)
         mod_base_ids = self.get_mod_base_ids_or_insert(r_mod_scores)
-
         read_insert_data = [(mod_lp, pos_id, mod_base_id, read_id)
                             for pos_id, pos_mods in zip(pos_ids, mod_base_ids)
                             for mod_base_id, mod_lp in pos_mods]
@@ -532,10 +536,9 @@ def _get_mods_queue(
                     'log debug output for error details.')
                 been_warned = True
             import traceback
-            var = traceback.format_exc()
             logger.debug(
                 'Error inserting modified base scores into database: ' +
-                str(e) + '\n' + var)
+                str(e) + '\n' + traceback.format_exc())
 
         if mods_txt_fp is not None and len(r_mod_scores) > 0:
             mod_out_text = ''
