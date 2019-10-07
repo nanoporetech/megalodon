@@ -90,10 +90,14 @@ class VarsDb(object):
     # namedtuple for returning var info from a single position
     var_data = namedtuple('var_data', [
         'score', 'pos', 'ref_seq', 'var_name', 'read_id', 'chrm', 'alt_seq'])
+    text_field_names = (
+        'read_id', 'chrm', 'strand', 'pos', 'ref_log_prob', 'alt_log_prob',
+        'ref_seq', 'alt_seq', 'var_id')
 
     def __init__(self, fn, read_only=True, db_safety=1,
                  loc_index_in_memory=False, chrm_index_in_memory=True,
-                 alt_index_in_memory=True, uuid_index_in_memory=True):
+                 alt_index_in_memory=True, uuid_index_in_memory=True,
+                 uuid_strand_index_in_memory=False):
         """ Interface to database containing sequence variant statistics.
 
         Default settings are for optimal read_only performance.
@@ -104,6 +108,7 @@ class VarsDb(object):
         self.chrm_idx_in_mem = chrm_index_in_memory
         self.alt_idx_in_mem = alt_index_in_memory
         self.uuid_idx_in_mem = uuid_index_in_memory
+        self.uuid_strand_idx_in_mem = uuid_strand_index_in_memory
 
         if read_only:
             if not os.path.exists(fn):
@@ -128,6 +133,8 @@ class VarsDb(object):
                 self.load_alt_read_index()
             if self.uuid_idx_in_mem:
                 self.load_uuid_read_index()
+            if self.uuid_strand_idx_in_mem:
+                self.load_uuid_strand_read_index()
         else:
             if db_safety < 2:
                 # set asynchronous mode to off for max speed
@@ -282,13 +289,20 @@ class VarsDb(object):
         return
 
     def load_chrm_read_index(self):
-        self.cur.execute('SELECT chrm_id, chrm FROM chrm')
-        self.chrm_read_idx = dict(self.cur.fetchall())
+        self.chrm_read_idx = dict(self.cur.execute(
+            'SELECT chrm_id, chrm FROM chrm').fetchall())
         return
 
     def load_uuid_read_index(self):
-        self.cur.execute('SELECT read_id, uuid FROM read')
-        self.uuid_read_idx = dict(self.cur.fetchall())
+        self.uuid_read_idx = dict(self.cur.execute(
+            'SELECT read_id, uuid FROM read').fetchall())
+        return
+
+    def load_uuid_strand_read_index(self):
+        self.uuid_strand_read_idx = dict(
+            (read_id, (uuid, strand)) for read_id, uuid, strand in
+            self.cur.execute(
+                'SELECT read_id, uuid, strand FROM read').fetchall())
         return
 
     def create_alt_index(self):
@@ -296,8 +310,8 @@ class VarsDb(object):
         return
 
     def load_alt_read_index(self):
-        self.cur.execute('SELECT alt_id, alt_seq FROM alt')
-        self.alt_read_idx = dict(self.cur.fetchall())
+        self.alt_read_idx = dict(self.cur.execute(
+            'SELECT alt_id, alt_seq FROM alt').fetchall())
         return
 
     def create_loc_index(self):
@@ -306,10 +320,11 @@ class VarsDb(object):
         return
 
     def load_loc_read_index(self):
-        self.cur.execute('SELECT loc_id, pos, ref_seq, var_name FROM loc')
         self.loc_read_idx = dict(
             (loc_id, (pos, ref_seq, var_name))
-            for loc_id, pos, ref_seq, var_name in self.cur)
+            for loc_id, pos, ref_seq, var_name in self.cur.execute(
+                    'SELECT loc_id, pos, ref_seq, var_name ' +
+                    'FROM loc').fetchall())
         return
 
     def create_data_covering_index(self):
@@ -377,6 +392,18 @@ class VarsDb(object):
             raise mh.MegaError('Read ID not found in vars database.')
         return uuid
 
+    def get_uuid_strand(self, read_id):
+        try:
+            if self.uuid_strand_idx_in_mem:
+                uuid_strand = self.uuid_strand_read_idx[read_id]
+            else:
+                uuid_strand = self.cur.execute(
+                    'SELECT uuid, strand FROM read WHERE read_id=?',
+                    (read_id,)).fetchone()
+        except (TypeError, KeyError):
+            raise mh.MegaError('Read ID not found in vars database.')
+        return uuid_strand
+
     def get_num_uniq_chrms(self):
         num_chrms = self.cur.execute(
             'SELECT MAX(chrm_id) FROM chrm').fetchone()[0]
@@ -397,11 +424,10 @@ class VarsDb(object):
         return num_alts
 
     def iter_locs(self):
-        self.cur.execute(
-            'SELECT loc_id, loc_chrm, pos, ref_seq, var_name FROM loc')
-        for loc in self.cur:
+        for loc in self.cur.execute(
+                'SELECT loc_id, loc_chrm, pos, ref_seq, var_name ' +
+                'FROM loc').fetchall():
             yield loc
-
         return
 
     def get_loc_stats(self, loc_data, return_uuids=False):
@@ -832,7 +858,7 @@ def _get_variants_queue(
                 with np.errstate(divide='ignore'):
                     ref_lp = np.log1p(-np.exp(alt_lps).sum())
                 var_out_text += '\n'.join((
-                    ('\t'.join('{}' for _ in field_names)).format(
+                    ('\t'.join('{}' for _ in vars_db.text_field_names)).format(
                         read_id, chrm, strand, pos, ref_lp, alt_lp,
                         var_ref_seq, var_alt_seq, var_id)
                     for alt_lp, var_alt_seq in zip(
@@ -865,10 +891,7 @@ def _get_variants_queue(
         vars_txt_fp = None
     else:
         vars_txt_fp = open(vars_txt_fn, 'w')
-        field_names = (
-            'read_id', 'chrm', 'strand', 'pos', 'ref_log_prob', 'alt_log_prob',
-            'ref_seq', 'alt_seq', 'var_id')
-        vars_txt_fp.write('\t'.join(field_names) + '\n')
+        vars_txt_fp.write('\t'.join(vars_db.text_field_names) + '\n')
 
     if pr_refs_fn is not None:
         pr_refs_fp = open(pr_refs_fn, 'w')

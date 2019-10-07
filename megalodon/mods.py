@@ -78,6 +78,9 @@ class ModsDb(object):
     mod_data = namedtuple('mod_data', [
         'read_id', 'chrm', 'strand', 'pos', 'score', 'mod_base', 'motif',
         'motif_pos', 'raw_motif'])
+    text_field_names = (
+        'read_id', 'chrm', 'strand', 'pos', 'mod_log_prob',
+        'can_log_prob', 'mod_base', 'motif')
 
     def __init__(self, fn, read_only=True, db_safety=1,
                  pos_index_in_memory=False, chrm_index_in_memory=True,
@@ -114,6 +117,8 @@ class ModsDb(object):
                 self.load_mod_read_index()
             if self.pos_idx_in_mem:
                 self.load_pos_read_index()
+            if self.uuid_idx_in_mem:
+                self.load_uuid_read_index()
         else:
             if db_safety < 2:
                 # set asynchronous mode to off for max speed
@@ -254,8 +259,13 @@ class ModsDb(object):
         return
 
     def load_chrm_read_index(self):
-        self.cur.execute('SELECT chrm_id, chrm FROM chrm')
-        self.chrm_read_idx = dict(self.cur.fetchall())
+        self.chrm_read_idx = dict(self.cur.execute(
+            'SELECT chrm_id, chrm FROM chrm').fetchall())
+        return
+
+    def load_uuid_read_index(self):
+        self.uuid_read_idx = dict(self.cur.execute(
+            'SELECT read_id, uuid FROM read').fetchall())
         return
 
     def create_mod_index(self):
@@ -264,11 +274,12 @@ class ModsDb(object):
         return
 
     def load_mod_read_index(self):
-        self.cur.execute(
-            'SELECT mod_id, mod_base, motif, motif_pos, raw_motif FROM mod')
         self.mod_read_idx = dict((
             (mod_id, (mod_base, motif, motif_pos, raw_motif))
-            for mod_id, mod_base, motif, motif_pos, raw_motif in self.cur))
+            for mod_id, mod_base, motif, motif_pos, raw_motif in
+            self.cur.execute(
+                'SELECT mod_id, mod_base, motif, motif_pos, raw_motif ' +
+                'FROM mod').fetchall()))
         return
 
     def create_pos_index(self):
@@ -277,10 +288,11 @@ class ModsDb(object):
         return
 
     def load_pos_read_index(self):
-        self.cur.execute('SELECT pos_id, pos_chrm, strand, pos FROM pos')
         self.pos_read_idx = dict((
             (pos_id, (chrm_id, strand, pos))
-            for pos_id, chrm_id, strand, pos in self.cur))
+            for pos_id, chrm_id, strand, pos in self.cur.execute(
+                    'SELECT pos_id, pos_chrm, strand, pos ' +
+                    'FROM pos').fetchall()))
         return
 
     def create_data_covering_index(self):
@@ -338,10 +350,13 @@ class ModsDb(object):
 
     def get_uuid(self, read_id):
         try:
-            uuid = self.cur.execute(
-                'SELECT uuid FROM read WHERE read_id=?',
+            if self.uuid_idx_in_mem:
+                uuid = self.uuid_read_idx[read_id]
+            else:
+                uuid = self.cur.execute(
+                    'SELECT uuid FROM read WHERE read_id=?',
                     (read_id,)).fetchone()[0]
-        except TypeError:
+        except (TypeError, KeyError):
             raise mh.MegaError('Read ID not found in vars database.')
         return uuid
 
@@ -366,8 +381,8 @@ class ModsDb(object):
         return num_chrms
 
     def iter_pos(self):
-        self.cur.execute('SELECT pos_id, pos_chrm, strand, pos FROM pos')
-        for pos in self.cur:
+        for pos in self.cur.execute(
+                'SELECT pos_id, pos_chrm, strand, pos FROM pos').fetchall():
             yield pos
         return
 
@@ -547,7 +562,7 @@ def _get_mods_queue(
                 with np.errstate(divide='ignore'):
                     can_lp = np.log1p(-np.exp(mod_lps).sum())
                 mod_out_text += '\n'.join((
-                    ('\t'.join('{}' for _ in field_names)).format(
+                    ('\t'.join('{}' for _ in mods_db.text_field_names)).format(
                         read_id, chrm, strand, pos, mod_lp,
                         can_lp, mod_base, '{}:{}'.format(raw_motif, rel_pos))
                     for mod_lp, mod_base in zip(mod_lps, mod_bases))) + '\n'
@@ -575,10 +590,7 @@ def _get_mods_queue(
         mods_txt_fp = None
     else:
         mods_txt_fp = open(mods_txt_fn, 'w')
-        field_names = (
-            'read_id', 'chrm', 'strand', 'pos', 'mod_log_prob',
-            'can_log_prob', 'mod_base', 'motif')
-        mods_txt_fp.write('\t'.join(field_names) + '\n')
+        mods_txt_fp.write('\t'.join(mods_db.text_field_names) + '\n')
 
     if pr_refs_fn is not None:
         pr_refs_fp = open(pr_refs_fn, 'w')
