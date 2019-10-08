@@ -9,8 +9,10 @@ def get_parser():
         'megalodon_results_dirs', nargs='+',
         help='Output megalodon directories with per_read_mods in output.')
     parser.add_argument(
-        '--output-megalodon-results-dir', default='megalodon_results',
-        help='Output directory. Default: %(default)s')
+        '--output-megalodon-results-dir',
+        default='megalodon_merge_mods_results',
+        help='Output directory. Cannot exist before this command. ' +
+        'Default: %(default)s')
     parser.add_argument(
         '--mod-positions-on-disk', action='store_true',
         help='Force modified base positions to be stored only within on ' +

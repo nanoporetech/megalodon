@@ -167,10 +167,28 @@ class VarsDb(object):
                 self.alt_idx = {}
             else:
                 self.create_alt_index()
+            if self.uuid_idx_in_mem:
+                self.uuid_idx = {}
 
         return
 
     # insert data functions
+    def get_chrm_id_or_insert(self, chrm, chrm_len):
+        try:
+            if self.chrm_idx_in_mem:
+                chrm_id = self.chrm_idx[chrm]
+            else:
+                chrm_id = self.cur.execute(
+                    'SELECT chrm_id FROM chrm WHERE chrm=?',
+                    (chrm,)).fetchone()[0]
+        except (TypeError, KeyError):
+            self.cur.execute('INSERT INTO chrm (chrm, chrm_len) VALUES (?,?)',
+                             (chrm, chrm_len))
+            chrm_id = self.cur.lastrowid
+            if self.chrm_idx_in_mem:
+                self.chrm_idx[chrm] = chrm_id
+        return chrm_id
+
     def insert_chrms(self, chrm_names_and_lens):
         next_chrm_id = self.get_num_uniq_chrms() + 1
         self.cur.executemany('INSERT INTO chrm (chrm, chrm_len) VALUES (?,?)',
@@ -181,6 +199,26 @@ class VarsDb(object):
                 range(next_chrm_id,
                       next_chrm_id + len(chrm_names_and_lens[0]))))
         return
+
+    def get_loc_id_or_insert(
+            self, chrm_id, test_start, test_end, pos, ref_seq, var_name):
+        try:
+            if self.loc_idx_in_mem:
+                loc_id = self.loc_idx[(chrm_id, test_start, test_end)]
+            else:
+                loc_id = self.cur.execute(
+                    'SELECT loc_id FROM loc WHERE loc_chrm=? AND ' +
+                    'test_start=? AND test_end=?',
+                    (chrm_id, test_start, test_end)).fetchone()[0]
+        except (TypeError, KeyError):
+            self.cur.execute(
+                'INSERT INTO loc (loc_chrm, test_start, test_end, ' +
+                'pos, ref_seq, var_name) VALUES (?,?,?,?,?,?)',
+                (chrm_id, test_start, test_end, pos, ref_seq, var_name))
+            loc_id = self.cur.lastrowid
+            if self.loc_idx_in_mem:
+                self.loc_idx[(chrm_id, test_start, test_end)] = loc_id
+        return loc_id
 
     def get_loc_ids_or_insert(self, r_var_scores, chrm_id):
         """ Extract all location IDs and add those locations not currently
@@ -226,6 +264,23 @@ class VarsDb(object):
 
         return r_loc_ids
 
+    def get_alt_id_or_insert(self, alt_seq):
+        try:
+            if self.alt_idx_in_mem:
+                alt_id = self.alt_idx[alt_seq]
+            else:
+                alt_id = self.cur.execute(
+                    'SELECT alt_id FROM alt WHERE alt_seq=?',
+                    (alt_seq,)).fetchone()[0]
+        except (TypeError, KeyError):
+            self.cur.execute(
+                'INSERT INTO alt (alt_seq) VALUES (?)',
+                (alt_seq,))
+            alt_id = self.cur.lastrowid
+            if self.alt_idx_in_mem:
+                self.alt_idx[alt_seq] = alt_id
+        return alt_id
+
     def get_alt_ids_or_insert(self, r_var_scores):
         if len(r_var_scores) == 0: return []
 
@@ -265,6 +320,21 @@ class VarsDb(object):
 
         return r_alt_ids
 
+    def get_read_id_or_insert(self, uuid):
+        try:
+            if self.uuid_idx_in_mem:
+                read_id = self.uuid_idx[uuid]
+            else:
+                read_id = self.cur.execute(
+                    'SELECT read_id FROM read WHERE uuid=?',
+                    (uuid,)).fetchone()[0]
+        except (TypeError, KeyError):
+            self.cur.execute('INSERT INTO read (uuid) VALUES (?)', (uuid,))
+            read_id = self.cur.lastrowid
+            if self.uuid_idx_in_mem:
+                self.uuid_idx[uuid] = read_id
+        return read_id
+
     def insert_read_scores(self, r_var_scores, uuid, chrm, strand):
         self.cur.execute('INSERT INTO read (uuid, strand) VALUES (?,?)',
                          (uuid, strand))
@@ -282,6 +352,12 @@ class VarsDb(object):
         self.cur.executemany(
             'INSERT INTO data VALUES (?,?,?,?)', read_insert_data)
         return
+
+    def insert_data(self, score, loc_id, alt_id, read_id):
+        self.cur.execute(
+            'INSERT INTO data (score, score_loc, score_alt, score_read) ' +
+            'VALUES (?,?,?,?)', (score, loc_id, alt_id, read_id))
+        return self.cur.lastrowid
 
     # create and load index functions
     def create_chrm_index(self):
@@ -428,6 +504,18 @@ class VarsDb(object):
                 'SELECT loc_id, loc_chrm, pos, ref_seq, var_name ' +
                 'FROM loc').fetchall():
             yield loc
+        return
+
+    def iter_data(self):
+        for data in self.cur.execute(
+                'SELECT score, uuid, strand, alt_seq, ref_seq, pos, ' +
+                'var_name, test_end, test_start, chrm, chrm_len ' +
+                'FROM data ' +
+                'INNER JOIN read ON data.score_read = read.read_id ' +
+                'INNER JOIN alt ON data.score_alt = alt.alt_id ' +
+                'INNER JOIN loc ON data.score_loc = loc.loc_id ' +
+                'INNER JOIN chrm ON loc.loc_chrm = chrm.chrm_id').fetchall():
+            yield data
         return
 
     def get_loc_stats(self, loc_data, return_uuids=False):
