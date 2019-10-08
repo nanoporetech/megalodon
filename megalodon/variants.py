@@ -19,7 +19,6 @@ from megalodon._version import MEGALODON_VERSION
 
 
 _DEBUG_PER_READ = False
-_RAISE_VARIANT_PROCESSING_ERRORS = False
 
 VARIANT_DATA = namedtuple('VARIANT_DATA', (
     'np_ref', 'np_alts', 'id', 'chrom', 'start', 'stop',
@@ -91,10 +90,14 @@ class VarsDb(object):
     # namedtuple for returning var info from a single position
     var_data = namedtuple('var_data', [
         'score', 'pos', 'ref_seq', 'var_name', 'read_id', 'chrm', 'alt_seq'])
+    text_field_names = (
+        'read_id', 'chrm', 'strand', 'pos', 'ref_log_prob', 'alt_log_prob',
+        'ref_seq', 'alt_seq', 'var_id')
 
     def __init__(self, fn, read_only=True, db_safety=1,
                  loc_index_in_memory=False, chrm_index_in_memory=True,
-                 alt_index_in_memory=True, uuid_index_in_memory=True):
+                 alt_index_in_memory=True, uuid_index_in_memory=True,
+                 uuid_strand_index_in_memory=False):
         """ Interface to database containing sequence variant statistics.
 
         Default settings are for optimal read_only performance.
@@ -105,6 +108,7 @@ class VarsDb(object):
         self.chrm_idx_in_mem = chrm_index_in_memory
         self.alt_idx_in_mem = alt_index_in_memory
         self.uuid_idx_in_mem = uuid_index_in_memory
+        self.uuid_strand_idx_in_mem = uuid_strand_index_in_memory
 
         if read_only:
             if not os.path.exists(fn):
@@ -129,6 +133,8 @@ class VarsDb(object):
                 self.load_alt_read_index()
             if self.uuid_idx_in_mem:
                 self.load_uuid_read_index()
+            if self.uuid_strand_idx_in_mem:
+                self.load_uuid_strand_read_index()
         else:
             if db_safety < 2:
                 # set asynchronous mode to off for max speed
@@ -161,10 +167,28 @@ class VarsDb(object):
                 self.alt_idx = {}
             else:
                 self.create_alt_index()
+            if self.uuid_idx_in_mem:
+                self.uuid_idx = {}
 
         return
 
     # insert data functions
+    def get_chrm_id_or_insert(self, chrm, chrm_len):
+        try:
+            if self.chrm_idx_in_mem:
+                chrm_id = self.chrm_idx[chrm]
+            else:
+                chrm_id = self.cur.execute(
+                    'SELECT chrm_id FROM chrm WHERE chrm=?',
+                    (chrm,)).fetchone()[0]
+        except (TypeError, KeyError):
+            self.cur.execute('INSERT INTO chrm (chrm, chrm_len) VALUES (?,?)',
+                             (chrm, chrm_len))
+            chrm_id = self.cur.lastrowid
+            if self.chrm_idx_in_mem:
+                self.chrm_idx[chrm] = chrm_id
+        return chrm_id
+
     def insert_chrms(self, chrm_names_and_lens):
         next_chrm_id = self.get_num_uniq_chrms() + 1
         self.cur.executemany('INSERT INTO chrm (chrm, chrm_len) VALUES (?,?)',
@@ -176,10 +200,32 @@ class VarsDb(object):
                       next_chrm_id + len(chrm_names_and_lens[0]))))
         return
 
+    def get_loc_id_or_insert(
+            self, chrm_id, test_start, test_end, pos, ref_seq, var_name):
+        try:
+            if self.loc_idx_in_mem:
+                loc_id = self.loc_idx[(chrm_id, test_start, test_end)]
+            else:
+                loc_id = self.cur.execute(
+                    'SELECT loc_id FROM loc WHERE loc_chrm=? AND ' +
+                    'test_start=? AND test_end=?',
+                    (chrm_id, test_start, test_end)).fetchone()[0]
+        except (TypeError, KeyError):
+            self.cur.execute(
+                'INSERT INTO loc (loc_chrm, test_start, test_end, ' +
+                'pos, ref_seq, var_name) VALUES (?,?,?,?,?,?)',
+                (chrm_id, test_start, test_end, pos, ref_seq, var_name))
+            loc_id = self.cur.lastrowid
+            if self.loc_idx_in_mem:
+                self.loc_idx[(chrm_id, test_start, test_end)] = loc_id
+        return loc_id
+
     def get_loc_ids_or_insert(self, r_var_scores, chrm_id):
         """ Extract all location IDs and add those locations not currently
         found in the database
         """
+        if len(r_var_scores) == 0: return []
+
         r_locs = dict((
             ((chrm_id, test_start, test_end), (pos, ref_seq, var_name))
             for pos, _, ref_seq, _, var_name,
@@ -218,7 +264,26 @@ class VarsDb(object):
 
         return r_loc_ids
 
+    def get_alt_id_or_insert(self, alt_seq):
+        try:
+            if self.alt_idx_in_mem:
+                alt_id = self.alt_idx[alt_seq]
+            else:
+                alt_id = self.cur.execute(
+                    'SELECT alt_id FROM alt WHERE alt_seq=?',
+                    (alt_seq,)).fetchone()[0]
+        except (TypeError, KeyError):
+            self.cur.execute(
+                'INSERT INTO alt (alt_seq) VALUES (?)',
+                (alt_seq,))
+            alt_id = self.cur.lastrowid
+            if self.alt_idx_in_mem:
+                self.alt_idx[alt_seq] = alt_id
+        return alt_id
+
     def get_alt_ids_or_insert(self, r_var_scores):
+        if len(r_var_scores) == 0: return []
+
         logger = logging.get_logger()
         r_seqs_and_lps = [
             tuple(zip(alt_seqs, alt_lps))
@@ -255,9 +320,26 @@ class VarsDb(object):
 
         return r_alt_ids
 
+    def get_read_id_or_insert(self, uuid):
+        try:
+            if self.uuid_idx_in_mem:
+                read_id = self.uuid_idx[uuid]
+            else:
+                read_id = self.cur.execute(
+                    'SELECT read_id FROM read WHERE uuid=?',
+                    (uuid,)).fetchone()[0]
+        except (TypeError, KeyError):
+            self.cur.execute('INSERT INTO read (uuid) VALUES (?)', (uuid,))
+            read_id = self.cur.lastrowid
+            if self.uuid_idx_in_mem:
+                self.uuid_idx[uuid] = read_id
+        return read_id
+
     def insert_read_scores(self, r_var_scores, uuid, chrm, strand):
         self.cur.execute('INSERT INTO read (uuid, strand) VALUES (?,?)',
                          (uuid, strand))
+        if len(r_var_scores) == 0: return
+
         read_id = self.cur.lastrowid
         chrm_id = self.get_chrm_id(chrm)
         loc_ids = self.get_loc_ids_or_insert(r_var_scores, chrm_id)
@@ -271,19 +353,32 @@ class VarsDb(object):
             'INSERT INTO data VALUES (?,?,?,?)', read_insert_data)
         return
 
+    def insert_data(self, score, loc_id, alt_id, read_id):
+        self.cur.execute(
+            'INSERT INTO data (score, score_loc, score_alt, score_read) ' +
+            'VALUES (?,?,?,?)', (score, loc_id, alt_id, read_id))
+        return self.cur.lastrowid
+
     # create and load index functions
     def create_chrm_index(self):
         self.cur.execute('CREATE UNIQUE INDEX chrm_idx ON chrm(chrm)')
         return
 
     def load_chrm_read_index(self):
-        self.cur.execute('SELECT chrm_id, chrm FROM chrm')
-        self.chrm_read_idx = dict(self.cur.fetchall())
+        self.chrm_read_idx = dict(self.cur.execute(
+            'SELECT chrm_id, chrm FROM chrm').fetchall())
         return
 
     def load_uuid_read_index(self):
-        self.cur.execute('SELECT read_id, uuid FROM read')
-        self.uuid_read_idx = dict(self.cur.fetchall())
+        self.uuid_read_idx = dict(self.cur.execute(
+            'SELECT read_id, uuid FROM read').fetchall())
+        return
+
+    def load_uuid_strand_read_index(self):
+        self.uuid_strand_read_idx = dict(
+            (read_id, (uuid, strand)) for read_id, uuid, strand in
+            self.cur.execute(
+                'SELECT read_id, uuid, strand FROM read').fetchall())
         return
 
     def create_alt_index(self):
@@ -291,8 +386,8 @@ class VarsDb(object):
         return
 
     def load_alt_read_index(self):
-        self.cur.execute('SELECT alt_id, alt_seq FROM alt')
-        self.alt_read_idx = dict(self.cur.fetchall())
+        self.alt_read_idx = dict(self.cur.execute(
+            'SELECT alt_id, alt_seq FROM alt').fetchall())
         return
 
     def create_loc_index(self):
@@ -301,10 +396,11 @@ class VarsDb(object):
         return
 
     def load_loc_read_index(self):
-        self.cur.execute('SELECT loc_id, pos, ref_seq, var_name FROM loc')
         self.loc_read_idx = dict(
             (loc_id, (pos, ref_seq, var_name))
-            for loc_id, pos, ref_seq, var_name in self.cur)
+            for loc_id, pos, ref_seq, var_name in self.cur.execute(
+                    'SELECT loc_id, pos, ref_seq, var_name ' +
+                    'FROM loc').fetchall())
         return
 
     def create_data_covering_index(self):
@@ -372,6 +468,18 @@ class VarsDb(object):
             raise mh.MegaError('Read ID not found in vars database.')
         return uuid
 
+    def get_uuid_strand(self, read_id):
+        try:
+            if self.uuid_strand_idx_in_mem:
+                uuid_strand = self.uuid_strand_read_idx[read_id]
+            else:
+                uuid_strand = self.cur.execute(
+                    'SELECT uuid, strand FROM read WHERE read_id=?',
+                    (read_id,)).fetchone()
+        except (TypeError, KeyError):
+            raise mh.MegaError('Read ID not found in vars database.')
+        return uuid_strand
+
     def get_num_uniq_chrms(self):
         num_chrms = self.cur.execute(
             'SELECT MAX(chrm_id) FROM chrm').fetchone()[0]
@@ -392,11 +500,22 @@ class VarsDb(object):
         return num_alts
 
     def iter_locs(self):
-        self.cur.execute(
-            'SELECT loc_id, loc_chrm, pos, ref_seq, var_name FROM loc')
-        for loc in self.cur:
+        for loc in self.cur.execute(
+                'SELECT loc_id, loc_chrm, pos, ref_seq, var_name ' +
+                'FROM loc').fetchall():
             yield loc
+        return
 
+    def iter_data(self):
+        for data in self.cur.execute(
+                'SELECT score, uuid, strand, alt_seq, ref_seq, pos, ' +
+                'var_name, test_end, test_start, chrm, chrm_len ' +
+                'FROM data ' +
+                'INNER JOIN read ON data.score_read = read.read_id ' +
+                'INNER JOIN alt ON data.score_alt = alt.alt_id ' +
+                'INNER JOIN loc ON data.score_loc = loc.loc_id ' +
+                'INNER JOIN chrm ON loc.loc_chrm = chrm.chrm_id').fetchall():
+            yield data
         return
 
     def get_loc_stats(self, loc_data, return_uuids=False):
@@ -804,10 +923,22 @@ def _get_variants_queue(
 
         return
 
-    def get_var_call(
+    def store_var_call(
             r_var_calls, read_id, chrm, strand, r_start, ref_seq, read_len,
-            q_st, q_en, cigar):
-        vars_db.insert_read_scores(r_var_calls, read_id, chrm, strand)
+            q_st, q_en, cigar, been_warned):
+        try:
+            vars_db.insert_read_scores(r_var_calls, read_id, chrm, strand)
+        except Exception as e:
+            if not been_warned:
+                logger.warning(
+                    'Error inserting sequence variant scores into database. ' +
+                    'See log debug output for error details.')
+                been_warned = True
+            import traceback
+            logger.debug(
+                'Error inserting modified base scores into database: ' +
+                str(e) + '\n' + traceback.format_exc())
+
         if vars_txt_fp is not None and len(r_var_calls) > 0:
             var_out_text = ''
             for (pos, alt_lps, var_ref_seq, var_alt_seqs, var_id,
@@ -815,7 +946,7 @@ def _get_variants_queue(
                 with np.errstate(divide='ignore'):
                     ref_lp = np.log1p(-np.exp(alt_lps).sum())
                 var_out_text += '\n'.join((
-                    ('\t'.join('{}' for _ in field_names)).format(
+                    ('\t'.join('{}' for _ in vars_db.text_field_names)).format(
                         read_id, chrm, strand, pos, ref_lp, alt_lp,
                         var_ref_seq, var_alt_seq, var_id)
                     for alt_lp, var_alt_seq in zip(
@@ -834,10 +965,12 @@ def _get_variants_queue(
                     read_id, var_seq, var_quals, chrm, strand, r_start,
                     var_cigar)
 
-        return
+        return been_warned
 
 
     logger = logging.get_logger('vars_getter')
+    been_warned = False
+
     vars_db = VarsDb(vars_db_fn, db_safety=db_safety, read_only=False,
                      loc_index_in_memory=loc_index_in_memory)
     vars_db.insert_chrms(ref_names_and_lens)
@@ -846,10 +979,7 @@ def _get_variants_queue(
         vars_txt_fp = None
     else:
         vars_txt_fp = open(vars_txt_fn, 'w')
-        field_names = (
-            'read_id', 'chrm', 'strand', 'pos', 'ref_log_prob', 'alt_log_prob',
-            'ref_seq', 'alt_seq', 'var_id')
-        vars_txt_fp.write('\t'.join(field_names) + '\n')
+        vars_txt_fp.write('\t'.join(vars_db.text_field_names) + '\n')
 
     if pr_refs_fn is not None:
         pr_refs_fp = open(pr_refs_fn, 'w')
@@ -880,30 +1010,16 @@ def _get_variants_queue(
                 break
             sleep(0.001)
             continue
-        try:
-            get_var_call(
-                r_var_calls, read_id, chrm, strand, r_start, ref_seq, read_len,
-                q_st, q_en, cigar)
-        except Exception as e:
-            logger.debug((
-                'Error processing variant output for read: {}\nSet' +
-                ' _RAISE_VARIANT_PROCESSING_ERRORS in megalodon/variants.py to ' +
-                'see full error.\nError type: {}').format(read_id, str(e)))
-            if _RAISE_VARIANT_PROCESSING_ERRORS: raise
-
+        been_warned = store_var_call(
+            r_var_calls, read_id, chrm, strand, r_start, ref_seq, read_len,
+            q_st, q_en, cigar, been_warned)
     while not vars_q.empty():
         r_var_calls, (read_id, chrm, strand, r_start, ref_seq, read_len,
                       q_st, q_en, cigar) = vars_q.get(block=False)
-        try:
-            get_var_call(
-                r_var_calls, read_id, chrm, strand, r_start, ref_seq, read_len,
-                q_st, q_en, cigar)
-        except Exception as e:
-            logger.debug((
-                'Error processing variant output for read: {}\nSet' +
-                ' _RAISE_VARIANT_PROCESSING_ERRORS in megalodon/variants.py ' +
-                'to see full error.\nError type: {}').format(read_id, str(e)))
-            if _RAISE_VARIANT_PROCESSING_ERRORS: raise
+        been_warned = store_var_call(
+            r_var_calls, read_id, chrm, strand, r_start, ref_seq, read_len,
+            q_st, q_en, cigar, been_warned)
+
     if vars_txt_fp is not None: vars_txt_fp.close()
     if pr_refs_fn is not None: pr_refs_fp.close()
     if whatshap_map_fn is not None: whatshap_map_fp.close()
