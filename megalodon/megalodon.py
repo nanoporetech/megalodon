@@ -54,7 +54,8 @@ def handle_errors(func, args, r_vals, out_q, fast5_fn, failed_reads_q):
 def process_read(
         raw_sig, read_id, model_info, bc_q, caller_conn,
         sig_map_q, mod_sig_map_q, sig_map_data, sig_map_filts, sig_map_alphabet,
-        vars_data, vars_q, mods_q, mods_info, fast5_fn, failed_reads_q):
+        vars_data, vars_q, mods_q, mods_info, fast5_fn, failed_reads_q,
+        signal_reversed):
     """ Workhorse per-read megalodon function (connects all the parts)
     """
     if model_info.is_cat_mod:
@@ -73,6 +74,9 @@ def process_read(
     r_seq, score, rl_cumsum, mods_scores = decode.decode_post(
         r_post, mods_info.alphabet, mod_weights, can_nmods)
     if bc_q is not None:
+        if signal_reversed:
+            r_seq = r_seq[::-1]
+            mods_scores = mods_scores[::-1]
         bc_q.put((read_id, r_seq, mods_scores))
 
     # if no mapping connection return after basecalls are passed out
@@ -80,7 +84,7 @@ def process_read(
 
     # map read and record mapping from reference to query positions
     r_ref_seq, r_to_q_poss, r_ref_pos, r_cigar = mapping.map_read(
-        r_seq, read_id, caller_conn)
+        r_seq, read_id, caller_conn, signal_reversed)
     np_ref_seq = mh.seq_to_int(r_ref_seq)
 
     sig_map_res = None
@@ -116,7 +120,7 @@ def process_read(
             func=mods.call_read_mods,
             args=(r_ref_pos, r_ref_seq, mapped_rl_cumsum, r_to_q_poss,
                   r_post_w_mods, post_mapped_start, mods_info, mod_sig_map_q,
-                  sig_map_res),
+                  sig_map_res, signal_reversed),
             r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
@@ -182,7 +186,7 @@ def _get_bc_queue(
 def _process_reads_worker(
         read_file_q, bc_q, vars_q, failed_reads_q, mods_q, caller_conn,
         sig_map_q, mod_sig_map_q, sig_map_filts, sig_map_alphabet, model_info,
-        vars_data, mods_info, device):
+        vars_data, mods_info, device, signal_reversed):
     model_info.prep_model_worker(device)
     vars_data.reopen_variant_index()
     stride = model_info.guess_model_stride(model_info.model)
@@ -218,7 +222,7 @@ def _process_reads_worker(
                 raw_sig, read_id, model_info, bc_q, caller_conn,
                 sig_map_q, mod_sig_map_q, sig_map_data, sig_map_filts,
                 sig_map_alphabet, vars_data, vars_q, mods_q, mods_info,
-                fast5_fn, failed_reads_q)
+                fast5_fn, failed_reads_q, signal_reversed)
             failed_reads_q.put((
                 False, True, None, None, None, raw_sig.shape[0]))
             logger.debug('Successfully processed read {}'.format(read_id))
@@ -457,7 +461,8 @@ def _get_fail_queue(
 def process_all_reads(
         fast5s_dir, recursive, num_reads, read_ids_fn, model_info, outputs,
         out_dir, bc_fmt, aligner, vars_data, num_ps, num_update_errors,
-        suppress_progress, mods_info, db_safety, pr_ref_filts, sig_map_filts):
+        suppress_progress, mods_info, db_safety, pr_ref_filts, sig_map_filts,
+        signal_reversed):
     logger = logging.get_logger()
     logger.info('Preparing workers to process reads.')
     # read filename queue filler
@@ -542,7 +547,7 @@ def process_all_reads(
             target=_process_reads_worker, args=(
                 read_file_q, bc_q, vars_q, failed_reads_q, mods_q, caller_conn,
                 sig_map_q, mod_sig_map_q, sig_map_filts, alphabet_info.alphabet,
-                model_info, vars_data, mods_info, device))
+                model_info, vars_data, mods_info, device, signal_reversed))
         p.daemon = True
         p.start()
         proc_reads_ps.append(p)
@@ -668,6 +673,10 @@ def vars_validation(args, is_cat_mod, output_size, aligner):
         logger.warning(
             '--variants-filename provided, but variants output not requested ' +
             '(via --outputs). Argument will be ignored.')
+    if args.rna and mh.PR_VAR_NAME in args.outputs:
+        logger.error(
+            'Sequence variant analysis of RNA data is not currently supported.')
+        sys.exit(1)
     return args, vars_data
 
 def mods_validation(args, model_info):
@@ -1051,6 +1060,9 @@ def get_parser():
         'common points where reads could not be processed further. ' +
         'Default: %(default)d')
     misc_grp.add_argument(
+        '--rna', action='store_true',
+        help='RNA input data. Requires RNA model. Default: DNA input data')
+    misc_grp.add_argument(
         '-v', '--version', action='version',
         version='Megalodon version: {}'.format(MEGALODON_VERSION),
         help='show megalodon version and exit.')
@@ -1105,7 +1117,7 @@ def _main():
         args.read_ids_filename, model_info, args.outputs,
         args.output_directory, args.basecalls_format, aligner, vars_data,
         args.processes, args.verbose_read_progress, args.suppress_progress,
-        mods_info, args.database_safety, pr_ref_filts, sig_map_filts)
+        mods_info, args.database_safety, pr_ref_filts, sig_map_filts, args.rna)
 
     if aligner is not None:
         ref_fn = aligner.ref_fn

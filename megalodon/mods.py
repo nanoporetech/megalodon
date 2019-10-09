@@ -552,12 +552,17 @@ def score_mod_seq(
 
 def call_read_mods(
         r_ref_pos, r_ref_seq, rl_cumsum, r_to_q_poss, r_post,
-        post_mapped_start, mods_info, mod_sig_map_q, sig_map_res):
-    def iter_motif_sites(r_ref_seq):
-        max_pos = len(r_ref_seq) - mods_info.edge_buffer
+        post_mapped_start, mods_info, mod_sig_map_q, sig_map_res,
+        signal_reversed):
+    def iter_motif_sites():
+        search_ref_seq = r_ref_seq[::-1] if signal_reversed else r_ref_seq
+        ref_seq_len = len(r_ref_seq)
+        max_pos = ref_seq_len - mods_info.edge_buffer
         for motif, rel_pos, mod_bases, raw_motif in mods_info.all_mod_motifs:
-            for motif_match in motif.finditer(r_ref_seq):
+            for motif_match in motif.finditer(search_ref_seq):
                 m_pos = motif_match.start() + rel_pos
+                if signal_reversed:
+                    m_pos = ref_seq_len - m_pos - 1
                 if m_pos < mods_info.edge_buffer: continue
                 if m_pos > max_pos: break
                 yield m_pos, mod_bases, motif_match.group(), rel_pos, raw_motif
@@ -567,19 +572,21 @@ def call_read_mods(
     logger = logging.get_logger('mods')
     # call all mods overlapping this read
     r_mod_scores = []
-    for (pos, mod_bases, ref_motif, rel_pos,
-         raw_motif) in iter_motif_sites(r_ref_seq):
+    for (pos, mod_bases, ref_motif, rel_pos, raw_motif) in iter_motif_sites():
         pos_bb, pos_ab = min(mods_info.mod_context_bases, pos), min(
             mods_info.mod_context_bases, len(r_ref_seq) - pos - 1)
+        if (r_ref_pos.strand == 1 and not signal_reversed) or (
+                r_ref_pos.strand == -1 and signal_reversed):
+            mod_ref_pos = r_ref_pos.start + pos
+        else:
+            mod_ref_pos = r_ref_pos.start + len(r_ref_seq) - pos - 1
         try:
             pos_ref_seq = mh.seq_to_int(
                 r_ref_seq[pos - pos_bb:pos + pos_ab + 1])
         except mh.MegaError:
-            ref_pos = r_ref_pos.start + pos if r_ref_pos.strand == 1 else \
-                      r_ref_pos.start + len(r_ref_seq) - pos - 1
             logger.debug(
                 'Invalid sequence encountered calling modified base ' +
-                'at {}:{}'.format(r_ref_pos.chrm, ref_pos))
+                'at {}:{}'.format(r_ref_pos.chrm, mod_ref_pos))
             continue
         pos_can_mods = np.zeros_like(pos_ref_seq)
 
@@ -616,10 +623,8 @@ def call_read_mods(
         # inferred negative reference likelihood, so re-normalize here
         loc_mod_lps = calibration.compute_log_probs(np.array(calib_llrs))
 
-        m_ref_pos = (pos + r_ref_pos.start if r_ref_pos.strand == 1 else
-                     r_ref_pos.end - pos - 1)
         r_mod_scores.append((
-            m_ref_pos, loc_mod_lps, mod_bases, ref_motif, rel_pos, raw_motif))
+            mod_ref_pos, loc_mod_lps, mod_bases, ref_motif, rel_pos, raw_motif))
 
     # annotate mods on reference sequence and send to signal mapping queue
     if mod_sig_map_q is not None and sig_map_res[0]:
