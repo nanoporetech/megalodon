@@ -106,6 +106,9 @@ def process_read(
         r_ref_pos.q_trim_start:r_ref_pos.q_trim_end + 1] - post_mapped_start
 
     if vars_q is not None:
+        assert not signal_reversed, (
+            'Reversed raw signal (RNA) not compatible with sequence ' +
+            'variant detection.')
         handle_errors(
             func=variants.call_read_vars,
             args=(vars_data, r_ref_pos, np_ref_seq, mapped_rl_cumsum,
