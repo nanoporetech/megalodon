@@ -75,9 +75,9 @@ def process_read(
         r_post, mods_info.alphabet, mod_weights, can_nmods)
     if bc_q is not None:
         if signal_reversed:
-            r_seq = r_seq[::-1]
-            mods_scores = mods_scores[::-1]
-        bc_q.put((read_id, r_seq, mods_scores))
+            if mods_scores is not None:
+                mods_scores = mods_scores[::-1]
+        bc_q.put((read_id, r_seq[::-1], mods_scores))
 
     # if no mapping connection return after basecalls are passed out
     if caller_conn is None: return
@@ -525,13 +525,16 @@ def process_all_reads(
                 mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME), db_safety,
                 aligner.ref_names_and_lens, mods_txt_fn,
                 pr_refs_fn, pr_ref_filts, mods_info.pos_index_in_memory))
+    model_alphabet = None
     if mh.SIG_MAP_NAME in outputs:
         alphabet_info = signal_mapping.get_alphabet_info(model_info)
+        model_alphabet = alphabet_info.alphabet
         sig_map_fn = mh.get_megalodon_fn(out_dir, mh.SIG_MAP_NAME)
         sig_map_q, sig_map_p, sig_map_conn = mh.create_getter_q(
             signal_mapping.write_signal_mappings, (sig_map_fn, alphabet_info))
     if mh.MOD_SIG_MAP_NAME in outputs:
         alphabet_info = signal_mapping.get_alphabet_info(model_info)
+        model_alphabet = alphabet_info.alphabet
         sig_map_fn = mh.get_megalodon_fn(out_dir, mh.SIG_MAP_NAME)
         mod_sig_map_q, mod_sig_map_p, mod_sig_map_conn = mh.create_getter_q(
             signal_mapping.write_signal_mappings, (sig_map_fn, alphabet_info))
@@ -546,7 +549,7 @@ def process_all_reads(
         p = mp.Process(
             target=_process_reads_worker, args=(
                 read_file_q, bc_q, vars_q, failed_reads_q, mods_q, caller_conn,
-                sig_map_q, mod_sig_map_q, sig_map_filts, alphabet_info.alphabet,
+                sig_map_q, mod_sig_map_q, sig_map_filts, model_alphabet,
                 model_info, vars_data, mods_info, device, signal_reversed))
         p.daemon = True
         p.start()
