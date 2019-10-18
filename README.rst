@@ -20,9 +20,10 @@ Megalodon requires ``numpy`` to be installed before running megalodon installati
 
 Megalodon requires `taiyaki <https://github.com/nanoporetech/taiyaki>`_ installation for basecalling backend at run time.
 Megalodon requires only a minimal taiyaki installation via ``pip install git+https://github.com/nanoporetech/taiyaki.git``.
+Full ``taiyaki`` installation (via ``make install``) is not necessary for megalodon functionality, but makes GPU configuration more painless.
 
 Megalodon requires `pytorch <https://pytorch.org/>`_ to support the ``taiyaki`` basecalling backend.
-For megalodon GPU support, pytorch must be installed with GPU support (and ``--devices`` to use provided at run time).
+For megalodon GPU support, pytorch must be installed with GPU support (and ``--devices`` provided at run time).
 If pytorch is not installed before megalodon, pip will install the defualt pytorch (possibly CPU only).
 
 Installation
@@ -46,11 +47,11 @@ Megalodon is accessed via the command line interface ``megalodon`` command.
     megalodon --help-long
 
     # Example command calling variants and CpG methylation
-    #   Compute settings: GPU devices 0 and 1 with 8 CPU cores
+    #   Compute settings: GPU devices 0 and 1 with 10 CPU cores
     megalodon raw_fast5s/ \
         --outputs basecalls mappings variants mods \
         --reference reference.fa --variant-filename variants.vcf.gz \
-        --mod-motif Z CG 0 --devices 0 1 --processes 8 --verbose-read-progress 3
+        --mod-motif Z CG 0 --devices 0 1 --processes 10 --verbose-read-progress 3
 
 This command produces the ``megalodon_results`` output directory containing basecalls, mappings, sequence variants and modified base results.
 The format for each output is described below.
@@ -58,7 +59,7 @@ The format for each output is described below.
 .. note::
 
    The default basecalling model (used in this example command) is for R9.4.1, MinION/GridION reads.
-   This is equivalent to the guppy/MinKNOW high accuracy model in terms of basecall accuracy and run speed (though using taiyaki backend is slower than guppy).
+   This is equivalent to the guppy high accuracy modified base model (``template_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.jsn``) in terms of basecall results (though using taiyaki/pytorch backend is considerably slower than guppy).
    This model contains modified bases 5mC (encoded as a ``Z`` base) and 6mA (encoded as a ``Y`` base) trained in biological contexts only (5mC in human CpG and E. coli CCWGG and 6mA in E. coli GATC).
 
 Inputs
@@ -74,9 +75,9 @@ Inputs
 - Variants File
 
   - Format: VCF or BCF
+  - Megalodon currently requires a set of candidate variants for ``--outputs variants`` (provide via ``--variant-filename`` argument).
 
     - If not indexed, indexing will be performed
-  - Megalodon currently requires a set of candidate variants for ``--outputs variants``.
   - Only small indels (default less than ``50`` bases) are tested by default.
 
     - Specify the ``--max-indel-size`` argument to process larger indels
@@ -84,6 +85,8 @@ Inputs
 
 Outputs
 -------
+
+All megalodon outputs are output into the directory specified with the ``--output-directory`` option with standard file names and extensions.
 
 - Basecalls
 
@@ -99,12 +102,13 @@ Outputs
     - ``percent_identity`` is defined as ``num_matched_bases`` / ``num_align_bases``
 - Modified Base Calls
 
+  - In order to restrict modified base calls to a particular motif specify the ``--mod-motif`` along with the modified base, canonical motif and relative modified base position within the motif. For example in order to output only CpG methylation specify ``--mod-motif Z CG 0``.
   - Per-read modified base calls
 
     - Per-read SQL DB containing scores at each tested reference location
 
       - Contains an indexed table with per-read, per-position, modified base scores, as well as auxiliary tables with read, modification type and reference position information.
-    - Tab-delimited output can be produced by adding the ``--write-mods-text`` flag
+    - Tab-delimited output can be produced by adding the ``--write-mods-text`` flag or produced after a run using the ``megalodon/scripts/write_per_read_modified_base_text.py`` script.
   - Aggregated calls
 
     - Aggregated calls are output in either bedMethyl format (default; one file per modified base), a VCF variant format (including all modified bases) or wiggle format (one file per modified base/strand combination).
@@ -115,12 +119,13 @@ Outputs
     - SQL DB containing scores for each tested variant
 
       - Contains a single ``variants`` table indexed by reference position
-    - Tab-delimited output can be produced by adding the ``--write-variants-text`` flag
+    - Tab-delimited output can be produced by adding the ``--write-variants-text`` flag or produced after a run using the ``megalodon/scripts/write_per_read_sequence_variant_text.py`` script.
   - Aggregated calls
 
     - Format: VCF
     - VCF sample field contains ``GT``, ``GQ``, ``DP``, ``GL``, and ``PL`` attributes
     - Default run mode is diploid. To run in haploid mode, set ``--haploid`` flag.
+    - For best results on a diploid genome see the variant phasing workflow on the `full documentation page <https://nanoporetech.github.io/megalodon/variant_phasing.html>`_.
 
 Computing
 ---------
@@ -128,12 +133,12 @@ Computing
 Megalodon processes reads from a queue using a pool of workers.
 The number of workers is set using the ``--processes`` argument.
 Each process is linked to a taiyaki basecalling backend and a separate thread for reference mapping.
-The threaded mapping interface allows megalodon to load the reference (via ``mappy``) into shared memory.
+The threaded mapping interface allows megalodon to load the reference into shared memory (via `mappy <https://github.com/lh3/minimap2/tree/master/python>`_).
 
-In order to use GPU resources the ``--devices`` argument can be set.
+In order to use GPU resources set the ``--devices`` argument.
 If ``--devices`` is set, the taiyaki backends will be distribured evenly over the specified ``--devices``.
 In order to control the GPU memory usage, the ``--max-concurrent-chunks`` argument allows a user to restrict the maximum number of chunks to process concurrently (per ``--process``).
-Note that the model parameters must (currently) be loaded into each GPU process and thus limits the number of GPU processes that can be spawned per GPU.
+Note that the model parameters must be loaded into each GPU process (default high accuracy model consumes ~1GB of GPU memory) and thus limits the number of processes that can be spawned per GPU device.
 
 The ``--chunk-size`` and ``--chunk-overlap`` arguments allow users to specify read chunking, but signal normalization is always carried out over the entire read.
 
@@ -144,9 +149,9 @@ Model Compatibility
 -------------------
 
 The model and calibration files included with megalodon are applicable only to MinION or GridION R9.4.1 flowcells.
-New models trained with taiyaki can be used with megalodon, but in order to obtain the highest performance the megalodon (variant and modified base) calibration files should be reproduced for any new model (TODO provide walkthrough).
+New models trained with taiyaki can be used with megalodon, but in order to obtain the highest performance the megalodon (variant and modified base) calibration files should be reproduced for any new model.
 
-The included model contains 5mC and 6mA capabilities.
+The default model included with megalodon provides 5mC and 6mA detection.
 5mC was trained only in the human (CpG) and E. coli (CCWGG) contexts while the 6mA was trained only on the E. coli (GATC) context.
 Modified base detection outside of these contexts has not been tested and may produce sub-optimal results.
 As noted above newly trained models using taiyaki can be used with megalodon, but calibration files should be reproduced for each new model.

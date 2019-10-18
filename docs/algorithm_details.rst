@@ -9,7 +9,7 @@ Base Calling
 ------------
 
 Basecalling is performed as in taiyaki and guppy.
-Raw nanopore signal is normalizied (using median and MAD scaling), chunked, processed with a recurrent neural network and decoded using the forward-backward algorithm.
+Raw nanopore signal is normalizied (using median and MAD scaling), chunked, processed with a recurrent neural network and decoded using the forward-backward algorithm followed by Viterbi decoding.
 These steps are described in the taiyaki documentation.
 
 -------------------
@@ -30,15 +30,17 @@ Sequence Variant Calling
 ------------------------
 
 Megalodon currently filters alleles over a certain maximum size (default 50) as performance on larger indels has not currenty been validated.
+Note also that variants are converted into an "atomic" form (containing minimal unique variant sequence for indels).
+Thus atomic variants do not contain context sequence and are expanded to include regions of ambiguity (indel within a repetative region).
 
 At each valid variant a region of context sequence around the variant is extracted.
 The context sequence allows the scoring algorithm to traverse slightly different paths through the local neural network output.
-The width of this sequence of interest is defined by the ``--variant-context-bases`` argument (specified individually for single base SNVs and indels; defaults 10 and 30 respectively).
+The width of this sequence of interest is defined by the ``--variant-context-bases`` argument (specified individually for single base and insertion/deletion variants; defaults 10 and 30 respectively).
 
 Next the neural network output corresponding to the reference sequence of interest is extracted.
 The fuzzy reference anchoring described above identifies the range of the neural network output containing the sequence of interest.
 
-The sequence scoring function performs the forward-backward algorithm and Viterbi algorithm over the neural network output to produce a score for the reference and proposed alternative sequence.
+The sequence scoring function performs the forward-backward algorithm and Viterbi decoding over the neural network output to produce a score for the reference and proposed alternative sequence.
 The difference between these two scores is the assigned score for the proposed variant.
 Lower (negative) score are evidence for the alternative sequence and higher (positive) scores are evidence for the reference sequence.
 
@@ -46,6 +48,12 @@ These raw scores are softmax values over potential states, to match characterist
 In practice, these scores do not match emperical probabilities for a variant given a truth dataset.
 Thus a calibration step is applied to convert these scores to estimated emperical probabilities.
 This enables more accurate aggregation across reads.
+
+As of version 1.0.0, megalodon now performs a second round of variant detection taking nearby variants into account.
+Variants from the first round (considering each variant in isolation) are filtered to by a minimal probability of evidence for variant allele (default ``0.05``; set with ``--context-min-alt-prob`` argument).
+In the second pass, variants within a set region are considered when estimating the probability of a particular variant (up to a set maximum number of context variants in order to reduce compute).
+Scores for each potential context are combined statistically (using logsumexp) and these are the final scores reported for each variant.
+This process reduces the number of false positives where a true variant is adjacent to another proposed variant.
 
 Finally, calls across reads at each reference location are aggregated in order make a sample-level call.
 These results will be output into a VCF format file.

@@ -16,8 +16,8 @@ from megalodon import (
     megalodon, backends, mapping, variants)
 
 
-CONTEXT_BASES = [10, 30]
-EDGE_BUFFER = 100
+CONTEXT_BASES = [mh.DEFAULT_SNV_CONTEXT, mh.DEFAULT_INDEL_CONTEXT]
+EDGE_BUFFER = 10
 MAX_INDEL_LEN = 5
 ALL_PATHS = False
 TEST_EVERY_N_LOCS = 5

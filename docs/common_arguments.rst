@@ -28,6 +28,8 @@ Model Argument
     - This model is equivalent to the "high accuracy" model for MinKNOW/guppy.
     - This model includes modified bases 5mC and 6mA in biological contexts: 5mC in human (CpG) and E. coli (CCWGG) contexts and 6mA in E. coli (GATC) context.
 
+  - Guppy JSON-format models can be converted to taiyaki checkpoints/models with the ``taiyaki/bin/json_to_checkpoint.py`` script for use with megalodon.
+
 ----------------
 Output Arguments
 ----------------
@@ -41,6 +43,7 @@ Output Arguments
     - ``whatshap_mappings`` are intended only for obtaining highly accurate phased variant genotypes.
 
       - These mappings contain reference sequence at all positions except for per-read called variants. The base quality scores encode the likelihood for that reference anchored variant for use in the whathap phasing algorithm.
+      - This file is useful for visualizing per-read variant calls as well as potential variant phasing.
   - Default output is basecalls only.
 - ``--output-directory``
 

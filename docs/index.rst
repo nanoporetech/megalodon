@@ -12,10 +12,10 @@ Prerequisites
 
 Megalodon requires `taiyaki <https://github.com/nanoporetech/taiyaki>`_ installation for basecalling backend.
 Megalodon requires only a minimal taiyaki installation via ``pip install git+https://github.com/nanoporetech/taiyaki.git``.
-Full installation (via ``make install``) is not necessary for megalodon functionality.
+Full installation (via ``make install``) is not necessary for megalodon functionality, but makes GPU configuration more painless.
 
 Megalodon requires `pytorch <https://pytorch.org/>`_ to support the ``taiyaki`` basecalling backend.
-For megalodon GPU support, pytorch must be installed with GPU support (and ``--devices`` to use provided at run time).
+For megalodon GPU support, pytorch must be installed with GPU support (and ``--devices`` provided at run time).
 If pytorch is not installed before megalodon, pip will install the defualt pytorch (possibly CPU only).
 
 ------------
@@ -52,7 +52,7 @@ Megalodon is accessed via the command line interface, ``megalodon`` command.
 This command produces the ``megalodon_results`` output directory containing basecalls, mappings, sequence variant and modified base results.
 
 The majority of megalodon's functionality is accessed via the ``megalodon`` command (exemplified above), though a small number of additional scripts are found in the ``scripts`` directory of the code repository.
-These include independent modified base or variant aggregation (much faster than re-computing per-read calls), modified base result validation, and model statistic calibration.
+These include modified base or variant aggregation (much faster than re-computing per-read calls), modified base result validation, and model statistic calibration.
 Helper scripts to perform sequence variant phasing (details here :doc:`variant_phasing`) are also included in the ``scripts`` directory of the repository.
 
 --------
