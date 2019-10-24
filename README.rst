@@ -145,6 +145,19 @@ The ``--chunk-size`` and ``--chunk-overlap`` arguments allow users to specify re
 A number of helper processes will be spawned in order to perform more minor tasks, which should take minimal compute resources.
 These include enumerating read ids and files, collecting and reporting progress information and getting data from read processing queues and writing outputs (basecalls, mappings, sequence variants and modified bases).
 
+Disk Performance Considerations
+*******************************
+
+Within megalodon, per-read modified base and variant statistics are stored in an on-disk sqlite database.
+During read processing per-read, per-site statistics are funneled through a single thread to handle the database input.
+If the requested compute resources are not being utililized to their fullest extent during read processing slow disk write is the most likely bottleneck.
+Moving the database, stored within the directory specified with the ``--output-directory`` argument, to a location with faster disk I/O performance should imporove performance.
+
+For the aggregation stage of processing the disk read speed has a magnified effect.
+During aggregation binary searches for results grouped per-site must be performed over the on-disk database.
+While every database optimization to reduce the disk reads has been implemented, including a fully covering index on the main data table and pre-loading of the smaller auxilliary tables into memory, the performance for data extraction can be extremely slow for large runs.
+Moving the database location from a remote or network file system to a local fast (SSD) disk can increase compute efficiency as much as 100X-700X.
+
 Model Compatibility
 -------------------
 
