@@ -27,6 +27,17 @@ Mapping
 Mapped reads can be output in SAM, BAM or CRAM formats.
 Basecalls will be output into the ``mappings.sam``, ``mappings.bam``, or ``mappings.cram`` file within the ``--output-directory``.
 
+~~~~~~~~~~~~~~~~
+Whatshap Mapping
+~~~~~~~~~~~~~~~~
+
+In addition to standard mapping files, megalodon includes a special mapping-style output with specific relevence to the variant calling pipeline.
+This format can be output as a SAM, BAM or CRAM file as with standard mapping format.
+The mapped reads in this output represent only the information about proposed variants contained within each read.
+Each read is first replaced with the reference bases, with only positions with proposed variants replaced with variants calls.
+The score for each call is encoded in the base quality scores for each read.
+This output is useful for 1) producing more accuracte variant phasing and read haplotagging via whatshap and 2) visualizing per-read variant calls in a genome browser.
+
 -----------------------
 Per-read Modified Bases
 -----------------------
@@ -62,7 +73,18 @@ Alternative formats are `wiggle <https://genome.ucsc.edu/goldenPath/help/wiggle.
 Per-read Sequence Variants
 --------------------------
 
-Docs coming shortly.
+As with the modified base results, the primary output for per-read sequence variant results is as `sqlite database <https://www.sqlite.org/index.html>`_.
+This database contains an indexed table with per-read, per-position, variant scores, as well as auxiliary tables with read, reference location and alternative allele information.
+
+The reference location table (``loc``) contains the mapped 0-based position, strand (1=forward, -1=reverse) and chromosome (via a final ``chrm`` table which contains the chromosome text).
+The ``loc`` table also contains the location for the start and end of the tested positions (applicable for insertions/delections).
+For example, insertions generally require a context base for downstream processing, but within megalodon only the inserted position is considered (without context).
+Each reference location is linked to the IDs linked with this location from the input variants file.
+Finally the reference sequence for the location is included in this table.
+In the related ``alt`` table, each alternative sequence is stored.
+Links between alternative sequences and reference locations are made via the main ``data`` table.
+
+The ``read`` table contrains the read UUID as well as the mapped strand for each read.
 
 ----------------------------
 Aggregated Sequence Variants
