@@ -41,7 +41,8 @@ class ModelInfo(object):
 
         try:
             # import modules
-            from taiyaki.helpers import load_model as load_taiyaki_model
+            from taiyaki.helpers import (
+                load_model as load_taiyaki_model, guess_model_stride)
             from taiyaki.basecall_helpers import run_model as tai_run_model
             from taiyaki.layers import GlobalNormFlipFlopCatMod
         except ImportError:
@@ -61,6 +62,7 @@ class ModelInfo(object):
 
         # store modules in object
         self.load_taiyaki_model = load_taiyaki_model
+        self.guess_model_stride = guess_model_stride
         self.tai_run_model = tai_run_model
         self.torch = torch
 

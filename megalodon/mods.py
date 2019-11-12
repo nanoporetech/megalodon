@@ -10,7 +10,8 @@ from collections import defaultdict, namedtuple, OrderedDict
 import numpy as np
 
 from megalodon import (
-    calibration, decode, logging, mapping, megalodon_helper as mh)
+    calibration, decode, logging, mapping, megalodon_helper as mh,
+    signal_mapping)
 from megalodon._version import MEGALODON_VERSION
 
 
@@ -490,6 +491,37 @@ class ModsDb(object):
 
 
 ################################
+##### Reference Mod Markup #####
+################################
+
+def annotate_mods(r_start, ref_seq, r_mod_scores, strand):
+    """ Annotate reference sequence with called modified bases.
+
+    Note: Reference sequence is in read orientation and mod calls are in
+    genome coordiates.
+    """
+    mod_seqs = []
+    prev_pos = 0
+    if strand == -1:
+        ref_seq = ref_seq[::-1]
+    for mod_pos, mod_lps, mod_bases, _, _, _ in sorted(r_mod_scores):
+        with np.errstate(divide='ignore'):
+            can_lp = np.log1p(-np.exp(mod_lps).sum())
+        # called canonical
+        if can_lp >= mod_lps.max(): continue
+        most_prob_mod = np.argmax(mod_lps)
+        mod_seqs.append(ref_seq[prev_pos:mod_pos - r_start] +
+                        mod_bases[most_prob_mod])
+        prev_pos = mod_pos - r_start + 1
+    mod_seqs.append(ref_seq[prev_pos:])
+    mod_seq = ''.join(mod_seqs)
+    if strand == -1:
+        mod_seq = mod_seq[::-1]
+
+    return mod_seq
+
+
+################################
 ##### Per-read Mod Scoring #####
 ################################
 
@@ -519,7 +551,7 @@ def score_mod_seq(
 
 def call_read_mods(
         r_ref_pos, r_ref_seq, rl_cumsum, r_to_q_poss, r_post,
-        post_mapped_start, mods_info):
+        post_mapped_start, mods_info, mod_sig_map_q, sig_map_res):
     def iter_motif_sites(r_ref_seq):
         max_pos = len(r_ref_seq) - mods_info.edge_buffer
         for motif, rel_pos, mod_bases, raw_motif in mods_info.all_mod_motifs:
@@ -588,38 +620,22 @@ def call_read_mods(
         r_mod_scores.append((
             m_ref_pos, loc_mod_lps, mod_bases, ref_motif, rel_pos, raw_motif))
 
+    # annotate mods on reference sequence and send to signal mapping queue
+    if mod_sig_map_q is not None and sig_map_res[0]:
+        (fast5_fn, dacs, scale_params, r_ref_seq, stride, sig_map_alphabet,
+         read_id, r_to_q_poss, rl_cumsum, q_start) = sig_map_res[1:]
+        r_mod_seq = annotate_mods(
+            r_ref_pos.start, r_ref_seq, r_mod_scores, r_ref_pos.strand)
+        mod_sig_map_q.put(signal_mapping.get_remapping(
+            fast5_fn, dacs, scale_params, r_mod_seq, stride, sig_map_alphabet,
+            read_id, r_to_q_poss, rl_cumsum, q_start))
+
     return r_mod_scores
 
 
 ###############################
 ##### Per-read Mod Output #####
 ###############################
-
-def annotate_mods(r_start, ref_seq, r_mod_scores, strand):
-    """ Annotate reference sequence with called modified bases.
-
-    Note: Reference sequence is in read orientation and mod calls are in
-    genome coordiates.
-    """
-    mod_seqs = []
-    prev_pos = 0
-    if strand == -1:
-        ref_seq = ref_seq[::-1]
-    for mod_pos, mod_lps, mod_bases, _, _, _ in sorted(r_mod_scores):
-        with np.errstate(divide='ignore'):
-            can_lp = np.log1p(-np.exp(mod_lps).sum())
-        # called canonical
-        if can_lp >= mod_lps.max(): continue
-        most_prob_mod = np.argmax(mod_lps)
-        mod_seqs.append(ref_seq[prev_pos:mod_pos - r_start] +
-                        mod_bases[most_prob_mod])
-        prev_pos = mod_pos - r_start + 1
-    mod_seqs.append(ref_seq[prev_pos:])
-    mod_seq = ''.join(mod_seqs)
-    if strand == -1:
-        mod_seq = mod_seq[::-1]
-
-    return mod_seq
 
 def _get_mods_queue(
         mods_q, mods_conn, mods_db_fn, db_safety, ref_names_and_lens,
