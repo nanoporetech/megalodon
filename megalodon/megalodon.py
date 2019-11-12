@@ -183,11 +183,20 @@ def _process_reads_worker(
         read_file_q, bc_q, vars_q, failed_reads_q, mods_q, caller_conn,
         sig_map_q, mod_sig_map_q, sig_map_filts, sig_map_alphabet, model_info,
         vars_data, mods_info, device):
-    model_info.prep_model_worker(device)
-    vars_data.reopen_variant_index()
-    stride = model_info.guess_model_stride(model_info.model)
-    logger = logging.get_logger('main')
-    logger.debug('Starting read worker {}'.format(mp.current_process()))
+    # wrap process prep in try loop to avoid stalled command
+    try:
+        model_info.prep_model_worker(device)
+        vars_data.reopen_variant_index()
+        stride = model_info.guess_model_stride(model_info.model)
+        logger = logging.get_logger('main')
+        logger.debug('Starting read worker {}'.format(mp.current_process()))
+    except:
+        if caller_conn is not None:
+            caller_conn.send(True)
+        logger.debug(('Read worker {} has failed process preparation.\n' +
+                      'Full error traceback:\n{}').format(
+                          mp.current_process(), traceback.format_exc()))
+        return
 
     while True:
         try:
@@ -279,13 +288,12 @@ def post_process_mapping(out_dir, map_fmt, ref_fn):
     return map_p
 
 def post_process_aggregate(
-        mods_info, outputs, mod_bin_thresh, out_dir, num_ps, write_vcf_lp,
+        mods_info, outputs, out_dir, num_ps, write_vcf_lp,
         het_factors, vars_data, write_mod_lp, supp_prog):
     mod_names = mods_info.mod_long_names if mh.MOD_NAME in outputs else []
-    mod_agg_info = mods.AGG_INFO(mods.BIN_THRESH_NAME, mod_bin_thresh)
     aggregate.aggregate_stats(
         outputs, out_dir, num_ps, write_vcf_lp, het_factors,
-        vars_data.call_mode, mod_names, mod_agg_info,
+        vars_data.call_mode, mod_names, mods_info.agg_info,
         write_mod_lp, mods_info.mod_output_fmts, supp_prog)
     return
 
@@ -702,12 +710,17 @@ def mods_validation(args, model_info):
                 mh.PR_REF_NAME))
     mod_calib_fn = mh.get_mod_calibration_fn(
         args.mod_calibration_filename, args.disable_mod_calibration)
+    if args.mod_aggregate_method == mods.EM_NAME:
+        agg_info = mods.AGG_INFO(mods.EM_NAME, None)
+    elif args.mod_aggregate_method == mods.BIN_THRESH_NAME:
+        agg_info = mods.AGG_INFO(
+            mods.BIN_THRESH_NAME, args.mod_binary_threshold)
     mods_info = mods.ModInfo(
         model_info, args.mod_motif, args.mod_all_paths,
         args.write_mods_text, args.mod_context_bases,
         mh.BC_MODS_NAME in args.outputs, args.refs_include_mods, mod_calib_fn,
         args.mod_output_formats, args.edge_buffer,
-        not args.mod_positions_on_disk)
+        not args.mod_positions_on_disk, agg_info)
     return args, mods_info
 
 def parse_pr_ref_output(args):
@@ -944,11 +957,17 @@ def get_parser():
                          'modified base calls. (Default: Viterbi ' +
                          'best-path score)'))
     mod_grp.add_argument(
+        '--mod-aggregate-method', choices=list(mods.AGG_METHOD_NAMES),
+        default=mods.EM_NAME,
+        help=hidden_help('Modified base aggregation method. ' +
+                         'Default: %(default)s'))
+    mod_grp.add_argument(
         '--mod-binary-threshold', type=float, nargs=1,
-        default=mods.DEFAULT_AGG_INFO.binary_threshold,
+        default=mods.DEFAULT_BINARY_THRESH,
         help=hidden_help('Threshold for modified base aggregation ' +
                          '(probability of modified/canonical base). ' +
-                         'Default: %(default)s'))
+                         'Only applicable for "--mod-aggregate-method ' +
+                         'binary_threshold". Default: %(default)s'))
     mod_grp.add_argument(
         '--mod-calibration-filename',
         help=hidden_help('File containing emperical calibration for ' +
@@ -1124,10 +1143,9 @@ def _main():
 
     if mh.VAR_NAME in args.outputs or mh.MOD_NAME in args.outputs:
         post_process_aggregate(
-            mods_info, args.outputs, args.mod_binary_threshold,
-            args.output_directory, args.processes, args.write_vcf_log_probs,
-            args.heterozygous_factors, vars_data, args.write_mod_log_probs,
-            args.suppress_progress)
+            mods_info, args.outputs, args.output_directory, args.processes,
+            args.write_vcf_log_probs, args.heterozygous_factors, vars_data,
+            args.write_mod_log_probs, args.suppress_progress)
 
     if mh.VAR_NAME in args.outputs:
         logger.info('Sorting output variant file')
