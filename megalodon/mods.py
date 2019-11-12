@@ -16,12 +16,11 @@ from megalodon._version import MEGALODON_VERSION
 
 
 BIN_THRESH_NAME = 'binary_threshold'
-# EM method is broken from transition to multi-mod sites support. Need to update
-# function accordingly
-EM_NAME = 'em'
-AGG_METHOD_NAMES = set((BIN_THRESH_NAME,))
+EM_NAME = 'expectation_maximization'
+AGG_METHOD_NAMES = set((BIN_THRESH_NAME, EM_NAME))
 AGG_INFO = namedtuple('AGG_INFO', ('method', 'binary_threshold'))
-DEFAULT_AGG_INFO = AGG_INFO(BIN_THRESH_NAME, 0.75)
+DEFAULT_BINARY_THRESH = 0.75
+DEFAULT_AGG_INFO = AGG_INFO(EM_NAME, None)
 
 FIXED_VCF_MI = [
     'INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
@@ -817,7 +816,8 @@ class ModInfo(object):
             write_mods_txt=None, mod_context_bases=None,
             do_output_mods=False, do_pr_ref_mods=False, mods_calib_fn=None,
             mod_output_fmts=[mh.MOD_BEDMETHYL_NAME],
-            edge_buffer=mh.DEFAULT_EDGE_BUFFER, pos_index_in_memory=True):
+            edge_buffer=mh.DEFAULT_EDGE_BUFFER, pos_index_in_memory=True,
+            agg_info=DEFAULT_AGG_INFO):
         logger = logging.get_logger()
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other alphabet info
@@ -832,6 +832,7 @@ class ModInfo(object):
         self.calib_table = calibration.ModCalibrator(mods_calib_fn)
         self.mod_output_fmts = mod_output_fmts
         self.edge_buffer = edge_buffer
+        self.agg_info = agg_info
         self.pos_index_in_memory = pos_index_in_memory
 
         self.alphabet = model_info.can_alphabet
@@ -1232,45 +1233,67 @@ class AggMods(mh.AbstractAggregationClass):
         return mods_props, valid_cov
 
     def est_em_prop(
-            self, pos_scores, max_iters=5, conv_tol=0.005,
-            init_thresh=0, min_prop=0.01, max_prop=0.99):
-        """ [DEFUNCT]
-
-        Estimate proportion of modified bases at a position via EM
+            self, pos_scores, max_iters=15, conv_tol=0.001, min_prop=0.001):
+        """Estimate proportion of modified bases at a position via EM
         computation
-
-        TODO adapt this function to handle multiple modified base types
         """
-        curr_mix_prop = np.clip(np.mean(pos_scores < init_thresh),
-                                min_prop, max_prop)
+        max_prop = 1.0 - min_prop
+        def clip(mix_props):
+            """Clip proportions to specified range, while maintaining sum to 1
+            """
+            lower_clip_idx = np.less(mix_props, min_prop)
+            upper_clip_idx = np.greater(mix_props, max_prop)
+            unclip_idx = np.logical_not(
+                np.logical_or(lower_clip_idx, upper_clip_idx))
+            if unclip_idx.sum() == mix_props.shape[0]:
+                return mix_props
+            if unclip_idx.sum() > 0:
+                # compute amount to be added to unclipped probabilties
+                unclip_diff = ((-min_prop * lower_clip_idx.sum()) + (
+                    min_prop * upper_clip_idx.sum())) / unclip_idx.sum()
+                mix_props[unclip_idx] += unclip_diff
+            mix_props[lower_clip_idx] = min_prop
+            mix_props[upper_clip_idx] = max_prop
+            return mix_props
+
+        def unclip(mix_props):
+            """Set proportions at or outside clip range to 0 or 1
+            """
+            lower_clip_idx = np.less_equal(mix_props, min_prop)
+            upper_clip_idx = np.greater_equal(mix_props, max_prop)
+            unclip_idx = np.logical_not(
+                np.logical_or(lower_clip_idx, upper_clip_idx))
+            if unclip_idx.sum() == mix_props.shape[0]:
+                return mix_props
+            if unclip_idx.sum() > 0:
+                unclip_diff = (
+                    mix_props[lower_clip_idx].sum() +
+                    (mix_props[upper_clip_idx] - 1.0).sum()) / unclip_idx.sum()
+                mix_props[unclip_idx] += unclip_diff
+            mix_props[lower_clip_idx] = 0.0
+            mix_props[upper_clip_idx] = 1.0
+            return mix_props
+
+
+        mod_types = sorted(set(mt for read_mods in pos_scores.values()
+                               for mt in read_mods.keys()))
+        mt_probs = np.exp(np.array([[r_mods[mt] for mt in mod_types]
+                                    for r_mods in pos_scores.values()]))
+        can_probs = 1 - mt_probs.sum(1)
+        all_probs = np.column_stack([can_probs, mt_probs])
+        curr_mix_props = clip(
+            np.bincount(all_probs.argmax(axis=1),
+                        minlength=all_probs.shape[1]) / all_probs.shape[0])
         for _ in range(max_iters):
-            prev_mix_prop = curr_mix_prop
-            if prev_mix_prop < min_prop:
-                return 0.0, pos_scores.shape[0]
-            if prev_mix_prop > max_prop:
-                return 1.0, pos_scores.shape[0]
-            curr_mix_prop = np.mean(1 / (1 + (
-                np.exp(pos_scores) * (1 - prev_mix_prop) / prev_mix_prop)))
-            if np.abs(curr_mix_prop - prev_mix_prop) < conv_tol:
+            prev_mix_props = curr_mix_props.copy()
+            curr_mix_props = all_probs * curr_mix_props
+            curr_mix_props = clip(np.mean(curr_mix_props.transpose() /
+                                          curr_mix_props.sum(1), axis=1))
+            if np.abs(curr_mix_props - prev_mix_props).max() < conv_tol:
                 break
 
-        return curr_mix_prop, pos_scores.shape[0]
-
-    def emp_em(self, pos_scores, max_iters):
-        """ Emperical EM estimation
-
-        This method does not actually work yet. Need to compute
-        emperical proportion array
-        """
-        # pre-computed array from ground truth
-        # rows are mixture rate, cols are per-read scores
-        mod_prob_tbl = np.array()
-
-        curr_mix_prop = np.mean(pos_scores < 0)
-        for _ in range(max_iters):
-            curr_mix_prop = np.mean(mod_prob_tbl[curr_mix_prop, pos_scores])
-
-        return curr_mix_prop, pos_scores.shape[0]
+        mods_props = OrderedDict(zip(mod_types, unclip(curr_mix_props)[1:]))
+        return mods_props, len(pos_scores)
 
     def compute_mod_stats(self, mod_pos, agg_method=None, valid_read_ids=None):
         if agg_method is None:
@@ -1293,6 +1316,8 @@ class AggMods(mh.AbstractAggregationClass):
             raise mh.MegaError('No valid reads cover modified base location')
         if agg_method == BIN_THRESH_NAME:
             mod_props, valid_cov = self.est_binary_thresh(mod_type_stats)
+        elif agg_method == EM_NAME:
+            mod_props, valid_cov = self.est_em_prop(mod_type_stats)
 
         r0_stats = pr_mod_stats[0]
         strand = '+' if r0_stats.strand == 1 else '-'
