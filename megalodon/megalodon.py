@@ -958,7 +958,7 @@ def get_parser():
                          'best-path score)'))
     mod_grp.add_argument(
         '--mod-aggregate-method', choices=list(mods.AGG_METHOD_NAMES),
-        default=mods.EM_NAME,
+        default=mods.BIN_THRESH_NAME,
         help=hidden_help('Modified base aggregation method. ' +
                          'Default: %(default)s'))
     mod_grp.add_argument(
