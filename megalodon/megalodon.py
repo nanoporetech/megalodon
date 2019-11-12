@@ -167,10 +167,19 @@ def _get_bc_queue(
 def _process_reads_worker(
         read_file_q, bc_q, vars_q, failed_reads_q, mods_q, caller_conn,
         model_info, vars_data, mods_info, device):
-    model_info.prep_model_worker(device)
-    vars_data.reopen_variant_index()
-    logger = logging.get_logger('main')
-    logger.debug('Starting read worker {}'.format(mp.current_process()))
+    # wrap process prep in try loop to avoid stalled command
+    try:
+        logger = logging.get_logger('main')
+        logger.debug('Starting read worker {}'.format(mp.current_process()))
+        model_info.prep_model_worker(device)
+        vars_data.reopen_variant_index()
+    except:
+        if caller_conn is not None:
+            caller_conn.send(True)
+        logger.debug(('Read worker {} has failed process preparation.\n' +
+                      'Full error traceback:\n{}').format(
+                          mp.current_process(), traceback.format_exc()))
+        return
 
     while True:
         try:
