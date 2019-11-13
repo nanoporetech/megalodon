@@ -488,8 +488,8 @@ def process_all_reads(
     # start output type getters/writers
     (bc_q, bc_p, main_bc_conn, mo_q, mo_p, main_mo_conn, vars_q, vars_p,
      main_vars_conn, mods_q, mods_p, main_mods_conn, sig_map_q, sig_map_p,
-     sig_map_conn, mod_sig_map_q, mod_sig_map_p,
-     mod_sig_map_conn) = [None,] * 18
+     sig_map_conn, mod_sig_map_q, mod_sig_map_p, mod_sig_map_conn,
+     sig_map_alphabet) = [None,] * 19
     if mh.BC_NAME in outputs or mh.BC_MODS_NAME in outputs:
         if mh.BC_NAME not in outputs:
             outputs.append(mh.BC_NAME)
@@ -530,11 +530,13 @@ def process_all_reads(
                 pr_refs_fn, pr_ref_filts, mods_info.pos_index_in_memory))
     if mh.SIG_MAP_NAME in outputs:
         alphabet_info = signal_mapping.get_alphabet_info(model_info)
+        sig_map_alphabet = alphabet_info.alphabet
         sig_map_fn = mh.get_megalodon_fn(out_dir, mh.SIG_MAP_NAME)
         sig_map_q, sig_map_p, sig_map_conn = mh.create_getter_q(
             signal_mapping.write_signal_mappings, (sig_map_fn, alphabet_info))
     if mh.MOD_SIG_MAP_NAME in outputs:
         alphabet_info = signal_mapping.get_alphabet_info(model_info)
+        sig_map_alphabet = alphabet_info.alphabet
         sig_map_fn = mh.get_megalodon_fn(out_dir, mh.SIG_MAP_NAME)
         mod_sig_map_q, mod_sig_map_p, mod_sig_map_conn = mh.create_getter_q(
             signal_mapping.write_signal_mappings, (sig_map_fn, alphabet_info))
@@ -549,7 +551,7 @@ def process_all_reads(
         p = mp.Process(
             target=_process_reads_worker, args=(
                 read_file_q, bc_q, vars_q, failed_reads_q, mods_q, caller_conn,
-                sig_map_q, mod_sig_map_q, sig_map_filts, alphabet_info.alphabet,
+                sig_map_q, mod_sig_map_q, sig_map_filts, sig_map_alphabet,
                 model_info, vars_data, mods_info, device))
         p.daemon = True
         p.start()
