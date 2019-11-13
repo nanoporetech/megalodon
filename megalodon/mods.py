@@ -20,7 +20,7 @@ EM_NAME = 'expectation_maximization'
 AGG_METHOD_NAMES = set((BIN_THRESH_NAME, EM_NAME))
 AGG_INFO = namedtuple('AGG_INFO', ('method', 'binary_threshold'))
 DEFAULT_BINARY_THRESH = 0.75
-DEFAULT_AGG_INFO = AGG_INFO(EM_NAME, None)
+DEFAULT_AGG_INFO = AGG_INFO(BIN_THRESH_NAME, None)
 
 FIXED_VCF_MI = [
     'INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
