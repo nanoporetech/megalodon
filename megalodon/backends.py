@@ -2,6 +2,7 @@ import re
 import sys
 import string
 import numpy as np
+from time import sleep
 from collections import defaultdict, namedtuple
 
 from megalodon import logging, megalodon_helper as mh
@@ -9,6 +10,12 @@ from megalodon import logging, megalodon_helper as mh
 
 # model type specific information
 TAI_NAME = 'taiyaki'
+
+# maximum time (in seconds) to wait before assigning device
+# over different processes. Actual time choosen randomly
+# as many simultaneous calls sometimes conflict and kill
+# some device assignments
+MAX_DEVICE_WAIT = 1.0
 
 
 def parse_device(device):
@@ -151,6 +158,7 @@ class ModelInfo(object):
             if device is None or device == 'cpu':
                 self.device = self.torch.device('cpu')
             else:
+                sleep(np.random.uniform(0, MAX_DEVICE_WAIT))
                 self.device = self.torch.device(device)
                 self.torch.cuda.set_device(self.device)
                 self.model = self.model.cuda()
