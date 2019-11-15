@@ -101,6 +101,9 @@ def process_read(
             try:
                 sig_map_q.put(signal_mapping.get_remapping(*sig_map_res[1:]))
             except RuntimeError as e:
+                logger.debug(
+                    'Read failed signal mapping validation: {} {} {}'.format(
+                        read_id, fast5_fn, str(e)))
                 failed_reads_q.put((True, False, str(e), fast5_fn, None, 0))
 
     # get mapped start in post and run len to mapped bit of output
