@@ -13,12 +13,17 @@ from taiyaki import (alphabet, fast5utils, mapping as tai_mapping,
 def get_remapping(
         sig_fn, dacs, scale_params, ref_seq, stride, sig_map_alphabet, read_id,
         r_to_q_poss, rl_cumsum, q_start_trim):
-    channel_info = dict(fast5utils.get_channel_info(
-        fast5_interface.get_fast5_file(sig_fn, 'r').get_read(read_id)).items())
+    read = fast5_interface.get_fast5_file(sig_fn, 'r').get_read(read_id)
+    channel_info = dict(fast5utils.get_channel_info(read).items())
     rd_factor = channel_info['range'] / channel_info['digitisation']
     shift_from_pA = (scale_params[0] + channel_info['offset']) * rd_factor
     scale_from_pA = scale_params[1] * rd_factor
+    read_attrs = dict(fast5utils.get_read_attributes(read).items())
+
+    # prepare taiyaki signal object
     sig = tai_signal.Signal(dacs=dacs)
+    sig.channel_info = channel_info
+    sig.read_attributes = read_attrs
     sig.offset = channel_info['offset']
     sig.range = channel_info['range']
     sig.digitisation = channel_info['digitisation']
