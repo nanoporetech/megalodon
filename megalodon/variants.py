@@ -1240,8 +1240,8 @@ class VarData(object):
             except StopIteration:
                 return None
 
-        curr_vars = [next(vars_iter),]
-        next_var = next(vars_iter)
+        curr_vars = [next_var_or_none(),]
+        next_var = next_var_or_none()
         if next_var is None:
             if curr_vars[0] is not None:
                 yield curr_vars[0], []
