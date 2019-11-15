@@ -101,10 +101,14 @@ def process_read(
             try:
                 sig_map_q.put(signal_mapping.get_remapping(*sig_map_res[1:]))
             except RuntimeError as e:
-                logger.debug(
-                    'Read failed signal mapping validation: {} {} {}'.format(
-                        read_id, fast5_fn, str(e)))
-                failed_reads_q.put((True, False, str(e), fast5_fn, None, 0))
+                logger = logging.get_logger()
+                logger.debug((
+                    'Read: {} {} failed mapped signal validation with ' +
+                    'error: {}').format(fast5_fn, read_id, str(e)))
+                # taiyaki errors can contain newlines so split them here
+                failed_reads_q.put((
+                    True, False, ' ::: '.join(str(e).strip().split('\n')),
+                    fast5_fn, None, 0))
 
     # get mapped start in post and run len to mapped bit of output
     post_mapped_start = rl_cumsum[r_ref_pos.q_trim_start]
