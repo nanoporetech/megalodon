@@ -608,7 +608,7 @@ def score_seq(tpost, seq, tpost_start=0, tpost_end=None,
 def score_variants_with_context(
         vars_iter, ref_to_block, r_post, read_ref_fwd_seq, r_var_calls,
         read_cached_scores, read_ref_pos=None, all_paths=False,
-        calib_table=lambda x: x[0], logger=None):
+        calibrate_llr=lambda *x: x[0], logger=None):
     for (np_s_var_ref_seq, np_s_var_alt_seqs, np_s_context_seqs,
          s_ref_start, s_ref_end, variant) in vars_iter:
         ref_cntxt_ref_lp, ref_cntxt_alt_lps = read_cached_scores[(
@@ -656,7 +656,7 @@ def score_variants_with_context(
             if _DEBUG_PER_READ:
                 loc_contexts_alts_lps.append(loc_contexts_alt_lps)
             # calibrate log probs
-            loc_alt_llrs.append(calib_table.calibrate_llr(
+            loc_alt_llrs.append(calibrate_llr(
                 loc_ref_lp - loc_alt_lp, variant.ref, var_alt_seq))
 
         # due to calibration mutli-allelic log likelihoods could result in
@@ -678,8 +678,8 @@ def score_variants_with_context(
 
 def score_variants_independently(
         vars_iter, ref_to_block, r_post, read_ref_fwd_seq, read_ref_pos=None,
-        all_paths=False, calib_table=lambda x: x[0], context_min_alt_prob=1.0,
-        logger=None):
+        all_paths=False, calibrate_llr=lambda *x: x[0],
+        context_min_alt_prob=1.0, logger=None):
     r_var_calls = []
     read_cached_scores = {}
     filt_read_variants = []
@@ -717,7 +717,7 @@ def score_variants_independently(
             if _DEBUG_PER_READ:
                 loc_contexts_alts_lps.append(np.array([loc_alt_lp,]))
             # calibrate log probs
-            loc_alt_llrs.append(calib_table.calibrate_llr(
+            loc_alt_llrs.append(calibrate_llr(
                 loc_ref_lp - loc_alt_lp, variant.ref, var_alt_seq))
 
         # due to calibration mutli-allelic log likelihoods could result in
@@ -766,7 +766,7 @@ def call_read_vars(
     (r_var_calls, read_cached_scores,
      filt_read_variants) = score_variants_independently(
          vars_iter, ref_to_block, r_post, read_ref_fwd_seq, read_ref_pos,
-         vars_data.all_paths, vars_data.calib_table,
+         vars_data.all_paths, vars_data.calib_table.calibrate_llr,
          vars_data.context_min_alt_prob, logger)
 
     # second round for variants with some evidence for alternative alleles
@@ -776,7 +776,7 @@ def call_read_vars(
     r_var_calls = score_variants_with_context(
         vars_iter, ref_to_block, r_post, read_ref_fwd_seq, r_var_calls,
         read_cached_scores, read_ref_pos, vars_data.all_paths,
-        vars_data.calib_table, logger)
+        vars_data.calib_table.calibrate_llr, logger)
 
     # re-sort variants after adding context-included computations
     return sorted(r_var_calls, key=lambda x: x[0])
@@ -786,12 +786,51 @@ def call_read_vars(
 ##### Propose All Variant Helpers #####
 #######################################
 
-def score_all_deletions(
-        read_np_seq, r_post, ref_to_block, start, end):
-    # TODO emulate VarData.iter_vars for all deletions from start to end over
-    # read_np_seq
-    score_variants_independently(vars_iter, ref_to_block, r_post, read_np_seq)
-    return
+def score_all_single_deletions(
+        read_np_seq, r_post, ref_to_block, start, end, context_bases):
+    vars_iter = []
+    for del_pos in range(start, end):
+        ctxt_start, ctxt_end = (
+            max(0, del_pos - context_bases),
+            min(read_np_seq.shape[0], del_pos + 1 + context_bases))
+        np_ref = read_np_seq[del_pos:del_pos + 1]
+        np_alts = [np.array([], dtype=np.uintp),]
+        ctxt_seqs = [[read_np_seq[ctxt_start:del_pos],
+                      read_np_seq[del_pos + 1:ctxt_end]],]
+        # technically the variant ref_start should be 1-based, but it will be
+        # returned so just use 0-based here.
+        variant = VARIANT_DATA(
+            np_ref=np_ref, np_alts=np_alts, id=None, chrom=None, start=del_pos,
+            stop=del_pos + 1, ref=np_ref, alts=np_alts, ref_start=del_pos)
+        vars_iter.append((
+            np_ref, np_alts, ctxt_seqs, ctxt_start, ctxt_end, variant))
+
+    return [(x[1][0], x[0]) for x in score_variants_independently(
+        vars_iter, ref_to_block, r_post, read_np_seq)[0]]
+
+def score_all_single_insertions(
+        read_np_seq, r_post, ref_to_block, start, end, context_bases):
+    vars_iter = []
+    for del_pos in range(start, end):
+        ctxt_start, ctxt_end = (
+            max(0, del_pos - context_bases),
+            min(read_np_seq.shape[0], del_pos + 1 + context_bases))
+        np_ref = np.array([], dtype=np.uintp)
+        np_alts = [np.array([b,], dtype=np.uintp) for b in range(4)]
+        ctxt_seqs = [[read_np_seq[ctxt_start:del_pos],
+                      read_np_seq[del_pos + 1:ctxt_end]],]
+        # technically the variant ref_start should be 1-based, but it will be
+        # returned so just use 0-based here.
+        variant = VARIANT_DATA(
+            np_ref=np_ref, np_alts=np_alts, id=None, chrom=None, start=del_pos,
+            stop=del_pos + 1, ref=np_ref, alts=np_alts, ref_start=del_pos)
+        vars_iter.append((
+            np_ref, np_alts, ctxt_seqs, ctxt_start, ctxt_end, variant))
+
+    return [(score, pos, alt) for pos, scores, _, alts, _, _, _ in
+            score_variants_independently(
+                vars_iter, ref_to_block, r_post, read_np_seq)[0]
+            for score, alt in zip(scores, alts)]
 
 
 ###################################
