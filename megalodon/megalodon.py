@@ -107,26 +107,30 @@ def process_read(
                     fast5_fn, None, 0))
 
     # get mapped start in post and run len to mapped bit of output
-    post_mapped_start = rl_cumsum[r_ref_pos.q_trim_start]
+    post_mapped_start, post_mapped_end = (rl_cumsum[r_ref_pos.q_trim_start],
+                                          rl_cumsum[r_ref_pos.q_trim_end])
     mapped_rl_cumsum = rl_cumsum[
         r_ref_pos.q_trim_start:r_ref_pos.q_trim_end + 1] - post_mapped_start
+    ref_to_block = dict((ref_pos, mapped_rl_cumsum[query_pos])
+                        for ref_pos, query_pos in r_to_q_poss.items())
 
     if vars_q is not None:
+        mapped_r_post = r_post[post_mapped_start:post_mapped_end]
         handle_errors(
             func=variants.call_read_vars,
-            args=(vars_data, r_ref_pos, np_ref_seq, mapped_rl_cumsum,
-                  r_to_q_poss, r_post, post_mapped_start),
+            args=(vars_data, r_ref_pos, np_ref_seq, ref_to_block,
+                  mapped_r_post),
             r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
             out_q=vars_q, fast5_fn=fast5_fn + ':::' + read_id,
             failed_reads_q=failed_reads_q)
     if mods_q is not None:
+        mapped_r_post_w_mods = r_post_w_mods[post_mapped_start:post_mapped_end]
         handle_errors(
             func=mods.call_read_mods,
-            args=(r_ref_pos, r_ref_seq, mapped_rl_cumsum, r_to_q_poss,
-                  r_post_w_mods, post_mapped_start, mods_info, mod_sig_map_q,
-                  sig_map_res),
+            args=(r_ref_pos, r_ref_seq, ref_to_block, mapped_r_post_w_mods,
+                  mods_info, mod_sig_map_q, sig_map_res),
             r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),

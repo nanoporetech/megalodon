@@ -605,94 +605,17 @@ def score_seq(tpost, seq, tpost_start=0, tpost_end=None,
 
     return score
 
-def call_read_vars(
-        vars_data, read_ref_pos, strand_read_np_ref_seq, rl_cumsum, r_to_q_poss,
-        r_post, post_mapped_start):
-    if read_ref_pos.end - read_ref_pos.start <= 2 * vars_data.edge_buffer:
-        raise mh.MegaError('Mapped region too short for variant calling.')
-
-    # convert to forward strand sequence in order to annotate with variants
-    read_ref_fwd_seq = (strand_read_np_ref_seq if read_ref_pos.strand == 1 else
-                        mh.revcomp_np(strand_read_np_ref_seq))
-    # call all variantss overlapping this read
-    r_var_calls = []
-    logger = logging.get_logger('per_read_vars')
-    read_cached_scores = {}
-    read_variants = vars_data.fetch_read_variants(
-        read_ref_pos, read_ref_fwd_seq)
-    filt_read_variants = []
-    # first pass over variants assuming the reference ground truth
-    # (not including context variants)
+def score_variants_with_context(
+        vars_iter, ref_to_block, r_post, read_ref_fwd_seq, r_var_calls,
+        read_cached_scores, read_ref_pos=None, all_paths=False,
+        calib_table=lambda x: x[0], logger=None):
     for (np_s_var_ref_seq, np_s_var_alt_seqs, np_s_context_seqs,
-         s_ref_start, s_ref_end, variant) in vars_data.iter_vars(
-             read_variants, read_ref_pos, read_ref_fwd_seq, context_max_dist=0):
-        blk_start  = rl_cumsum[r_to_q_poss[s_ref_start]]
-        blk_end = rl_cumsum[r_to_q_poss[s_ref_end]]
-        if blk_end - blk_start <= max(
-                len(up_seq) + len(dn_seq)
-                for up_seq, dn_seq in np_s_context_seqs) + max(
-                        np_s_var_ref_seq.shape[0], max(
-                            var_alt_seq.shape[0]
-                            for var_alt_seq in np_s_var_alt_seqs)):
-            # no valid mapping over large inserted query bases
-            # i.e. need as many "events/strides" as bases for valid mapping
-            continue
-
-        np_ref_seq = np.concatenate([
-            np_s_context_seqs[0][0], np_s_var_ref_seq, np_s_context_seqs[0][1]])
-        loc_ref_lp = score_seq(
-            r_post, np_ref_seq, post_mapped_start + blk_start,
-            post_mapped_start + blk_end, vars_data.all_paths)
-
-        loc_alt_lps = []
-        loc_alt_llrs = []
-        if _DEBUG_PER_READ:
-            loc_contexts_alts_lps = []
-        for np_s_var_alt_seq, var_alt_seq in zip(
-                np_s_var_alt_seqs, variant.alts):
-            np_alt_seq = np.concatenate([
-                np_s_context_seqs[0][0], np_s_var_alt_seq,
-                np_s_context_seqs[0][1]])
-            loc_alt_lp = score_seq(
-                r_post, np_alt_seq, post_mapped_start + blk_start,
-                post_mapped_start + blk_end, vars_data.all_paths)
-            loc_alt_lps.append(loc_alt_lp)
-            if _DEBUG_PER_READ:
-                loc_contexts_alts_lps.append(np.array([loc_alt_lp,]))
-            # calibrate log probs
-            loc_alt_llrs.append(vars_data.calibrate_llr(
-                loc_ref_lp - loc_alt_lp, variant.ref, var_alt_seq))
-
-        # due to calibration mutli-allelic log likelihoods could result in
-        # inferred negative reference likelihood, so re-normalize here
-        loc_alt_log_ps = calibration.compute_log_probs(np.array(loc_alt_llrs))
-
-        if _DEBUG_PER_READ:
-            write_per_read_debug(
-                variant.start, variant.id, read_ref_pos,
-                np_s_var_ref_seq, np_s_var_alt_seqs, np_s_context_seqs,
-                np.array([loc_ref_lp,]), loc_contexts_alts_lps, False, logger)
-
-        if sum(np.exp(loc_alt_log_ps)) >= vars_data.context_min_alt_prob:
-            filt_read_variants.append(variant)
-            read_cached_scores[(variant.id, variant.start, variant.stop)] = (
-                loc_ref_lp, loc_alt_lps)
-        else:
-            r_var_calls.append((
-                variant.ref_start, loc_alt_log_ps, variant.ref,
-                variant.alts, variant.id, variant.start,
-                variant.start + variant.np_ref.shape[0]))
-
-    # second round for variants with some evidence for alternative alleles
-    # process with other potential variants as context
-    for (np_s_var_ref_seq, np_s_var_alt_seqs, np_s_context_seqs,
-         s_ref_start, s_ref_end, variant) in vars_data.iter_vars(
-             filt_read_variants, read_ref_pos, read_ref_fwd_seq):
+         s_ref_start, s_ref_end, variant) in vars_iter:
         ref_cntxt_ref_lp, ref_cntxt_alt_lps = read_cached_scores[(
             variant.id, variant.start, variant.stop)]
 
-        blk_start  = rl_cumsum[r_to_q_poss[s_ref_start]]
-        blk_end = rl_cumsum[r_to_q_poss[s_ref_end]]
+        blk_start  = ref_to_block[s_ref_start]
+        blk_end = ref_to_block[s_ref_end]
         if blk_end - blk_start <= max(
                 len(up_seq) + len(dn_seq)
                 for up_seq, dn_seq in np_s_context_seqs) + max(
@@ -712,10 +635,9 @@ def call_read_vars(
         ref_context_seqs = (
             np.concatenate([up_context_seq, np_s_var_ref_seq, dn_context_seq])
             for up_context_seq, dn_context_seq in np_s_context_seqs[1:])
-        loc_contexts_ref_lps = np.array([ref_cntxt_ref_lp] + [score_seq(
-            r_post, ref_seq, post_mapped_start + blk_start,
-            post_mapped_start + blk_end, vars_data.all_paths)
-                                         for ref_seq in ref_context_seqs])
+        loc_contexts_ref_lps = np.array([ref_cntxt_ref_lp] + [
+            score_seq(r_post, ref_seq, blk_start, blk_end, all_paths)
+            for ref_seq in ref_context_seqs])
         loc_ref_lp = logsumexp(loc_contexts_ref_lps)
 
         loc_alt_llrs = []
@@ -728,21 +650,20 @@ def call_read_vars(
                     up_context_seq, np_s_var_alt_seq, dn_context_seq])
                 for up_context_seq, dn_context_seq in np_s_context_seqs[1:])
             loc_contexts_alt_lps = np.array([ref_cntxt_alt_lp,] + [
-                score_seq(r_post, alt_seq, post_mapped_start + blk_start,
-                          post_mapped_start + blk_end, vars_data.all_paths)
+                score_seq(r_post, alt_seq, blk_start, blk_end, all_paths)
                 for alt_seq in alt_context_seqs])
             loc_alt_lp = logsumexp(loc_contexts_alt_lps)
             if _DEBUG_PER_READ:
                 loc_contexts_alts_lps.append(loc_contexts_alt_lps)
             # calibrate log probs
-            loc_alt_llrs.append(vars_data.calibrate_llr(
+            loc_alt_llrs.append(calib_table.calibrate_llr(
                 loc_ref_lp - loc_alt_lp, variant.ref, var_alt_seq))
 
         # due to calibration mutli-allelic log likelihoods could result in
         # inferred negative reference likelihood, so re-normalize here
         loc_alt_log_ps = calibration.compute_log_probs(np.array(loc_alt_llrs))
 
-        if _DEBUG_PER_READ:
+        if _DEBUG_PER_READ and logger is not None and read_ref_pos is not None:
             write_per_read_debug(
                 variant.start, variant.id, read_ref_pos,
                 np_s_var_ref_seq, np_s_var_alt_seqs, np_s_context_seqs,
@@ -753,8 +674,124 @@ def call_read_vars(
             variant.alts, variant.id, variant.start,
             variant.start + variant.np_ref.shape[0]))
 
+    return r_var_calls
+
+def score_variants_independently(
+        vars_iter, ref_to_block, r_post, read_ref_fwd_seq, read_ref_pos=None,
+        all_paths=False, calib_table=lambda x: x[0], context_min_alt_prob=1.0,
+        logger=None):
+    r_var_calls = []
+    read_cached_scores = {}
+    filt_read_variants = []
+    for (np_s_var_ref_seq, np_s_var_alt_seqs, np_s_context_seqs,
+         s_ref_start, s_ref_end, variant) in vars_iter:
+        blk_start  = ref_to_block[s_ref_start]
+        blk_end = ref_to_block[s_ref_end]
+        if blk_end - blk_start <= max(
+                len(up_seq) + len(dn_seq)
+                for up_seq, dn_seq in np_s_context_seqs) + max(
+                        np_s_var_ref_seq.shape[0], max(
+                            var_alt_seq.shape[0]
+                            for var_alt_seq in np_s_var_alt_seqs)):
+            # no valid mapping over large inserted query bases
+            # i.e. need as many "events/strides" as bases for valid mapping
+            continue
+
+        np_ref_seq = np.concatenate([
+            np_s_context_seqs[0][0], np_s_var_ref_seq, np_s_context_seqs[0][1]])
+        loc_ref_lp = score_seq(
+            r_post, np_ref_seq, blk_start, blk_end, all_paths)
+
+        loc_alt_lps = []
+        loc_alt_llrs = []
+        if _DEBUG_PER_READ:
+            loc_contexts_alts_lps = []
+        for np_s_var_alt_seq, var_alt_seq in zip(
+                np_s_var_alt_seqs, variant.alts):
+            np_alt_seq = np.concatenate([
+                np_s_context_seqs[0][0], np_s_var_alt_seq,
+                np_s_context_seqs[0][1]])
+            loc_alt_lp = score_seq(
+                r_post, np_alt_seq, blk_start, blk_end, all_paths)
+            loc_alt_lps.append(loc_alt_lp)
+            if _DEBUG_PER_READ:
+                loc_contexts_alts_lps.append(np.array([loc_alt_lp,]))
+            # calibrate log probs
+            loc_alt_llrs.append(calib_table.calibrate_llr(
+                loc_ref_lp - loc_alt_lp, variant.ref, var_alt_seq))
+
+        # due to calibration mutli-allelic log likelihoods could result in
+        # inferred negative reference likelihood, so re-normalize here
+        loc_alt_log_ps = calibration.compute_log_probs(np.array(loc_alt_llrs))
+
+        if _DEBUG_PER_READ and logger is not None and read_ref_pos is not None:
+            write_per_read_debug(
+                variant.start, variant.id, read_ref_pos,
+                np_s_var_ref_seq, np_s_var_alt_seqs, np_s_context_seqs,
+                np.array([loc_ref_lp,]), loc_contexts_alts_lps, False, logger)
+
+        if sum(np.exp(loc_alt_log_ps)) >= context_min_alt_prob:
+            # if the probability of a variant scored independently is greater
+            # than the minimal threshold then save it for future testing
+            filt_read_variants.append(variant)
+            read_cached_scores[(variant.id, variant.start, variant.stop)] = (
+                loc_ref_lp, loc_alt_lps)
+        else:
+            # if a variant is less probable independently then save this as
+            # the final variant score
+            r_var_calls.append((
+                variant.ref_start, loc_alt_log_ps, variant.ref,
+                variant.alts, variant.id, variant.start,
+                variant.start + variant.np_ref.shape[0]))
+
+    return r_var_calls, read_cached_scores, filt_read_variants
+
+def call_read_vars(
+        vars_data, read_ref_pos, strand_read_np_ref_seq, ref_to_block, r_post):
+    if read_ref_pos.end - read_ref_pos.start <= 2 * vars_data.edge_buffer:
+        raise mh.MegaError('Mapped region too short for variant calling.')
+
+    # convert to forward strand sequence in order to annotate with variants
+    read_ref_fwd_seq = (strand_read_np_ref_seq if read_ref_pos.strand == 1 else
+                        mh.revcomp_np(strand_read_np_ref_seq))
+    # call all variantss overlapping this read
+    logger = logging.get_logger('per_read_vars')
+    read_variants = vars_data.fetch_read_variants(
+        read_ref_pos, read_ref_fwd_seq)
+
+    # first pass over variants assuming the reference ground truth
+    # (not including context variants)
+    vars_iter = vars_data.iter_vars(
+        read_variants, read_ref_pos, read_ref_fwd_seq, context_max_dist=0)
+    (r_var_calls, read_cached_scores,
+     filt_read_variants) = score_variants_independently(
+         vars_iter, ref_to_block, r_post, read_ref_fwd_seq, read_ref_pos,
+         vars_data.all_paths, vars_data.calib_table,
+         vars_data.context_min_alt_prob, logger)
+
+    # second round for variants with some evidence for alternative alleles
+    # process with other potential variants as context
+    vars_iter = vars_data.iter_vars(
+        filt_read_variants, read_ref_pos, read_ref_fwd_seq)
+    r_var_calls = score_variants_with_context(
+        vars_iter, ref_to_block, r_post, read_ref_fwd_seq, r_var_calls,
+        read_cached_scores, read_ref_pos, vars_data.all_paths,
+        vars_data.calib_table, logger)
+
     # re-sort variants after adding context-included computations
     return sorted(r_var_calls, key=lambda x: x[0])
+
+
+#######################################
+##### Propose All Variant Helpers #####
+#######################################
+
+def score_all_deletions(
+        read_np_seq, r_post, ref_to_block, start, end):
+    # TODO emulate VarData.iter_vars for all deletions from start to end over
+    # read_np_seq
+    score_variants_independently(vars_iter, ref_to_block, r_post, read_np_seq)
+    return
 
 
 ###################################

@@ -550,8 +550,8 @@ def score_mod_seq(
         all_paths)
 
 def call_read_mods(
-        r_ref_pos, r_ref_seq, rl_cumsum, r_to_q_poss, r_post,
-        post_mapped_start, mods_info, mod_sig_map_q, sig_map_res):
+        r_ref_pos, r_ref_seq, ref_to_block, r_post, mods_info, mod_sig_map_q,
+        sig_map_res):
     def iter_motif_sites(r_ref_seq):
         max_pos = len(r_ref_seq) - mods_info.edge_buffer
         for motif, rel_pos, mod_bases, raw_motif in mods_info.all_mod_motifs:
@@ -582,8 +582,8 @@ def call_read_mods(
             continue
         pos_can_mods = np.zeros_like(pos_ref_seq)
 
-        blk_start, blk_end = (rl_cumsum[r_to_q_poss[pos - pos_bb]],
-                              rl_cumsum[r_to_q_poss[pos + pos_ab]])
+        blk_start, blk_end = (ref_to_block[pos - pos_bb],
+                              ref_to_block[pos + pos_ab])
         if blk_end - blk_start < (mods_info.mod_context_bases * 2) + 1:
             # no valid mapping over large inserted query bases
             # i.e. need as many "events/strides" as bases for valid mapping
@@ -591,8 +591,7 @@ def call_read_mods(
 
         loc_can_score = score_mod_seq(
             r_post, pos_ref_seq, pos_can_mods, mods_info.can_mods_offsets,
-            post_mapped_start + blk_start, post_mapped_start + blk_end,
-            mods_info.mod_all_paths)
+            blk_start, blk_end, mods_info.mod_all_paths)
         if loc_can_score is None:
             raise mh.MegaError('Score computation error (memory error)')
 
@@ -602,8 +601,7 @@ def call_read_mods(
             pos_mod_mods[pos_bb] = mods_info.str_to_int_mod_labels[mod_base]
             loc_mod_score = score_mod_seq(
                 r_post, pos_ref_seq, pos_mod_mods, mods_info.can_mods_offsets,
-                post_mapped_start + blk_start, post_mapped_start + blk_end,
-                mods_info.mod_all_paths)
+                blk_start, blk_end, mods_info.mod_all_paths)
             if loc_mod_score is None:
                 raise mh.MegaError('Score computation error (memory error)')
 
