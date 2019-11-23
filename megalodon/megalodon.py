@@ -111,8 +111,9 @@ def process_read(
                                           rl_cumsum[r_ref_pos.q_trim_end])
     mapped_rl_cumsum = rl_cumsum[
         r_ref_pos.q_trim_start:r_ref_pos.q_trim_end + 1] - post_mapped_start
-    ref_to_block = dict((ref_pos, mapped_rl_cumsum[query_pos])
-                        for ref_pos, query_pos in r_to_q_poss.items())
+    ref_to_block = np.array([
+        mapped_rl_cumsum[query_pos]
+        for ref_pos, query_pos in r_to_q_poss.items()])
 
     if vars_q is not None:
         mapped_r_post = r_post[post_mapped_start:post_mapped_end]
