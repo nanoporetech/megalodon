@@ -52,20 +52,13 @@ def handle_errors(func, args, r_vals, out_q, fast5_fn, failed_reads_q):
     return
 
 def process_read(
-        raw_sig, read_id, model_info, bc_q, caller_conn,
-        sig_map_q, mod_sig_map_q, sig_map_data, sig_map_filts, sig_map_alphabet,
-        vars_data, vars_q, mods_q, mods_info, fast5_fn, failed_reads_q):
+        sig_info, model_info, bc_q, caller_conn, sig_map_q, mod_sig_map_q,
+        sig_map_filts, sig_map_alphabet, vars_data, vars_q, mods_q, mods_info,
+        failed_reads_q):
     """ Workhorse per-read megalodon function (connects all the parts)
     """
-    if model_info.is_cat_mod:
-        bc_weights, mod_weights = model_info.run_model(
-            raw_sig, mods_info.n_can_state)
-        can_nmods = model_info.can_nmods
-    else:
-        mod_weights, can_nmods = None, None
-        bc_weights = model_info.run_model(raw_sig)
+    r_post, mod_weights, can_nmods = model_info.get_posteriors(sig_info)
 
-    r_post = decode.crf_flipflop_trans_post(bc_weights, log=True)
     if mods_q is not None:
         r_post_w_mods = np.concatenate([r_post, mod_weights], axis=1)
     if not mods_info.do_output_mods:
@@ -73,14 +66,14 @@ def process_read(
     r_seq, score, rl_cumsum, mods_scores = decode.decode_post(
         r_post, mods_info.alphabet, mod_weights, can_nmods)
     if bc_q is not None:
-        bc_q.put((read_id, r_seq, mods_scores))
+        bc_q.put((sig_info.read_id, r_seq, mods_scores))
 
     # if no mapping connection return after basecalls are passed out
     if caller_conn is None: return
 
     # map read and record mapping from reference to query positions
     r_ref_seq, r_to_q_poss, r_ref_pos, r_cigar = mapping.map_read(
-        r_seq, read_id, caller_conn)
+        r_seq, sig_info.read_id, caller_conn)
     np_ref_seq = mh.seq_to_int(r_ref_seq)
 
     sig_map_res = None
@@ -88,10 +81,10 @@ def process_read(
         pass_sig_map_filts = mapping.read_passes_filters(
             sig_map_filts, len(r_seq), r_ref_pos.q_trim_start,
             r_ref_pos.q_trim_end, r_cigar)
-        fast5_fn, dacs, scale_params, stride = sig_map_data
         sig_map_res = (
-            pass_sig_map_filts, fast5_fn, dacs, scale_params, r_ref_seq,
-            stride, sig_map_alphabet, read_id, r_to_q_poss, rl_cumsum,
+            pass_sig_map_filts, sig_info.fast5_fn, sig_info.dacs,
+            sig_info.scale_params, r_ref_seq, sig_info.stride,
+            sig_map_alphabet, sig_info.read_id, r_to_q_poss, rl_cumsum,
             r_ref_pos.q_trim_start)
         if sig_map_q is not None and pass_sig_map_filts:
             try:
@@ -100,11 +93,12 @@ def process_read(
                 logger = logging.get_logger()
                 logger.debug((
                     'Read: {} {} failed mapped signal validation with ' +
-                    'error: {}').format(fast5_fn, read_id, str(e)))
+                    'error: {}').format(
+                        sig_info.fast5_fn, sig_info.read_id, str(e)))
                 # taiyaki errors can contain newlines so split them here
                 failed_reads_q.put((
                     True, False, ' ::: '.join(str(e).strip().split('\n')),
-                    fast5_fn, None, 0))
+                    sig_info.fast5_fn, None, 0))
 
     # get mapped start in post and run len to mapped bit of output
     post_mapped_start, post_mapped_end = (rl_cumsum[r_ref_pos.q_trim_start],
@@ -121,10 +115,10 @@ def process_read(
             func=variants.call_read_vars,
             args=(vars_data, r_ref_pos, np_ref_seq, ref_to_block,
                   mapped_r_post),
-            r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand,
+            r_vals=(sig_info.read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
-            out_q=vars_q, fast5_fn=fast5_fn + ':::' + read_id,
+            out_q=vars_q, fast5_fn=sig_info.fast5_fn + ':::' + sig_info.read_id,
             failed_reads_q=failed_reads_q)
     if mods_q is not None:
         mapped_r_post_w_mods = r_post_w_mods[post_mapped_start:post_mapped_end]
@@ -132,10 +126,10 @@ def process_read(
             func=mods.call_read_mods,
             args=(r_ref_pos, r_ref_seq, ref_to_block, mapped_r_post_w_mods,
                   mods_info, mod_sig_map_q, sig_map_res),
-            r_vals=(read_id, r_ref_pos.chrm, r_ref_pos.strand,
+            r_vals=(sig_info.read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
-            out_q=mods_q, fast5_fn=fast5_fn + ':::' + read_id,
+            out_q=mods_q, fast5_fn=sig_info.fast5_fn + ':::' + sig_info.read_id,
             failed_reads_q=failed_reads_q)
 
     return
@@ -202,7 +196,6 @@ def _process_reads_worker(
     try:
         model_info.prep_model_worker(device)
         vars_data.reopen_variant_index()
-        stride = model_info.guess_model_stride(model_info.model)
         logger = logging.get_logger('main')
         logger.debug('Starting read worker {}'.format(mp.current_process()))
     except:
@@ -229,22 +222,15 @@ def _process_reads_worker(
                 break
             logger.debug('Analyzing read {}'.format(read_id))
 
-            if sig_map_q is None and mod_sig_map_q is None:
-                # if not processing signal mappings, don't save dacs
-                raw_sig = fast5_io.get_signal(fast5_fn, read_id, scale=True)
-                sig_map_data = None
-            else:
-                dacs = fast5_io.get_signal(fast5_fn, read_id, scale=False)
-                med, mad = mh.med_mad(dacs)
-                raw_sig = (dacs - med) / mad
-                sig_map_data = (fast5_fn, dacs, (med, mad), stride)
+            sig_info = model_info.extract_signal_info(
+                fast5_fn, read_id,
+                sig_map_q is not None or mod_sig_map_q is not None)
             process_read(
-                raw_sig, read_id, model_info, bc_q, caller_conn,
-                sig_map_q, mod_sig_map_q, sig_map_data, sig_map_filts,
-                sig_map_alphabet, vars_data, vars_q, mods_q, mods_info,
-                fast5_fn, failed_reads_q)
+                sig_info, model_info, bc_q, caller_conn,
+                sig_map_q, mod_sig_map_q, sig_map_filts, sig_map_alphabet,
+                vars_data, vars_q, mods_q, mods_info, failed_reads_q)
             failed_reads_q.put((
-                False, True, None, None, None, raw_sig.shape[0]))
+                False, True, None, None, None, sig_info.raw_len))
             logger.debug('Successfully processed read {}'.format(read_id))
         except KeyboardInterrupt:
             failed_reads_q.put((
@@ -254,7 +240,7 @@ def _process_reads_worker(
         except mh.MegaError as e:
             failed_reads_q.put((
                 True, True, str(e), fast5_fn + ':::' + read_id, None,
-                raw_sig.shape[0]))
+                sig_info.raw_len))
             logger.debug('Incomplete processing for read {} ::: {}'.format(
                 read_id, str(e)))
         except:
@@ -1128,9 +1114,9 @@ def _main():
     args, sig_map_filts = parse_sig_map_output(args)
     tai_model_fn = mh.get_model_fn(args.taiyaki_model_filename)
     model_info = backends.ModelInfo(
-        tai_model_fn, args.devices,
-        args.processes, args.chunk_size, args.chunk_overlap,
-        args.max_concurrent_chunks)
+        args.processes, taiyaki_model_fn=tai_model_fn, devices=args.devices,
+        chunk_size=args.chunk_size, chunk_overlap=args.chunk_overlap,
+        max_concur_chunks=args.max_concurrent_chunks)
     args, mods_info = mods_validation(args, model_info)
     aligner = aligner_validation(args)
     args, vars_data = vars_validation(

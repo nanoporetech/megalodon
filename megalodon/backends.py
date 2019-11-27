@@ -5,7 +5,7 @@ import numpy as np
 from time import sleep
 from collections import defaultdict, namedtuple
 
-from megalodon import logging, megalodon_helper as mh
+from megalodon import decode, fast5_io, logging, megalodon_helper as mh
 
 
 # model type specific information
@@ -16,6 +16,12 @@ TAI_NAME = 'taiyaki'
 # as many simultaneous calls sometimes conflict and kill
 # some device assignments
 MAX_DEVICE_WAIT = 1.0
+
+SIGNAL_DATA = namedtuple('SIGNAL_DATA', (
+    'fast5_fn', 'read_id', 'raw_len', 'dacs', 'raw_signal',
+    'scale_params', 'stride', 'posteriors'))
+# set default value of None for ref, alts and ref_start
+SIGNAL_DATA.__new__.__defaults__ = tuple([None,] * 5)
 
 
 def parse_device(device):
@@ -69,7 +75,6 @@ class ModelInfo(object):
 
         # store modules in object
         self.load_taiyaki_model = load_taiyaki_model
-        self.guess_model_stride = guess_model_stride
         self.tai_run_model = tai_run_model
         self.torch = torch
 
@@ -78,6 +83,7 @@ class ModelInfo(object):
         self.is_cat_mod = (
             GlobalNormFlipFlopCatMod is not None and isinstance(
                 ff_layer, GlobalNormFlipFlopCatMod))
+        self.stride = guess_model_stride(tmp_model)
         self.output_size = ff_layer.size
         if self.is_cat_mod:
             # Modified base model is defined by 3 fixed fields in taiyaki
@@ -126,19 +132,51 @@ class ModelInfo(object):
 
         return
 
+    def _load_fast5_post_out(self):
+        nreads = 0
+        for fast5_fn, read_id in fast5_io.iterate_fast5_reads(fast5s_dir):
+            stride = fast5_io.get_stride(fast5_fn, read_id)
+            mod_base_long_names, mod_alphabet = fast5_io.get_mod_base_info(
+                fast5_fn, read_id)
+            # assume flip-flop model in order to compute number of canonical
+            # base states
+
+        # define values required of model_info
+        self.can_alphabet
+        self.is_cat_mod
+        self.stride
+        self.output_alphabet
+        self.mod_long_names
+        self.process_devices
+        self.nmods
+        self.can_base_mods
+        self.can_indices
+        self.str_to_int_mod_labels
+        self.output_size
+        return
+
     def __init__(
-            self, taiyaki_model_fn, devices=None,
-            num_proc=1, chunk_size=None, chunk_overlap=None,
-            max_concur_chunks=None):
+            self, num_proc=1, fast5s_dir=None, num_startup_reads=50,
+            taiyaki_model_fn=None, devices=None, chunk_size=None,
+            chunk_overlap=None, max_concur_chunks=None):
+        self.num_proc = num_proc
+
+        # guppy posterior backend args
+        self.fast5s_dir = fast5s_dir
+        # number of reads to read in to identify model attributes
+        self.num_startup_reads = num_startup_reads
+
+        # taiyaki backend args
         self.taiyaki_model_fn = taiyaki_model_fn
         self.devices = devices
-        self.num_proc = num_proc
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.max_concur_chunks = max_concur_chunks
 
         if self.taiyaki_model_fn is not None:
             self._load_taiyaki_model()
+        elif self.fast5s_dir is not None:
+            self._load_fast5_post_out()
         else:
             raise mh.MegaError('Invalid model specification.')
 
@@ -164,6 +202,34 @@ class ModelInfo(object):
                 self.model = self.model.cuda()
             self.model = self.model.eval()
 
+        return
+
+    def extract_signal_info(self, fast5_fn, read_id, extract_sig_map_info):
+        dacs = scale_params = raw_sig = None
+        if extract_sig_map_info:
+            # if not processing signal mappings, don't save dacs
+            dacs = fast5_io.get_signal(fast5_fn, read_id, scale=False)
+            scale_params = mh.med_mad(dacs)
+            raw_sig = (dacs - med) / mad
+
+        if self.model_type == TAI_NAME:
+            if raw_sig is None:
+                raw_sig = fast5_io.get_signal(fast5_fn, read_id, scale=True)
+            return SIGNAL_DATA(
+                raw_signal=raw_sig, dacs=dacs, scale_params=scale_params,
+                raw_len=raw_sig.shape[0], fast5_fn=fast5_fn, read_id=read_id,
+                stride=self.stride)
+        elif self.model_info == FAST5_NAME:
+            # TODO need to extract trim start in order to enable
+            # signal mapping output. If not this input/output combo should be
+            # explicitly disallowed
+            bc_mod_post = fast5_io.get_posteriors(
+                sig_info.fast5_fn, sig_info.read_id)
+            return SIGNAL_DATA(
+                raw_len=bc_mod_post.shape[0] * self.stride, dacs=dacs,
+                fast5_fn=fast5_fn, read_id=read_id, stride=self.stride)
+
+        raise mh.MegaError('Invalid model type')
         return
 
     def run_model(self, raw_sig, n_can_state=None):
@@ -194,6 +260,23 @@ class ModelInfo(object):
             raise mh.MegaError('Invalid model type.')
 
         return trans_weights
+
+    def get_posteriors(self, sig_info):
+        if self.model_type == TAI_NAME:
+            if self.is_cat_mod:
+                bc_weights, mod_weights = self.run_model(
+                    sig_info.raw_signal, self.n_can_state)
+                can_nmods = self.can_nmods
+            else:
+                mod_weights, can_nmods = None, None
+                bc_weights = self.run_model(sig_info.raw_signal)
+            r_post = decode.crf_flipflop_trans_post(bc_weights, log=True)
+        elif self.model_info == FAST5_NAME:
+            sig_info.posteriors
+        else:
+            raise mh.MegaError('Invalid model type')
+
+        return r_post, mod_weights, can_nmods
 
 
 if __name__ == '__main__':

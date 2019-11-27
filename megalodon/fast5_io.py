@@ -50,6 +50,35 @@ def get_signal(fast5_fn, read_id, scale=True):
 
     return raw_sig
 
+def get_posteriors(fast5_fn, read_id):
+    read = get_fast5_file(fast5_fn, mode="r").get_read(read_id)
+    # extract guppy StateData and calls
+    latest_basecall = read.get_latest_analysis('Basecall_1D')
+    state_data = read.get_analysis_dataset(
+        latest_basecall + '/BaseCalled_template', 'StateData', proxy=False)
+    state_attrs = read.get_analysis_attributes(
+        latest_basecall + '/BaseCalled_template/StateData')
+    # convert state data from integers to float values
+    poteriors = (
+        state_data + state_attrs['offset']) * state_attrs['scale']
+
+    return posteriors
+
+def get_stride(fast5_fn, read_id):
+    read = get_fast5_file(fast5_fn, mode="r").get_read(read_id)
+    latest_basecall = read.get_latest_analysis('Basecall_1D')
+    return read.get_summary_data(
+        latest_basecall)['basecall_1d_template']['block_stride']
+
+def get_mod_base_info(fast5_fn, read_id):
+    read = get_fast5_file(fast5_fn, mode="r").get_read(read_id)
+    latest_basecall = read.get_latest_analysis('Basecall_1D')
+    mod_attrs = read.get_analysis_attributes(
+        latest_basecall + '/BaseCalled_template/ModBaseProbs')
+    mod_base_long_names = mod_attrs['modified_base_long_names']
+    mod_alphabet = mod_attrs['output_alphabet']
+    return mod_base_long_names, mod_alphabet
+
 
 if __name__ == '__main__':
     sys.stderr.write('This is a module. See commands with `megalodon -h`')
