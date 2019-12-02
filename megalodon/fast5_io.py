@@ -1,6 +1,8 @@
 import os
 from glob import glob
 
+import numpy as np
+
 from ont_fast5_api.fast5_interface import get_fast5_file
 
 from megalodon import megalodon_helper as mh
@@ -60,8 +62,8 @@ def get_posteriors(read):
     state_attrs = read.get_analysis_attributes(
         latest_basecall + '/BaseCalled_template/StateData')
     # convert state data from integers to float values
-    posteriors = (
-        state_data + state_attrs['offset']) * state_attrs['scale']
+    posteriors = (state_data.astype(np.float32) + state_attrs['offset']) * \
+                 state_attrs['scale']
 
     return posteriors
 

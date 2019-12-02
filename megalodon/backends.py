@@ -10,6 +10,7 @@ from megalodon import decode, fast5_io, logging, megalodon_helper as mh
 
 # model type specific information
 TAI_NAME = 'taiyaki'
+FAST5_NAME = 'fast5'
 
 # maximum time (in seconds) to wait before assigning device
 # over different processes. Actual time choosen randomly
@@ -136,18 +137,20 @@ class ModelInfo(object):
         return
 
     def _load_fast5_post_out(self):
-        logger = logging.get_logger()
         def get_model_info_from_fast5(read):
             try:
                 stride = fast5_io.get_stride(read)
                 mod_long_names, out_alphabet = fast5_io.get_mod_base_info(read)
                 out_size = fast5_io.get_posteriors(read).shape[1]
+                mod_long_names = mod_long_names.split()
             except KeyError:
                 logger.error('Fast5 read does not contain required attributes.')
                 raise mh.MegaError(
                     'Fast5 read does not contain required attributes.')
             return stride, mod_long_names, out_alphabet, out_size
 
+        logger = logging.get_logger()
+        self.model_type = FAST5_NAME
         self.process_devices = [None,] * self.num_proc
 
         read_iter = fast5_io.iterate_fast5_reads(self.fast5s_dir)
@@ -272,14 +275,15 @@ class ModelInfo(object):
                 raw_signal=raw_sig, dacs=dacs, scale_params=scale_params,
                 raw_len=raw_sig.shape[0], fast5_fn=fast5_fn, read_id=read_id,
                 stride=self.stride)
-        elif self.model_info == FAST5_NAME:
+        elif self.model_type == FAST5_NAME:
             bc_mod_post = fast5_io.get_posteriors(read)
             if extract_sig_map_info:
                 trim_start, trim_len = fast5_io.get_signal_trim_coordiates(read)
                 dacs = dacs[trim_start:trim_start + trim_len]
             return SIGNAL_DATA(
                 raw_len=bc_mod_post.shape[0] * self.stride, dacs=dacs,
-                fast5_fn=fast5_fn, read_id=read_id, stride=self.stride)
+                fast5_fn=fast5_fn, read_id=read_id, stride=self.stride,
+                posteriors=bc_mod_post)
 
         raise mh.MegaError('Invalid model type')
         return
@@ -314,21 +318,28 @@ class ModelInfo(object):
         return trans_weights
 
     def get_posteriors(self, sig_info):
+        mod_weights, can_nmods = None, None
         if self.model_type == TAI_NAME:
             if self.is_cat_mod:
                 bc_weights, mod_weights = self.run_model(
                     sig_info.raw_signal, self.n_can_state)
                 can_nmods = self.can_nmods
             else:
-                mod_weights, can_nmods = None, None
                 bc_weights = self.run_model(sig_info.raw_signal)
-            r_post = decode.crf_flipflop_trans_post(bc_weights, log=True)
-        elif self.model_info == FAST5_NAME:
-            sig_info.posteriors
+            bc_post = decode.crf_flipflop_trans_post(bc_weights, log=True)
+        elif self.model_type == FAST5_NAME:
+            bc_mod_post = sig_info.posteriors
+            if self.is_cat_mod:
+                bc_post, mod_weights = (
+                    np.ascontiguousarray(bc_mod_post[:,:self.n_can_state]),
+                    np.ascontiguousarray(bc_mod_post[:,self.n_can_state:]))
+                can_nmods = self.can_nmods
+            else:
+                bc_post = bc_mod_post
         else:
             raise mh.MegaError('Invalid model type')
 
-        return r_post, mod_weights, can_nmods
+        return bc_post, mod_weights, can_nmods
 
 
 if __name__ == '__main__':
