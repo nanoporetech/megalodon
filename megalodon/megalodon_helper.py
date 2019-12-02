@@ -27,6 +27,10 @@ DEFAULT_CONTEXT_MIN_ALT_PROB = 0.05
 MED_NORM_FACTOR = 1.4826
 
 ALPHABET = 'ACGT'
+# set RNA alphabet for use in reading guppy posterior output
+# requiring assumed canonical alphabet
+RNA_ALPHABET = 'ACGU'
+VALID_ALPHABETS = [ALPHABET, RNA_ALPHABET]
 COMP_BASES = dict(zip(map(ord, 'ACGT'), map(ord, 'TGCA')))
 NP_COMP_BASES = np.array([3, 2, 1, 0], dtype=np.uintp)
 SEQ_MIN = np.array(['A'], dtype='S1').view(np.uint8)[0]
@@ -236,19 +240,21 @@ def get_mod_calibration_fn(
         'megalodon', os.path.join(
             MODEL_DATA_DIR_NAME, DEFAULT_MODEL_PRESET, MOD_CALIBRATION_FN)))
 
-def get_model_fn(model_fn=None, preset_str=None):
+def get_model_fn(model_fn=None, do_load_default=True, preset_str=None):
     if model_fn is not None:
         return resolve_path(model_fn)
     elif preset_str is not None:
         if preset_str not in MODEL_PRESETS:
             raise MegaError('Invalid model preset: {}'.format(preset_str))
-        resolve_path(pkg_resources.resource_filename(
+        return resolve_path(pkg_resources.resource_filename(
             'megalodon', os.path.join(
                 MODEL_DATA_DIR_NAME, preset_str, MODEL_FN)))
-    # else return default model file
-    return resolve_path(pkg_resources.resource_filename(
-        'megalodon', os.path.join(
-            MODEL_DATA_DIR_NAME, DEFAULT_MODEL_PRESET, MODEL_FN)))
+    elif do_load_default:
+        # return default model file
+        return resolve_path(pkg_resources.resource_filename(
+            'megalodon', os.path.join(
+                MODEL_DATA_DIR_NAME, DEFAULT_MODEL_PRESET, MODEL_FN)))
+    return None
 
 
 ###################################

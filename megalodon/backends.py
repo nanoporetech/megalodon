@@ -36,6 +36,36 @@ def parse_device(device):
     return device
 
 class ModelInfo(object):
+    def compute_mod_alphabet_attrs(self):
+        # parse these values to more user-friendly data structures
+        self.can_alphabet = ''
+        self.can_indices = []
+        self.mod_long_names = []
+        self.str_to_int_mod_labels = {}
+        self.can_base_mods = defaultdict(list)
+        curr_can_offset = 0
+        curr_nmods = 0
+        for can_base_nmods in self.can_nmods:
+            can_base = self.output_alphabet[curr_can_offset]
+            self.can_alphabet += can_base
+            self.can_indices.append(curr_can_offset)
+            for mod_i, mod_base in enumerate(self.output_alphabet[
+                    curr_can_offset + 1:
+                    curr_can_offset + can_base_nmods + 1]):
+                self.mod_long_names.append((
+                    mod_base, self.ordered_mod_long_names[
+                        curr_nmods + mod_i]))
+                self.str_to_int_mod_labels[mod_base] = mod_i + 1
+                self.can_base_mods[can_base].append(mod_base)
+
+            curr_can_offset += can_base_nmods + 1
+            curr_nmods += can_base_nmods
+
+        self.can_indices.append(curr_can_offset)
+        self.can_indices = np.array(self.can_indices).astype(np.uintp)
+        self.can_base_mods = dict(self.can_base_mods)
+        return
+
     def _load_taiyaki_model(self):
         if any(arg is None for arg in (
                 self.chunk_size, self.chunk_overlap, self.max_concur_chunks)):
@@ -91,36 +121,9 @@ class ModelInfo(object):
             self.output_alphabet = ff_layer.output_alphabet
             self.can_nmods = ff_layer.can_nmods
             self.ordered_mod_long_names = ff_layer.ordered_mod_long_names
-
-            # parse these values to more user-friendly data structures
-            self.can_alphabet = ''
-            self.can_indices = []
-            self.mod_long_names = []
-            self.str_to_int_mod_labels = {}
-            self.can_base_mods = defaultdict(list)
-            curr_can_offset = 0
-            curr_nmods = 0
-            for can_base_nmods in self.can_nmods:
-                can_base = self.output_alphabet[curr_can_offset]
-                self.can_alphabet += can_base
-                self.can_indices.append(curr_can_offset)
-                for mod_i, mod_base in enumerate(self.output_alphabet[
-                        curr_can_offset + 1:
-                        curr_can_offset + can_base_nmods + 1]):
-                    self.mod_long_names.append((
-                        mod_base, self.ordered_mod_long_names[
-                            curr_nmods + mod_i]))
-                    self.str_to_int_mod_labels[mod_base] = mod_i + 1
-                    self.can_base_mods[can_base].append(mod_base)
-
-                curr_can_offset += can_base_nmods + 1
-                curr_nmods += can_base_nmods
-
-            self.can_indices.append(curr_can_offset)
-            self.can_indices = np.array(self.can_indices).astype(np.uintp)
-            self.can_base_mods = dict(self.can_base_mods)
+            self.compute_mod_alphabet_attrs()
         else:
-            if mh.nstate_to_nbase(ff_layer.size) != 4:
+            if mh.nstate_to_nbase(self.output_size) != 4:
                 raise NotImplementedError(
                     'Naive modified base flip-flop models are not ' +
                     'supported.')
@@ -133,30 +136,79 @@ class ModelInfo(object):
         return
 
     def _load_fast5_post_out(self):
-        nreads = 0
-        for fast5_fn, read_id in fast5_io.iterate_fast5_reads(fast5s_dir):
-            stride = fast5_io.get_stride(fast5_fn, read_id)
-            mod_base_long_names, mod_alphabet = fast5_io.get_mod_base_info(
-                fast5_fn, read_id)
-            # assume flip-flop model in order to compute number of canonical
-            # base states
+        logger = logging.get_logger()
+        def get_model_info_from_fast5(read):
+            try:
+                stride = fast5_io.get_stride(read)
+                mod_long_names, out_alphabet = fast5_io.get_mod_base_info(read)
+                out_size = fast5_io.get_posteriors(read).shape[1]
+            except KeyError:
+                logger.error('Fast5 read does not contain required attributes.')
+                raise mh.MegaError(
+                    'Fast5 read does not contain required attributes.')
+            return stride, mod_long_names, out_alphabet, out_size
 
-        # define values required of model_info
-        self.can_alphabet
-        self.is_cat_mod
-        self.stride
-        self.output_alphabet
-        self.mod_long_names
-        self.process_devices
-        self.nmods
-        self.can_base_mods
-        self.can_indices
-        self.str_to_int_mod_labels
-        self.output_size
+        self.process_devices = [None,] * self.num_proc
+
+        read_iter = fast5_io.iterate_fast5_reads(self.fast5s_dir)
+        nreads = 0
+        try:
+            fast5_fn, read_id = next(read_iter)
+            read = fast5_io.get_read(fast5_fn, read_id)
+            (self.stride, self.ordered_mod_long_names, self.output_alphabet,
+             self.output_size) = get_model_info_from_fast5(read)
+        except StopIteration:
+            logger.error('No reads found.')
+            raise mh.MegaError('No reads found.')
+
+        for fast5_fn, read_id in read_iter:
+            read = fast5_io.get_read(fast5_fn, read_id)
+            r_s, r_omln, r_oa, r_os = get_model_info_from_fast5(read)
+            if (self.stride != r_s or
+                self.ordered_mod_long_names != r_omln or
+                self.output_alphabet != r_oa or
+                self.output_size != r_os):
+                logger.error(
+                    'Model information from FAST5 files is inconsistent. ' +
+                    'Assure all reads were called with the same model.')
+                raise mh.MegaError(
+                    'Model information from FAST5 files is inconsistent.')
+            nreads += 1
+            if nreads >= self.num_startup_reads:
+                break
+
+        # compute values required for standard model attribute extraction
+        self.n_mods = len(self.ordered_mod_long_names)
+        self.is_cat_mod = self.n_mods > 0
+        self.can_alphabet = None
+        for v_alphabet in mh.VALID_ALPHABETS:
+            if all(b in self.output_alphabet for b in v_alphabet):
+                self.can_alphabet = v_alphabet
+                break
+        if self.can_alphabet is None:
+            logger.error(
+                'Model information from FAST5 files contains invalid ' +
+                'alphabet ({})'.format(self.output_alphabet))
+            raise mh.MegaError('Invalid alphabet.')
+        # compute number of modified bases for each canonical base
+        self.can_nmods = np.diff(np.array(
+            [self.output_alphabet.index(b) for b in self.can_alphabet] +
+            [len(self.output_alphabet),])) - 1
+
+        if self.is_cat_mod:
+            self.compute_mod_alphabet_attrs()
+        else:
+            if mh.nstate_to_nbase(self.output_size) != 4:
+                raise NotImplementedError(
+                    'Naive modified base flip-flop models are not ' +
+                    'supported.')
+            self.str_to_int_mod_labels = {}
+            self.mod_long_names = []
+
         return
 
     def __init__(
-            self, num_proc=1, fast5s_dir=None, num_startup_reads=50,
+            self, num_proc=1, fast5s_dir=None, num_startup_reads=5,
             taiyaki_model_fn=None, devices=None, chunk_size=None,
             chunk_overlap=None, max_concur_chunks=None):
         self.num_proc = num_proc
@@ -205,26 +257,26 @@ class ModelInfo(object):
         return
 
     def extract_signal_info(self, fast5_fn, read_id, extract_sig_map_info):
+        read = fast5_io.get_read(fast5_fn, read_id)
         dacs = scale_params = raw_sig = None
         if extract_sig_map_info:
             # if not processing signal mappings, don't save dacs
-            dacs = fast5_io.get_signal(fast5_fn, read_id, scale=False)
+            dacs = fast5_io.get_signal(read, scale=False)
             scale_params = mh.med_mad(dacs)
             raw_sig = (dacs - med) / mad
 
         if self.model_type == TAI_NAME:
             if raw_sig is None:
-                raw_sig = fast5_io.get_signal(fast5_fn, read_id, scale=True)
+                raw_sig = fast5_io.get_signal(read, scale=True)
             return SIGNAL_DATA(
                 raw_signal=raw_sig, dacs=dacs, scale_params=scale_params,
                 raw_len=raw_sig.shape[0], fast5_fn=fast5_fn, read_id=read_id,
                 stride=self.stride)
         elif self.model_info == FAST5_NAME:
-            # TODO need to extract trim start in order to enable
-            # signal mapping output. If not this input/output combo should be
-            # explicitly disallowed
-            bc_mod_post = fast5_io.get_posteriors(
-                sig_info.fast5_fn, sig_info.read_id)
+            bc_mod_post = fast5_io.get_posteriors(read)
+            if extract_sig_map_info:
+                trim_start, trim_len = fast5_io.get_signal_trim_coordiates(read)
+                dacs = dacs[trim_start:trim_start + trim_len]
             return SIGNAL_DATA(
                 raw_len=bc_mod_post.shape[0] * self.stride, dacs=dacs,
                 fast5_fn=fast5_fn, read_id=read_id, stride=self.stride)

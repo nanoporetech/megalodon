@@ -193,10 +193,10 @@ def _process_reads_worker(
         sig_map_q, mod_sig_map_q, sig_map_filts, sig_map_alphabet, model_info,
         vars_data, mods_info, device):
     # wrap process prep in try loop to avoid stalled command
+    logger = logging.get_logger('main')
     try:
         model_info.prep_model_worker(device)
         vars_data.reopen_variant_index()
-        logger = logging.get_logger('main')
         logger.debug('Starting read worker {}'.format(mp.current_process()))
     except:
         if caller_conn is not None:
@@ -706,6 +706,7 @@ def mods_validation(args, model_info):
         logger.warning((
             '--mod-motif provided, but {} not requested (via --outputs). ' +
             'Argument will be ignored.').format(mh.PR_MOD_NAME))
+        args.mod_motif = None
     if args.refs_include_mods and mh.PR_REF_NAME not in args.outputs:
         logger.warning((
             '--refs-include-mods provided, but {} not requested ' +
@@ -833,13 +834,18 @@ def get_parser():
     mdl_grp = parser.add_argument_group('Model Arguments')
     mdl_grp.add_argument(
         '--taiyaki-model-filename',
-        help='Taiyaki model checkpoint file. Default: Load default model ' +
-        '({})'.format(mh.MODEL_PRESET_DESC))
+        help='Taiyaki basecalling model checkpoint file.')
+    mdl_grp.add_argument(
+        '--load-default-model', action='store_true',
+        help=('Load the default basecalling model included with megalodon ' +
+              '({}). Default: Assume guppy --post_out FAST5 files as ' +
+              'input').format(mh.MODEL_PRESET_DESC))
 
     out_grp = parser.add_argument_group('Output Arguments')
     out_grp.add_argument(
         '--outputs', nargs='+',
         default=['basecalls',], choices=tuple(mh.OUTPUT_DESCS.keys()),
+        # note 'O|' triggers raw formatting for this option alone
         help='O|Desired output(s).\nOptions:\n' +
         '\n'.join(('\t{}: {}'.format(*out_desc)
                    for out_desc in mh.OUTPUT_DESCS.items())) +
@@ -1112,9 +1118,11 @@ def _main():
 
     args, pr_ref_filts = parse_pr_ref_output(args)
     args, sig_map_filts = parse_sig_map_output(args)
-    tai_model_fn = mh.get_model_fn(args.taiyaki_model_filename)
+    tai_model_fn = mh.get_model_fn(
+        args.taiyaki_model_filename, args.load_default_model)
     model_info = backends.ModelInfo(
-        args.processes, taiyaki_model_fn=tai_model_fn, devices=args.devices,
+        args.processes, fast5s_dir=args.fast5s_dir,
+        taiyaki_model_fn=tai_model_fn, devices=args.devices,
         chunk_size=args.chunk_size, chunk_overlap=args.chunk_overlap,
         max_concur_chunks=args.max_concurrent_chunks)
     args, mods_info = mods_validation(args, model_info)
