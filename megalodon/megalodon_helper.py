@@ -40,6 +40,7 @@ _MAX_QUEUE_SIZE = 10000
 
 # allow 64GB for memory mapped sqlite file access
 MEMORY_MAP_LIMIT = 64000000000
+SQLITE_TIMEOUT = 5
 
 # VCF spec text
 MIN_GL_VALUE = -999

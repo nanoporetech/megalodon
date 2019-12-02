@@ -119,12 +119,13 @@ class VarsDb(object):
                 raise mh.MegaError('Invalid variant DB filename.')
             self.db = sqlite3.connect('file:' + fn + '?mode=ro', uri=True)
         else:
-            self.db = sqlite3.connect(fn)
+            self.db = sqlite3.connect(fn, timeout=mh.SQLITE_TIMEOUT)
 
         self.cur = self.db.cursor()
         if self.read_only:
             # use memory mapped file access
-            self.db.execute('PRAGMA mmap_size = {}'.format(mh.MEMORY_MAP_LIMIT))
+            self.cur.execute('PRAGMA mmap_size = {}'.format(
+                mh.MEMORY_MAP_LIMIT))
             if self.chrm_idx_in_mem:
                 self.load_chrm_read_index()
             if self.loc_idx_in_mem:
@@ -138,15 +139,15 @@ class VarsDb(object):
         else:
             if db_safety < 2:
                 # set asynchronous mode to off for max speed
-                self.db.execute('PRAGMA synchronous = OFF')
+                self.cur.execute('PRAGMA synchronous = OFF')
             if db_safety < 1:
                 # set no rollback mode
-                self.db.execute('PRAGMA journal_mode = OFF')
+                self.cur.execute('PRAGMA journal_mode = OFF')
 
             # create tables
             for tbl_name, tbl in self.db_tables.items():
                 try:
-                    self.db.execute("CREATE TABLE {} ({})".format(
+                    self.cur.execute("CREATE TABLE {} ({})".format(
                         tbl_name, ','.join((
                             '{} {}'.format(*ft) for ft in tbl.items()))))
                 except sqlite3.OperationalError:

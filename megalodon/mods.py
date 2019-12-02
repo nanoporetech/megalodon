@@ -37,8 +37,6 @@ FORMAT_LOG_PROB_MI = (
 
 OUT_BUFFER_LIMIT = 10000
 
-SQLITE_TIMEOUT = 5
-
 
 ###################
 ##### Mods DB #####
@@ -107,7 +105,7 @@ class ModsDb(object):
                 raise mh.MegaError('Invalid mods DB filename.')
             self.db = sqlite3.connect('file:' + fn + '?mode=ro', uri=True)
         else:
-            self.db = sqlite3.connect(fn, timeout=SQLITE_TIMEOUT)
+            self.db = sqlite3.connect(fn, timeout=mh.SQLITE_TIMEOUT)
 
         self.cur = self.db.cursor()
         if read_only:
