@@ -266,7 +266,7 @@ class ModelInfo(object):
             # if not processing signal mappings, don't save dacs
             dacs = fast5_io.get_signal(read, scale=False)
             scale_params = mh.med_mad(dacs)
-            raw_sig = (dacs - med) / mad
+            raw_sig = (dacs - scale_params[0]) / scale_params[1]
 
         if self.model_type == TAI_NAME:
             if raw_sig is None:
