@@ -182,8 +182,9 @@ class ModelInfo(object):
                     self.max_concur_chunks)
             except AttributeError:
                 raise mh.MegaError('Out of date or incompatible model')
-            except RuntimeError:
-                raise mh.MegaError('Likely out of memory error.')
+            except RuntimeError as e:
+                raise mh.MegaError(
+                    'Likely out of memory error: {}'.format(str(e)))
             if self.device != self.torch.device('cpu'):
                 self.torch.cuda.empty_cache()
             if n_can_state is not None:
