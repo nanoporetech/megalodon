@@ -4,8 +4,6 @@ from time import sleep
 import numpy as np
 
 from ont_fast5_api import fast5_interface
-# TODO move these to conditional imports when taiyaki becomes optional
-# potentially convert to class as with backends
 from taiyaki import (alphabet, fast5utils, mapping as tai_mapping,
                      prepare_mapping_funcs, signal as tai_signal)
 
