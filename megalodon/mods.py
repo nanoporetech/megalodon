@@ -10,8 +10,7 @@ from collections import defaultdict, namedtuple, OrderedDict
 import numpy as np
 
 from megalodon import (
-    calibration, decode, logging, mapping, megalodon_helper as mh,
-    signal_mapping)
+    calibration, decode, logging, mapping, megalodon_helper as mh)
 from megalodon._version import MEGALODON_VERSION
 
 
@@ -625,10 +624,18 @@ def call_read_mods(
 
     # annotate mods on reference sequence and send to signal mapping queue
     if mod_sig_map_q is not None and sig_map_res[0]:
+        # import locally so that import of mods module does not require
+        # taiyaki install
+        from megalodon import signal_mapping
         (fast5_fn, dacs, scale_params, r_ref_seq, stride, sig_map_alphabet,
          read_id, r_to_q_poss, rl_cumsum, q_start) = sig_map_res[1:]
         r_mod_seq = annotate_mods(
             r_ref_pos.start, r_ref_seq, r_mod_scores, r_ref_pos.strand)
+        invalid_chars = set(r_mod_seq).difference(sig_map_alphabet)
+        if len(invalid_chars) > 0:
+            raise mh.MegaError(
+                'Inavlid charcters found in mapped signal sequence: ' +
+                '({})'.format(''.join(invalid_chars)))
         mod_sig_map_q.put(signal_mapping.get_remapping(
             fast5_fn, dacs, scale_params, r_mod_seq, stride, sig_map_alphabet,
             read_id, r_to_q_poss, rl_cumsum, q_start))

@@ -1,6 +1,8 @@
 import os
 from glob import glob
 
+import numpy as np
+
 from ont_fast5_api.fast5_interface import get_fast5_file
 
 from megalodon import megalodon_helper as mh
@@ -38,17 +40,55 @@ def iterate_fast5_reads(fast5s_dir, limit=None, recursive=True):
                     return
     return
 
-def get_signal(fast5_fn, read_id, scale=True):
+def get_read(fast5_fn, read_id):
+    return get_fast5_file(fast5_fn, mode="r").get_read(read_id)
+
+def get_signal(read, scale=True):
     """ Get raw signal from read.
     """
-    with get_fast5_file(fast5_fn, 'r') as fast5_fp:
-        raw_sig = fast5_fp.get_read(read_id).get_raw_data()
+    raw_sig = read.get_raw_data()
 
     if scale:
         med, mad = mh.med_mad(raw_sig)
         raw_sig = (raw_sig - med) / mad
 
     return raw_sig
+
+def get_posteriors(read):
+    # extract guppy StateData and calls
+    latest_basecall = read.get_latest_analysis('Basecall_1D')
+    state_data = read.get_analysis_dataset(
+        latest_basecall + '/BaseCalled_template', 'StateData', proxy=False)
+    state_attrs = read.get_analysis_attributes(
+        latest_basecall + '/BaseCalled_template/StateData')
+    # convert state data from integers to float values
+    posteriors = (state_data.astype(np.float32) + state_attrs['offset']) * \
+                 state_attrs['scale']
+
+    return posteriors
+
+def get_stride(read):
+    latest_basecall = read.get_latest_analysis('Basecall_1D')
+    return read.get_summary_data(
+        latest_basecall)['basecall_1d_template']['block_stride']
+
+def get_mod_base_info(read):
+    latest_basecall = read.get_latest_analysis('Basecall_1D')
+    mod_attrs = read.get_analysis_attributes(
+        latest_basecall + '/BaseCalled_template/ModBaseProbs')
+    if mod_attrs is None:
+        return '', mh.ALPHABET
+    mod_base_long_names = mod_attrs['modified_base_long_names']
+    mod_alphabet = mod_attrs['output_alphabet']
+    return mod_base_long_names, mod_alphabet
+
+def get_signal_trim_coordiates(read):
+    latest_seg = read.get_latest_analysis('Segmentation')
+    trim_start = read.get_summary_data(seg_name)['segmentation'][
+        'first_sample_template']
+    trim_len = read.get_summary_data(seg_name)['segmentation'][
+        'duration_template']
+    return trim_start, trim_len
 
 
 if __name__ == '__main__':
