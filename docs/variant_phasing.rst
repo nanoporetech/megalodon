@@ -4,7 +4,20 @@ Variant Phasing
 
 This page walks through the steps to use megalodon in conjunction with `whatshap <https://whatshap.readthedocs.io/en/latest/>`_ to produce the highest quality phased variant calls.
 
-This workflow requires a working installation of whatshap. See instructions at the link above.
+This pipeline produces the ``variants.haploid_merged.vcf`` file containing high quality phased variant calls.
+The intermediate ``whatshap_mappings.haplotagged.bam`` file can be of particular interest to investigate variant calls at the per-read level.
+This file contains the reference sequence for each read annotated only with the proposed variant calls, including quality scores for SNVs.
+Thus random read errors are masked allowing for more accurate analysis on proposed variants.
+See an example of this per-read variant genome browser visualization below.
+
+----
+
+.. figure::  _images/whatshap_haplotagged_variant_viz.png
+   :align: center
+
+   Genome browser visualization. Megalodon whatshap_mappings haplotagged with whatshap (upper panel) and raw read mappings (lower panel).
+
+----
 
 --------
 Workflow
@@ -38,7 +51,7 @@ Workflow
 
    # run whatshap with produced mappings and variants
    whatshap \
-       phase --indels --distrust-genotypes \
+       phase --distrust-genotypes \
        -o $out_dir/variants.phased.vcf \
        $out_dir/variants.sorted.whatshap_filt.vcf.gz \
        $out_dir/whatshap_mappings.sorted.bam
@@ -58,14 +71,14 @@ Workflow
        $out_dir/whatshap_mappings
    python \
        megalodon/scripts/run_aggregation.py \
-       --outputs variants --haploid --output-suffix haplotype_1 \
+       --megalodon-directory $out_dir --output-suffix haplotype_1  \
        --read-ids-filename $out_dir/whatshap_mappings.haplotype_1_read_ids.txt \
-       --reference $ref --processes $nproc
+       --outputs variants --haploid --processes $nproc
    python \
        megalodon/scripts/run_aggregation.py \
-       --outputs variants --haploid --output-suffix haplotype_2 \
+       --megalodon-directory $out_dir --output-suffix haplotype_2  \
        --read-ids-filename $out_dir/whatshap_mappings.haplotype_2_read_ids.txt \
-       --reference $ref --processes $nproc
+       --outputs variants --haploid --processes $nproc
 
    # merge haploid variants to produce diploid variants
    python \
