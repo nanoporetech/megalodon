@@ -77,7 +77,7 @@ def get_mod_base_info(read):
     mod_attrs = read.get_analysis_attributes(
         latest_basecall + '/BaseCalled_template/ModBaseProbs')
     if mod_attrs is None:
-        return [], mh.ALPHABET
+        return '', mh.ALPHABET
     mod_base_long_names = mod_attrs['modified_base_long_names']
     mod_alphabet = mod_attrs['output_alphabet']
     return mod_base_long_names, mod_alphabet
