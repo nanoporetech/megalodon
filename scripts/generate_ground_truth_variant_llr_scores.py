@@ -238,7 +238,7 @@ def _process_reads_worker(
             break
 
         try:
-            raw_sig = fast5_io.get_signal(fast5_fn, read_id)
+            raw_sig = fast5_io.get_signal(fast5_io.get_read(fast5_fn, read_id))
             read_var_calls = process_read(
                 raw_sig, read_id, model_info, caller_conn, map_thr_buf,
                 do_false_ref)
