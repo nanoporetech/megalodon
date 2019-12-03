@@ -105,12 +105,13 @@ class ModsDb(object):
                 raise mh.MegaError('Invalid mods DB filename.')
             self.db = sqlite3.connect('file:' + fn + '?mode=ro', uri=True)
         else:
-            self.db = sqlite3.connect(fn)
+            self.db = sqlite3.connect(fn, timeout=mh.SQLITE_TIMEOUT)
 
         self.cur = self.db.cursor()
         if read_only:
             # use memory mapped file access
-            self.db.execute('PRAGMA mmap_size = {}'.format(mh.MEMORY_MAP_LIMIT))
+            self.cur.execute('PRAGMA mmap_size = {}'.format(
+                mh.MEMORY_MAP_LIMIT))
             if self.chrm_idx_in_mem:
                 self.load_chrm_read_index()
             if self.pos_idx_in_mem:
@@ -122,15 +123,15 @@ class ModsDb(object):
         else:
             if db_safety < 2:
                 # set asynchronous mode to off for max speed
-                self.db.execute('PRAGMA synchronous = OFF')
+                self.cur.execute('PRAGMA synchronous = OFF')
             if db_safety < 1:
                 # set no rollback mode
-                self.db.execute('PRAGMA journal_mode = OFF')
+                self.cur.execute('PRAGMA journal_mode = OFF')
 
             # create tables
             for tbl_name, tbl in self.db_tables.items():
                 try:
-                    self.db.execute("CREATE TABLE {} ({})".format(
+                    self.cur.execute("CREATE TABLE {} ({})".format(
                         tbl_name, ','.join((
                             '{} {}'.format(*ft) for ft in tbl.items()))))
                 except sqlite3.OperationalError:
@@ -550,9 +551,8 @@ def score_mod_seq(
         all_paths)
 
 def call_read_mods(
-        r_ref_pos, r_ref_seq, rl_cumsum, r_to_q_poss, r_post,
-        post_mapped_start, mods_info, mod_sig_map_q, sig_map_res,
-        signal_reversed):
+        r_ref_pos, r_ref_seq, ref_to_block, r_post, mods_info, mod_sig_map_q,
+        sig_map_res, signal_reversed):
     def iter_motif_sites():
         search_ref_seq = r_ref_seq[::-1] if signal_reversed else r_ref_seq
         ref_seq_len = len(r_ref_seq)
@@ -589,8 +589,8 @@ def call_read_mods(
             continue
         pos_can_mods = np.zeros_like(pos_ref_seq)
 
-        blk_start, blk_end = (rl_cumsum[r_to_q_poss[pos - pos_bb]],
-                              rl_cumsum[r_to_q_poss[pos + pos_ab]])
+        blk_start, blk_end = (ref_to_block[pos - pos_bb],
+                              ref_to_block[pos + pos_ab])
         if blk_end - blk_start < (mods_info.mod_context_bases * 2) + 1:
             # no valid mapping over large inserted query bases
             # i.e. need as many "events/strides" as bases for valid mapping
@@ -598,8 +598,7 @@ def call_read_mods(
 
         loc_can_score = score_mod_seq(
             r_post, pos_ref_seq, pos_can_mods, mods_info.can_mods_offsets,
-            post_mapped_start + blk_start, post_mapped_start + blk_end,
-            mods_info.mod_all_paths)
+            blk_start, blk_end, mods_info.mod_all_paths)
         if loc_can_score is None:
             raise mh.MegaError('Score computation error (memory error)')
 
@@ -609,8 +608,7 @@ def call_read_mods(
             pos_mod_mods[pos_bb] = mods_info.str_to_int_mod_labels[mod_base]
             loc_mod_score = score_mod_seq(
                 r_post, pos_ref_seq, pos_mod_mods, mods_info.can_mods_offsets,
-                post_mapped_start + blk_start, post_mapped_start + blk_end,
-                mods_info.mod_all_paths)
+                blk_start, blk_end, mods_info.mod_all_paths)
             if loc_mod_score is None:
                 raise mh.MegaError('Score computation error (memory error)')
 
