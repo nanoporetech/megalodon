@@ -14,6 +14,7 @@ See an example of this per-read variant genome browser visualization below.
 
 .. figure::  _images/whatshap_haplotagged_variant_viz.png
    :align: center
+   :width: 600
 
    Genome browser visualization. Megalodon whatshap_mappings haplotagged with whatshap (upper panel) and raw read mappings (lower panel).
 
