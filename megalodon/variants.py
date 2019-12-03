@@ -617,25 +617,19 @@ def score_variants_with_context(
 
         blk_start  = ref_to_block[s_ref_start]
         blk_end = ref_to_block[s_ref_end]
-        if blk_end - blk_start <= max(
-                len(up_seq) + len(dn_seq)
-                for up_seq, dn_seq in np_s_context_seqs) + max(
-                        np_s_var_ref_seq.shape[0], max(
-                            var_alt_seq.shape[0]
-                            for var_alt_seq in np_s_var_alt_seqs)):
-            # if some context sequences are too long for signal
-            # just use cached lps
-            # TODO could also filter out invalid context sequences
-            r_var_calls.append((
-                variant.start, ref_cntxt_alt_lps, variant.ref,
-                variant.alts, variant.id, variant.start,
-                variant.start + variant.np_ref.shape[0]))
-            continue
+
+        # filter to context sequences that can be evaluated given the
+        # assigned context signal/blocks
+        max_var_len = max(np_s_var_ref_seq.shape[0], max(
+            var_alt_seq.shape[0] for var_alt_seq in np_s_var_alt_seqs))
+        filt_np_s_context_seqs = [
+            (up_seq, dn_seq) for up_seq, dn_seq in np_s_context_seqs
+            if blk_end - blk_start > len(up_seq) + len(dn_seq) + max_var_len]
 
         # skip first (reference) context seq as this was cached
         ref_context_seqs = (
             np.concatenate([up_context_seq, np_s_var_ref_seq, dn_context_seq])
-            for up_context_seq, dn_context_seq in np_s_context_seqs[1:])
+            for up_context_seq, dn_context_seq in filt_np_s_context_seqs[1:])
         loc_contexts_ref_lps = np.array([ref_cntxt_ref_lp] + [
             score_seq(r_post, ref_seq, blk_start, blk_end, all_paths)
             for ref_seq in ref_context_seqs])
@@ -649,11 +643,12 @@ def score_variants_with_context(
             alt_context_seqs = (
                 np.concatenate([
                     up_context_seq, np_s_var_alt_seq, dn_context_seq])
-                for up_context_seq, dn_context_seq in np_s_context_seqs[1:])
+                for up_context_seq, dn_context_seq in filt_np_s_context_seqs[1:])
             loc_contexts_alt_lps = np.array([ref_cntxt_alt_lp,] + [
                 score_seq(r_post, alt_seq, blk_start, blk_end, all_paths)
                 for alt_seq in alt_context_seqs])
             loc_alt_lp = logsumexp(loc_contexts_alt_lps)
+
             if _DEBUG_PER_READ:
                 loc_contexts_alts_lps.append(loc_contexts_alt_lps)
             # calibrate log probs
@@ -667,7 +662,7 @@ def score_variants_with_context(
         if _DEBUG_PER_READ and logger is not None and read_ref_pos is not None:
             write_per_read_debug(
                 variant.start, variant.id, read_ref_pos,
-                np_s_var_ref_seq, np_s_var_alt_seqs, np_s_context_seqs,
+                np_s_var_ref_seq, np_s_var_alt_seqs, filt_np_s_context_seqs,
                 loc_contexts_ref_lps, loc_contexts_alts_lps, True, logger)
 
         r_var_calls.append((
