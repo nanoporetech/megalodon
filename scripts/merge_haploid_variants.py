@@ -111,6 +111,8 @@ def write_var(curr_v0_rec, curr_v1_rec, curr_v2_rec, out_vars, contig):
                 s1_attrs['GL'], s2_attrs['GL'])
     else:
         # write un-phased variant back out.
+        # TODO convert genotype to most likely homozygous call since whatshap
+        # could not phase this site, it is likely not heterozygous
         qual = parse_qual(curr_v0_rec.qual)
         gt = '{}|{}'.format(*gt0)
         gq, gl, pl = gq0, gl0, pl0

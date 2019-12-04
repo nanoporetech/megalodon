@@ -9,7 +9,7 @@ Base Calling
 ------------
 
 Basecalling is performed as in taiyaki and guppy.
-Raw nanopore signal is normalizied (using median and MAD scaling), chunked, processed with a recurrent neural network and decoded using the forward-backward algorithm followed by Viterbi decoding.
+Raw nanopore signal is normalized (using median and MAD scaling), chunked, processed with a recurrent neural network and decoded using the forward-backward algorithm followed by Viterbi decoding.
 These steps are described in the taiyaki documentation.
 
 -------------------
@@ -22,7 +22,7 @@ Given anchored neural network output, alternatives to the reference (either modi
 The neural network output is anchored to the reference via standard read mapping of produced basecalls to the reference sequence (maintaining the link to the neural network outputs).
 If no reference mapping is produced (using ``minimap2`` via the ``mappy`` python interface) that read is not processed further (basecalls will be output if requested).
 This standard read mapping is processed to produce a matching of each basecall with a reference position.
-Reference positions within an insertion or deletion are assigned to the previous mapped read position (left justified).
+Reference positions within an insertion or deletion are assigned to the previous mapped read position (left justified; this behavior may change in future versions).
 This constitutes the reference anchoring used for modified base and sequence variant calling steps.
 
 ------------------------

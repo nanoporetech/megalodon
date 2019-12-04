@@ -832,6 +832,22 @@ def get_parser():
         help=('Load the default basecalling model included with megalodon ' +
               '({}). Default: Assume guppy --post_out FAST5 files as ' +
               'input').format(mh.MODEL_PRESET_DESC))
+    mdl_grp.add_argument(
+        '--devices', nargs='+',
+        help='GPU devices for taiyaki basecalling backend (--processes will ' +
+        'be distributed even over specified --devices).')
+    mdl_grp.add_argument(
+        '--chunk-size', type=int, default=1000,
+        help=hidden_help('Chunk length for base calling. Default: %(default)d'))
+    mdl_grp.add_argument(
+        '--chunk-overlap', type=int, default=100,
+        help=hidden_help('Overlap between chunks to be stitched together. ' +
+                         'Default: %(default)d'))
+    mdl_grp.add_argument(
+        '--max-concurrent-chunks', type=int, default=200,
+        help=hidden_help('Only process N chunks concurrently per-read (to ' +
+                         'avoid GPU memory errors). Default: %(default)d'))
+
 
     out_grp = parser.add_argument_group('Output Arguments')
     out_grp.add_argument(
@@ -996,23 +1012,6 @@ def get_parser():
         '--write-mod-log-probs', action='store_true',
         help=hidden_help('Write per-read modified base log probabilities ' +
                          'out in non-standard modVCF field.'))
-
-    tai_grp = parser.add_argument_group('Taiyaki Signal Chunking Arguments')
-    tai_grp.add_argument(
-        '--chunk-size', type=int, default=1000,
-        help='Chunk length for base calling. Default: %(default)d')
-    tai_grp.add_argument(
-        '--chunk-overlap', type=int, default=100,
-        help='Overlap between chunks to be stitched together. ' +
-        'Default: %(default)d')
-    tai_grp.add_argument(
-        '--devices', nargs='+', help='GPU devices for taiyaki basecalling ' +
-        'backend (--processes will be distributed even over specified ' +
-        '--devices).')
-    tai_grp.add_argument(
-        '--max-concurrent-chunks', type=int, default=200,
-        help='Only process N chunks concurrently per-read (to avoid GPU ' +
-        'memory errors). Default: %(default)d')
 
     refout_grp = parser.add_argument_group('Reference Output Arguments')
     refout_grp.add_argument(

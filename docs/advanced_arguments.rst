@@ -2,6 +2,24 @@
 Advanced Megalodon Arguments
 ****************************
 
+---------------
+Model Arguments
+---------------
+
+- ``--chunk-size``
+
+  - Size of individual chunks to run as input to neural network.
+  - Smaller size will result in faster basecalling, but may reduce accuracy.
+- ``--chunk-overlap``
+
+  - Overlap between adjacent chunks fed to baescalling neural network.
+  - Smaller size will result in faster basecalling, but may reduce accuracy.
+- ``--max-concurrent-chunks``
+
+  - Maximum number of concurrent chunks to basecall at once.
+  - Allows a global cap on GPU memory usage.
+  - Changes to this parameter do not effect resulting basecalls.
+
 ----------------
 Output Arguments
 ----------------
@@ -148,6 +166,28 @@ This output category is intended for use in generating reference sequences for t
 
   - Only include reads with specified read length in per-read reference output.
 
+---------------------
+Signal Mapping Output
+---------------------
+
+This output category produces a mapped signal file, the direct input to train a new basecalling model (via ``taiyaki``).
+
+- ``--output-signal-mappings``
+
+  - Output signal mapped file (see taiyaki).
+- ``--signal-map-include-mods``
+
+  - Include modified base calls in signal mapping output.
+- ``--signal-map-percent-identity-threshold``
+
+  - Only include reads with higher percent identity in signal mapping output.
+- ``--signal-map-percent-coverage-threshold``
+
+  - Only include reads with higher read alignment coverage in signal mapping output.
+- ``--signal-map-length-range``
+
+  - Only include reads with specified read length in signal mapping output.
+
 -----------------------
 Miscellaneous Arguments
 -----------------------
@@ -164,7 +204,7 @@ Miscellaneous Arguments
 - ``--edge-buffer``
 
   - Do not process sequence variant or modified base calls near edge of read mapping.
-  - Default: 100
+  - Default: 0
 - ``--not-recursive``
 
   - Only search for fast5 read files directly found within the fast5 directory.

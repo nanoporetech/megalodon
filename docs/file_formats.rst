@@ -90,4 +90,6 @@ The ``read`` table contrains the read UUID as well as the mapped strand for each
 Aggregated Sequence Variants
 ----------------------------
 
-Docs coming shortly.
+Sequence variant calls are output in standard VCF format (version 4.1).
+The sample format fields includes the following standard VCF fields: ``gt``, ``gq``, ``gp``, ``gl``, and ````pl``
+In addition the non-standard ``log_probs`` field, containing the per-read contributions to the variant call, can be added to the VCF file by setting the ``--write-vcf-log-probs`` flag.
