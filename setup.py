@@ -30,7 +30,6 @@ install_requires = [
     "Cython >= 0.25.2",
     "mappy >= 2.16",
     "pysam >= 0.15",
-    "torch >= 1",
     "ont_fast5_api >= 1.1",
     "tqdm",
 ]

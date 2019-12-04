@@ -289,9 +289,11 @@ class VarCalibrator(object):
             step = self.ins_steps[ins_len]
             llr_range = self.ins_llr_ranges[ins_len]
 
-        return calib_table[np.around((
-            np.clip(llr, llr_range[0], llr_range[1]) -
-            llr_range[0]) / step).astype(int)]
+        if llr < llr_range[0]:
+            llr = llr_range[0]
+        elif llr > llr_range[1]:
+            llr = llr_range[1]
+        return calib_table[np.around((llr - llr_range[0]) / step).astype(int)]
 
 
 class ModCalibrator(object):
@@ -325,9 +327,11 @@ class ModCalibrator(object):
             return llr
 
         llr_range, step, calib_table = self.mod_base_calibs[mod_base]
-        return calib_table[np.around((
-            np.clip(llr, llr_range[0], llr_range[1]) -
-            llr_range[0]) / step).astype(int)]
+        if llr < llr_range[0]:
+            llr = llr_range[0]
+        elif llr > llr_range[1]:
+            llr = llr_range[1]
+        return calib_table[np.around((llr - llr_range[0]) / step).astype(int)]
 
 
 if __name__ == '__main__':

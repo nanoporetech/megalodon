@@ -34,7 +34,94 @@ BC_CONTROL_NAME = 'Control'
 #BC_CONTROL_NAME = '"High Accuracy"\nFlip-flop'
 
 
-def report_mod_metrics(m_dat, args, out_fp, pdf_fp):
+def compute_mod_sites_stats(
+        m_dat, motif, mod_base, v_name, out_fp, pdf_fp, balance_classes):
+    motif_m_dat = m_dat[(m_dat['motif'] == motif) &
+                        (m_dat['mod_base'] == mod_base)]
+    if motif_m_dat.shape[0] == 0:
+        # motif/mod_base can conflict with valid sites
+        return
+    if balance_classes:
+        num_mod = sum(motif_m_dat['is_mod'])
+        num_unmod = motif_m_dat.shape[0] - num_mod
+        if num_mod > num_unmod:
+            bal_idx = np.full(motif_m_dat.shape[0], True)
+            bal_idx[np.random.choice(
+                np.where(motif_m_dat['is_mod'])[0],
+                num_mod - num_unmod, replace=False)] = False
+            motif_m_dat = motif_m_dat[bal_idx]
+        elif num_mod < num_unmod:
+            bal_idx = np.full(motif_m_dat.shape[0], True)
+            bal_idx[np.random.choice(
+                np.where(~motif_m_dat['is_mod'])[0],
+                num_unmod - num_mod, replace=False)] = False
+            motif_m_dat = motif_m_dat[bal_idx]
+    if VERBOSE: sys.stderr.write(
+            'Computing PR/ROC for {} in {} at {}\n'.format(
+                mod_base, motif, v_name))
+    out_fp.write(('Modified base class distribution for {} in {} at {}:\n\t' +
+                  'Number of modified observations:    {}\n\t' +
+                  'Number of unmodified observations:  {}\n').format(
+                      mod_base, motif, v_name,
+                      sum(motif_m_dat['is_mod']),
+                      sum(~motif_m_dat['is_mod'])))
+    # compute roc and presicion recall
+    precision, recall, _ = precision_recall_curve(
+        motif_m_dat['is_mod'], motif_m_dat['llr'])
+    avg_prcn = average_precision_score(
+        motif_m_dat['is_mod'], motif_m_dat['llr'])
+
+    fpr, tpr, _ = roc_curve(
+        motif_m_dat['is_mod'], motif_m_dat['llr'])
+    roc_auc = auc(fpr, tpr)
+
+    out_fp.write(('Modified base metrics for {} in {} at {}:\n\t' +
+                  'Average precision:  {:.6f}\n\t' +
+                  'ROC AUC:            {:.6f}\n').format(
+                      mod_base, motif, v_name, avg_prcn, roc_auc))
+
+    if VERBOSE: sys.stderr.write('Plotting {} in {} at {}\n'.format(
+            mod_base, motif, v_name))
+    plt.figure(figsize=(11, 7))
+    sns.kdeplot(motif_m_dat[motif_m_dat['is_mod']]['llr'],
+                shade=True, bw=MOD_BANDWIDTH, gridsize=MOD_GRIDSIZE,
+                label='Yes')
+    sns.kdeplot(motif_m_dat[~motif_m_dat['is_mod']]['llr'],
+                shade=True, bw=MOD_BANDWIDTH, gridsize=MOD_GRIDSIZE,
+                label='No')
+    plt.legend(prop={'size':16}, title='Is Modified?')
+    plt.xlabel('Log Likelihood Ratio\nLess Modified <--> More Modified')
+    plt.ylabel('Density')
+    plt.title('Modified Base: {}\tMotif: {}\tSites: {}'.format(
+        mod_base, motif, v_name))
+    pdf_fp.savefig(bbox_inches='tight')
+    plt.close()
+
+    plt.figure(figsize=(8, 7))
+    plt.step(recall, precision, where='post')
+    plt.ylim([-0.05, 1.05])
+    plt.xlim([-0.05, 1.05])
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title(('Modified Base: {}\tMotif: {}\tSites: {}\tPrecision-Recall ' +
+               'curve: AP={:0.2f}').format(mod_base, motif, v_name, avg_prcn))
+    pdf_fp.savefig(bbox_inches='tight')
+    plt.close()
+
+    plt.figure(figsize=(8, 7))
+    plt.plot(fpr, tpr)
+    plt.xlim([-0.05, 1.05])
+    plt.ylim([-0.05, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title(('Modified Base: {}\tMotif: {}\tSites: {}\tROC curve: ' +
+               'auc={:0.2f}').format(mod_base, motif, v_name, roc_auc))
+    pdf_fp.savefig(bbox_inches='tight')
+    plt.close()
+    return
+
+def report_mod_metrics(
+        m_dat, args, out_fp, pdf_fp, valid_sites, balance_classes):
     # cap -inf log probs to lowest other value
     mod_is_ninf = np.isneginf(m_dat['mod_log_prob'])
     m_dat.loc[mod_is_ninf, 'mod_log_prob'] = np.min(
@@ -44,69 +131,17 @@ def report_mod_metrics(m_dat, args, out_fp, pdf_fp):
         m_dat['can_log_prob'][~can_is_ninf])
     m_dat['llr'] = m_dat['mod_log_prob'] - m_dat['can_log_prob']
     uniq_grps = m_dat.groupby(['mod_base', 'motif']).size().reset_index()
-    for mod_base, motif in zip(uniq_grps.mod_base, uniq_grps.motif):
-        motif_m_dat = m_dat[(m_dat['motif'] == motif) &
-                            (m_dat['mod_base'] == mod_base)]
-        if VERBOSE: sys.stderr.write('Computing PR/ROC for {} in {}\n'.format(
-                mod_base, motif))
-        out_fp.write(('Modified base class distribution for {} in {}:\n\t' +
-                      'Number of modified observations:    {}\n\t' +
-                      'Number of unmodified observations:  {}\n').format(
-                          mod_base, motif,
-                          sum(motif_m_dat['is_mod']),
-                          sum(~motif_m_dat['is_mod'])))
-        # compute roc and presicion recall
-        precision, recall, _ = precision_recall_curve(
-            motif_m_dat['is_mod'], motif_m_dat['llr'])
-        avg_prcn = average_precision_score(
-            motif_m_dat['is_mod'], motif_m_dat['llr'])
 
-        fpr, tpr, _ = roc_curve(
-            motif_m_dat['is_mod'], motif_m_dat['llr'])
-        roc_auc = auc(fpr, tpr)
+    if valid_sites is not None:
+        m_idx = m_dat.set_index(['chrm', 'pos']).index
 
-        out_fp.write(('Modified base metrics for {} in {}:\n\t' +
-                      'Average precision:  {:.6f}\n\t' +
-                      'ROC AUC:            {:.6f}\n').format(
-                          mod_base, motif, avg_prcn, roc_auc))
-
-        if VERBOSE: sys.stderr.write('Plotting {} in {}\n'.format(
-                mod_base, motif))
-        plt.figure(figsize=(11, 7))
-        sns.kdeplot(motif_m_dat[motif_m_dat['is_mod']]['llr'],
-                    shade=True, bw=MOD_BANDWIDTH, gridsize=MOD_GRIDSIZE,
-                    label='Yes')
-        sns.kdeplot(motif_m_dat[~motif_m_dat['is_mod']]['llr'],
-                    shade=True, bw=MOD_BANDWIDTH, gridsize=MOD_GRIDSIZE,
-                    label='No')
-        plt.legend(prop={'size':16}, title='Is Modified?')
-        plt.xlabel('Log Likelihood Ratio\n(Less Modified <--> More Modified')
-        plt.ylabel('Density')
-        plt.title('Modified Base: {}\tMotif: {}'.format(mod_base, motif))
-        pdf_fp.savefig(bbox_inches='tight')
-        plt.close()
-
-        plt.figure(figsize=(8, 7))
-        plt.step(recall, precision, where='post')
-        plt.ylim([-0.05, 1.05])
-        plt.xlim([-0.05, 1.05])
-        plt.xlabel('Recall')
-        plt.ylabel('Precision')
-        plt.title(('Modified Base: {}\tMotif: {}\tPrecision-Recall ' +
-                   'curve: AP={:0.2f}').format(mod_base, motif, avg_prcn))
-        pdf_fp.savefig(bbox_inches='tight')
-        plt.close()
-
-        plt.figure(figsize=(8, 7))
-        plt.plot(fpr, tpr)
-        plt.xlim([-0.05, 1.05])
-        plt.ylim([-0.05, 1.05])
-        plt.xlabel('False Positive Rate')
-        plt.ylabel('True Positive Rate')
-        plt.title(('Modified Base: {}\tMotif: {}\tROC curve: ' +
-                   'auc={:0.2f}').format(mod_base, motif, roc_auc))
-        pdf_fp.savefig(bbox_inches='tight')
-        plt.close()
+    for v_name, valid_sites_i in valid_sites:
+        filt_m_dat = m_dat if valid_sites_i is None else m_dat[
+            m_idx.isin(valid_sites_i)]
+        for mod_base, motif in zip(uniq_grps.mod_base, uniq_grps.motif):
+            compute_mod_sites_stats(
+                filt_m_dat, motif, mod_base, v_name, out_fp, pdf_fp,
+                balance_classes)
 
     return
 
@@ -212,6 +247,7 @@ def parse_control_mods(args, out_fp):
                                     mh.PR_MOD_TXT_NAME), sep='\t')
         except FileNotFoundError:
             ctrl_dat = None
+
     elif args.ground_truth_data is not None:
         if VERBOSE: sys.stderr.write('Reading ground truth data\n')
         gt_dat = pd.read_csv(
@@ -224,6 +260,24 @@ def parse_control_mods(args, out_fp):
             '*' * 20 + '  WARNING: No modified base ground truth provided.\n')
 
     return ctrl_acc, ctrl_parsim_acc, ctrl_dat, gt_dat, mod_chrm_sw
+
+def parse_valid_sites(valid_sites_arg):
+    if valid_sites_arg is None:
+        return [('', None),]
+    if VERBOSE: sys.stderr.write('Reading valid sites data\n')
+    valid_sites = []
+    for name, valid_sites_fn in valid_sites_arg:
+        try:
+            valid_sites.append((name, pd.read_csv(
+                valid_sites_fn, header=None, sep='\t',
+                names=['chrm', 'pos', 'strand'],
+                usecols=[0, 1, 5]).set_index(['chrm', 'pos']).index))
+        except FileNotFoundError:
+            print('Could not find valid sites file: {}'.format(valid_sites_fn))
+            continue
+    if len(valid_sites) == 0:
+        return [('', None),]
+    return valid_sites
 
 def get_parser():
     parser = argparse.ArgumentParser()
@@ -242,11 +296,19 @@ def get_parser():
         help='String prefix for all mapped chromosomes with ground ' +
         'truth modifications. All other sites will be assumed unmodified.')
     parser.add_argument(
+        '--valid-sites', nargs=2, action='append',
+        help='Name and BED file containing sites over which to restrict ' +
+        'modified base results. Multiple sets of valid sites may be provided.')
+    parser.add_argument(
         '--out-pdf', default='megalodon_validation.pdf',
         help='Output pdf filename. Default: %(default)s')
     parser.add_argument(
         '--out-filename',
         help='Output filename for text summary. Default: stdout')
+    parser.add_argument(
+        '--balance-classes', action='store_true',
+        help='Balance size of modified and canonical classes for each ' +
+        'comparison made.')
     parser.add_argument(
         '--quiet', action='store_true',
         help='Suppress progress information.')
@@ -261,6 +323,7 @@ def main():
     out_fp = sys.stdout if args.out_filename is None else \
              open(args.out_filename, 'w')
 
+    valid_sites = parse_valid_sites(args.valid_sites)
     mod_dat, mod_acc, mod_parsim_acc = parse_mod_data(args, out_fp)
 
     ctrl_acc, ctrl_parsim_acc, ctrl_dat, gt_dat, mod_chrm_sw \
@@ -273,7 +336,8 @@ def main():
         if out_fp is not sys.stdout: out_fp.close()
         return
     m_dat = merge_mods_data(mod_dat, ctrl_dat, gt_dat, mod_chrm_sw, out_fp)
-    report_mod_metrics(m_dat, args, out_fp, pdf_fp)
+    report_mod_metrics(
+        m_dat, args, out_fp, pdf_fp, valid_sites, args.balance_classes)
     pdf_fp.close()
     if out_fp is not sys.stdout: out_fp.close()
 

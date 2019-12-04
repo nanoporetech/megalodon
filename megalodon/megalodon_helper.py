@@ -18,6 +18,7 @@ DEFAULT_INDEL_HET_FACTOR = 1.6
 
 DEFAULT_EDGE_BUFFER = 0
 CONTEXT_MAX_DIST = 5
+DEFUALT_MAX_VAR_CNTXTS = 16
 DEFAULT_SNV_CONTEXT = 15
 DEFAULT_INDEL_CONTEXT = 30
 DEFAULT_MOD_CONTEXT = 15
@@ -26,6 +27,10 @@ DEFAULT_CONTEXT_MIN_ALT_PROB = 0.05
 MED_NORM_FACTOR = 1.4826
 
 ALPHABET = 'ACGT'
+# set RNA alphabet for use in reading guppy posterior output
+# requiring assumed canonical alphabet
+RNA_ALPHABET = 'ACGU'
+VALID_ALPHABETS = [ALPHABET, RNA_ALPHABET]
 COMP_BASES = dict(zip(map(ord, 'ACGT'), map(ord, 'TGCA')))
 NP_COMP_BASES = np.array([3, 2, 1, 0], dtype=np.uintp)
 SEQ_MIN = np.array(['A'], dtype='S1').view(np.uint8)[0]
@@ -39,6 +44,7 @@ _MAX_QUEUE_SIZE = 10000
 
 # allow 64GB for memory mapped sqlite file access
 MEMORY_MAP_LIMIT = 64000000000
+SQLITE_TIMEOUT = 5
 
 # VCF spec text
 MIN_GL_VALUE = -999
@@ -62,9 +68,9 @@ WHATSHAP_MAP_NAME = 'whatshap_mappings'
 VAR_NAME = 'variants'
 PR_MOD_NAME = 'per_read_mods'
 PR_MOD_TXT_NAME = 'per_read_mods_text'
-# TOOD add wig/bedgraph modified base output
 MOD_NAME = 'mods'
 PR_REF_NAME = 'per_read_ref'
+SIG_MAP_NAME = 'signal_mapping'
 OUTPUT_FNS = {
     BC_NAME:'basecalls',
     BC_MODS_NAME:'basecalls.modified_base_scores.hdf5',
@@ -77,7 +83,8 @@ OUTPUT_FNS = {
     PR_MOD_NAME:'per_read_modified_base_calls.db',
     PR_MOD_TXT_NAME:'per_read_modified_base_calls.txt',
     MOD_NAME:'modified_bases',
-    PR_REF_NAME:'per_read_references.fasta'
+    PR_REF_NAME:'per_read_references.fasta',
+    SIG_MAP_NAME:'signal_mappings.hdf5'
 }
 LOG_FILENAME = 'log.txt'
 # outputs to be selected with command line --outputs argument
@@ -108,11 +115,13 @@ MOD_OUTPUT_EXTNS = {
     MOD_WIG_NAME:'wig'
 }
 
-ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, PR_VAR_NAME, VAR_NAME,
-                     WHATSHAP_MAP_NAME, PR_MOD_NAME, MOD_NAME))
+ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, SIG_MAP_NAME, PR_VAR_NAME,
+                     VAR_NAME, WHATSHAP_MAP_NAME, PR_MOD_NAME, MOD_NAME))
 
-PR_REF_FILTERS = namedtuple(
-    'pr_ref_filters', ('pct_idnt', 'pct_cov', 'min_len', 'max_len'))
+PR_REF_INFO = namedtuple(
+    'pr_ref_info', ('pct_idnt', 'pct_cov', 'min_len', 'max_len', 'alphabet',
+                    'annotate_mods'))
+PR_REF_INFO.__new__.__defaults__ = (None, None)
 
 # directory names define model preset string
 # currently only one model trained
@@ -231,19 +240,21 @@ def get_mod_calibration_fn(
         'megalodon', os.path.join(
             MODEL_DATA_DIR_NAME, DEFAULT_MODEL_PRESET, MOD_CALIBRATION_FN)))
 
-def get_model_fn(model_fn=None, preset_str=None):
+def get_model_fn(model_fn=None, do_load_default=True, preset_str=None):
     if model_fn is not None:
         return resolve_path(model_fn)
     elif preset_str is not None:
         if preset_str not in MODEL_PRESETS:
             raise MegaError('Invalid model preset: {}'.format(preset_str))
-        resolve_path(pkg_resources.resource_filename(
+        return resolve_path(pkg_resources.resource_filename(
             'megalodon', os.path.join(
                 MODEL_DATA_DIR_NAME, preset_str, MODEL_FN)))
-    # else return default model file
-    return resolve_path(pkg_resources.resource_filename(
-        'megalodon', os.path.join(
-            MODEL_DATA_DIR_NAME, DEFAULT_MODEL_PRESET, MODEL_FN)))
+    elif do_load_default:
+        # return default model file
+        return resolve_path(pkg_resources.resource_filename(
+            'megalodon', os.path.join(
+                MODEL_DATA_DIR_NAME, DEFAULT_MODEL_PRESET, MODEL_FN)))
+    return None
 
 
 ###################################
