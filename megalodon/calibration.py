@@ -183,7 +183,9 @@ def compute_log_probs(alt_llrs):
     """ Compute log probabilities from a set of log likelihood ratios all
     against the reference allele
     """
-    ref_lp = np.log(1) - np.log1p(np.sum(1 / np.exp(alt_llrs)))
+    # ignore when one or more alt_llrs is -inf (or close enough for exp)
+    with np.errstate(divide='ignore'):
+        ref_lp = np.log(1) - np.log1p(np.sum(1 / np.exp(alt_llrs)))
     # set maximum log probability to avoid reporting 0 and 1 probabilities
     return ref_lp - alt_llrs
 
