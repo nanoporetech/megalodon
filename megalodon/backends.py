@@ -298,6 +298,10 @@ class ModelInfo(object):
                     'Must provide chunk_size, chunk_overlap, ' +
                     'max_concur_chunks in order to run the taiyaki ' +
                     'base calling backend.')
+                raise mh.MegaError(
+                    'Must provide chunk_size, chunk_overlap, ' +
+                    'max_concur_chunks in order to run the taiyaki ' +
+                    'base calling backend')
             try:
                 trans_weights = self.tai_run_model(
                     raw_sig, self.model, self.chunk_size, self.chunk_overlap,
@@ -305,8 +309,10 @@ class ModelInfo(object):
             except AttributeError:
                 raise mh.MegaError('Out of date or incompatible model')
             except RuntimeError as e:
-                raise mh.MegaError(
+                logging.get_logger().debug(
                     'Likely out of memory error: {}'.format(str(e)))
+                raise mh.MegaError(
+                    'Likely out of memory error. See log for details.')
             if self.device != self.torch.device('cpu'):
                 self.torch.cuda.empty_cache()
             if n_can_state is not None:

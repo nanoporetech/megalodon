@@ -1339,7 +1339,9 @@ class VarData(object):
                 if var.stop + context_max_dist >= curr_var.start + 1]
             curr_var_idx -= n_vars_removed - 1
             # yeild variants in range of current variant
-            yield curr_var, curr_vars
+            yield curr_var, [var for var in curr_vars
+                             if var.start >= curr_var.stop or
+                             curr_var.start >= var.stop]
 
         # yield final vars from the read
         while len(curr_vars) < curr_var_idx:
@@ -1353,7 +1355,9 @@ class VarData(object):
                 if var.stop + context_max_dist >= curr_var.start]
             curr_var_idx -= n_vars_removed - 1
             # yeild variants in range of current variant
-            yield curr_var, curr_vars
+            yield curr_var, [var for var in curr_vars
+                             if var.start >= curr_var.end or
+                             curr_var.start >= var.end]
 
         return
 
@@ -1629,7 +1633,8 @@ class VarData(object):
             dn_context_seq = context_ref_seq[context_rel_var_end:]
             context_seqs = [(up_context_seq, dn_context_seq),]
 
-            if max_contexts == 1 or len(context_vars) == 0:
+            if (context_max_dist == 0 or max_contexts == 1 or
+                len(context_vars) == 0):
                 return (context_ref_start, context_read_start, context_read_end,
                         context_seqs)
 

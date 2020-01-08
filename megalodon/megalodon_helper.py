@@ -3,6 +3,7 @@ import pkg_resources
 import multiprocessing as mp
 from collections import namedtuple
 from abc import ABC, abstractmethod
+from multiprocessing.queues import Queue as mpQueue
 
 import pysam
 import numpy as np
@@ -117,6 +118,7 @@ MOD_OUTPUT_EXTNS = {
 
 ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, SIG_MAP_NAME, PR_VAR_NAME,
                      VAR_NAME, WHATSHAP_MAP_NAME, PR_MOD_NAME, MOD_NAME))
+GETTER_PROC = namedtuple('getter_proc', ('queue', 'proc', 'conn'))
 
 PR_REF_INFO = namedtuple(
     'pr_ref_info', ('pct_idnt', 'pct_cov', 'min_len', 'max_len', 'alphabet',
@@ -261,15 +263,36 @@ def get_model_fn(model_fn=None, do_load_default=True, preset_str=None):
 ##### Multi-processing Helper #####
 ###################################
 
+class CountingMPQueue(mpQueue):
+    """ Minimal version of multiprocessing queue maintaining a queue size
+    counter
+    """
+    def __init__(self, **kwargs):
+        super().__init__(ctx=mp.get_context(), **kwargs)
+        self.size = mp.Value('i', 0)
+    def put(self, *args, **kwargs):
+        super().put(*args, **kwargs)
+        with self.size.get_lock():
+            self.size.value += 1
+    def get(self, *args, **kwargs):
+        rval = super().get(*args, **kwargs)
+        with self.size.get_lock():
+            self.size.value -= 1
+        return rval
+    def qsize(self):
+        return self.size.value
+    def empty(self):
+        return self.qsize() <= 0
+
 def create_getter_q(getter_func, args, max_size=_MAX_QUEUE_SIZE):
     if max_size is None:
-        q = mp.Queue()
+        q = CountingMPQueue()
     else:
-        q = mp.Queue(maxsize=max_size)
+        q = CountingMPQueue(maxsize=max_size)
     main_conn, conn = mp.Pipe()
     p = mp.Process(target=getter_func, daemon=True, args=(q, conn, *args))
     p.start()
-    return q, p, main_conn
+    return GETTER_PROC(q, p, main_conn)
 
 
 ################################
