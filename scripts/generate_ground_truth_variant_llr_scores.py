@@ -430,9 +430,10 @@ def main():
 
     sys.stderr.write('Loading model.\n')
     model_info = backends.ModelInfo(
-        mh.get_model_fn(args.taiyaki_model_filename), args.devices,
-        args.processes, args.chunk_size, args.chunk_overlap,
-        args.max_concurrent_chunks)
+        taiyaki_model_fn=mh.get_model_fn(args.taiyaki_model_filename),
+        devices=args.devices, processes=args.processes,
+        chunk_size=args.chunk_size, chunk_overlap=args.chunk_overlap,
+        max_concur_chunks=args.max_concurrent_chunks)
     sys.stderr.write('Loading reference.\n')
     aligner = mapping.alignerPlus(
         str(args.reference), preset=str('map-ont'), best_n=1)
