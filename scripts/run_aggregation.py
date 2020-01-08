@@ -103,8 +103,8 @@ def main():
     mod_names = []
     if mh.MOD_NAME in args.outputs:
         logger.info('Loading model.')
-        mod_names = backends.ModelInfo(mh.get_model_fn(
-            taiyaki_model_fn=args.taiyaki_model_filename)).mod_long_names
+        mod_names = backends.ModelInfo(taiyaki_model_fn=mh.get_model_fn(
+            args.taiyaki_model_filename)).mod_long_names
     valid_read_ids = None
     if args.read_ids_filename is not None:
         with open(args.read_ids_filename) as read_ids_fp:
