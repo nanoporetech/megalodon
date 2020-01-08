@@ -36,7 +36,10 @@ def get_remapping(
         path[rl_cumsum[q_pos + q_start_trim]] = ref_pos - ref_start
     remapping = tai_mapping.Mapping.from_remapping_path(
         sig, path, ref_seq, stride)
-    remapping.add_integer_reference(sig_map_alphabet)
+    try:
+        remapping.add_integer_reference(sig_map_alphabet)
+    except:
+        raise mh.MegaError('Invalid reference sequence encountered')
 
     return (remapping.get_read_dictionary(
         shift_from_pA, scale_from_pA, read_id),
