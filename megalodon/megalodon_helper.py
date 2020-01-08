@@ -160,7 +160,7 @@ def comp_np(np_seq):
 def revcomp_np(np_seq):
     return NP_COMP_BASES[np_seq][::-1]
 
-def seq_to_int(seq, error_on_invalid=False):
+def seq_to_int(seq, error_on_invalid=True):
     try:
         np_seq = SEQ_TO_INT_ARR[
             np.array(list(seq), dtype='c').view(np.uint8) - SEQ_MIN]
