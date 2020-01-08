@@ -459,7 +459,11 @@ def _get_fail_queue(
         except KeyboardInterrupt:
             # exit gracefully on keyboard inturrupt
             return
-    if not suppress_progress: bar.close()
+    if not suppress_progress:
+        bar.close()
+        if q_bars is not None:
+            for q_bar in q_bars.values():
+                q_bar.close()
 
     if len(failed_reads[_UNEXPECTED_ERROR_CODE]) >= 1:
         logger.warning((
