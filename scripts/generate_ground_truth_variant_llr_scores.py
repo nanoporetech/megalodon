@@ -164,8 +164,9 @@ def process_read(
                     context_bases, r_post, rl_cumsum, all_paths)
                 read_var_calls.append((False, score, var_ref_seq, var_alt_seq))
             except mh.MegaError:
-                # introduced error either causes read not to map or
-                # mapping trims the location of interest
+                # introduced error either causes read not to map,
+                # mapping trims the location of interest or invalid ref or alt
+                # sequence
                 pass
             # then test small indels
             for indel_size in range(1, max_indel_len + 1):
@@ -191,10 +192,14 @@ def process_read(
         # test simple SNP first
         var_ref_seq = r_ref_seq[r_var_pos]
         for var_alt_seq in CAN_BASES_SET.difference(var_ref_seq):
-            score = call_variant(
-                r_post, post_mapped_start, r_var_pos, mapped_rl_cumsum,
-                r_to_q_poss, var_ref_seq, var_alt_seq, context_bases, all_paths,
-                np_ref_seq=np_ref_seq)
+            try:
+                score = call_variant(
+                    r_post, post_mapped_start, r_var_pos, mapped_rl_cumsum,
+                    r_to_q_poss, var_ref_seq, var_alt_seq, context_bases,
+                    all_paths, np_ref_seq=np_ref_seq)
+            except mh.MegaError:
+                # invalid reference or alternative sequence
+                continue
             read_var_calls.append((True, score, var_ref_seq, var_alt_seq))
 
         # then test indels
@@ -202,20 +207,28 @@ def process_read(
             # test deletion
             var_ref_seq = r_ref_seq[r_var_pos:r_var_pos + indel_size + 1]
             var_alt_seq = r_ref_seq[r_var_pos]
-            score = call_variant(
-                r_post, post_mapped_start, r_var_pos, mapped_rl_cumsum,
-                r_to_q_poss, var_ref_seq, var_alt_seq, context_bases,
-                all_paths, np_ref_seq=np_ref_seq)
+            try:
+                score = call_variant(
+                    r_post, post_mapped_start, r_var_pos, mapped_rl_cumsum,
+                    r_to_q_poss, var_ref_seq, var_alt_seq, context_bases,
+                    all_paths, np_ref_seq=np_ref_seq)
+            except mh.MegaError:
+                # invalid reference or alternative sequence
+                continue
             read_var_calls.append((True, score, var_ref_seq, var_alt_seq))
 
             # test random insertion
             var_ref_seq = r_ref_seq[r_var_pos]
             var_alt_seq = var_ref_seq + ''.join(
                 choice(CAN_BASES) for _ in range(indel_size))
-            score = call_variant(
-                r_post, post_mapped_start, r_var_pos, mapped_rl_cumsum,
-                r_to_q_poss, var_ref_seq, var_alt_seq, context_bases,
-                all_paths, np_ref_seq=np_ref_seq)
+            try:
+                score = call_variant(
+                    r_post, post_mapped_start, r_var_pos, mapped_rl_cumsum,
+                    r_to_q_poss, var_ref_seq, var_alt_seq, context_bases,
+                    all_paths, np_ref_seq=np_ref_seq)
+            except mh.MegaError:
+                # invalid reference or alternative sequence
+                continue
             read_var_calls.append((True, score, var_ref_seq, var_alt_seq))
 
     return read_var_calls

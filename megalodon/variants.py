@@ -1529,9 +1529,25 @@ class VarData(object):
                 var.start - self.edge_buffer < read_ref_pos.start):
                 continue
 
-            np_ref_seq = mh.seq_to_int(var.ref)
+            try:
+                np_ref_seq = mh.seq_to_int(var.ref)
+            except mh.MegaError:
+                logger = logging.get_logger()
+                logger.debug((
+                    'Encountered invalid variant reference sequence, {}, ' +
+                    'from variant at {}:{} with id: {}'.format(
+                        var.ref, var.chrom, var.pos, var.id)))
+                continue
             for alt_seq in var.alts:
-                np_alt_seq = mh.seq_to_int(alt_seq)
+                try:
+                    np_alt_seq = mh.seq_to_int(alt_seq)
+                except mh.MegaError:
+                    logger = logging.get_logger()
+                    logger.debug((
+                        'Encountered invalid variant alternative sequence, ' +
+                        '{}, from variant at {}:{} with id: {}'.format(
+                            alt_seq, var.chrom, var.pos, var.id)))
+                    continue
                 for start_stop, atom_var in self.iter_atomized_variants(
                         var, np_ref_seq, np_alt_seq, read_ref_fwd_seq,
                         read_ref_pos):
