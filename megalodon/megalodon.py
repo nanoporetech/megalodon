@@ -353,30 +353,29 @@ def prep_errors_bar(
                          if q_vals.queue is not None]
         num_qs = len(valid_q_names)
     if num_update_errors > 0 and not suppress_progress:
-        # add one for queues header if any output queues to display
-        q_lines = 0 if num_qs == 0 else num_qs + 1
         # add lines for dynamic error messages
         # note 2 extra lines for header and bar
         sys.stderr.write(
-            '\n'.join(['' for _ in range(num_update_errors + 2 + q_lines)]))
+            '\n'.join(['' for _ in range(num_update_errors + 2)]))
     bar = prog_prefix = bar_header = q_bars = None
     if suppress_progress:
         num_update_errors = 0
     else:
         bar = tqdm(total=tot_reads, smoothing=0, initial=curr_num_reads,
-                   unit='read', dynamic_ncols=True, position=0)
+                   unit=' read(s)', dynamic_ncols=True, position=0,
+                   desc='Read Processing')
         if start_time is not None:
             bar.start_t = start_time
         if num_qs > 0:
             q_bars = OrderedDict((q_name, tqdm(
-                total=mh._MAX_QUEUE_SIZE, smoothing=0, unit=q_name,
+                desc=q_name, total=mh._MAX_QUEUE_SIZE, smoothing=0,
                 dynamic_ncols=True, position=q_num + 1,
-                bar_format='{desc} output queue: {percentage:3.0f}%|{bar}| ' +
-                '{n_fmt}/{total_fmt}'))
+                bar_format='current queue status {desc: <20}: ' +
+                '{percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}'))
                                  for q_num, q_name in enumerate(valid_q_names))
     if num_update_errors > 0:
         prog_prefix = ''.join(
-            [_term_move_up(),] * (num_update_errors + 1 + num_qs)) + '\r'
+            [_term_move_up(),] * (num_update_errors + 1)) + '\r'
         if num_qs > 0:
             bar_header = ('{} most common unsuccessful read types (full ' +
                           'queues indicate I/O bottleneck):').format(
@@ -416,10 +415,11 @@ def _get_fail_queue(
                     # sometimes get no format_dict error
                     # so don't include ksample/s if so
                     pass
-                bar.update(1)
                 if q_bars is not None:
-                    for q_name, q in q_bars.items():
-                        q.n = getter_qs[q_name].qsize()
+                    for q_name, q_bar in q_bars.items():
+                        q_bar.n = getter_qs[q_name].queue.qsize()
+                        q_bar.refresh()
+                bar.update(1)
                 if num_update_errors > 0:
                     bar.write(prog_prefix + format_fail_summ(
                         bar_header,
@@ -503,9 +503,10 @@ def process_all_reads(
     files_p.start()
 
     # start output type getters/writers
-    getter_qs = OrderedDict((out_name, (None, None, None)) for out_name in (
-        mh.BC_NAME, mh.MAP_NAME, mh.SIG_MAP_NAME, mh.PR_VAR_NAME,
-        mh.PR_MOD_NAME))
+    getter_qs = OrderedDict(
+        (out_name, mh.GETTER_PROC(None, None, None)) for out_name in (
+            mh.BC_NAME, mh.MAP_NAME, mh.SIG_MAP_NAME, mh.PR_VAR_NAME,
+            mh.PR_MOD_NAME))
     if mh.BC_NAME in outputs or mh.BC_MODS_NAME in outputs:
         if mh.BC_NAME not in outputs:
             outputs.append(mh.BC_NAME)

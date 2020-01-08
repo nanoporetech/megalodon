@@ -3,6 +3,7 @@ import pkg_resources
 import multiprocessing as mp
 from collections import namedtuple
 from abc import ABC, abstractmethod
+from multiprocessing.queues import Queue as mpQueue
 
 import pysam
 import numpy as np
@@ -262,21 +263,22 @@ def get_model_fn(model_fn=None, do_load_default=True, preset_str=None):
 ##### Multi-processing Helper #####
 ###################################
 
-class CountingMPQueue(mp.Queue):
+class CountingMPQueue(mpQueue):
     """ Minimal version of multiprocessing queue maintaining a queue size
     counter
     """
-    def __init__(self):
-        super().__init__(ctx=mp.get_context())
+    def __init__(self, **kwargs):
+        super().__init__(ctx=mp.get_context(), **kwargs)
         self.size = mp.Value('i', 0)
     def put(self, *args, **kwargs):
+        super().put(*args, **kwargs)
         with self.size.get_lock():
             self.size.value += 1
-        super().put(*args, **kwargs)
     def get(self, *args, **kwargs):
+        rval = super().get(*args, **kwargs)
         with self.size.get_lock():
             self.size.value -= 1
-        return super().get(*args, **kwargs)
+        return rval
     def qsize(self):
         return self.size.value
     def empty(self):
