@@ -1124,7 +1124,7 @@ class VarData(object):
                     logger.debug((
                         'Reference sequence does not match variant reference ' +
                         'sequence at {} expected "{}" got "{}"').format(
-                            ref_pos, var_data.ref, ref_seq))
+                            var_data.start, var_data.ref, ref_seq))
                     return False
 
         return True
@@ -1561,7 +1561,8 @@ class VarData(object):
             read_vars.append(VARIANT_DATA(
                 np_ref=np_ref_seq, np_alts=var_np_alt_seqs, id=var.id,
                 chrom=var.chrom, start=var.start,
-                stop=var.start + np_ref_seq.shape[0]))
+                stop=var.start + np_ref_seq.shape[0], ref=var.ref,
+                alts=var.alts, ref_start=var.start))
         return read_vars
 
     def fetch_read_variants(self, read_ref_pos, read_ref_fwd_seq):
@@ -1572,10 +1573,10 @@ class VarData(object):
         except ValueError:
             raise mh.MegaError('Mapped location not valid for variants file.')
 
-        parsed_vars = self.parse_vars(fetch_res, read_ref_pos)
+        read_variants = self.parse_vars(fetch_res, read_ref_pos)
         if not self.variants_are_atomized:
             grouped_read_vars = self.atomize_variants(
-                parsed_vars, read_ref_fwd_seq, read_ref_pos)
+                read_variants, read_ref_fwd_seq, read_ref_pos)
             read_variants = self.merge_variants(
                 grouped_read_vars, read_ref_fwd_seq, read_ref_pos)
         return read_variants

@@ -417,7 +417,7 @@ def _get_fail_queue(
                     pass
                 if q_bars is not None:
                     for q_name, q_bar in q_bars.items():
-                        q_bar.n = getter_qs[q_name].queue.qsize()
+                        q_bar.n = max(0, getter_qs[q_name].queue.qsize())
                         q_bar.refresh()
                 bar.update(1)
                 if num_update_errors > 0:
