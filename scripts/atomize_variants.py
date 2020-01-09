@@ -1,0 +1,64 @@
+import sys
+import argparse
+
+from megalodon import mapping, megalodon_helper as mh, variants
+
+HEADER = """##fileformat=VCFv4.1
+##source=megalodon_atomized
+{}
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	SAMPLE
+"""
+CONTIG_HEADER_LINE = "##contig=<ID={},length={}>"
+RECORD_LINE = ('{chrm}\t{pos}\t{rid}\t{ref}\t{alts}\t.\t.\t.\t.\t.\n')
+
+def get_parser():
+    parser = argparse.ArgumentParser(
+        description='Atomize variants so this does not have to be ' +
+        'completed during read processing')
+    parser.add_argument('in_vcf', help='Proposed varitants (VCF)')
+    parser.add_argument(
+        'reference',
+        help='Reference FASTA or minimap2 index file corresponding to VCF.')
+    parser.add_argument(
+        '--out-vcf', default='atomized_variants.megalodon.vcf',
+        help='Output VCF file. Default: %(default)s')
+    parser.add_argument(
+        '--max-indel-size', type=int, default=50,
+        help='Maximum difference in number of reference and alternate ' +
+        'bases. Default: %(default)d')
+    return parser
+
+def main():
+    args = get_parser().parse_args()
+    aligner = mapping.alignerPlus(
+        str(args.reference), preset=str('map-ont'), best_n=1)
+    aligner.add_ref_lens()
+    var_data = variants.VarData(
+        args.in_vcf, args.max_indel_size, keep_var_fp_open=True,
+        aligner=aligner)
+    contigs = var_data.variants_idx.header.contigs.values()
+    with open(args.out_vcf, 'w') as out_vars:
+        out_vars.write(HEADER.format('\n'.join((
+            CONTIG_HEADER_LINE.format(ctg.name, ctg.length)
+            for ctg in contigs))))
+        for ctg in contigs:
+            chrm_seq = aligner.seq(ctg.name)
+            assert len(chrm_seq) == ctg.length
+            map_pos = mapping.MAP_POS(
+                chrm=ctg.name, strand=None, start=0, end=ctg.length,
+                q_trim_start=None, q_trim_end=None)
+            for var in var_data.fetch_read_variants(map_pos, chrm_seq):
+                out_vars.write(RECORD_LINE.format(
+                    chrm=ctg.name, pos=var.ref_start, rid=var.id, ref=var.ref,
+                    alts=','.join(var.alts)))
+
+    sys.stderr.write('Sorting output variant file\n')
+    sort_variant_fn = mh.add_fn_suffix(args.out_vcf, 'sorted')
+    variants.sort_variants(args.out_vcf, sort_variant_fn)
+    sys.stderr.write('Indexing output variant file\n')
+    variants.index_variants(sort_variant_fn)
+
+    return
+
+if __name__ == '__main__':
+    main()
