@@ -687,7 +687,8 @@ def vars_validation(args, is_cat_mod, output_size, aligner):
             variants.HAPLIOD_MODE if args.haploid else variants.DIPLOID_MODE,
             args.refs_include_variants, aligner, edge_buffer=args.edge_buffer,
             context_min_alt_prob=args.context_min_alt_prob,
-            loc_index_in_memory=not args.variant_locations_on_disk)
+            loc_index_in_memory=not args.variant_locations_on_disk,
+            variants_are_atomized=args.variants_are_atomized)
     except mh.MegaError as e:
         logger.error(str(e))
         sys.exit(1)
@@ -948,7 +949,7 @@ def get_parser():
                          'heterozygous calls (compared to 1.0 for hom ' +
                          'ref/alt). Default: %(default)s'))
     var_grp.add_argument(
-        '--max-indel-size', type=int, default=50,
+        '--max-indel-size', type=int, default=mh.DEFAULT_MAX_INDEL_SIZE,
         help=hidden_help('Maximum difference in number of reference and ' +
                          'alternate bases. Default: %(default)d'))
     var_grp.add_argument(
@@ -970,9 +971,15 @@ def get_parser():
                          'locations in memory and on disk.'))
     var_grp.add_argument(
         '--variant-context-bases', type=int, nargs=2,
-        default=[mh.DEFAULT_SNV_CONTEXT, mh.DEFAULT_INDEL_CONTEXT],
+        default=mh.DEFAULT_VAR_CONTEXT_BASES,
         help=hidden_help('Context bases for single base variant and indel ' +
                          'calling. Default: %(default)s'))
+    var_grp.add_argument(
+        '--variants-are-atomized', action='store_true',
+        help=hidden_help('Input variants have been atomized (with ' +
+                         'scripts/atomize_variants.py). This saves compute ' +
+                         'time, but has unpredictable behavior if variants ' +
+                         'are not atomized.'))
     var_grp.add_argument(
         '--write-vcf-log-probs', action='store_true',
         help=hidden_help('Write per-read alt log probabilities out in ' +
