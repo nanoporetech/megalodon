@@ -183,10 +183,7 @@ def compute_log_probs(alt_llrs):
     """ Compute log probabilities from a set of log likelihood ratios all
     against the reference allele
     """
-    # ignore when one or more alt_llrs is -inf (or close enough for exp)
-    with np.errstate(divide='ignore', over='ignore'):
-        ref_lp = np.log(1) - np.log1p(np.sum(1 / np.exp(alt_llrs)))
-    # set maximum log probability to avoid reporting 0 and 1 probabilities
+    ref_lp = np.log(1) - np.log1p(np.sum(1 / np.exp(alt_llrs)))
     return ref_lp - alt_llrs
 
 
@@ -265,30 +262,34 @@ class VarCalibrator(object):
 
         if not self.calib_loaded:
             return llr
-        if len(read_ref_seq) == len(read_alt_seq):
+        seq_len_diff = len(read_ref_seq) - len(read_alt_seq)
+        if seq_len_diff == 0:
             ref_seq, alt_seq = simplify_var_seq(read_ref_seq, read_alt_seq)
             # default to a "generic" SNP type that is the total of all SNP types
-            snp_type = ((ref_seq, alt_seq) if (ref_seq, alt_seq)
-                        in self.snp_calib_tables else
-                        (GENERIC_BASE, GENERIC_BASE))
-            calib_table = self.snp_calib_tables[snp_type]
-            input_vals = self.snp_input_values[snp_type]
-        elif len(read_ref_seq) > len(read_alt_seq):
-            del_len = min(
-                len(read_ref_seq) - len(read_alt_seq), self.max_indel_len)
+            try:
+                calib_table = self.snp_calib_tables[(ref_seq, alt_seq)]
+                input_vals = self.snp_input_values[(ref_seq, alt_seq)]
+            except KeyError:
+                calib_table = self.snp_calib_tables[
+                    (GENERIC_BASE, GENERIC_BASE)]
+                input_vals = self.snp_input_values[
+                    (GENERIC_BASE, GENERIC_BASE)]
+        elif seq_len_diff > 0:
+            del_len = min(seq_len_diff, self.max_indel_len)
             calib_table = self.del_calib_tables[del_len]
             input_vals = self.del_input_values[del_len]
         else:
-            ins_len = min(
-                len(read_alt_seq) - len(read_ref_seq), self.max_indel_len)
+            ins_len = min(-seq_len_diff, self.max_indel_len)
             calib_table = self.ins_calib_tables[ins_len]
             input_vals = self.ins_input_values[ins_len]
 
         idx = np.searchsorted(input_vals, llr, side='left')
-        if idx > 0 and (
-                idx == self.num_calib_vals or
-                np.abs(llr - input_vals[idx - 1]) <
-                np.abs(llr - input_vals[idx])):
+        # full closest search would be:
+        #if idx > 0 and (idx == self.num_calib_vals or
+        #                np.abs(llr - input_vals[idx - 1]) <
+        #                np.abs(llr - input_vals[idx])):
+        # but for performance just adjust alst index
+        if idx == self.num_calib_vals:
             idx -= 1
         return calib_table[idx]
 
@@ -303,8 +304,8 @@ class ModCalibrator(object):
         self.mod_base_calibs = {}
         for mod_base in self.mod_bases:
             mod_llr_range = calib_data[mod_base + '_llr_range'].copy()
-            input_values = np.linspace(
-                mod_type_llr_range[0], mod_type_llr_range[1],
+            input_vals = np.linspace(
+                mod_llr_range[0], mod_llr_range[1],
                 self.num_calib_vals, endpoint=True)
             mod_calib_table = calib_data[mod_base + '_calibration_table'].copy()
             self.mod_base_calibs[mod_base] = (input_vals, mod_calib_table)
@@ -324,10 +325,12 @@ class ModCalibrator(object):
 
         input_vals, calib_table = self.mod_base_calibs[mod_base]
         idx = np.searchsorted(input_vals, llr, side='left')
-        if idx > 0 and (
-                idx == self.num_calib_vals or
-                np.abs(llr - input_vals[idx - 1]) <
-                np.abs(llr - input_vals[idx])):
+        # full closest search would be:
+        #if idx > 0 and (idx == self.num_calib_vals or
+        #                np.abs(llr - input_vals[idx - 1]) <
+        #                np.abs(llr - input_vals[idx])):
+        # but for performance just adjust alst index
+        if idx == self.num_calib_vals:
             idx -= 1
         return calib_table[idx]
 

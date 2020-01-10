@@ -759,20 +759,25 @@ def call_read_vars(
     # (not including context variants)
     vars_iter = vars_data.iter_vars(
         read_variants, read_ref_pos, read_ref_fwd_seq, context_max_dist=0)
-    (r_var_calls, read_cached_scores,
-     filt_read_variants) = score_variants_independently(
-         vars_iter, ref_to_block, r_post, read_ref_fwd_seq, read_ref_pos,
-         vars_data.all_paths, vars_data.calib_table.calibrate_llr,
-         vars_data.context_min_alt_prob, logger)
+    # ignore when one or more alt_llrs is -inf (or close enough for exp)
+    # occurs in compute_log_probs function, but more efficient to seterr
+    # at this higher level
+    with np.errstate(divide='ignore', over='ignore'):
+        (r_var_calls, read_cached_scores,
+         filt_read_variants) = score_variants_independently(
+             vars_iter, ref_to_block, r_post, read_ref_fwd_seq, read_ref_pos,
+             vars_data.all_paths, vars_data.calib_table.calibrate_llr,
+             vars_data.context_min_alt_prob, logger)
 
     # second round for variants with some evidence for alternative alleles
     # process with other potential variants as context
     vars_iter = vars_data.iter_vars(
         filt_read_variants, read_ref_pos, read_ref_fwd_seq)
-    r_var_calls = score_variants_with_context(
-        vars_iter, ref_to_block, r_post, read_ref_fwd_seq, r_var_calls,
-        read_cached_scores, read_ref_pos, vars_data.all_paths,
-        vars_data.calib_table.calibrate_llr, logger)
+    with np.errstate(divide='ignore', over='ignore'):
+        r_var_calls = score_variants_with_context(
+            vars_iter, ref_to_block, r_post, read_ref_fwd_seq, r_var_calls,
+            read_cached_scores, read_ref_pos, vars_data.all_paths,
+            vars_data.calib_table.calibrate_llr, logger)
 
     # re-sort variants after adding context-included computations
     return sorted(r_var_calls, key=lambda x: x[0])
