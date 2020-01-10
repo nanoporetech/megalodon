@@ -197,6 +197,7 @@ def _process_reads_worker(
         model_info.prep_model_worker(device)
         vars_data.reopen_variant_index()
         logger.debug('Starting read worker {}'.format(mp.current_process()))
+        sig_info = None
     except:
         if caller_conn is not None:
             caller_conn.send(True)
@@ -235,9 +236,9 @@ def _process_reads_worker(
             logger.debug('Keyboard interrupt during read {}'.format(read_id))
             return
         except mh.MegaError as e:
+            raw_len = sig_info.raw_len if hasattr(sig_info, 'raw_len') else 0
             failed_reads_q.put((
-                True, True, str(e), fast5_fn + ':::' + read_id, None,
-                sig_info.raw_len))
+                True, True, str(e), fast5_fn + ':::' + read_id, None, raw_len))
             logger.debug('Incomplete processing for read {} ::: {}'.format(
                 read_id, str(e)))
         except:

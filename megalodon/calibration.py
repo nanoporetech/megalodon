@@ -203,18 +203,17 @@ class VarCalibrator(object):
         self.num_calib_vals = np.int(calib_data['smooth_nvals'])
         self.max_indel_len = np.int(calib_data['max_indel_len'])
 
-        (self.snp_llr_ranges, self.snp_steps, self.snp_calib_tables,
-         self.del_llr_ranges, self.del_steps, self.del_calib_tables,
-         self.ins_llr_ranges, self.ins_steps, self.ins_calib_tables) = (
-             {} for _ in range(9))
+        (self.snp_input_values, self.snp_calib_tables,
+         self.del_input_values, self.del_calib_tables,
+         self.ins_input_values, self.ins_calib_tables) = (
+             {} for _ in range(6))
         # load generic snp
         ref_base, alt_base = GENERIC_BASE, GENERIC_BASE
         snp_type_llr_range = calib_data[
             SNP_LLR_RNG_TMPLT.format(ref_base, alt_base)].copy()
-        self.snp_llr_ranges[(ref_base, alt_base)] = snp_type_llr_range
-        self.snp_steps[(ref_base, alt_base)] = (
-            snp_type_llr_range[1] - snp_type_llr_range[0]) / (
-                self.num_calib_vals - 1)
+        self.snp_input_values[(ref_base, alt_base)] = np.linspace(
+            snp_type_llr_range[0], snp_type_llr_range[1],
+            self.num_calib_vals, endpoint=True)
         self.snp_calib_tables[(ref_base, alt_base)] = calib_data[
             SNP_CALIB_TMPLT.format(ref_base, alt_base)].copy()
         # load other base combinations
@@ -222,27 +221,24 @@ class VarCalibrator(object):
             for alt_base in set(mh.ALPHABET).difference(ref_base):
                 snp_type_llr_range = calib_data[
                     SNP_LLR_RNG_TMPLT.format(ref_base, alt_base)].copy()
-                self.snp_llr_ranges[(ref_base, alt_base)] = snp_type_llr_range
-                self.snp_steps[(ref_base, alt_base)] = (
-                    snp_type_llr_range[1] - snp_type_llr_range[0]) / (
-                        self.num_calib_vals - 1)
+                self.snp_input_values[(ref_base, alt_base)] = np.linspace(
+                    snp_type_llr_range[0], snp_type_llr_range[1],
+                    self.num_calib_vals, endpoint=True)
                 self.snp_calib_tables[(ref_base, alt_base)] = calib_data[
                     SNP_CALIB_TMPLT.format(ref_base, alt_base)].copy()
         for indel_len in range(1, self.max_indel_len + 1):
             del_type_llr_range = calib_data[
                 DEL_LLR_RNG_TMPLT.format(indel_len)].copy()
-            self.del_llr_ranges[indel_len] = del_type_llr_range
-            self.del_steps[indel_len] = (
-                del_type_llr_range[1] - del_type_llr_range[0]) / (
-                    self.num_calib_vals - 1)
+            self.del_input_values[indel_len] = np.linspace(
+                del_type_llr_range[0], del_type_llr_range[1],
+                self.num_calib_vals, endpoint=True)
             self.del_calib_tables[indel_len] = calib_data[
                 DEL_CALIB_TMPLT.format(indel_len)].copy()
             ins_type_llr_range = calib_data[
                 INS_LLR_RNG_TMPLT.format(indel_len)].copy()
-            self.ins_llr_ranges[indel_len] = ins_type_llr_range
-            self.ins_steps[indel_len] = (
-                ins_type_llr_range[1] - ins_type_llr_range[0]) / (
-                    self.num_calib_vals - 1)
+            self.ins_input_values[indel_len] = np.linspace(
+                ins_type_llr_range[0], ins_type_llr_range[1],
+                self.num_calib_vals, endpoint=True)
             self.ins_calib_tables[indel_len] = calib_data[
                 INS_CALIB_TMPLT.format(indel_len)].copy()
 
@@ -276,27 +272,25 @@ class VarCalibrator(object):
                         in self.snp_calib_tables else
                         (GENERIC_BASE, GENERIC_BASE))
             calib_table = self.snp_calib_tables[snp_type]
-            step = self.snp_steps[snp_type]
-            llr_range = self.snp_llr_ranges[snp_type]
+            input_vals = self.snp_input_values[snp_type]
         elif len(read_ref_seq) > len(read_alt_seq):
             del_len = min(
                 len(read_ref_seq) - len(read_alt_seq), self.max_indel_len)
             calib_table = self.del_calib_tables[del_len]
-            step = self.del_steps[del_len]
-            llr_range = self.del_llr_ranges[del_len]
+            input_vals = self.del_input_values[del_len]
         else:
             ins_len = min(
                 len(read_alt_seq) - len(read_ref_seq), self.max_indel_len)
             calib_table = self.ins_calib_tables[ins_len]
-            step = self.ins_steps[ins_len]
-            llr_range = self.ins_llr_ranges[ins_len]
+            input_vals = self.ins_input_values[ins_len]
 
-        if llr < llr_range[0]:
-            llr = llr_range[0]
-        elif llr > llr_range[1]:
-            llr = llr_range[1]
-        return calib_table[np.around((llr - llr_range[0]) / step).astype(int)]
-
+        idx = np.searchsorted(input_vals, llr, side='left')
+        if idx > 0 and (
+                idx == self.num_calib_vals or
+                np.abs(llr - input_vals[idx - 1]) <
+                np.abs(llr - input_vals[idx])):
+            idx -= 1
+        return calib_table[idx]
 
 class ModCalibrator(object):
     def _load_calibration(self):
@@ -309,11 +303,11 @@ class ModCalibrator(object):
         self.mod_base_calibs = {}
         for mod_base in self.mod_bases:
             mod_llr_range = calib_data[mod_base + '_llr_range'].copy()
-            mod_step = (mod_llr_range[1] - mod_llr_range[0]) / (
-                self.num_calib_vals - 1)
+            input_values = np.linspace(
+                mod_type_llr_range[0], mod_type_llr_range[1],
+                self.num_calib_vals, endpoint=True)
             mod_calib_table = calib_data[mod_base + '_calibration_table'].copy()
-            self.mod_base_calibs[mod_base] = (
-                mod_llr_range, mod_step, mod_calib_table)
+            self.mod_base_calibs[mod_base] = (input_vals, mod_calib_table)
 
         return
 
@@ -328,12 +322,14 @@ class ModCalibrator(object):
         if not self.calib_loaded or mod_base not in self.mod_base_calibs:
             return llr
 
-        llr_range, step, calib_table = self.mod_base_calibs[mod_base]
-        if llr < llr_range[0]:
-            llr = llr_range[0]
-        elif llr > llr_range[1]:
-            llr = llr_range[1]
-        return calib_table[np.around((llr - llr_range[0]) / step).astype(int)]
+        input_vals, calib_table = self.mod_base_calibs[mod_base]
+        idx = np.searchsorted(input_vals, llr, side='left')
+        if idx > 0 and (
+                idx == self.num_calib_vals or
+                np.abs(llr - input_vals[idx - 1]) <
+                np.abs(llr - input_vals[idx])):
+            idx -= 1
+        return calib_table[idx]
 
 
 if __name__ == '__main__':
