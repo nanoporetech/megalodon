@@ -51,6 +51,29 @@ def handle_errors(func, args, r_vals, out_q, fast5_fn, failed_reads_q):
             traceback.format_exc(), 0))
     return
 
+def interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum):
+    # interpolate signal positions for consecutive reference bases assigned
+    # to the same query base
+    prev_query_pos = r_to_q_poss[0]
+    ref_to_block = [mapped_rl_cumsum[prev_query_pos],]
+    curr_stay_bases = 0
+    for query_pos in r_to_q_poss[1:]:
+        if query_pos == prev_query_pos:
+            curr_stay_bases += 1
+        else:
+            next_sig_pos = mapped_rl_cumsum[prev_query_pos]
+            if curr_stay_bases > 0:
+                ref_to_block.extend(np.around(np.linspace(
+                    start=ref_to_block[-1], stop=next_sig_pos,
+                    num=curr_stay_bases + 1, endpoint=False)[1:]).astype(int))
+            ref_to_block.append(next_sig_pos)
+            curr_stay_bases = 0
+            prev_query_pos = query_pos
+    # for stay at end of read there is no signal point to interpolate to
+    if curr_stay_bases > 0:
+        ref_to_block.extend([ref_to_block[-1] for _ in range(curr_stay_bases)])
+    return np.array(ref_to_block)
+
 def process_read(
         sig_info, model_info, bc_q, caller_conn, sig_map_q, sig_map_info,
         vars_data, vars_q, mods_q, mods_info, failed_reads_q):
@@ -104,9 +127,7 @@ def process_read(
                                           rl_cumsum[r_ref_pos.q_trim_end])
     mapped_rl_cumsum = rl_cumsum[
         r_ref_pos.q_trim_start:r_ref_pos.q_trim_end + 1] - post_mapped_start
-    ref_to_block = np.array([
-        mapped_rl_cumsum[query_pos]
-        for ref_pos, query_pos in r_to_q_poss.items()])
+    ref_to_block = interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum)
 
     if vars_q is not None:
         mapped_r_post = r_post[post_mapped_start:post_mapped_end]
