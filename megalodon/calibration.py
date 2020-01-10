@@ -182,6 +182,10 @@ def compute_mirrored_calibration(
 def compute_log_probs(alt_llrs):
     """ Compute log probabilities from a set of log likelihood ratios all
     against the reference allele
+
+    Note this function can raise divide by zero and overflow numpy warnings.
+    This function should be wrapped at some level by
+    with np.errstate(divide='ignore', over='ignore'):
     """
     ref_lp = np.log(1) - np.log1p(np.sum(1 / np.exp(alt_llrs)))
     return ref_lp - alt_llrs

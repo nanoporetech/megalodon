@@ -175,8 +175,8 @@ def seq_to_int(seq, error_on_invalid=True):
             # use slower string find method to convert seq with
             # invalid characters
             np_seq = np.array([ALPHABET.find(b) for b in seq], dtype=np.uintp)
-    if error_on_invalid and np_seq.shape[0] > 0 and np_seq.max() >= 4:
-        raise MegaError('Invalid character in sequence')
+    #if error_on_invalid and np_seq.shape[0] > 0 and np_seq.max() >= 4:
+    #    raise MegaError('Invalid character in sequence')
     return np_seq
 
 def int_to_seq(np_seq, alphabet=ALPHABET):

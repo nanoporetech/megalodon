@@ -1533,7 +1533,7 @@ class VarData(object):
                             stop=var_start + np_ref_seq.shape[0]))
         return grouped_read_vars
 
-    def parse_vars(self, fetch_res, read_ref_pos):
+    def parse_vars(self, fetch_res, read_ref_pos, read_ref_fwd_seq):
         read_vars = []
         for var in fetch_res:
             # fetch results include any overlap where only inclusive overlap
@@ -1543,7 +1543,12 @@ class VarData(object):
                 continue
 
             try:
-                np_ref_seq = mh.seq_to_int(var.ref)
+                # faster to extract from array than convert seq to int
+                np_ref_seq = read_ref_fwd_seq[
+                    var.start - read_ref_pos.start:
+                    var.stop - read_ref_pos.start]
+                #np_ref_seq_from_var = mh.seq_to_int(var.ref)
+                #assert np.all(np_ref_seq == np_ref_seq_from_var)
             except mh.MegaError:
                 logger = logging.get_logger()
                 logger.debug((
@@ -1563,6 +1568,8 @@ class VarData(object):
                             alt_seq, var.chrom, var.pos, var.id)))
                     continue
                 var_np_alt_seqs.append(np_alt_seq)
+            if len(var_np_alt_seqs) == 0:
+                continue
             read_vars.append(VARIANT_DATA(
                 np_ref=np_ref_seq, np_alts=var_np_alt_seqs, id=var.id,
                 chrom=var.chrom, start=var.start,
@@ -1578,7 +1585,8 @@ class VarData(object):
         except ValueError:
             raise mh.MegaError('Mapped location not valid for variants file.')
 
-        read_variants = self.parse_vars(fetch_res, read_ref_pos)
+        read_variants = self.parse_vars(
+            fetch_res, read_ref_pos, read_ref_fwd_seq)
         if not self.variants_are_atomized:
             grouped_read_vars = self.atomize_variants(
                 read_variants, read_ref_fwd_seq, read_ref_pos)
