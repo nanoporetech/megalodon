@@ -292,7 +292,7 @@ class VarCalibrator(object):
         #if idx > 0 and (idx == self.num_calib_vals or
         #                np.abs(llr - input_vals[idx - 1]) <
         #                np.abs(llr - input_vals[idx])):
-        # but for performance just adjust alst index
+        # but for performance just adjust last index
         if idx == self.num_calib_vals:
             idx -= 1
         return calib_table[idx]
@@ -333,7 +333,7 @@ class ModCalibrator(object):
         #if idx > 0 and (idx == self.num_calib_vals or
         #                np.abs(llr - input_vals[idx - 1]) <
         #                np.abs(llr - input_vals[idx])):
-        # but for performance just adjust alst index
+        # but for performance just adjust last index
         if idx == self.num_calib_vals:
             idx -= 1
         return calib_table[idx]
