@@ -51,6 +51,32 @@ def handle_errors(func, args, r_vals, out_q, fast5_fn, failed_reads_q):
             traceback.format_exc(), 0))
     return
 
+def interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum):
+    # interpolate signal positions for consecutive reference bases assigned
+    # to the same query base
+    ref_to_block = np.empty(r_to_q_poss.shape[0], dtype=np.int32)
+    prev_query_pos = -1
+    curr_stay_bases = 0
+    for ref_pos, query_pos in enumerate(r_to_q_poss):
+        # backsteps shouldn't be possible, but handled here
+        if query_pos <= prev_query_pos:
+            curr_stay_bases += 1
+            continue
+        ref_to_block[ref_pos - curr_stay_bases:ref_pos + 1] = np.around(
+            np.linspace(
+                start=ref_to_block[ref_pos - curr_stay_bases - 1],
+                stop=mapped_rl_cumsum[query_pos], num=curr_stay_bases + 2,
+                endpoint=True)[1:]).astype(np.int32)
+        curr_stay_bases = 0
+        prev_query_pos = query_pos
+    # for stay at end of read there is no signal point to interpolate to
+    # so copy last value
+    if curr_stay_bases > 0:
+        ref_to_block[
+            ref_to_block.shape[0] - curr_stay_bases:] = ref_to_block[
+                ref_to_block.shape[0] - curr_stay_bases - 1]
+    return ref_to_block
+
 def process_read(
         sig_info, model_info, bc_q, caller_conn, sig_map_q, sig_map_info,
         vars_data, vars_q, mods_q, mods_info, failed_reads_q):
@@ -104,9 +130,7 @@ def process_read(
                                           rl_cumsum[r_ref_pos.q_trim_end])
     mapped_rl_cumsum = rl_cumsum[
         r_ref_pos.q_trim_start:r_ref_pos.q_trim_end + 1] - post_mapped_start
-    ref_to_block = np.array([
-        mapped_rl_cumsum[query_pos]
-        for ref_pos, query_pos in r_to_q_poss.items()])
+    ref_to_block = interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum)
 
     if vars_q is not None:
         mapped_r_post = r_post[post_mapped_start:post_mapped_end]
@@ -197,6 +221,7 @@ def _process_reads_worker(
         model_info.prep_model_worker(device)
         vars_data.reopen_variant_index()
         logger.debug('Starting read worker {}'.format(mp.current_process()))
+        sig_info = None
     except:
         if caller_conn is not None:
             caller_conn.send(True)
@@ -235,9 +260,9 @@ def _process_reads_worker(
             logger.debug('Keyboard interrupt during read {}'.format(read_id))
             return
         except mh.MegaError as e:
+            raw_len = sig_info.raw_len if hasattr(sig_info, 'raw_len') else 0
             failed_reads_q.put((
-                True, True, str(e), fast5_fn + ':::' + read_id, None,
-                sig_info.raw_len))
+                True, True, str(e), fast5_fn + ':::' + read_id, None, raw_len))
             logger.debug('Incomplete processing for read {} ::: {}'.format(
                 read_id, str(e)))
         except:
@@ -417,7 +442,7 @@ def _get_fail_queue(
                     pass
                 if q_bars is not None:
                     for q_name, q_bar in q_bars.items():
-                        q_bar.n = getter_qs[q_name].queue.qsize()
+                        q_bar.n = max(0, getter_qs[q_name].queue.qsize())
                         q_bar.refresh()
                 bar.update(1)
                 if num_update_errors > 0:
@@ -687,7 +712,8 @@ def vars_validation(args, is_cat_mod, output_size, aligner):
             variants.HAPLIOD_MODE if args.haploid else variants.DIPLOID_MODE,
             args.refs_include_variants, aligner, edge_buffer=args.edge_buffer,
             context_min_alt_prob=args.context_min_alt_prob,
-            loc_index_in_memory=not args.variant_locations_on_disk)
+            loc_index_in_memory=not args.variant_locations_on_disk,
+            variants_are_atomized=args.variants_are_atomized)
     except mh.MegaError as e:
         logger.error(str(e))
         sys.exit(1)
@@ -948,7 +974,7 @@ def get_parser():
                          'heterozygous calls (compared to 1.0 for hom ' +
                          'ref/alt). Default: %(default)s'))
     var_grp.add_argument(
-        '--max-indel-size', type=int, default=50,
+        '--max-indel-size', type=int, default=mh.DEFAULT_MAX_INDEL_SIZE,
         help=hidden_help('Maximum difference in number of reference and ' +
                          'alternate bases. Default: %(default)d'))
     var_grp.add_argument(
@@ -970,9 +996,15 @@ def get_parser():
                          'locations in memory and on disk.'))
     var_grp.add_argument(
         '--variant-context-bases', type=int, nargs=2,
-        default=[mh.DEFAULT_SNV_CONTEXT, mh.DEFAULT_INDEL_CONTEXT],
+        default=mh.DEFAULT_VAR_CONTEXT_BASES,
         help=hidden_help('Context bases for single base variant and indel ' +
                          'calling. Default: %(default)s'))
+    var_grp.add_argument(
+        '--variants-are-atomized', action='store_true',
+        help=hidden_help('Input variants have been atomized (with ' +
+                         'scripts/atomize_variants.py). This saves compute ' +
+                         'time, but has unpredictable behavior if variants ' +
+                         'are not atomized.'))
     var_grp.add_argument(
         '--write-vcf-log-probs', action='store_true',
         help=hidden_help('Write per-read alt log probabilities out in ' +

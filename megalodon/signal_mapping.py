@@ -27,13 +27,11 @@ def get_remapping(
     sig.digitisation = channel_info['digitisation']
 
     path = np.full((dacs.shape[0] // stride) + 1, -1)
-    s_rq_poss = sorted(r_to_q_poss.items())
-    ref_start = s_rq_poss[0][0]
     # skip last value since this is where the two seqs end
-    for ref_pos, q_pos in s_rq_poss[:-1]:
+    for ref_pos, q_pos in enumerate(r_to_q_poss[:-1]):
         # if the query position maps to the end of the mapping skip it
         if rl_cumsum[q_pos + q_start_trim] >= path.shape[0]: continue
-        path[rl_cumsum[q_pos + q_start_trim]] = ref_pos - ref_start
+        path[rl_cumsum[q_pos + q_start_trim]] = ref_pos
     remapping = tai_mapping.Mapping.from_remapping_path(
         sig, path, ref_seq, stride)
     try:

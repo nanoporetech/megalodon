@@ -17,12 +17,14 @@ import numpy as np
 DEFAULT_SNV_HET_FACTOR = 2.1
 DEFAULT_INDEL_HET_FACTOR = 1.6
 
-DEFAULT_EDGE_BUFFER = 0
+DEFAULT_EDGE_BUFFER = 2
 CONTEXT_MAX_DIST = 5
+DEFAULT_MAX_INDEL_SIZE = 50
 DEFUALT_MAX_VAR_CNTXTS = 16
-DEFAULT_SNV_CONTEXT = 15
-DEFAULT_INDEL_CONTEXT = 30
-DEFAULT_MOD_CONTEXT = 15
+DEFAULT_SNV_CONTEXT = 5
+DEFAULT_INDEL_CONTEXT = 10
+DEFAULT_VAR_CONTEXT_BASES = [DEFAULT_SNV_CONTEXT, DEFAULT_INDEL_CONTEXT]
+DEFAULT_MOD_CONTEXT = 3
 DEFAULT_CONTEXT_MIN_ALT_PROB = 0.05
 
 MED_NORM_FACTOR = 1.4826
@@ -173,8 +175,8 @@ def seq_to_int(seq, error_on_invalid=True):
             # use slower string find method to convert seq with
             # invalid characters
             np_seq = np.array([ALPHABET.find(b) for b in seq], dtype=np.uintp)
-    if error_on_invalid and np_seq.shape[0] > 0 and np_seq.max() >= 4:
-        raise MegaError('Invalid character in sequence')
+    #if error_on_invalid and np_seq.shape[0] > 0 and np_seq.max() >= 4:
+    #    raise MegaError('Invalid character in sequence')
     return np_seq
 
 def int_to_seq(np_seq, alphabet=ALPHABET):

@@ -5,6 +5,7 @@ from collections import namedtuple
 
 import mappy
 import pysam
+import numpy as np
 
 from megalodon import megalodon_helper as mh, logging
 
@@ -67,9 +68,9 @@ def _map_read_worker(aligner, map_conn, mo_q):
 
     return
 
-def parse_cigar(r_cigar, strand):
+def parse_cigar(r_cigar, strand, ref_len):
     # get each base calls genomic position
-    r_to_q_poss = {}
+    r_to_q_poss = np.empty(ref_len + 1, dtype=np.int32)
     # process cigar ops in read direction
     curr_r_pos, curr_q_pos = 0, 0
     cigar_ops = r_cigar if strand == 1 else r_cigar[::-1]
@@ -109,7 +110,7 @@ def map_read(q_seq, read_id, caller_conn):
         raise mh.MegaError('No alignment')
     chrm, strand, r_st, r_en, q_st, q_en, r_cigar = r_algn
 
-    r_to_q_poss = parse_cigar(r_cigar, strand)
+    r_to_q_poss = parse_cigar(r_cigar, strand, r_en - r_st)
     r_pos = MAP_POS(
         chrm=chrm, strand=strand, start=r_st, end=r_en,
         q_trim_start=q_st, q_trim_end=q_en)
