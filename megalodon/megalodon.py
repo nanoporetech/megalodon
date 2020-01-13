@@ -54,25 +54,28 @@ def handle_errors(func, args, r_vals, out_q, fast5_fn, failed_reads_q):
 def interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum):
     # interpolate signal positions for consecutive reference bases assigned
     # to the same query base
-    prev_query_pos = r_to_q_poss[0]
-    ref_to_block = [mapped_rl_cumsum[prev_query_pos],]
+    ref_to_block = np.empty(r_to_q_poss.shape[0], dtype=np.int32)
+    prev_query_pos = -1
     curr_stay_bases = 0
-    for query_pos in r_to_q_poss[1:]:
-        if query_pos == prev_query_pos:
+    for ref_pos, query_pos in enumerate(r_to_q_poss):
+        # backsteps shouldn't be possible, but handled here
+        if query_pos <= prev_query_pos:
             curr_stay_bases += 1
-        else:
-            next_sig_pos = mapped_rl_cumsum[prev_query_pos]
-            if curr_stay_bases > 0:
-                ref_to_block.extend(np.around(np.linspace(
-                    start=ref_to_block[-1], stop=next_sig_pos,
-                    num=curr_stay_bases + 1, endpoint=False)[1:]).astype(int))
-            ref_to_block.append(next_sig_pos)
-            curr_stay_bases = 0
-            prev_query_pos = query_pos
+            continue
+        ref_to_block[ref_pos - curr_stay_bases:ref_pos + 1] = np.around(
+            np.linspace(
+                start=ref_to_block[ref_pos - curr_stay_bases - 1],
+                stop=mapped_rl_cumsum[query_pos], num=curr_stay_bases + 2,
+                endpoint=True)[1:]).astype(np.int32)
+        curr_stay_bases = 0
+        prev_query_pos = query_pos
     # for stay at end of read there is no signal point to interpolate to
+    # so copy last value
     if curr_stay_bases > 0:
-        ref_to_block.extend([ref_to_block[-1] for _ in range(curr_stay_bases)])
-    return np.array(ref_to_block)
+        ref_to_block[
+            ref_to_block.shape[0] - curr_stay_bases:] = ref_to_block[
+                ref_to_block.shape[0] - curr_stay_bases - 1]
+    return ref_to_block
 
 def process_read(
         sig_info, model_info, bc_q, caller_conn, sig_map_q, sig_map_info,
