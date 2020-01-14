@@ -337,7 +337,7 @@ def _fill_files_queue(
     used_read_ids = set()
     # fill queue with read filename and read id tuples
     for fast5_fn, read_id in fast5_io.iterate_fast5_reads(
-            fast5s_dir, num_reads, recursive):
+            fast5s_dir, recursive=recursive):
         if valid_read_ids is not None and read_id not in valid_read_ids:
             continue
         if read_id in used_read_ids:
@@ -349,6 +349,7 @@ def _fill_files_queue(
             continue
         read_file_q.put((fast5_fn, read_id))
         used_read_ids.add(read_id)
+        if num_reads is not None and len(used_read_ids) >= num_reads: break
     # add None to indicate that read processes should return
     for _ in range(num_ps):
         read_file_q.put((None, None))
