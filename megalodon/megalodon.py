@@ -1125,7 +1125,7 @@ def get_parser():
         '--processes', type=int, default=1,
         help='Number of parallel processes. Default: %(default)d')
     misc_grp.add_argument(
-        '--verbose-read-progress', type=int, default=0,
+        '--verbose-read-progress', type=int, default=3,
         help='Output verbose output on read progress. Outputs N most ' +
         'common points where reads could not be processed further. ' +
         'Default: %(default)d')
@@ -1154,8 +1154,8 @@ def get_parser():
         '--suppress-progress', action='store_true',
         help=hidden_help('Suppress progress bar output.'))
     misc_grp.add_argument(
-        '--output-queues-status', action='store_true',
-        help=hidden_help('Show dynamic status of output queues. Helpful ' +
+        '--suppress-queues-status', action='store_true',
+        help=hidden_help('Suppress dynamic status of output queues. Helpful ' +
                          'for diagnosing I/O issues.'))
 
     return parser
@@ -1192,7 +1192,7 @@ def _main():
         args.output_directory, args.basecalls_format, aligner, vars_data,
         args.processes, args.verbose_read_progress, args.suppress_progress,
         mods_info, args.database_safety, pr_ref_filts, sig_map_info,
-        args.output_queues_status)
+        not args.suppress_queues_status)
 
     if aligner is not None:
         ref_fn = aligner.ref_fn
