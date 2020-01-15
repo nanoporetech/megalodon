@@ -252,9 +252,14 @@ class ModelInfo(object):
                 self.device = self.torch.device('cpu')
             else:
                 sleep(np.random.uniform(0, MAX_DEVICE_WAIT))
-                self.device = self.torch.device(device)
-                self.torch.cuda.set_device(self.device)
-                self.model = self.model.cuda()
+                try:
+                    self.device = self.torch.device(device)
+                    self.torch.cuda.set_device(self.device)
+                    self.model = self.model.cuda()
+                except RuntimeError:
+                    logger = logging.get_logger()
+                    logger.error('Invalid CUDA device: {}'.format(device))
+                    raise mh.MegaError('Error setting CUDA GPU device.')
             self.model = self.model.eval()
 
         return
