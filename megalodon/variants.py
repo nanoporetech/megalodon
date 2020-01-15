@@ -22,9 +22,9 @@ _DEBUG_PER_READ = False
 
 VARIANT_DATA = namedtuple('VARIANT_DATA', (
     'np_ref', 'np_alts', 'id', 'chrom', 'start', 'stop',
-    'ref', 'alts', 'ref_start'))
+    'ref', 'alts', 'ref_start', 'has_context_base'))
 # set default value of None for ref, alts and ref_start
-VARIANT_DATA.__new__.__defaults__ = (None, None, None)
+VARIANT_DATA.__new__.__defaults__ = (None, None, None, False)
 
 DIPLOID_MODE = 'diploid'
 HAPLIOD_MODE = 'haploid'
@@ -33,6 +33,7 @@ SAMPLE_NAME = 'SAMPLE'
 # specified by sam format spec
 WHATSHAP_MAX_QUAL = 40
 WHATSHAP_RG_ID = '1'
+HAS_CONTEXT_BASE_TAG = 'CB'
 FIXED_VCF_MI = [
     'phasing=none',
     'INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
@@ -813,8 +814,9 @@ def score_all_single_deletions(
         vars_iter.append((
             np_ref, np_alts, ctxt_seqs, ctxt_start, ctxt_end, variant))
 
-    return [(x[1][0], x[0]) for x in score_variants_independently(
-        vars_iter, ref_to_block, r_post, read_np_seq)[0]]
+    return [(scores[0], pos)
+            for pos, scores, _, _, _, _, _ in score_variants_independently(
+                    vars_iter, ref_to_block, r_post, read_np_seq)[0]]
 
 def score_all_single_insertions(
         read_np_seq, r_post, ref_to_block, start, end, context_bases):
@@ -1385,12 +1387,14 @@ class VarData(object):
             upstrm_base = mh.ALPHABET[read_ref_fwd_seq[
                 var_start - read_ref_pos.start - 1]]
             var_start -= 1
+            has_context_base = True
         else:
             upstrm_base = ''
+            has_context_base = False
         ref_seq = upstrm_base + mh.int_to_seq(np_ref_seq)
         alt_seqs = tuple((upstrm_base + mh.int_to_seq(np_alt)
                           for np_alt in np_alt_seqs))
-        return ref_seq, alt_seqs, var_start
+        return ref_seq, alt_seqs, var_start, has_context_base
 
     def merge_variants(
             self, grouped_read_vars, read_ref_fwd_seq, read_ref_pos):
@@ -1402,12 +1406,13 @@ class VarData(object):
         for _, site_vars in sorted(grouped_read_vars.items()):
             if len(site_vars) == 1:
                 # add upstream seq to simple indels
-                (out_ref_seq, out_alt_seqs,
-                 out_start) = self.add_indel_context_base(
+                (out_ref_seq, out_alt_seqs, out_start,
+                 has_context_base) = self.add_indel_context_base(
                      site_vars[0].np_ref, site_vars[0].np_alts,
                      site_vars[0].start, read_ref_fwd_seq, read_ref_pos)
                 site_var = site_vars[0]._replace(
-                    ref=out_ref_seq, alts=out_alt_seqs, ref_start=out_start)
+                    ref=out_ref_seq, alts=out_alt_seqs, ref_start=out_start,
+                    has_context_base=has_context_base)
                 variants.append(site_var)
                 continue
 
@@ -1431,7 +1436,8 @@ class VarData(object):
                 np_alts.append(var.np_alts[0])
 
             # add upstream seq to simple indels
-            out_ref_seq, out_alt_seqs, out_start = self.add_indel_context_base(
+            (out_ref_seq, out_alt_seqs, out_start,
+             has_context_base) = self.add_indel_context_base(
                 site_vars[0].np_ref, np_alts, site_vars[0].start,
                 read_ref_fwd_seq, read_ref_pos)
 
@@ -1439,7 +1445,8 @@ class VarData(object):
                 np_ref=site_vars[0].np_ref, np_alts=np_alts,
                 id=site_var_ids, chrom=site_vars[0].chrom,
                 start=site_vars[0].start, stop=site_vars[0].stop,
-                ref=out_ref_seq, alts=out_alt_seqs, ref_start=out_start))
+                ref=out_ref_seq, alts=out_alt_seqs, ref_start=out_start,
+                has_context_base=has_context_base))
 
         return variants
 
@@ -1563,7 +1570,7 @@ class VarData(object):
                     'from variant at {}:{} with id: {}'.format(
                         var.ref, var.chrom, var.pos, var.id)))
                 continue
-            var_np_alt_seqs = []
+            np_alt_seqs = []
             for alt_seq in var.alts:
                 try:
                     np_alt_seq = mh.seq_to_int(alt_seq)
@@ -1574,13 +1581,20 @@ class VarData(object):
                         '{}, from variant at {}:{} with id: {}'.format(
                             alt_seq, var.chrom, var.pos, var.id)))
                     continue
-                var_np_alt_seqs.append(np_alt_seq)
-            if len(var_np_alt_seqs) == 0:
+                np_alt_seqs.append(np_alt_seq)
+            if len(np_alt_seqs) == 0:
                 continue
+            # if atomized variant contains a padding context base remove it
+            # for correct variant grouping
+            start_trim = 0
+            if self.variants_are_atomized and HAS_CONTEXT_BASE_TAG in var.info:
+                np_ref_seq = np_ref_seq[1:]
+                np_alt_seqs = [np_alt_seq[1:] for np_alt_seq in np_alt_seqs]
+                start_trim = 1
             read_vars.append(VARIANT_DATA(
-                np_ref=np_ref_seq, np_alts=var_np_alt_seqs, id=var.id,
-                chrom=var.chrom, start=var.start,
-                stop=var.start + np_ref_seq.shape[0], ref=var.ref,
+                np_ref=np_ref_seq, np_alts=np_alt_seqs, id=var.id,
+                chrom=var.chrom, start=var.start + start_trim,
+                stop=var.start + start_trim + np_ref_seq.shape[0], ref=var.ref,
                 alts=var.alts, ref_start=var.start))
         return read_vars
 

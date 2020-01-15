@@ -6,10 +6,12 @@ from megalodon import mapping, megalodon_helper as mh, variants
 HEADER = """##fileformat=VCFv4.1
 ##source=megalodon_atomized
 {}
+##INFO=<ID={},Number=0,Type=Flag,Description="REF and ALT contain a single upstream context base">
+##command="{}"
 #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	SAMPLE
 """
 CONTIG_HEADER_LINE = "##contig=<ID={},length={}>"
-RECORD_LINE = ('{chrm}\t{pos}\t{rid}\t{ref}\t{alts}\t.\t.\t.\t.\t.\n')
+RECORD_LINE = ('{chrm}\t{pos}\t{rid}\t{ref}\t{alts}\t.\t.\t{info}\t.\t.\n')
 
 def get_parser():
     parser = argparse.ArgumentParser(
@@ -41,9 +43,11 @@ def main():
     contigs = var_data.variants_idx.header.contigs.values()
     sys.stderr.write('Atomizing variants\n')
     with open(args.out_vcf, 'w') as out_vars:
-        out_vars.write(HEADER.format('\n'.join((
-            CONTIG_HEADER_LINE.format(ctg.name, ctg.length)
-            for ctg in contigs))))
+        out_vars.write(HEADER.format(
+            '\n'.join((CONTIG_HEADER_LINE.format(ctg.name, ctg.length)
+                       for ctg in contigs)),
+            variants.HAS_CONTEXT_BASE_TAG,
+            ' '.join(sys.argv)))
         for ctg in contigs:
             chrm_seq = aligner.seq(ctg.name)
             if len(chrm_seq) != ctg.length:
@@ -58,7 +62,9 @@ def main():
                     map_pos, mh.seq_to_int(chrm_seq)):
                 out_vars.write(RECORD_LINE.format(
                     chrm=ctg.name, pos=var.ref_start + 1, rid=var.id,
-                    ref=var.ref, alts=','.join(var.alts)))
+                    ref=var.ref, alts=','.join(var.alts),
+                    info=variants.HAS_CONTEXT_BASE_TAG
+                    if var.has_context_base else '.'))
 
     sys.stderr.write('Indexing output variant file\n')
     variants.index_variants(args.out_vcf)
