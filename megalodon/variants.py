@@ -127,7 +127,7 @@ class VarsDb(object):
             self.cur.execute('PRAGMA mmap_size = {}'.format(
                 mh.MEMORY_MAP_LIMIT))
             if self.chrm_idx_in_mem:
-                self.load_chrm_read_index()
+                self.load_chrm_index()
             if self.loc_idx_in_mem:
                 self.load_loc_read_index()
             if self.alt_idx_in_mem:
@@ -161,7 +161,8 @@ class VarsDb(object):
             else:
                 self.create_loc_index()
             if self.chrm_idx_in_mem:
-                self.chrm_idx = {}
+                self.chrm_id_idx = {}
+                self.chrm_name_idx = {}
             else:
                 self.create_chrm_index()
             if self.alt_idx_in_mem:
@@ -177,7 +178,7 @@ class VarsDb(object):
     def get_chrm_id_or_insert(self, chrm, chrm_len):
         try:
             if self.chrm_idx_in_mem:
-                chrm_id = self.chrm_idx[chrm]
+                chrm_id = self.chrm_id_idx[chrm]
             else:
                 chrm_id = self.cur.execute(
                     'SELECT chrm_id FROM chrm WHERE chrm=?',
@@ -187,7 +188,8 @@ class VarsDb(object):
                              (chrm, chrm_len))
             chrm_id = self.cur.lastrowid
             if self.chrm_idx_in_mem:
-                self.chrm_idx[chrm] = chrm_id
+                self.chrm_id_idx[chrm] = chrm_id
+                self.chrm_name_idx[chrm_id] = chrm
         return chrm_id
 
     def insert_chrms(self, chrm_names_and_lens):
@@ -195,10 +197,14 @@ class VarsDb(object):
         self.cur.executemany('INSERT INTO chrm (chrm, chrm_len) VALUES (?,?)',
                              zip(*chrm_names_and_lens))
         if self.chrm_idx_in_mem:
-            self.chrm_idx.update(zip(
+            self.chrm_id_idx.update(zip(
                 chrm_names_and_lens[0],
                 range(next_chrm_id,
                       next_chrm_id + len(chrm_names_and_lens[0]))))
+            self.chrm_name_idx.update(zip(
+                range(next_chrm_id,
+                      next_chrm_id + len(chrm_names_and_lens[0])),
+                chrm_names_and_lens[0]))
         return
 
     def get_loc_id_or_insert(
@@ -365,9 +371,10 @@ class VarsDb(object):
         self.cur.execute('CREATE UNIQUE INDEX chrm_idx ON chrm(chrm)')
         return
 
-    def load_chrm_read_index(self):
-        self.chrm_read_idx = dict(self.cur.execute(
+    def load_chrm_index(self):
+        self.chrm_name_idx = dict(self.cur.execute(
             'SELECT chrm_id, chrm FROM chrm').fetchall())
+        self.chrm_id_idx = dict((v, k) for k, v in self.chrm_name_idx.items())
         return
 
     def load_uuid_read_index(self):
@@ -413,7 +420,7 @@ class VarsDb(object):
     def get_chrm_id(self, chrm):
         try:
             if self.chrm_idx_in_mem:
-                chrm_id = self.chrm_idx[chrm]
+                chrm_id = self.chrm_id_idx[chrm]
             else:
                 chrm_id = self.cur.execute(
                     'SELECT chrm_id FROM chrm WHERE chrm=?',
@@ -426,7 +433,7 @@ class VarsDb(object):
     def get_chrm(self, chrm_id):
         try:
             if self.chrm_idx_in_mem:
-                chrm = self.chrm_read_idx[chrm_id]
+                chrm = self.chrm_name_idx[chrm_id]
             else:
                 chrm = self.cur.execute(
                     'SELECT chrm FROM chrm WHERE chrm_id=?',
