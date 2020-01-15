@@ -1587,15 +1587,18 @@ class VarData(object):
             # if atomized variant contains a padding context base remove it
             # for correct variant grouping
             start_trim = 0
+            has_context_base = False
             if self.variants_are_atomized and HAS_CONTEXT_BASE_TAG in var.info:
                 np_ref_seq = np_ref_seq[1:]
                 np_alt_seqs = [np_alt_seq[1:] for np_alt_seq in np_alt_seqs]
                 start_trim = 1
+                has_context_base = True
             read_vars.append(VARIANT_DATA(
                 np_ref=np_ref_seq, np_alts=np_alt_seqs, id=var.id,
                 chrom=var.chrom, start=var.start + start_trim,
                 stop=var.start + start_trim + np_ref_seq.shape[0], ref=var.ref,
-                alts=var.alts, ref_start=var.start))
+                alts=var.alts, ref_start=var.start,
+                has_context_base=has_context_base))
         return read_vars
 
     def fetch_read_variants(self, read_ref_pos, read_ref_fwd_seq):
