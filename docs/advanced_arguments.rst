@@ -2,6 +2,24 @@
 Advanced Megalodon Arguments
 ****************************
 
+---------------
+Model Arguments
+---------------
+
+- ``--chunk-size``
+
+  - Size of individual chunks to run as input to neural network.
+  - Smaller size will result in faster basecalling, but may reduce accuracy.
+- ``--chunk-overlap``
+
+  - Overlap between adjacent chunks fed to baescalling neural network.
+  - Smaller size will result in faster basecalling, but may reduce accuracy.
+- ``--max-concurrent-chunks``
+
+  - Maximum number of concurrent chunks to basecall at once.
+  - Allows a global cap on GPU memory usage.
+  - Changes to this parameter do not effect resulting basecalls.
+
 ----------------
 Output Arguments
 ----------------
@@ -20,6 +38,10 @@ Output Arguments
 --------------------------
 Sequence Variant Arguments
 --------------------------
+
+- ``--context-min-alt-prob``
+
+  - Minimum per-read variant probability to include a variant in second round of variant evaluation (including context variants).
 
 - ``--disable-variant-calibration``
 
@@ -44,7 +66,7 @@ Sequence Variant Arguments
   - Default: Load default calibration file.
 - ``--variant-context-bases``
 
-  - Context bases for single base SNP and indel calling. Default: [10, 30]
+  - Context bases for single base SNP and indel calling. Default: [15, 30]
 - ``--variant-locations-on-disk``
 
   - Force sequence variant locations to be stored only within on disk database table. This option will reduce the RAM memory requirement, but may drastically slow processing. Default: Store locations in memory and on disk.
@@ -70,6 +92,11 @@ Modified Base Arguments
 
   - Compute forwards algorithm all paths score for modified base calls.
   - Default: Viterbi best-path score.
+- ``--mod-aggregate-method``
+
+  - Modified base aggregation method.
+  - Choices: expectation_maximization (default), binary_threshold
+
 - ``--mod-binary-threshold``
 
   - Hard threshold for modified base aggregation (probability of modified/canonical base).
@@ -84,7 +111,7 @@ Modified Base Arguments
 - ``--mod-context-bases``
 
   - Context bases for modified base calling.
-  - Default: 10
+  - Default: 15
 
 - ``--mod-output-formats``
 
@@ -139,6 +166,28 @@ This output category is intended for use in generating reference sequences for t
 
   - Only include reads with specified read length in per-read reference output.
 
+---------------------
+Signal Mapping Output
+---------------------
+
+This output category produces a mapped signal file, the direct input to train a new basecalling model (via ``taiyaki``).
+
+- ``--output-signal-mappings``
+
+  - Output signal mapped file (see taiyaki).
+- ``--signal-map-include-mods``
+
+  - Include modified base calls in signal mapping output.
+- ``--signal-map-percent-identity-threshold``
+
+  - Only include reads with higher percent identity in signal mapping output.
+- ``--signal-map-percent-coverage-threshold``
+
+  - Only include reads with higher read alignment coverage in signal mapping output.
+- ``--signal-map-length-range``
+
+  - Only include reads with specified read length in signal mapping output.
+
 -----------------------
 Miscellaneous Arguments
 -----------------------
@@ -155,7 +204,7 @@ Miscellaneous Arguments
 - ``--edge-buffer``
 
   - Do not process sequence variant or modified base calls near edge of read mapping.
-  - Default: 100
+  - Default: 0
 - ``--not-recursive``
 
   - Only search for fast5 read files directly found within the fast5 directory.

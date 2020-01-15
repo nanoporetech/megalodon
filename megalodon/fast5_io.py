@@ -46,7 +46,11 @@ def get_read(fast5_fn, read_id):
 def get_signal(read, scale=True):
     """ Get raw signal from read.
     """
-    raw_sig = read.get_raw_data()
+    try:
+        raw_sig = read.get_raw_data()
+    except IOError:
+        raise mh.MegaError('Error extracting raw data. Ensure VBZ plugin is ' +
+                           'installed (if applicable).')
 
     if scale:
         med, mad = mh.med_mad(raw_sig)

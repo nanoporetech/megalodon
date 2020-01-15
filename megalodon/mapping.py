@@ -5,6 +5,7 @@ from collections import namedtuple
 
 import mappy
 import pysam
+import numpy as np
 
 from megalodon import megalodon_helper as mh, logging
 
@@ -67,9 +68,9 @@ def _map_read_worker(aligner, map_conn, mo_q):
 
     return
 
-def parse_cigar(r_cigar, strand):
+def parse_cigar(r_cigar, strand, ref_len):
     # get each base calls genomic position
-    r_to_q_poss = {}
+    r_to_q_poss = np.empty(ref_len + 1, dtype=np.int32)
     # process cigar ops in read direction
     curr_r_pos, curr_q_pos = 0, 0
     cigar_ops = r_cigar if strand == 1 else r_cigar[::-1]
@@ -115,7 +116,7 @@ def map_read(q_seq, read_id, caller_conn, signal_reversed=False):
         r_ref_seq = r_ref_seq[::-1]
         r_cigar = r_cigar[::-1]
 
-    r_to_q_poss = parse_cigar(r_cigar, strand)
+    r_to_q_poss = parse_cigar(r_cigar, strand, r_en - r_st)
     r_pos = MAP_POS(
         chrm=chrm, strand=strand, start=r_st, end=r_en,
         q_trim_start=q_st, q_trim_end=q_en)
@@ -169,6 +170,7 @@ def _get_map_queue(
         do_output_pr_refs, pr_ref_filts):
     def write_alignment(
             read_id, q_seq, chrm, strand, r_st, q_st, q_en, cigar):
+        bc_len = len(q_seq)
         q_seq = q_seq[q_st:q_en]
 
         a = pysam.AlignedSegment()
@@ -188,8 +190,9 @@ def _get_map_queue(
             elif op in (2, 3): ndel += op_len
             elif op == 1: nins += op_len
         # compute alignment stats
-        summ_fp.write('{}\t{:.2f}\t{}\t{}\t{}\t{}\n'.format(
-            read_id, 100 * nmatch / float(nalign), nalign, nmatch, ndel, nins))
+        summ_fp.write('{}\t{:.2f}\t{}\t{}\t{}\t{}\t{:.2f}\n'.format(
+            read_id, 100 * nmatch / float(nalign), nalign, nmatch, ndel, nins,
+            (q_en - q_st) * 100 / float(bc_len)))
         summ_fp.flush()
 
         return
@@ -211,7 +214,7 @@ def _get_map_queue(
 
     summ_fp = open(mh.get_megalodon_fn(out_dir, mh.MAP_SUMM_NAME), 'w')
     summ_fp.write('read_id\tpct_identity\tnum_align\tnum_match\t' +
-                  'num_del\tnum_ins\n')
+                  'num_del\tnum_ins\tread_pct_coverage\n')
 
     map_fp = open_alignment_out_file(
         out_dir, map_fmt, ref_names_and_lens, ref_fn)

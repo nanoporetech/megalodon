@@ -44,4 +44,5 @@ Sequence variant and modified base calling is computed within the per-read proce
 Generally, this portion of processing will comsume a minority of the compute resources.
 Proposing many variants (e.g. all possible 3+ base indels) may show a bottle neck at this portion of processing.
 Internal testing shows that proposal of all possible single base substitutions shows minimal processing at this portion of per-read processing.
-Note that the database storing per-read variant score may show slower indexing with a very large number of proposed variant sets (performed at the end of per-read processing).
+If compute resources are not being utilized to the full extent the most likely reason is the database output.
+Ensure that the megalodon output directory is stored on disk with fast I/O performance in order to make full use of compute resources.

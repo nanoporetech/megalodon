@@ -22,11 +22,24 @@ Model Argument
   - In order to identify modified bases a model trained to identify those modifications must be provided.
 
     - Train a new modified base model using taiyaki.
-  - By default the model included with megalodon is used.
 
-    - This model is applicable to MinION or GridION R9.4.1 flowcells.
-    - This model is equivalent to the "high accuracy" model for MinKNOW/guppy.
-    - This model includes modified bases 5mC and 6mA in biological contexts: 5mC in human (CpG) and E. coli (CCWGG) contexts and 6mA in E. coli (GATC) context.
+  - Guppy JSON-format models can be converted to taiyaki checkpoints/models with the ``taiyaki/bin/json_to_checkpoint.py`` script for use with megalodon.
+- ``--load-default-model``
+
+  - Use the default the model included with megalodon
+
+    - Applicable to MinION or GridION R9.4.1 flowcells.
+    - Equivalent to the high accuracy modbase model for MinKNOW/guppy.
+    - Includes modified bases 5mC and 6mA in biological contexts: 5mC in human (CpG) and E. coli (CCWGG) contexts and 6mA in E. coli (GATC) context.
+- ``--devices``
+
+  - GPU devices to use for basecalling acceleration.
+  - If not provided CPU basecalling will be performed.
+  - A separate GPU process will be spawned for each CPU worker process requested (spread evenly over specified ``--devices``).
+
+    - Each GPU process must load the model parameters (~450MB for the default high-accuracy model).
+    - Extra headroom for chunks must be allowed as well.
+    - ``1`` process per 0.6 GB of GPU memory is a good default.
 
 ----------------
 Output Arguments
@@ -41,6 +54,7 @@ Output Arguments
     - ``whatshap_mappings`` are intended only for obtaining highly accurate phased variant genotypes.
 
       - These mappings contain reference sequence at all positions except for per-read called variants. The base quality scores encode the likelihood for that reference anchored variant for use in the whathap phasing algorithm.
+      - This file is useful for visualizing per-read variant calls as well as potential variant phasing.
   - Default output is basecalls only.
 - ``--output-directory``
 
@@ -107,33 +121,6 @@ Modified Base Arguments
         - Note that the included model does not model such sites, but megalodon is capable of handling these sites (e.g. testing for 5mC and 5hmC simultaneously is supported given a basecalling model).
     - ``motif`` includes the searched motif (via ``--mod-motif``) as well as the relative modified base position within that motif (e.g. ``CG:0`` for provided ``--mod-motif Z CG 0``).
     - Position is 0-based
-
------------------------
-Taiyaki Chunk Arguments
------------------------
-
-- ``--chunk-size``
-
-  - Size of individual chunks to run as input to neural network.
-  - Smaller size will result in faster basecalling, but may reduce accuracy.
-- ``--chunk-overlap``
-
-  - Overlap between adjacent chunks fed to baescalling neural network.
-  - Smaller size will result in faster basecalling, but may reduce accuracy.
-- ``--devices``
-
-  - GPU devices to use for basecalling acceleration.
-  - If not provided CPU basecalling will be performed.
-  - A separate GPU process will be spawned for each CPU worker process requested (spread evenly over specified ``--devices``).
-
-    - Each GPU process must load the model parameters (~450MB for the default high-accuracy model).
-    - Extra headroom for chunks must be allowed as well.
-    - ``1`` process per 0.6 GB of GPU memory is a good default.
-- ``--max-concurrent-chunks``
-
-  - Maximum number of concurrent chunks to basecall at once.
-  - Allows a global cap on GPU memory usage.
-  - Changes to this parameter do not effect resulting basecalls.
 
 -----------------------
 Miscellaneous Arguments

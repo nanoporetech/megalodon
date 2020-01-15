@@ -88,3 +88,13 @@ Workflow
        $out_dir/variants.haplotype_1.sorted.vcf.gz \
        $out_dir/variants.haplotype_2.sorted.vcf.gz \
        --out-vcf $out_dir/variants.haploid_merged.vcf
+
+.. note::
+
+   The default model included with megalodon is applicable only to MinION/GridION R9.4.1 flowcells and contains parameters for 5mC and 6mA detection with high-accuracy settings.
+   In order to run megalodon against another flowcell type or model type the taiyaki ``taiyaki/bin/json_to_checkpoint.py`` script can be used to convert a guppy JSON format.
+   See example code below to convert the guppy, MinION/GridION, R10, high-accuracy model into a taiyaki compatible file for use with meaglodon (via ``--taiyaki-model-filename`` argument).
+
+::
+
+   python taiyaki/bin/json_to_checkpoint.py ont-guppy-cpu/data/template_r10_450bps_hac.jsn --output template_r10_450bps_hac.cp

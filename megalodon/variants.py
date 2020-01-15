@@ -22,9 +22,9 @@ _DEBUG_PER_READ = False
 
 VARIANT_DATA = namedtuple('VARIANT_DATA', (
     'np_ref', 'np_alts', 'id', 'chrom', 'start', 'stop',
-    'ref', 'alts', 'ref_start'))
+    'ref', 'alts', 'ref_start', 'has_context_base'))
 # set default value of None for ref, alts and ref_start
-VARIANT_DATA.__new__.__defaults__ = (None, None, None)
+VARIANT_DATA.__new__.__defaults__ = (None, None, None, False)
 
 DIPLOID_MODE = 'diploid'
 HAPLIOD_MODE = 'haploid'
@@ -33,6 +33,7 @@ SAMPLE_NAME = 'SAMPLE'
 # specified by sam format spec
 WHATSHAP_MAX_QUAL = 40
 WHATSHAP_RG_ID = '1'
+HAS_CONTEXT_BASE_TAG = 'CB'
 FIXED_VCF_MI = [
     'phasing=none',
     'INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
@@ -127,7 +128,7 @@ class VarsDb(object):
             self.cur.execute('PRAGMA mmap_size = {}'.format(
                 mh.MEMORY_MAP_LIMIT))
             if self.chrm_idx_in_mem:
-                self.load_chrm_read_index()
+                self.load_chrm_index()
             if self.loc_idx_in_mem:
                 self.load_loc_read_index()
             if self.alt_idx_in_mem:
@@ -161,7 +162,8 @@ class VarsDb(object):
             else:
                 self.create_loc_index()
             if self.chrm_idx_in_mem:
-                self.chrm_idx = {}
+                self.chrm_id_idx = {}
+                self.chrm_name_idx = {}
             else:
                 self.create_chrm_index()
             if self.alt_idx_in_mem:
@@ -177,7 +179,7 @@ class VarsDb(object):
     def get_chrm_id_or_insert(self, chrm, chrm_len):
         try:
             if self.chrm_idx_in_mem:
-                chrm_id = self.chrm_idx[chrm]
+                chrm_id = self.chrm_id_idx[chrm]
             else:
                 chrm_id = self.cur.execute(
                     'SELECT chrm_id FROM chrm WHERE chrm=?',
@@ -187,7 +189,8 @@ class VarsDb(object):
                              (chrm, chrm_len))
             chrm_id = self.cur.lastrowid
             if self.chrm_idx_in_mem:
-                self.chrm_idx[chrm] = chrm_id
+                self.chrm_id_idx[chrm] = chrm_id
+                self.chrm_name_idx[chrm_id] = chrm
         return chrm_id
 
     def insert_chrms(self, chrm_names_and_lens):
@@ -195,10 +198,14 @@ class VarsDb(object):
         self.cur.executemany('INSERT INTO chrm (chrm, chrm_len) VALUES (?,?)',
                              zip(*chrm_names_and_lens))
         if self.chrm_idx_in_mem:
-            self.chrm_idx.update(zip(
+            self.chrm_id_idx.update(zip(
                 chrm_names_and_lens[0],
                 range(next_chrm_id,
                       next_chrm_id + len(chrm_names_and_lens[0]))))
+            self.chrm_name_idx.update(zip(
+                range(next_chrm_id,
+                      next_chrm_id + len(chrm_names_and_lens[0])),
+                chrm_names_and_lens[0]))
         return
 
     def get_loc_id_or_insert(
@@ -365,9 +372,10 @@ class VarsDb(object):
         self.cur.execute('CREATE UNIQUE INDEX chrm_idx ON chrm(chrm)')
         return
 
-    def load_chrm_read_index(self):
-        self.chrm_read_idx = dict(self.cur.execute(
+    def load_chrm_index(self):
+        self.chrm_name_idx = dict(self.cur.execute(
             'SELECT chrm_id, chrm FROM chrm').fetchall())
+        self.chrm_id_idx = dict((v, k) for k, v in self.chrm_name_idx.items())
         return
 
     def load_uuid_read_index(self):
@@ -413,7 +421,7 @@ class VarsDb(object):
     def get_chrm_id(self, chrm):
         try:
             if self.chrm_idx_in_mem:
-                chrm_id = self.chrm_idx[chrm]
+                chrm_id = self.chrm_id_idx[chrm]
             else:
                 chrm_id = self.cur.execute(
                     'SELECT chrm_id FROM chrm WHERE chrm=?',
@@ -426,7 +434,7 @@ class VarsDb(object):
     def get_chrm(self, chrm_id):
         try:
             if self.chrm_idx_in_mem:
-                chrm = self.chrm_read_idx[chrm_id]
+                chrm = self.chrm_name_idx[chrm_id]
             else:
                 chrm = self.cur.execute(
                     'SELECT chrm FROM chrm WHERE chrm_id=?',
@@ -759,20 +767,25 @@ def call_read_vars(
     # (not including context variants)
     vars_iter = vars_data.iter_vars(
         read_variants, read_ref_pos, read_ref_fwd_seq, context_max_dist=0)
-    (r_var_calls, read_cached_scores,
-     filt_read_variants) = score_variants_independently(
-         vars_iter, ref_to_block, r_post, read_ref_fwd_seq, read_ref_pos,
-         vars_data.all_paths, vars_data.calib_table.calibrate_llr,
-         vars_data.context_min_alt_prob, logger)
+    # ignore when one or more alt_llrs is -inf (or close enough for exp)
+    # occurs in compute_log_probs function, but more efficient to seterr
+    # at this higher level
+    with np.errstate(divide='ignore', over='ignore'):
+        (r_var_calls, read_cached_scores,
+         filt_read_variants) = score_variants_independently(
+             vars_iter, ref_to_block, r_post, read_ref_fwd_seq, read_ref_pos,
+             vars_data.all_paths, vars_data.calib_table.calibrate_llr,
+             vars_data.context_min_alt_prob, logger)
 
     # second round for variants with some evidence for alternative alleles
     # process with other potential variants as context
     vars_iter = vars_data.iter_vars(
         filt_read_variants, read_ref_pos, read_ref_fwd_seq)
-    r_var_calls = score_variants_with_context(
-        vars_iter, ref_to_block, r_post, read_ref_fwd_seq, r_var_calls,
-        read_cached_scores, read_ref_pos, vars_data.all_paths,
-        vars_data.calib_table.calibrate_llr, logger)
+    with np.errstate(divide='ignore', over='ignore'):
+        r_var_calls = score_variants_with_context(
+            vars_iter, ref_to_block, r_post, read_ref_fwd_seq, r_var_calls,
+            read_cached_scores, read_ref_pos, vars_data.all_paths,
+            vars_data.calib_table.calibrate_llr, logger)
 
     # re-sort variants after adding context-included computations
     return sorted(r_var_calls, key=lambda x: x[0])
@@ -801,8 +814,9 @@ def score_all_single_deletions(
         vars_iter.append((
             np_ref, np_alts, ctxt_seqs, ctxt_start, ctxt_end, variant))
 
-    return [(x[1][0], x[0]) for x in score_variants_independently(
-        vars_iter, ref_to_block, r_post, read_np_seq)[0]]
+    return [(scores[0], pos)
+            for pos, scores, _, _, _, _, _ in score_variants_independently(
+                    vars_iter, ref_to_block, r_post, read_np_seq)[0]]
 
 def score_all_single_insertions(
         read_np_seq, r_post, ref_to_block, start, end, context_bases):
@@ -1124,19 +1138,20 @@ class VarData(object):
                     logger.debug((
                         'Reference sequence does not match variant reference ' +
                         'sequence at {} expected "{}" got "{}"').format(
-                            ref_pos, var_data.ref, ref_seq))
+                            var_data.start, var_data.ref, ref_seq))
                     return False
 
         return True
 
     def __init__(
-            self, variant_fn, max_indel_size, all_paths,
-            write_vars_txt, context_bases, vars_calib_fn=None,
+            self, variant_fn, max_indel_size=mh.DEFAULT_MAX_INDEL_SIZE,
+            all_paths=False, write_vars_txt=False,
+            context_bases=mh.DEFAULT_VAR_CONTEXT_BASES, vars_calib_fn=None,
             call_mode=DIPLOID_MODE, do_pr_ref_vars=False, aligner=None,
             keep_var_fp_open=False, do_validate_reference=True,
             edge_buffer=mh.DEFAULT_EDGE_BUFFER,
             context_min_alt_prob=mh.DEFAULT_CONTEXT_MIN_ALT_PROB,
-            loc_index_in_memory=True):
+            loc_index_in_memory=True, variants_are_atomized=False):
         logger = logging.get_logger('vars')
         self.max_indel_size = max_indel_size
         self.all_paths = all_paths
@@ -1153,6 +1168,7 @@ class VarData(object):
         self.edge_buffer = edge_buffer
         self.context_min_alt_prob = context_min_alt_prob
         self.loc_index_in_memory = loc_index_in_memory
+        self.variants_are_atomized = variants_are_atomized
         self.variant_fn = variant_fn
         self.variants_idx = None
         if self.variant_fn is None:
@@ -1173,21 +1189,22 @@ class VarData(object):
             vars_idx.close()
             self.variant_fn = index_variants(self.variant_fn)
             vars_idx = pysam.VariantFile(self.variant_fn)
-        if aligner is None:
-            raise mh.MegaError(
-                'Must provide aligner if variants filename is provided')
-        if len(set(aligner.ref_names_and_lens[0]).intersection(contigs)) == 0:
-            raise mh.MegaError((
-                'Reference and variant files contain no chromosomes/contigs ' +
-                'in common.\n\t\tFirst 3 reference contigs:\t{}\n\t\tFirst 3 ' +
-                'variant file contigs:\t{}').format(
-                    ', '.join(aligner.ref_names_and_lens[0][:3]),
-                    ', '.join(contigs[:3])))
-        if do_validate_reference and not self.check_vars_match_ref(
-                vars_idx, contigs, aligner):
-            raise mh.MegaError(
-                'Reference sequence file does not match reference sequence ' +
-                'from variants file.')
+        if do_validate_reference:
+            if aligner is None:
+                raise mh.MegaError(
+                    'Must provide aligner if variants filename is provided ' +
+                    'and reference validation is requested.')
+            if len(set(aligner.ref_names_and_lens[0]).intersection(contigs)) == 0:
+                raise mh.MegaError((
+                    'Reference and variant files contain no chromosomes/' +
+                    'contigs in common.\n\t\tFirst 3 reference contigs:' +
+                    '\t{}\n\t\tFirst 3 variant file contigs:\t{}').format(
+                        ', '.join(aligner.ref_names_and_lens[0][:3]),
+                        ', '.join(contigs[:3])))
+            if not self.check_vars_match_ref(vars_idx, contigs, aligner):
+                raise mh.MegaError(
+                    'Reference sequence file does not match reference ' +
+                    'sequence from variants file.')
 
         if keep_var_fp_open:
             self.variants_idx = vars_idx
@@ -1339,7 +1356,9 @@ class VarData(object):
                 if var.stop + context_max_dist >= curr_var.start + 1]
             curr_var_idx -= n_vars_removed - 1
             # yeild variants in range of current variant
-            yield curr_var, curr_vars
+            yield curr_var, [var for var in curr_vars
+                             if var.start >= curr_var.stop or
+                             curr_var.start >= var.stop]
 
         # yield final vars from the read
         while len(curr_vars) < curr_var_idx:
@@ -1353,7 +1372,9 @@ class VarData(object):
                 if var.stop + context_max_dist >= curr_var.start]
             curr_var_idx -= n_vars_removed - 1
             # yeild variants in range of current variant
-            yield curr_var, curr_vars
+            yield curr_var, [var for var in curr_vars
+                             if var.start >= curr_var.end or
+                             curr_var.start >= var.end]
 
         return
 
@@ -1366,12 +1387,14 @@ class VarData(object):
             upstrm_base = mh.ALPHABET[read_ref_fwd_seq[
                 var_start - read_ref_pos.start - 1]]
             var_start -= 1
+            has_context_base = True
         else:
             upstrm_base = ''
+            has_context_base = False
         ref_seq = upstrm_base + mh.int_to_seq(np_ref_seq)
         alt_seqs = tuple((upstrm_base + mh.int_to_seq(np_alt)
                           for np_alt in np_alt_seqs))
-        return ref_seq, alt_seqs, var_start
+        return ref_seq, alt_seqs, var_start, has_context_base
 
     def merge_variants(
             self, grouped_read_vars, read_ref_fwd_seq, read_ref_pos):
@@ -1383,12 +1406,13 @@ class VarData(object):
         for _, site_vars in sorted(grouped_read_vars.items()):
             if len(site_vars) == 1:
                 # add upstream seq to simple indels
-                (out_ref_seq, out_alt_seqs,
-                 out_start) = self.add_indel_context_base(
+                (out_ref_seq, out_alt_seqs, out_start,
+                 has_context_base) = self.add_indel_context_base(
                      site_vars[0].np_ref, site_vars[0].np_alts,
                      site_vars[0].start, read_ref_fwd_seq, read_ref_pos)
                 site_var = site_vars[0]._replace(
-                    ref=out_ref_seq, alts=out_alt_seqs, ref_start=out_start)
+                    ref=out_ref_seq, alts=out_alt_seqs, ref_start=out_start,
+                    has_context_base=has_context_base)
                 variants.append(site_var)
                 continue
 
@@ -1412,7 +1436,8 @@ class VarData(object):
                 np_alts.append(var.np_alts[0])
 
             # add upstream seq to simple indels
-            out_ref_seq, out_alt_seqs, out_start = self.add_indel_context_base(
+            (out_ref_seq, out_alt_seqs, out_start,
+             has_context_base) = self.add_indel_context_base(
                 site_vars[0].np_ref, np_alts, site_vars[0].start,
                 read_ref_fwd_seq, read_ref_pos)
 
@@ -1420,7 +1445,8 @@ class VarData(object):
                 np_ref=site_vars[0].np_ref, np_alts=np_alts,
                 id=site_var_ids, chrom=site_vars[0].chrom,
                 start=site_vars[0].start, stop=site_vars[0].stop,
-                ref=out_ref_seq, alts=out_alt_seqs, ref_start=out_start))
+                ref=out_ref_seq, alts=out_alt_seqs, ref_start=out_start,
+                has_context_base=has_context_base))
 
         return variants
 
@@ -1474,50 +1500,55 @@ class VarData(object):
         var_start -= len(expand_upstrm_seq)
         return np_ref_seq, np_alt_seq, var_start
 
-    def iter_atomized_variants(
-            self, var, np_ref_seq, np_alt_seq, read_ref_fwd_seq, read_ref_pos):
-        # substitutions
-        if np_alt_seq.shape[0] == np_ref_seq.shape[0]:
-            # convert all substitutions into single base substitutions
-            for sub_offset, (np_ref_base, np_alt_base) in enumerate(zip(
-                    np_ref_seq, np_alt_seq)):
-                if np_ref_base == np_alt_base: continue
-                yield (
-                    (var.start + sub_offset, var.start + sub_offset + 1),
-                    VARIANT_DATA(
+    def atomize_variants(self, read_vars, read_ref_fwd_seq, read_ref_pos):
+        grouped_read_vars = defaultdict(list)
+        for var, np_alt_seq in ((var, nas) for var in read_vars
+                                for nas in var.np_alts):
+            # substitutions
+            if np_alt_seq.shape[0] == var.np_ref.shape[0]:
+                # convert all substitutions into single base substitutions
+                for sub_offset, (np_ref_base, np_alt_base) in enumerate(zip(
+                        var.np_ref, np_alt_seq)):
+                    if np_ref_base == np_alt_base: continue
+                    var_data = VARIANT_DATA(
                         np_ref=np.array([np_ref_base], dtype=np.uintp),
                         np_alts=(np.array([np_alt_base], dtype=np.uintp),),
                         id=var.id, chrom=var.chrom,
                         start=var.start + sub_offset,
-                        stop=var.start + sub_offset + 1))
-        else:
-            # skip large indels
-            if np.abs(np_ref_seq.shape[0] -
-                      np_alt_seq.shape[0]) > self.max_indel_size:
-                return
+                        stop=var.start + sub_offset + 1)
+                    grouped_read_vars[(
+                        var.start + sub_offset,
+                        var.start + sub_offset + 1)].append(var_data)
+            else:
+                # skip large indels
+                if np.abs(var.np_ref.shape[0] -
+                          np_alt_seq.shape[0]) > self.max_indel_size:
+                    continue
 
-            # trim context bases from seq
-            np_ref_seq, np_alt_seq, start_trim, _ = simplify_var_seq(
-                np_ref_seq, np_alt_seq)
-            var_start = var.start + start_trim
-            try:
-                # expand seqs to include ambiguous locations
-                np_ref_seq, np_alt_seq, var_start = self.expand_ambig_variant(
-                    np_ref_seq, np_alt_seq, var_start, read_ref_fwd_seq,
-                    read_ref_pos)
-            except mh.MegaError:
-                # if variant is ambiguous to the end of the read, then skip it
-                return
+                # trim context bases from seq
+                np_ref_seq, np_alt_seq, start_trim, _ = simplify_var_seq(
+                    var.np_ref, np_alt_seq)
+                var_start = var.start + start_trim
+                try:
+                    # expand seqs to include ambiguous locations
+                    (np_ref_seq, np_alt_seq,
+                     var_start) = self.expand_ambig_variant(
+                         np_ref_seq, np_alt_seq, var_start, read_ref_fwd_seq,
+                         read_ref_pos)
+                except mh.MegaError:
+                    # if variant is ambiguous to the end of the read, skip it
+                    continue
 
-            yield ((var_start, var_start + np_ref_seq.shape[0]),
-                   VARIANT_DATA(
-                       np_ref=np_ref_seq, np_alts=(np_alt_seq,), id=var.id,
-                       chrom=var.chrom, start=var_start,
-                       stop=var_start + np_ref_seq.shape[0]))
-        return
+                grouped_read_vars[(
+                    var_start, var_start + np_ref_seq.shape[0])].append(
+                        VARIANT_DATA(
+                            np_ref=np_ref_seq, np_alts=(np_alt_seq,), id=var.id,
+                            chrom=var.chrom, start=var_start,
+                            stop=var_start + np_ref_seq.shape[0]))
+        return grouped_read_vars
 
-    def atomize_variants(self, fetch_res, read_ref_fwd_seq, read_ref_pos):
-        grouped_read_vars = defaultdict(list)
+    def parse_vars(self, fetch_res, read_ref_pos, read_ref_fwd_seq):
+        read_vars = []
         for var in fetch_res:
             # fetch results include any overlap where only inclusive overlap
             # are valid here
@@ -1525,14 +1556,50 @@ class VarData(object):
                 var.start - self.edge_buffer < read_ref_pos.start):
                 continue
 
-            np_ref_seq = mh.seq_to_int(var.ref)
+            try:
+                # faster to extract from array than convert seq to int
+                np_ref_seq = read_ref_fwd_seq[
+                    var.start - read_ref_pos.start:
+                    var.stop - read_ref_pos.start]
+                #np_ref_seq_from_var = mh.seq_to_int(var.ref)
+                #assert np.all(np_ref_seq == np_ref_seq_from_var)
+            except mh.MegaError:
+                logger = logging.get_logger()
+                logger.debug((
+                    'Encountered invalid variant reference sequence, {}, ' +
+                    'from variant at {}:{} with id: {}'.format(
+                        var.ref, var.chrom, var.pos, var.id)))
+                continue
+            np_alt_seqs = []
             for alt_seq in var.alts:
-                np_alt_seq = mh.seq_to_int(alt_seq)
-                for start_stop, atom_var in self.iter_atomized_variants(
-                        var, np_ref_seq, np_alt_seq, read_ref_fwd_seq,
-                        read_ref_pos):
-                    grouped_read_vars[start_stop].append(atom_var)
-        return grouped_read_vars
+                try:
+                    np_alt_seq = mh.seq_to_int(alt_seq)
+                except mh.MegaError:
+                    logger = logging.get_logger()
+                    logger.debug((
+                        'Encountered invalid variant alternative sequence, ' +
+                        '{}, from variant at {}:{} with id: {}'.format(
+                            alt_seq, var.chrom, var.pos, var.id)))
+                    continue
+                np_alt_seqs.append(np_alt_seq)
+            if len(np_alt_seqs) == 0:
+                continue
+            # if atomized variant contains a padding context base remove it
+            # for correct variant grouping
+            start_trim = 0
+            has_context_base = False
+            if self.variants_are_atomized and HAS_CONTEXT_BASE_TAG in var.info:
+                np_ref_seq = np_ref_seq[1:]
+                np_alt_seqs = [np_alt_seq[1:] for np_alt_seq in np_alt_seqs]
+                start_trim = 1
+                has_context_base = True
+            read_vars.append(VARIANT_DATA(
+                np_ref=np_ref_seq, np_alts=np_alt_seqs, id=var.id,
+                chrom=var.chrom, start=var.start + start_trim,
+                stop=var.start + start_trim + np_ref_seq.shape[0], ref=var.ref,
+                alts=var.alts, ref_start=var.start,
+                has_context_base=has_context_base))
+        return read_vars
 
     def fetch_read_variants(self, read_ref_pos, read_ref_fwd_seq):
         try:
@@ -1542,10 +1609,13 @@ class VarData(object):
         except ValueError:
             raise mh.MegaError('Mapped location not valid for variants file.')
 
-        grouped_read_vars = self.atomize_variants(
-            fetch_res, read_ref_fwd_seq, read_ref_pos)
-        read_variants = self.merge_variants(
-            grouped_read_vars, read_ref_fwd_seq, read_ref_pos)
+        read_variants = self.parse_vars(
+            fetch_res, read_ref_pos, read_ref_fwd_seq)
+        if not self.variants_are_atomized:
+            grouped_read_vars = self.atomize_variants(
+                read_variants, read_ref_fwd_seq, read_ref_pos)
+            read_variants = self.merge_variants(
+                grouped_read_vars, read_ref_fwd_seq, read_ref_pos)
         return read_variants
 
     def iter_vars(
@@ -1613,7 +1683,8 @@ class VarData(object):
             dn_context_seq = context_ref_seq[context_rel_var_end:]
             context_seqs = [(up_context_seq, dn_context_seq),]
 
-            if max_contexts == 1 or len(context_vars) == 0:
+            if (context_max_dist == 0 or max_contexts == 1 or
+                len(context_vars) == 0):
                 return (context_ref_start, context_read_start, context_read_end,
                         context_seqs)
 
@@ -1709,6 +1780,7 @@ class Variant(object):
         return ':'.join(map(str, self._sorted_format_keys))
     @property
     def sample(self):
+        if len(self.sample_dict) == 0: return '.'
         return ':'.join((str(self.sample_dict[k])
                          for k in self._sorted_format_keys))
     @property

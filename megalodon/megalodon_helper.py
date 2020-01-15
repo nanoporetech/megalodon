@@ -3,6 +3,7 @@ import pkg_resources
 import multiprocessing as mp
 from collections import namedtuple
 from abc import ABC, abstractmethod
+from multiprocessing.queues import Queue as mpQueue
 
 import pysam
 import numpy as np
@@ -16,12 +17,14 @@ import numpy as np
 DEFAULT_SNV_HET_FACTOR = 2.1
 DEFAULT_INDEL_HET_FACTOR = 1.6
 
-DEFAULT_EDGE_BUFFER = 0
+DEFAULT_EDGE_BUFFER = 2
 CONTEXT_MAX_DIST = 5
+DEFAULT_MAX_INDEL_SIZE = 50
 DEFUALT_MAX_VAR_CNTXTS = 16
-DEFAULT_SNV_CONTEXT = 15
-DEFAULT_INDEL_CONTEXT = 30
-DEFAULT_MOD_CONTEXT = 15
+DEFAULT_SNV_CONTEXT = 5
+DEFAULT_INDEL_CONTEXT = 10
+DEFAULT_VAR_CONTEXT_BASES = [DEFAULT_SNV_CONTEXT, DEFAULT_INDEL_CONTEXT]
+DEFAULT_MOD_CONTEXT = 3
 DEFAULT_CONTEXT_MIN_ALT_PROB = 0.05
 
 MED_NORM_FACTOR = 1.4826
@@ -117,6 +120,7 @@ MOD_OUTPUT_EXTNS = {
 
 ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, SIG_MAP_NAME, PR_VAR_NAME,
                      VAR_NAME, WHATSHAP_MAP_NAME, PR_MOD_NAME, MOD_NAME))
+GETTER_PROC = namedtuple('getter_proc', ('queue', 'proc', 'conn'))
 
 PR_REF_INFO = namedtuple(
     'pr_ref_info', ('pct_idnt', 'pct_cov', 'min_len', 'max_len', 'alphabet',
@@ -160,7 +164,7 @@ def comp_np(np_seq):
 def revcomp_np(np_seq):
     return NP_COMP_BASES[np_seq][::-1]
 
-def seq_to_int(seq, error_on_invalid=False):
+def seq_to_int(seq, error_on_invalid=True):
     try:
         np_seq = SEQ_TO_INT_ARR[
             np.array(list(seq), dtype='c').view(np.uint8) - SEQ_MIN]
@@ -171,8 +175,8 @@ def seq_to_int(seq, error_on_invalid=False):
             # use slower string find method to convert seq with
             # invalid characters
             np_seq = np.array([ALPHABET.find(b) for b in seq], dtype=np.uintp)
-    if error_on_invalid and np_seq.shape[0] > 0 and np_seq.max() >= 4:
-        raise MegaError('Invalid character in sequence')
+    #if error_on_invalid and np_seq.shape[0] > 0 and np_seq.max() >= 4:
+    #    raise MegaError('Invalid character in sequence')
     return np_seq
 
 def int_to_seq(np_seq, alphabet=ALPHABET):
@@ -261,15 +265,36 @@ def get_model_fn(model_fn=None, do_load_default=True, preset_str=None):
 ##### Multi-processing Helper #####
 ###################################
 
+class CountingMPQueue(mpQueue):
+    """ Minimal version of multiprocessing queue maintaining a queue size
+    counter
+    """
+    def __init__(self, **kwargs):
+        super().__init__(ctx=mp.get_context(), **kwargs)
+        self.size = mp.Value('i', 0)
+    def put(self, *args, **kwargs):
+        super().put(*args, **kwargs)
+        with self.size.get_lock():
+            self.size.value += 1
+    def get(self, *args, **kwargs):
+        rval = super().get(*args, **kwargs)
+        with self.size.get_lock():
+            self.size.value -= 1
+        return rval
+    def qsize(self):
+        return self.size.value
+    def empty(self):
+        return self.qsize() <= 0
+
 def create_getter_q(getter_func, args, max_size=_MAX_QUEUE_SIZE):
     if max_size is None:
-        q = mp.Queue()
+        q = CountingMPQueue()
     else:
-        q = mp.Queue(maxsize=max_size)
+        q = CountingMPQueue(maxsize=max_size)
     main_conn, conn = mp.Pipe()
     p = mp.Process(target=getter_func, daemon=True, args=(q, conn, *args))
     p.start()
-    return q, p, main_conn
+    return GETTER_PROC(q, p, main_conn)
 
 
 ################################
