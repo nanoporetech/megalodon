@@ -272,6 +272,9 @@ class CountingMPQueue(mpQueue):
     def __init__(self, **kwargs):
         super().__init__(ctx=mp.get_context(), **kwargs)
         self.size = mp.Value('i', 0)
+        self.maxsize = None
+        if 'maxsize' in kwargs:
+            self.maxsize = kwargs['maxsize']
     def put(self, *args, **kwargs):
         super().put(*args, **kwargs)
         with self.size.get_lock():
@@ -282,7 +285,10 @@ class CountingMPQueue(mpQueue):
             self.size.value -= 1
         return rval
     def qsize(self):
-        return self.size.value
+        qsize = max(0, self.size.value)
+        if self.maxsize is not None:
+            return min(self.maxsize, qsize)
+        return qsize
     def empty(self):
         return self.qsize() <= 0
 
