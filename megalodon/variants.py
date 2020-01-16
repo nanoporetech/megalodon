@@ -6,7 +6,7 @@ import datetime
 from time import sleep
 from array import array
 from operator import itemgetter
-from itertools import product, combinations
+from itertools import chain, combinations, product, repeat
 from collections import defaultdict, namedtuple, OrderedDict
 
 import pysam
@@ -239,11 +239,12 @@ class VarsDb(object):
             for pos, _, ref_seq, _, var_name,
             test_start, test_end in r_var_scores))
         if self.loc_idx_in_mem:
+            loc_idx = self.loc_idx
             locs_to_add = tuple(set(r_locs).difference(self.loc_idx))
         else:
             test_starts, test_ends = map(
-                set, list(zip(*r_locs.keys()))[1:])
-            loc_ids = dict((
+                set, tuple(zip(*r_locs.keys()))[1:])
+            loc_idx = dict((
                 ((chrm_id, test_start, test_end), loc_id)
                 for chrm_id, test_start, test_end, loc_id in  self.cur.execute(
                         ('SELECT loc_chrm, test_start, test_end, loc_id ' +
@@ -252,7 +253,7 @@ class VarsDb(object):
                              ','.join(['?',] * len(test_starts)),
                              ','.join(['?',] * len(test_ends))),
                         (chrm_id, *test_starts, *test_ends)).fetchall()))
-            locs_to_add = tuple(set(r_locs).difference(loc_ids))
+            locs_to_add = tuple(set(r_locs).difference(loc_idx))
 
         if len(locs_to_add) > 0:
             next_loc_id = self.get_num_uniq_var_loc() + 1
@@ -260,17 +261,13 @@ class VarsDb(object):
                 'INSERT INTO loc (loc_chrm, test_start, test_end, ' +
                 'pos, ref_seq, var_name) VALUES (?,?,?,?,?,?)',
                 ((*loc_key, *r_locs[loc_key]) for loc_key in locs_to_add))
-
-        loc_idx = self.loc_idx if self.loc_idx_in_mem else loc_ids
-        if len(locs_to_add) > 0:
             loc_idx.update(zip(
                 locs_to_add,
                 range(next_loc_id, next_loc_id + len(locs_to_add))))
-        r_loc_ids = [
-            loc_idx[(chrm_id, test_start, test_end)]
-            for _, _, _, _, _, test_start, test_end in r_var_scores]
 
-        return r_loc_ids
+        return chain.from_iterable(
+            repeat(loc_idx[(chrm_id, test_start, test_end)], len(alt_lps))
+            for _, alt_lps, _, _, _, test_start, test_end in r_var_scores)
 
     def get_alt_id_or_insert(self, alt_seq):
         try:
@@ -293,40 +290,33 @@ class VarsDb(object):
         if len(r_var_scores) == 0: return []
 
         logger = logging.get_logger()
-        r_seqs_and_lps = [
-            tuple(zip(alt_seqs, alt_lps))
-            for _, alt_lps, _, alt_seqs, _, _, _ in r_var_scores]
-        r_uniq_seqs = set(seq_lp_i[0] for loc_seqs_lps in r_seqs_and_lps
-                          for seq_lp_i in loc_seqs_lps)
+        r_uniq_seqs = set(alt_seq for _, _, _, alt_seqs, _, _, _ in r_var_scores
+                          for alt_seq in alt_seqs)
         if self.alt_idx_in_mem:
+            alt_idx = self.alt_idx
             alts_to_add = tuple(r_uniq_seqs.difference(self.alt_idx))
         else:
-            alt_ids = dict((
+            alt_idx = dict((
                 (alt_seq, alt_id)
                 for alt_seq, alt_id in  self.cur.execute(
                         ('SELECT alt_seq, alt_id ' +
                          'FROM alt WHERE alt_seq in ({})').format(
                              ','.join(['?',] * len(r_uniq_seqs))),
                         r_uniq_seqs).fetchall()))
-            alts_to_add = tuple(r_uniq_seqs.difference(alt_ids))
+            alts_to_add = tuple(r_uniq_seqs.difference(alt_idx))
 
         if len(alts_to_add) > 0:
             next_alt_id = self.get_num_uniq_alt_seqs() + 1
             self.cur.executemany(
                 'INSERT INTO alt (alt_seq) VALUES (?)',
                 ((alt_seq,) for alt_seq in alts_to_add))
-
-        alt_idx = self.alt_idx if self.alt_idx_in_mem else alt_ids
-        if len(alts_to_add) > 0:
             alt_idx.update(zip(
                 alts_to_add,
                 range(next_alt_id, next_alt_id + len(alts_to_add))))
-        r_alt_ids = [
-            tuple((alt_idx[alt_seq], alt_lp)
-                  for alt_seq, alt_lp in loc_seqs_lps)
-            for loc_seqs_lps in r_seqs_and_lps]
 
-        return r_alt_ids
+        return ((alt_idx[alt_seq], alt_lp)
+                for _, alt_lps, _, alt_seqs, _, _, _ in r_var_scores
+                for alt_seq, alt_lp in zip(alt_seqs, alt_lps))
 
     def get_read_id_or_insert(self, uuid):
         try:
@@ -353,10 +343,9 @@ class VarsDb(object):
         loc_ids = self.get_loc_ids_or_insert(r_var_scores, chrm_id)
         alt_ids = self.get_alt_ids_or_insert(r_var_scores)
 
-        read_insert_data = ((alt_lp, loc_id, alt_id, read_id)
-                            for loc_id, loc_alts in zip(loc_ids, alt_ids)
-                            for alt_id, alt_lp in loc_alts)
-
+        read_insert_data = (
+            (alt_lp, loc_id, alt_id, read_id)
+            for loc_id, (alt_id, alt_lp) in zip(loc_ids, alt_ids))
         self.cur.executemany(
             'INSERT INTO data VALUES (?,?,?,?)', read_insert_data)
         return

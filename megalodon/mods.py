@@ -5,6 +5,7 @@ import queue
 import sqlite3
 import datetime
 from time import sleep
+from itertools import chain, repeat
 from collections import defaultdict, namedtuple, OrderedDict
 
 import numpy as np
@@ -35,6 +36,8 @@ FORMAT_LOG_PROB_MI = (
     'bases (semi-colon separated)">')
 
 OUT_BUFFER_LIMIT = 10000
+
+_PROFILE_MODS_QUEUE = False
 
 
 ###################
@@ -202,36 +205,43 @@ class ModsDb(object):
         return pos_id
 
     def get_pos_ids_or_insert(self, r_mod_scores, chrm_id, strand):
+        """ Get position database IDs. If positions are not found in the
+        database they will be added.
+
+        Returns:
+            iterator: pos_id for each position (outer loop) and mod base
+                (inner loop) combination. To be zipped with
+                get_mod_base_ids_or_insert.
+        """
         if len(r_mod_scores) == 0: return []
 
-        r_pos = tuple(zip(*r_mod_scores))[0]
-        r_uniq_pos = set(((chrm_id, strand, pos) for pos in r_pos))
+        r_uniq_pos = set((chrm_id, strand, pos)
+                         for pos, _, _, _, _, _ in r_mod_scores)
         if self.pos_idx_in_mem:
+            pos_idx = self.pos_idx
             pos_to_add = tuple(r_uniq_pos.difference(self.pos_idx))
         else:
-            pos_ids = dict(
+            pos_idx = dict(
                 ((chrm_id, strand, pos_and_id[0]), pos_and_id[1])
                 for pos_key in r_uniq_pos
                 for pos_and_id in self.cur.execute(
                         'SELECT pos, pos_id FROM pos ' +
                         'WHERE pos_chrm=? AND strand=? AND pos=?',
                         pos_key).fetchall())
-            pos_to_add = tuple(r_uniq_pos.difference(pos_ids))
+            pos_to_add = tuple(r_uniq_pos.difference(pos_idx))
 
         if len(pos_to_add) > 0:
             next_pos_id = self.get_num_uniq_mod_pos() + 1
             self.cur.executemany(
                 'INSERT INTO pos (pos_chrm, strand, pos) VALUES (?,?,?)',
                 pos_to_add)
-
-        pos_idx = self.pos_idx if self.pos_idx_in_mem else pos_ids
-        if len(pos_to_add) > 0:
             pos_idx.update(zip(
                 pos_to_add,
                 range(next_pos_id, next_pos_id + len(pos_to_add))))
-        r_pos_ids = [pos_idx[(chrm_id, strand, pos)] for pos in r_pos]
 
-        return r_pos_ids
+        return chain.from_iterable(
+            repeat(pos_idx[(chrm_id, strand, pos)], len(mod_lps))
+            for pos, mod_lps, _, _, _, _ in r_mod_scores)
 
     def get_mod_base_id_or_insert(self, mod_base, motif, motif_pos, raw_motif):
         try:
@@ -252,44 +262,47 @@ class ModsDb(object):
         return mod_id
 
     def get_mod_base_ids_or_insert(self, r_mod_scores):
+        """ Get modified base database IDs. If modified bases are not found in
+        the database they will be added.
+
+        Returns:
+            iterator: mod_id for each position (outer loop) and mod base
+                (inner loop) combination. To be zipped with
+                get_mod_base_ids_or_insert.
+        """
         if len(r_mod_scores) == 0: return []
 
-        r_mod_bases = [
-            [((mod_base, motif, motif_pos, raw_motif), mod_lp)
-             for mod_lp, mod_base in zip(mod_lps, mod_bases)]
-            for _, mod_lps, mod_bases, motif, motif_pos, raw_motif in
-            r_mod_scores]
-        r_uniq_mod_bases = set((
-            mod_key for pos_mods in r_mod_bases for mod_key, _ in pos_mods))
+        r_uniq_mod_bases = set(
+            (mod_base, motif, motif_pos, raw_motif)
+            for _, _, mod_bases, motif, motif_pos, raw_motif in r_mod_scores
+            for mod_base in mod_bases)
         if self.mod_idx_in_mem:
+            mod_idx = self.mod_idx
             mod_bases_to_add = tuple(r_uniq_mod_bases.difference(self.mod_idx))
         else:
-            mod_base_ids = dict(
+            mod_idx = dict(
                 (mod_data_w_id[:-1], mod_data_w_id[-1])
                 for mod_data in r_uniq_mod_bases for mod_data_w_id in
                 self.cur.execute(
                     'SELECT mod_base, motif, motif_pos, raw_motif, ' +
                     'mod_id FROM mod WHERE mod_base=? AND motif=? AND ' +
                     'motif_pos=? AND raw_motif=?', mod_data).fetchall())
-            mod_bases_to_add = tuple(r_uniq_mod_bases.difference(mod_base_ids))
+            mod_bases_to_add = tuple(r_uniq_mod_bases.difference(mod_idx))
 
         if len(mod_bases_to_add) > 0:
             next_mod_base_id = self.get_num_uniq_mod_bases() + 1
             self.cur.executemany(
                 'INSERT INTO mod (mod_base, motif, motif_pos, raw_motif) ' +
                 'VALUES (?,?,?,?)', mod_bases_to_add)
-
-        mod_idx = self.mod_idx if self.mod_idx_in_mem else mod_base_ids
-        if len(mod_bases_to_add) > 0:
             mod_idx.update(zip(
                 mod_bases_to_add,
                 range(next_mod_base_id,
                       next_mod_base_id + len(mod_bases_to_add))))
-        r_mod_base_ids = [
-            [(mod_idx[mod_key], mod_lp) for mod_key, mod_lp in pos_mods]
-            for pos_mods in r_mod_bases]
 
-        return r_mod_base_ids
+        return ((mod_idx[(mod_base, motif, motif_pos, raw_motif)], mod_lp)
+                for _, mod_lps, mod_bases, motif, motif_pos, raw_motif in
+                r_mod_scores
+                for mod_lp, mod_base in zip(mod_lps, mod_bases))
 
     def get_read_id_or_insert(self, uuid):
         try:
@@ -314,9 +327,9 @@ class ModsDb(object):
         chrm_id = self.get_chrm_id(chrm)
         pos_ids = self.get_pos_ids_or_insert(r_mod_scores, chrm_id, strand)
         mod_base_ids = self.get_mod_base_ids_or_insert(r_mod_scores)
-        read_insert_data = [(mod_lp, pos_id, mod_base_id, read_id)
-                            for pos_id, pos_mods in zip(pos_ids, mod_base_ids)
-                            for mod_base_id, mod_lp in pos_mods]
+        read_insert_data = (
+            (mod_lp, pos_id, mod_base_id, read_id)
+            for pos_id, (mod_base_id, mod_lp) in zip(pos_ids, mod_base_ids))
         self.cur.executemany(
             'INSERT INTO data VALUES (?,?,?,?)', read_insert_data)
         return
@@ -690,6 +703,12 @@ def _get_mods_queue(
 
         return been_warned
 
+    def do_sleep():
+        """ Sleep in a function for profiling
+        """
+        sleep(0.001)
+        return
+
 
     logger = logging.get_logger('mods')
     been_warned = False
@@ -698,6 +717,10 @@ def _get_mods_queue(
                      pos_index_in_memory=pos_index_in_memory)
     mods_db.insert_chrms(ref_names_and_lens)
     mods_db.create_chrm_index()
+    logger.debug(('mod_getter: in_mem_indices: chrm: {} pos: {} mods: {} ' +
+                  'uuid: {}').format(
+                      mods_db.chrm_idx_in_mem, mods_db.pos_idx_in_mem,
+                      mods_db.mod_idx_in_mem, mods_db.uuid_idx_in_mem))
 
     if mods_txt_fn is None:
         mods_txt_fp = None
@@ -707,6 +730,7 @@ def _get_mods_queue(
 
     if pr_refs_fn is not None:
         pr_refs_fp = open(pr_refs_fn, 'w')
+    logger.debug('mod_getter: init complete')
 
     while True:
         try:
@@ -717,7 +741,7 @@ def _get_mods_queue(
         except queue.Empty:
             if mods_conn.poll():
                 break
-            sleep(0.001)
+            do_sleep()
             continue
         try:
             been_warned = store_mod_call(
@@ -749,6 +773,14 @@ def _get_mods_queue(
     mods_db.close()
 
     return
+
+if _PROFILE_MODS_QUEUE:
+    _get_mods_queue_wrapper = _get_mods_queue
+    def _get_mods_queue(*args):
+        import cProfile
+        cProfile.runctx('_get_mods_queue_wrapper(*args)', globals(), locals(),
+                        filename='mods_getter_queue.prof')
+        return
 
 
 ####################
