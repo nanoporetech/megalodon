@@ -10,7 +10,7 @@ from taiyaki import (alphabet, fast5utils, mapping as tai_mapping,
 
 def get_remapping(
         sig_fn, dacs, scale_params, ref_seq, stride, sig_map_alphabet, read_id,
-        r_to_q_poss, rl_cumsum, q_start_trim):
+        r_to_q_poss, rl_cumsum, r_ref_pos):
     read = fast5_interface.get_fast5_file(sig_fn, 'r').get_read(read_id)
     channel_info = dict(fast5utils.get_channel_info(read).items())
     rd_factor = channel_info['range'] / channel_info['digitisation']
@@ -30,8 +30,8 @@ def get_remapping(
     # skip last value since this is where the two seqs end
     for ref_pos, q_pos in enumerate(r_to_q_poss[:-1]):
         # if the query position maps to the end of the mapping skip it
-        if rl_cumsum[q_pos + q_start_trim] >= path.shape[0]: continue
-        path[rl_cumsum[q_pos + q_start_trim]] = ref_pos
+        if rl_cumsum[q_pos + r_ref_pos.q_trim_start] >= path.shape[0]: continue
+        path[rl_cumsum[q_pos + r_ref_pos.q_trim_start]] = ref_pos
     remapping = tai_mapping.Mapping.from_remapping_path(
         sig, path, ref_seq, stride)
     try:

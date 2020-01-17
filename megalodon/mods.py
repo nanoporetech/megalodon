@@ -640,20 +640,18 @@ def call_read_mods(
     # annotate mods on reference sequence and send to signal mapping queue
     if mod_sig_map_q is not None and sig_map_res[0]:
         # import locally so that import of mods module does not require
-        # taiyaki install
+        # taiyaki install (required for signal_mapping module)
         from megalodon import signal_mapping
-        (fast5_fn, dacs, scale_params, r_ref_seq, stride, sig_map_alphabet,
-         read_id, r_to_q_poss, rl_cumsum, q_start) = sig_map_res[1:]
         r_mod_seq = annotate_mods(
-            r_ref_pos.start, r_ref_seq, r_mod_scores, r_ref_pos.strand)
-        invalid_chars = set(r_mod_seq).difference(sig_map_alphabet)
+            r_ref_pos.start, sig_map_res[4], r_mod_scores, r_ref_pos.strand)
+        invalid_chars = set(r_mod_seq).difference(sig_map_res[6])
         if len(invalid_chars) > 0:
             raise mh.MegaError(
                 'Inavlid charcters found in mapped signal sequence: ' +
                 '({})'.format(''.join(invalid_chars)))
-        mod_sig_map_q.put(signal_mapping.get_remapping(
-            fast5_fn, dacs, scale_params, r_mod_seq, stride, sig_map_alphabet,
-            read_id, r_to_q_poss, rl_cumsum, q_start))
+        # replace reference sequence with mod annotated sequence
+        sig_map_res[4] = r_mod_seq
+        mod_sig_map_q.put(signal_mapping.get_remapping(*sig_map_res[1:]))
 
     return r_mod_scores
 
@@ -952,8 +950,8 @@ class ModSite(object):
         # info and gentype data fields
         if info is None:
             info = {}
-        if 'STRD' not in info:
-            info['STRD'] = strand
+        if mh.STRAND_FIELD_NAME not in info:
+            info[mh.STRAND_FIELD_NAME] = strand
         self.info_dict = info
         if sample_dict is None:
             sample_dict = OrderedDict()

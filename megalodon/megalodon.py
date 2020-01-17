@@ -106,11 +106,11 @@ def process_read(
         pass_sig_map_filts = mapping.read_passes_filters(
             sig_map_info, len(r_seq), r_ref_pos.q_trim_start,
             r_ref_pos.q_trim_end, r_cigar)
-        sig_map_res = (
+        sig_map_res = [
             pass_sig_map_filts, sig_info.fast5_fn, sig_info.dacs,
             sig_info.scale_params, r_ref_seq, sig_info.stride,
             sig_map_info.alphabet, sig_info.read_id, r_to_q_poss, rl_cumsum,
-            r_ref_pos.q_trim_start)
+            r_ref_pos]
         if not sig_map_info.annotate_mods and pass_sig_map_filts:
             try:
                 sig_map_q.put(signal_mapping.get_remapping(*sig_map_res[1:]))

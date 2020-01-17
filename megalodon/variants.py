@@ -1308,10 +1308,10 @@ class VarData(object):
         return
 
     @staticmethod
-    def iter_context_variants(variants, context_max_dist):
+    def iter_context_variants(read_variants, context_max_dist):
         """ Iterate variants as well as variants within context_max_dist
         """
-        vars_iter = iter(variants)
+        vars_iter = iter(read_variants)
         def next_var_or_none():
             try:
                 return next(vars_iter)
@@ -1391,7 +1391,6 @@ class VarData(object):
         if this is not done, allele probabilities will not be normalized
         correctly.
         """
-        variants = []
         for _, site_vars in sorted(grouped_read_vars.items()):
             if len(site_vars) == 1:
                 # add upstream seq to simple indels
@@ -1402,7 +1401,7 @@ class VarData(object):
                 site_var = site_vars[0]._replace(
                     ref=out_ref_seq, alts=out_alt_seqs, ref_start=out_start,
                     has_context_base=has_context_base)
-                variants.append(site_var)
+                yield site_var
                 continue
 
             # join all valid ids
@@ -1430,14 +1429,14 @@ class VarData(object):
                 site_vars[0].np_ref, np_alts, site_vars[0].start,
                 read_ref_fwd_seq, read_ref_pos)
 
-            variants.append(VARIANT_DATA(
+            yield VARIANT_DATA(
                 np_ref=site_vars[0].np_ref, np_alts=np_alts,
                 id=site_var_ids, chrom=site_vars[0].chrom,
                 start=site_vars[0].start, stop=site_vars[0].stop,
                 ref=out_ref_seq, alts=out_alt_seqs, ref_start=out_start,
-                has_context_base=has_context_base))
+                has_context_base=has_context_base)
 
-        return variants
+        return
 
     @staticmethod
     def expand_ambig_variant(
@@ -1537,7 +1536,6 @@ class VarData(object):
         return grouped_read_vars
 
     def parse_vars(self, fetch_res, read_ref_pos, read_ref_fwd_seq):
-        read_vars = []
         for var in fetch_res:
             # fetch results include any overlap where only inclusive overlap
             # are valid here
@@ -1576,19 +1574,17 @@ class VarData(object):
             # if atomized variant contains a padding context base remove it
             # for correct variant grouping
             start_trim = 0
-            has_context_base = False
             if self.variants_are_atomized and HAS_CONTEXT_BASE_TAG in var.info:
                 np_ref_seq = np_ref_seq[1:]
                 np_alt_seqs = [np_alt_seq[1:] for np_alt_seq in np_alt_seqs]
                 start_trim = 1
-                has_context_base = True
-            read_vars.append(VARIANT_DATA(
+            yield VARIANT_DATA(
                 np_ref=np_ref_seq, np_alts=np_alt_seqs, id=var.id,
                 chrom=var.chrom, start=var.start + start_trim,
                 stop=var.start + start_trim + np_ref_seq.shape[0], ref=var.ref,
                 alts=var.alts, ref_start=var.start,
-                has_context_base=has_context_base))
-        return read_vars
+                has_context_base=start_trim == 1)
+        return
 
     def fetch_read_variants(self, read_ref_pos, read_ref_fwd_seq):
         try:
@@ -1613,7 +1609,7 @@ class VarData(object):
         """Iterator over variants overlapping the read mapped position.
 
         Args:
-            read_variants: List of variant objects (from fetch_read_variants)
+            read_variants: Variant objects iterator (from fetch_read_variants)
             read_ref_pos: Read reference mapping position
                 (`megalodon.mapping.MAP_POS`)
             read_ref_fwd_seq: Mapped reference sequence. Forward strand sequence
@@ -1632,7 +1628,7 @@ class VarData(object):
             variant_id: string idnentifier for the variant
             pos: variant position (0-based coordinate)
 
-        Variantss within edge buffer of the end of the mapping will be ignored.
+        Variants within edge buffer of the end of the mapping will be ignored.
 
         If more than max_contexts variantss exist within context_basss then only
         the max_contexts most proximal to the variant in question will be
