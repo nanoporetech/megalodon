@@ -488,7 +488,7 @@ def _get_fail_queue(
     if not suppress_progress:
         if q_bars is not None:
             while any(getter_qs[q_name].queue.qsize() > 0
-                      for q_name in q_bars.values()):
+                      for q_name in q_bars.keys()):
                 reads_called, unexp_err_fp = update_prog(
                     reads_called, 0, unexp_err_fp)
         bar.close()
