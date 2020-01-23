@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import sys
 # set blas library environment variables (without these the cblas calls
 # can completely halt processing)
 os.environ['OMP_NUM_THREADS'] = '1'
@@ -94,6 +95,7 @@ def main():
                   'aggregation.' + args.output_suffix)
     logging.init_logger(args.megalodon_directory, out_suffix=log_suffix)
     logger = logging.get_logger()
+    logger.debug('Command: """' + ' '.join(sys.argv) + '"""')
 
     if args.mod_aggregate_method == mods.EM_NAME:
         mod_agg_info = mods.AGG_INFO(mods.EM_NAME, None)

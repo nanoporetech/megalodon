@@ -486,6 +486,11 @@ def _get_fail_queue(
             # exit gracefully on keyboard inturrupt
             return
     if not suppress_progress:
+        if q_bars is not None:
+            while any(getter_qs[q_name].queue.qsize() > 0
+                      for q_name in q_bars.values()):
+                reads_called, unexp_err_fp = update_prog(
+                    reads_called, 0, unexp_err_fp)
         bar.close()
         if q_bars is not None:
             for q_bar in q_bars.values():
