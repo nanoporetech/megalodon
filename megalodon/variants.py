@@ -34,9 +34,14 @@ SAMPLE_NAME = 'SAMPLE'
 WHATSHAP_MAX_QUAL = 40
 WHATSHAP_RG_ID = '1'
 HAS_CONTEXT_BASE_TAG = 'CB'
+CONTEXT_BASE_MI_LINE = (
+    '##INFO=<ID={},Number=0,Type=Flag,Description=' +
+    '"REF and ALT contain a single upstream context base">').format(
+        HAS_CONTEXT_BASE_TAG)
 FIXED_VCF_MI = [
     'phasing=none',
     'INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
+    CONTEXT_BASE_MI_LINE,
     'FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
     'FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype Quality">',
     'FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read Depth">',
@@ -90,7 +95,8 @@ class VarsDb(object):
 
     # namedtuple for returning var info from a single position
     var_data = namedtuple('var_data', [
-        'score', 'pos', 'ref_seq', 'var_name', 'read_id', 'chrm', 'alt_seq'])
+        'score', 'pos', 'ref_seq', 'var_name', 'read_id', 'chrm', 'alt_seq',
+        'has_context_base'])
     text_field_names = (
         'read_id', 'chrm', 'strand', 'pos', 'ref_log_prob', 'alt_log_prob',
         'ref_seq', 'alt_seq', 'var_id')
@@ -499,7 +505,7 @@ class VarsDb(object):
 
     def iter_locs(self):
         for loc in self.cur.execute(
-                'SELECT loc_id, loc_chrm, pos, ref_seq, var_name ' +
+                'SELECT loc_id, loc_chrm, pos, ref_seq, var_name, test_start ' +
                 'FROM loc').fetchall():
             yield loc
         return
@@ -519,12 +525,12 @@ class VarsDb(object):
     def get_loc_stats(self, loc_data, return_uuids=False):
         read_id_conv = self.get_uuid if return_uuids else lambda x: x
         # these attributes are specified in self.iter_locs
-        loc_id, chrm_id, pos, ref_seq, var_name = loc_data
+        loc_id, chrm_id, pos, ref_seq, var_name, test_start = loc_data
         chrm = self.get_chrm(chrm_id)
         return [
             self.var_data(
                 score, pos, ref_seq, var_name, read_id_conv(read_id),
-                chrm, self.get_alt_seq(alt_id))
+                chrm, self.get_alt_seq(alt_id), test_start != pos)
             for score, read_id, alt_id, loc_id in self.cur.execute(
                     'SELECT score, score_read, score_alt, score_loc FROM data ' +
                     'WHERE score_loc=?', (loc_id,)).fetchall()]
@@ -2016,6 +2022,8 @@ class AggVars(mh.AbstractAggregationClass):
             chrom=r0_stats.chrm, pos=r0_stats.pos, ref=r0_stats.ref_seq,
             alts=alt_seqs, id=r0_stats.var_name)
         variant.add_tag('DP', '{}'.format(ref_lps.shape[0]))
+        if r0_stats.has_context_base:
+            variant.add_tag(HAS_CONTEXT_BASE_TAG)
         variant.add_sample_field('DP', '{}'.format(ref_lps.shape[0]))
 
         if self.write_vcf_log_probs:

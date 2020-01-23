@@ -29,7 +29,8 @@ def main():
         mh.get_megalodon_fn(args.megalodon_results_dir, mh.PR_VAR_TXT_NAME)
         if args.out_filename is None else args.out_filename, 'w')
     vars_txt_fp.write('\t'.join(vars_db.text_field_names) + '\n')
-    for loc_id, loc_chrm, pos, ref_seq, var_name in vars_db.iter_locs():
+    for (loc_id, loc_chrm, pos, ref_seq, var_name,
+         has_context_base) in vars_db.iter_locs():
         pr_var_stats = vars_db.get_loc_stats(
             (loc_id, loc_chrm, pos, ref_seq, var_name))
         alt_type_stats = defaultdict(dict)

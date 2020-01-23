@@ -3,14 +3,11 @@ import argparse
 
 from megalodon import mapping, megalodon_helper as mh, variants
 
-HEADER = """##fileformat=VCFv4.1
-##source=megalodon_atomized
-{}
-##INFO=<ID={},Number=0,Type=Flag,Description="REF and ALT contain a single upstream context base">
-##command="{}"
-#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	SAMPLE
-"""
+HEADER = ['##fileformat=VCFv4.1', '##source=megalodon_atomized']
 CONTIG_HEADER_LINE = "##contig=<ID={},length={}>"
+COMMAND_HEADER_LINE = '##command="{}"'
+FIELDS_LINE = ('#CHROM	POS	ID	REF	ALT	QUAL	FILTER' +
+               '	INFO	FORMAT	SAMPLE')
 RECORD_LINE = ('{chrm}\t{pos}\t{rid}\t{ref}\t{alts}\t.\t.\t{info}\t.\t.\n')
 
 def get_parser():
@@ -43,11 +40,13 @@ def main():
     contigs = var_data.variants_idx.header.contigs.values()
     sys.stderr.write('Atomizing variants\n')
     with open(args.out_vcf, 'w') as out_vars:
-        out_vars.write(HEADER.format(
-            '\n'.join((CONTIG_HEADER_LINE.format(ctg.name, ctg.length)
-                       for ctg in contigs)),
-            variants.HAS_CONTEXT_BASE_TAG,
-            ' '.join(sys.argv)))
+        out_vars.write('\n'.join(
+            HEADER +
+            [CONTIG_HEADER_LINE.format(ctg.name, ctg.length)
+             for ctg in contigs] +
+            [variants.CONTEXT_BASE_MI_LINE,
+             COMMAND_HEADER_LINE.format(' '.join(sys.argv)),
+             FIELDS_LINE]) + '\n')
         for ctg in contigs:
             chrm_seq = aligner.seq(ctg.name)
             if len(chrm_seq) != ctg.length:
