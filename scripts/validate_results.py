@@ -59,15 +59,16 @@ def compute_mod_sites_stats(
     if VERBOSE: sys.stderr.write(
             'Computing PR/ROC for {} in {} at {}\n'.format(
                 mod_base, motif, v_name))
-    out_fp.write(('Modified base class distribution for {} in {} at {}:\n\t' +
-                  'Number of modified observations:    {}\n\t' +
-                  'Number of unmodified observations:  {}\n').format(
-                      mod_base, motif, v_name,
-                      sum(motif_m_dat['is_mod']),
-                      sum(~motif_m_dat['is_mod'])))
     # compute roc and presicion recall
-    precision, recall, _ = precision_recall_curve(
+    precision, recall, thresh = precision_recall_curve(
         motif_m_dat['is_mod'], motif_m_dat['llr'])
+    prec_recall_sum = prec + recall
+    valid_idx = np.where(prec_recall_sum > 0)
+    all_f1 = (2 * prec[valid_idx] * recall[valid_idx] /
+              prec_recall_sum[valid_idx])
+    optim_f1_idx = np.argmax(all_f1)
+    optim_f1 = all_f1[optim_f1_idx]
+    optim_thresh = thresh[optim_f1_idx]
     avg_prcn = average_precision_score(
         motif_m_dat['is_mod'], motif_m_dat['llr'])
 
@@ -75,10 +76,11 @@ def compute_mod_sites_stats(
         motif_m_dat['is_mod'], motif_m_dat['llr'])
     roc_auc = auc(fpr, tpr)
 
-    out_fp.write(('Modified base metrics for {} in {} at {}:\n\t' +
-                  'Average precision:  {:.6f}\n\t' +
-                  'ROC AUC:            {:.6f}\n').format(
-                      mod_base, motif, v_name, avg_prcn, roc_auc))
+    out_fp.write((
+        'Modified base metrics for {} in {} at {}:\t{:.6f} (at {} )\t{:.6f}\t' +
+        '{:.6f}\t{}\t{}\n').format(
+            mod_base, motif, v_name, optim_f1, optim_thresh, avg_prcn, roc_auc,
+            sum(motif_m_dat['is_mod']) sum(~motif_m_dat['is_mod'])))
 
     if VERBOSE: sys.stderr.write('Plotting {} in {} at {}\n'.format(
             mod_base, motif, v_name))
@@ -135,6 +137,9 @@ def report_mod_metrics(
     if valid_sites is not None:
         m_idx = m_dat.set_index(['chrm', 'pos']).index
 
+    out_fp.write('Modified Base Metrics: Optimal F1 :: Optimal Threshold :: ' +
+                 'Average Precision :: ROC AUC :: Num. Modified Sites :: ' +
+                 'Num. Canonical Sites\n')
     for v_name, valid_sites_i in valid_sites:
         filt_m_dat = m_dat if valid_sites_i is None else m_dat[
             m_idx.isin(valid_sites_i)]
@@ -145,7 +150,7 @@ def report_mod_metrics(
 
     return
 
-def merge_mods_data(mod_dat, ctrl_dat, gt_dat, mod_chrm_sw, out_fp):
+def merge_mods_data(mod_dat, ctrl_dat, gt_dat, mod_chrm_sw):
     if VERBOSE: sys.stderr.write('Merging modified base data\n')
     # merge scores with known mod sites
     if ctrl_dat is not None:
@@ -209,12 +214,9 @@ def report_acc_metrics(res_dir, out_fp):
             bc_acc, 1), return_counts=True)
         mode_bc_acc = uniq_acc[np.argmax(acc_counts)]
         out_fp.write(
-            ('Mapping metrics for {} ({} mapped reads):\n\t' +
-             'Mean Pct. Identity:    {:.4f}\n\t' +
-             'Median Pct. Identity:  {:.4f}\n\t' +
-             'Mode Pct. Identity:    {:.1f}\n').format(
-                 res_dir, bc_dat.shape[0],
-                 mean_bc_acc, med_bc_acc, mode_bc_acc))
+            ('Mapping metrics for {} :\t{:.4f}\t{:.4f}\t' +
+             '{:.1f}\t{}\n').format(res_dir, med_bc_acc, mean_bc_acc,
+                                    mode_bc_acc, bc_dat.shape[0]))
     except FileNotFoundError:
         bc_acc = parsim_acc = None
         if VERBOSE: sys.stderr.write(
@@ -322,8 +324,11 @@ def main():
     pdf_fp = PdfPages(args.out_pdf)
     out_fp = sys.stdout if args.out_filename is None else \
              open(args.out_filename, 'w')
-
     valid_sites = parse_valid_sites(args.valid_sites)
+
+    out_fp.write('Mapping metrics: Median Alignment Accuracy :: ' +
+                 'Mean Alignment Accuracy :: Mode Alignment Accuracy :: ' +
+                 'Num. of Mapped Reads\n')
     mod_dat, mod_acc, mod_parsim_acc = parse_mod_data(args, out_fp)
 
     ctrl_acc, ctrl_parsim_acc, ctrl_dat, gt_dat, mod_chrm_sw \
@@ -335,7 +340,7 @@ def main():
         pdf_fp.close()
         if out_fp is not sys.stdout: out_fp.close()
         return
-    m_dat = merge_mods_data(mod_dat, ctrl_dat, gt_dat, mod_chrm_sw, out_fp)
+    m_dat = merge_mods_data(mod_dat, ctrl_dat, gt_dat, mod_chrm_sw)
     report_mod_metrics(
         m_dat, args, out_fp, pdf_fp, valid_sites, args.balance_classes)
     pdf_fp.close()
