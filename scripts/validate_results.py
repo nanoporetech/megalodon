@@ -62,9 +62,9 @@ def compute_mod_sites_stats(
     # compute roc and presicion recall
     precision, recall, thresh = precision_recall_curve(
         motif_m_dat['is_mod'], motif_m_dat['llr'])
-    prec_recall_sum = prec + recall
+    prec_recall_sum = precision + recall
     valid_idx = np.where(prec_recall_sum > 0)
-    all_f1 = (2 * prec[valid_idx] * recall[valid_idx] /
+    all_f1 = (2 * precision[valid_idx] * recall[valid_idx] /
               prec_recall_sum[valid_idx])
     optim_f1_idx = np.argmax(all_f1)
     optim_f1 = all_f1[optim_f1_idx]
@@ -77,10 +77,10 @@ def compute_mod_sites_stats(
     roc_auc = auc(fpr, tpr)
 
     out_fp.write((
-        'Modified base metrics for {} in {} at {}:\t{:.6f} (at {} )\t{:.6f}\t' +
-        '{:.6f}\t{}\t{}\n').format(
+        'Modified base metrics for {} in {} at {}:\t{:.6f} (at {:.4f} )\t' +
+        '{:.6f}\t{:.6f}\t{}\t{}\n').format(
             mod_base, motif, v_name, optim_f1, optim_thresh, avg_prcn, roc_auc,
-            sum(motif_m_dat['is_mod']) sum(~motif_m_dat['is_mod'])))
+            sum(motif_m_dat['is_mod']), sum(~motif_m_dat['is_mod'])))
 
     if VERBOSE: sys.stderr.write('Plotting {} in {} at {}\n'.format(
             mod_base, motif, v_name))
