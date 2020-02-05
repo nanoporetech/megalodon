@@ -22,9 +22,10 @@ _DEBUG_PER_READ = False
 
 VARIANT_DATA = namedtuple('VARIANT_DATA', (
     'np_ref', 'np_alts', 'id', 'chrom', 'start', 'stop',
-    'ref', 'alts', 'ref_start', 'has_context_base'))
-# set default value of None for ref, alts and ref_start
-VARIANT_DATA.__new__.__defaults__ = (None, None, None, False)
+    'ref', 'alts', 'ref_start', 'strand', 'has_context_base'))
+# set default value of None for ref, alts, ref_start and strand;
+# false for has_context_base
+VARIANT_DATA.__new__.__defaults__ = (None, None, None, None, False)
 
 DIPLOID_MODE = 'diploid'
 HAPLIOD_MODE = 'haploid'
@@ -197,6 +198,8 @@ class VarsDb(object):
             if self.chrm_idx_in_mem:
                 self.chrm_id_idx[chrm] = chrm_id
                 self.chrm_name_idx[chrm_id] = chrm
+            if self.loc_idx_in_mem:
+                self.loc_idx[chrm_id] = {}
         return chrm_id
 
     def insert_chrms(self, chrm_names_and_lens):
@@ -212,13 +215,19 @@ class VarsDb(object):
                 range(next_chrm_id,
                       next_chrm_id + len(chrm_names_and_lens[0])),
                 chrm_names_and_lens[0]))
+        if self.loc_idx_in_mem:
+            self.loc_idx.update(
+                (chrm_id, {})
+                for chrm_id in range(
+                        next_chrm_id,
+                        next_chrm_id + len(chrm_names_and_lens[0])))
         return
 
     def get_loc_id_or_insert(
             self, chrm_id, test_start, test_end, pos, ref_seq, var_name):
         try:
             if self.loc_idx_in_mem:
-                loc_id = self.loc_idx[(chrm_id, test_start, test_end)]
+                loc_id = self.loc_idx[chrm_id][(test_start, test_end)]
             else:
                 loc_id = self.cur.execute(
                     'SELECT loc_id FROM loc WHERE loc_chrm=? AND ' +
@@ -231,7 +240,7 @@ class VarsDb(object):
                 (chrm_id, test_start, test_end, pos, ref_seq, var_name))
             loc_id = self.cur.lastrowid
             if self.loc_idx_in_mem:
-                self.loc_idx[(chrm_id, test_start, test_end)] = loc_id
+                self.loc_idx[chrm_id][(test_start, test_end)] = loc_id
         return loc_id
 
     def get_loc_ids_or_insert(self, r_var_scores, chrm_id):
@@ -241,38 +250,37 @@ class VarsDb(object):
         if len(r_var_scores) == 0: return []
 
         r_locs = dict((
-            ((chrm_id, test_start, test_end), (pos, ref_seq, var_name))
+            ((test_start, test_end), (pos, ref_seq, var_name))
             for pos, _, ref_seq, _, var_name,
             test_start, test_end in r_var_scores))
         if self.loc_idx_in_mem:
-            loc_idx = self.loc_idx
-            locs_to_add = tuple(set(r_locs).difference(self.loc_idx))
+            cs_loc_idx = self.loc_idx[chrm_id]
         else:
-            test_starts, test_ends = map(
-                set, tuple(zip(*r_locs.keys()))[1:])
-            loc_idx = dict((
-                ((chrm_id, test_start, test_end), loc_id)
-                for chrm_id, test_start, test_end, loc_id in  self.cur.execute(
-                        ('SELECT loc_chrm, test_start, test_end, loc_id ' +
+            test_starts, test_ends = map(set, zip(*r_locs.keys()))
+            cs_loc_idx = dict((
+                ((test_start, test_end), loc_id)
+                for test_start, test_end, loc_id in  self.cur.execute(
+                        ('SELECT test_start, test_end, loc_id ' +
                          'FROM loc WHERE loc_chrm=? AND ' +
                          'test_start in ({0}) AND test_end in ({1})').format(
                              ','.join(['?',] * len(test_starts)),
                              ','.join(['?',] * len(test_ends))),
                         (chrm_id, *test_starts, *test_ends)).fetchall()))
-            locs_to_add = tuple(set(r_locs).difference(loc_idx))
+        locs_to_add = tuple(set(r_locs).difference(cs_loc_idx))
 
         if len(locs_to_add) > 0:
             next_loc_id = self.get_num_uniq_var_loc() + 1
             self.cur.executemany(
                 'INSERT INTO loc (loc_chrm, test_start, test_end, ' +
                 'pos, ref_seq, var_name) VALUES (?,?,?,?,?,?)',
-                ((*loc_key, *r_locs[loc_key]) for loc_key in locs_to_add))
-            loc_idx.update(zip(
+                ((chrm_id, *loc_key, *r_locs[loc_key])
+                 for loc_key in locs_to_add))
+            cs_loc_idx.update(zip(
                 locs_to_add,
                 range(next_loc_id, next_loc_id + len(locs_to_add))))
 
         return chain.from_iterable(
-            repeat(loc_idx[(chrm_id, test_start, test_end)], len(alt_lps))
+            repeat(cs_loc_idx[(test_start, test_end)], len(alt_lps))
             for _, alt_lps, _, _, _, test_start, test_end in r_var_scores)
 
     def get_alt_id_or_insert(self, alt_seq):
@@ -1440,7 +1448,7 @@ class VarData(object):
                 id=site_var_ids, chrom=site_vars[0].chrom,
                 start=site_vars[0].start, stop=site_vars[0].stop,
                 ref=out_ref_seq, alts=out_alt_seqs, ref_start=out_start,
-                has_context_base=has_context_base)
+                strand=site_vars[0].strand, has_context_base=has_context_base)
 
         return
 
@@ -1509,7 +1517,7 @@ class VarData(object):
                         np_alts=(np.array([np_alt_base], dtype=np.uintp),),
                         id=var.id, chrom=var.chrom,
                         start=var.start + sub_offset,
-                        stop=var.start + sub_offset + 1)
+                        stop=var.start + sub_offset + 1, strand=var.strand)
                     grouped_read_vars[(
                         var.start + sub_offset,
                         var.start + sub_offset + 1)].append(var_data)
@@ -1538,7 +1546,8 @@ class VarData(object):
                         VARIANT_DATA(
                             np_ref=np_ref_seq, np_alts=(np_alt_seq,), id=var.id,
                             chrom=var.chrom, start=var_start,
-                            stop=var_start + np_ref_seq.shape[0]))
+                            stop=var_start + np_ref_seq.shape[0],
+                            strand=var.strand))
         return grouped_read_vars
 
     def parse_vars(self, fetch_res, read_ref_pos, read_ref_fwd_seq):
@@ -1548,6 +1557,9 @@ class VarData(object):
             if (var.stop + self.edge_buffer > read_ref_pos.end or
                 var.start - self.edge_buffer < read_ref_pos.start):
                 continue
+            # read strand if written (applicable for diff ctc signal mapping)
+            strand = (int(var.info[mh.STRAND_FIELD_NAME])
+                      if mh.STRAND_FIELD_NAME in var.info else None)
 
             try:
                 # faster to extract from array than convert seq to int
@@ -1588,7 +1600,7 @@ class VarData(object):
                 np_ref=np_ref_seq, np_alts=np_alt_seqs, id=var.id,
                 chrom=var.chrom, start=var.start + start_trim,
                 stop=var.start + start_trim + np_ref_seq.shape[0], ref=var.ref,
-                alts=var.alts, ref_start=var.start,
+                alts=var.alts, ref_start=var.start, strand=strand,
                 has_context_base=start_trim == 1)
         return
 

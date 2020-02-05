@@ -5,6 +5,7 @@ import queue
 import sqlite3
 import datetime
 from time import sleep
+from operator import itemgetter
 from itertools import chain, repeat
 from collections import defaultdict, namedtuple, OrderedDict
 
@@ -174,6 +175,9 @@ class ModsDb(object):
             chrm_id = self.cur.lastrowid
             if self.chrm_idx_in_mem:
                 self.chrm_idx[chrm] = chrm_id
+            if self.pos_idx_in_mem:
+                self.pos_idx[(chrm_id, 1)] = {}
+                self.pos_idx[(chrm_id, -1)] = {}
         return chrm_id
 
     def insert_chrms(self, chrm_names_and_lens):
@@ -185,12 +189,19 @@ class ModsDb(object):
                 chrm_names_and_lens[0],
                 range(next_chrm_id,
                       next_chrm_id + len(chrm_names_and_lens[0]))))
+        if self.pos_idx_in_mem:
+            self.pos_idx.update(
+                ((chrm_id, strand), {})
+                for chrm_id in range(
+                        next_chrm_id,
+                        next_chrm_id + len(chrm_names_and_lens[0]))
+                for strand in (1, -1))
         return
 
     def get_pos_id_or_insert(self, chrm_id, strand, pos):
         try:
             if self.pos_idx_in_mem:
-                pos_id = self.pos_idx[(chrm_id, strand, pos)]
+                pos_id = self.pos_idx[(chrm_id, strand)][pos]
             else:
                 pos_id = self.cur.execute(
                     'SELECT pos_id FROM pos WHERE pos_chrm=? AND strand=? ' +
@@ -201,7 +212,7 @@ class ModsDb(object):
                 (chrm_id, strand, pos))
             pos_id = self.cur.lastrowid
             if self.pos_idx_in_mem:
-                self.pos_idx[(chrm_id, strand, pos)] = pos_id
+                self.pos_idx[(chrm_id, strand)][pos] = pos_id
         return pos_id
 
     def get_pos_ids_or_insert(self, r_mod_scores, chrm_id, strand):
@@ -215,32 +226,29 @@ class ModsDb(object):
         """
         if len(r_mod_scores) == 0: return []
 
-        r_uniq_pos = set((chrm_id, strand, pos)
-                         for pos, _, _, _, _, _ in r_mod_scores)
+        r_uniq_pos = set(itemgetter(0)(pms) for pms in r_mod_scores)
         if self.pos_idx_in_mem:
-            pos_idx = self.pos_idx
-            pos_to_add = tuple(r_uniq_pos.difference(self.pos_idx))
+            cs_pos_idx = self.pos_idx[(chrm_id, strand)]
         else:
-            pos_idx = dict(
-                ((chrm_id, strand, pos_and_id[0]), pos_and_id[1])
-                for pos_key in r_uniq_pos
+            cs_pos_idx = dict(
+                pos_and_id for pos in r_uniq_pos
                 for pos_and_id in self.cur.execute(
                         'SELECT pos, pos_id FROM pos ' +
                         'WHERE pos_chrm=? AND strand=? AND pos=?',
-                        pos_key).fetchall())
-            pos_to_add = tuple(r_uniq_pos.difference(pos_idx))
+                        (chrm_id, strand, pos_key)).fetchall())
+        pos_to_add = tuple(r_uniq_pos.difference(cs_pos_idx))
 
         if len(pos_to_add) > 0:
             next_pos_id = self.get_num_uniq_mod_pos() + 1
             self.cur.executemany(
                 'INSERT INTO pos (pos_chrm, strand, pos) VALUES (?,?,?)',
-                pos_to_add)
-            pos_idx.update(zip(
+                ((chrm_id, strand, pos) for pos in pos_to_add))
+            cs_pos_idx.update(zip(
                 pos_to_add,
                 range(next_pos_id, next_pos_id + len(pos_to_add))))
 
         return chain.from_iterable(
-            repeat(pos_idx[(chrm_id, strand, pos)], len(mod_lps))
+            repeat(cs_pos_idx[pos], len(mod_lps))
             for pos, mod_lps, _, _, _, _ in r_mod_scores)
 
     def get_mod_base_id_or_insert(self, mod_base, motif, motif_pos, raw_motif):
@@ -361,6 +369,14 @@ class ModsDb(object):
             for pos_id, chrm_id, strand, pos in self.cur.execute(
                     'SELECT pos_id, pos_chrm, strand, pos ' +
                     'FROM pos').fetchall()))
+        self.pos_idx = {}
+        for pos_id, (chrm_id, strand, pos) in self.pos_read_idx.items():
+            try:
+                cs_pos_idx = self.pos_idx[(chrm_id, strand)]
+            except KeyError:
+                self.pos_idx[(chrm_id, strand)] = {}
+                cs_pos_idx = self.pos_idx[(chrm_id, strand)]
+            cs_pos_idx[pos] = pos_id
         return
 
     def create_mod_index(self):

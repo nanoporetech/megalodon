@@ -255,7 +255,7 @@ class ModelInfo(object):
                 try:
                     self.device = self.torch.device(device)
                     self.torch.cuda.set_device(self.device)
-                    self.model = self.model.cuda()
+                    self.model = self.model.to(self.device)
                 except RuntimeError:
                     logger = logging.get_logger()
                     logger.error('Invalid CUDA device: {}'.format(device))

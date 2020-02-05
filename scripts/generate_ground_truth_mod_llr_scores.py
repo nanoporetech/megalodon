@@ -39,7 +39,8 @@ def parse_mod_data(args):
             mh.get_megalodon_fn(args.megalodon_results_dir,
                                 mh.PR_MOD_TXT_NAME), sep='\t')
     except FileNotFoundError:
-        sys.write('ERROR: Must provide a valid Megalodon result directory.')
+        sys.stderr.write(
+            'ERROR: Must provide a valid Megalodon result directory.')
         sys.exit(1)
 
     return mod_dat

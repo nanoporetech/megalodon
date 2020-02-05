@@ -123,9 +123,9 @@ ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, SIG_MAP_NAME, PR_VAR_NAME,
                      VAR_NAME, WHATSHAP_MAP_NAME, PR_MOD_NAME, MOD_NAME))
 GETTER_PROC = namedtuple('getter_proc', ('queue', 'proc', 'conn'))
 
-PR_REF_INFO = namedtuple(
-    'pr_ref_info', ('pct_idnt', 'pct_cov', 'min_len', 'max_len', 'alphabet',
-                    'annotate_mods'))
+PR_REF_INFO = namedtuple('pr_ref_info', (
+    'pct_idnt', 'pct_cov', 'min_len', 'max_len', 'alphabet',
+    'collapse_alphabet'))
 PR_REF_INFO.__new__.__defaults__ = (None, None)
 
 # directory names define model preset string
