@@ -198,6 +198,7 @@ class Variant(object):
 
 def iter_valid_variants(vars_fn, do_trim_vars, max_lr, min_depth):
     header = ''
+    prev_var = None
     with open(vars_fn) as fp:
         for line in fp:
             if line.startswith('#'):
@@ -220,7 +221,7 @@ def iter_valid_variants(vars_fn, do_trim_vars, max_lr, min_depth):
                     yield prev_var
                 prev_var = variant
 
-        if prev_var.do_output:
+        if prev_var is not None and prev_var.do_output:
             prev_var.select_var()
             yield prev_var
 
