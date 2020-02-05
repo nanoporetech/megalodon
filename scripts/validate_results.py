@@ -336,7 +336,8 @@ def main():
     if mod_acc is not None:
         plot_acc(mod_acc, ctrl_acc, mod_parsim_acc, ctrl_parsim_acc, pdf_fp)
     # could just compute mapping metrics
-    if all(d is None for d in (ctrl_dat, gt_dat, mod_chrm_sw)):
+    if mod_dat is None or all(d is None for d in (
+            ctrl_dat, gt_dat, mod_chrm_sw)):
         pdf_fp.close()
         if out_fp is not sys.stdout: out_fp.close()
         return
