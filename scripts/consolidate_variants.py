@@ -25,9 +25,9 @@ def get_parser():
         help='Output filename. Default: %(default)s')
     parser.add_argument(
         '--max-likelihood-ratio', type=float, default=1,
-        help='Maximum likelihood ratio ([ref prob] / [max alt prob]) to include
-        variant in output. Allows output of uncertain reference calls. ' +
-        'Default: 1; Include only sites called as alternative.')
+        help='Maximum likelihood ratio ([ref prob] / [max alt prob]) to ' +
+        'include variant in output. Allows output of uncertain reference ' +
+        'calls. Default: 1; Include only sites called as alternative.')
     parser.add_argument(
         '--min-depth', type=int,
         help='Minimum depth to include a variant. Default: No depth filter')
@@ -102,7 +102,8 @@ class Variant(object):
         if self.min_depth is not None and self.depth < self.min_depth:
             return False
         try:
-            lr = self.gt_probs[0] / max(self.gt_probs[1:])
+            with np.errstate(divide='ignore', over='ignore'):
+                lr = self.gt_probs[0] / max(self.gt_probs[1:])
         except ZeroDivisionError:
             return False
         return lr <= self.max_lr
