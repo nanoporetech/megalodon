@@ -308,8 +308,9 @@ def get_parser():
         '--out-filename',
         help='Output filename for text summary. Default: stdout')
     parser.add_argument(
-        '--balance-classes', action='store_true',
-        help='Balance size of modified and canonical classes for each ' +
+        '--allow_unbalance-classes', action='store_true',
+        help='Allow unbalanced classes in modified base metric computation. ' +
+        'Default: Balance size of modified and canonical classes for each ' +
         'comparison made.')
     parser.add_argument(
         '--quiet', action='store_true',
@@ -343,7 +344,8 @@ def main():
         return
     m_dat = merge_mods_data(mod_dat, ctrl_dat, gt_dat, mod_chrm_sw)
     report_mod_metrics(
-        m_dat, args, out_fp, pdf_fp, valid_sites, args.balance_classes)
+        m_dat, args, out_fp, pdf_fp, valid_sites,
+        not args.allow_unbalance_classes)
     pdf_fp.close()
     if out_fp is not sys.stdout: out_fp.close()
 
