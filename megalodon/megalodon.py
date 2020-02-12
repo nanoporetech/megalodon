@@ -836,7 +836,8 @@ def parse_sig_map_output(args, model_info):
     sig_map_info = mh.PR_REF_INFO(
         pct_idnt=args.signal_map_percent_identity_threshold,
         pct_cov=args.signal_map_percent_coverage_threshold,
-        min_len=min_len, max_len=max_len, alphabet=sig_map_alphabet)
+        min_len=min_len, max_len=max_len, alphabet=sig_map_alphabet,
+        annotate_mods=args.signal_map_include_mods)
 
     return args, sig_map_info
 
