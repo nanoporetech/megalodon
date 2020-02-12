@@ -68,6 +68,9 @@ class ModsDb(object):
             ('motif', 'TEXT'),
             ('motif_pos', 'INTEGER'),
             ('raw_motif', 'TEXT')))),
+        ('mod_long_names', OrderedDict((
+            ('mod_base', 'TEXT'),
+            ('mod_long_name', 'TEXT')))),
         ('read', OrderedDict((
             ('read_id', 'INTEGER PRIMARY KEY'),
             ('uuid', 'TEXT')))),
@@ -197,6 +200,16 @@ class ModsDb(object):
                         next_chrm_id + len(chrm_names_and_lens[0]))
                 for strand in (1, -1))
         return
+
+    def insert_mod_long_names(self, mod_long_names):
+        self.cur.executemany(
+            'INSERT INTO mod_long_name (mod, mod_long_name) VALUES (?,?)',
+            mod_long_names)
+        return
+
+    def get_mod_long_names(self):
+        return list(self.cur.execute(
+            'SELECT mod, mod_long_name FROM mod_long_name').fetchall())
 
     def get_pos_id_or_insert(self, chrm_id, strand, pos):
         try:
@@ -678,7 +691,8 @@ def call_read_mods(
 
 def _get_mods_queue(
         mods_q, mods_conn, mods_db_fn, db_safety, ref_names_and_lens,
-        mods_txt_fn, pr_refs_fn, pr_ref_filts, pos_index_in_memory):
+        mods_txt_fn, pr_refs_fn, pr_ref_filts, pos_index_in_memory,
+        mod_long_name):
     def store_mod_call(
             r_mod_scores,  read_id, chrm, strand, r_start, ref_seq,
             read_len, q_st, q_en, cigar, been_warned):
@@ -730,6 +744,7 @@ def _get_mods_queue(
     mods_db = ModsDb(mods_db_fn, db_safety=db_safety, read_only=False,
                      pos_index_in_memory=pos_index_in_memory)
     mods_db.insert_chrms(ref_names_and_lens)
+    mods_db.insert_mod_long_names(mod_long_names)
     mods_db.create_chrm_index()
     logger.debug(('mod_getter: in_mem_indices: chrm: {} pos: {} mods: {} ' +
                   'uuid: {}').format(
@@ -1247,6 +1262,11 @@ class AggMods(mh.AbstractAggregationClass):
         self.binary_thresh = agg_info.binary_threshold
         self.write_mod_lp = write_mod_lp
         return
+
+    def get_mod_long_names(self):
+        if self._mod_long_names is None:
+            self._mod_long_names = self.mods_db.get_mod_long_names()
+        return self._mod_long_names
 
     def num_uniq(self):
         if self.n_uniq_mods is None:

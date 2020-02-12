@@ -243,8 +243,8 @@ if _DO_PROFILE_AGG_FILLER:
 
 def aggregate_stats(
         outputs, out_dir, num_ps, write_vcf_lp, het_factors, call_mode,
-        mod_names, mod_agg_info, write_mod_lp, mod_output_fmts,
-        suppress_progress, valid_read_ids=None, out_suffix=None):
+        mod_agg_info, write_mod_lp, mod_output_fmts, suppress_progress,
+        valid_read_ids=None, out_suffix=None):
     if mh.VAR_NAME in outputs and mh.MOD_NAME in outputs:
         num_ps = max(num_ps // 2, 1)
 
@@ -285,6 +285,7 @@ def aggregate_stats(
     if mh.MOD_NAME in outputs:
         mods_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME)
         agg_mods = mods.AggMods(mods_db_fn, load_in_mem_indices=False)
+        mod_long_names = agg_mods.get_mod_long_names()
         num_mods = agg_mods.num_uniq()
         ref_names_and_lens = agg_mods.mods_db.get_all_chrm_and_lens()
         agg_mods.close()
@@ -292,7 +293,7 @@ def aggregate_stats(
         # create process to collect mods stats from workers
         mod_stats_q, mod_stats_p, main_mod_stats_conn = mh.create_getter_q(
             _get_mod_stats_queue, (
-                out_dir, mod_names, ref_names_and_lens, out_suffix,
+                out_dir, mod_long_names, ref_names_and_lens, out_suffix,
                 write_mod_lp, mod_output_fmts))
         # create process to fill mod locs queue
         mod_filler_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)

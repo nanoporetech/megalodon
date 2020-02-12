@@ -313,10 +313,9 @@ def post_process_mapping(out_dir, map_fmt, ref_fn):
 def post_process_aggregate(
         mods_info, outputs, out_dir, num_ps, write_vcf_lp,
         het_factors, vars_data, write_mod_lp, supp_prog):
-    mod_names = mods_info.mod_long_names if mh.MOD_NAME in outputs else []
     aggregate.aggregate_stats(
         outputs, out_dir, num_ps, write_vcf_lp, het_factors,
-        vars_data.call_mode, mod_names, mods_info.agg_info,
+        vars_data.call_mode, mods_info.agg_info,
         write_mod_lp, mods_info.mod_output_fmts, supp_prog)
     return
 
@@ -579,7 +578,8 @@ def process_all_reads(
             mods._get_mods_queue, (
                 mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME), db_safety,
                 aligner.ref_names_and_lens, mods_txt_fn,
-                pr_refs_fn, pr_ref_filts, mods_info.pos_index_in_memory))
+                pr_refs_fn, pr_ref_filts, mods_info.pos_index_in_memory,
+                mods_info.mod_long_names))
     if mh.SIG_MAP_NAME in outputs:
         alphabet_info = signal_mapping.get_alphabet_info(model_info)
         sig_map_fn = mh.get_megalodon_fn(out_dir, mh.SIG_MAP_NAME)
@@ -881,27 +881,36 @@ def get_parser():
         'fast5s_dir',
         help='Directory containing raw fast5 (will be searched recursively).')
 
-    mdl_grp = parser.add_argument_group('Model Arguments')
-    mdl_grp.add_argument(
+    pyg_grp = parser.add_argument_group('Pyguppy Backend Arguments')
+    pyg_grp.add_argument(
+        '--guppy-server-port', type=int,
+        help='Port for pyguppy server.')
+    pyg_grp.add_argument(
+        '--guppy-server-host', default='localhost',
+        help=hidden_help('Host for pyguppy server.'))
+
+    tai_grp = parser.add_argument_group('Taiyaki Backend Arguments')
+    tai_grp.add_argument(
         '--taiyaki-model-filename',
-        help='Taiyaki basecalling model checkpoint file.')
-    mdl_grp.add_argument(
-        '--load-default-model', action='store_true',
-        help=('Load the default basecalling model included with megalodon ' +
-              '({}). Default: Assume guppy --post_out FAST5 files as ' +
-              'input').format(mh.MODEL_PRESET_DESC))
-    mdl_grp.add_argument(
+        help=hidden_help('Taiyaki basecalling model checkpoint file.'))
+    tai_grp.add_argument(
+        '--load-default-taiyaki-model', action='store_true',
+        help=hidden_help(('Load the default basecalling model included with ' +
+                          'megalodon ({}). Default: Assume guppy --post_out ' +
+                          'FAST5 files as input').format(mh.MODEL_PRESET_DESC)))
+    tai_grp.add_argument(
         '--devices', nargs='+',
-        help='GPU devices for taiyaki basecalling backend (--processes will ' +
-        'be distributed even over specified --devices).')
-    mdl_grp.add_argument(
+        help=hidden_help('GPU devices for taiyaki basecalling backend ' +
+                         '(--processes will be distributed even over ' +
+                         'specified --devices).'))
+    tai_grp.add_argument(
         '--chunk-size', type=int, default=1000,
         help=hidden_help('Chunk length for base calling. Default: %(default)d'))
-    mdl_grp.add_argument(
+    tai_grp.add_argument(
         '--chunk-overlap', type=int, default=100,
         help=hidden_help('Overlap between chunks to be stitched together. ' +
                          'Default: %(default)d'))
-    mdl_grp.add_argument(
+    tai_grp.add_argument(
         '--max-concurrent-chunks', type=int, default=200,
         help=hidden_help('Only process N chunks concurrently per-read (to ' +
                          'avoid GPU memory errors). Default: %(default)d'))
@@ -1177,13 +1186,8 @@ def _main():
 
     args, pr_ref_filts = parse_pr_ref_output(args)
 
-    tai_model_fn = mh.get_model_fn(
-        args.taiyaki_model_filename, args.load_default_model)
-    model_info = backends.ModelInfo(
-        args.processes, fast5s_dir=args.fast5s_dir,
-        taiyaki_model_fn=tai_model_fn, devices=args.devices,
-        chunk_size=args.chunk_size, chunk_overlap=args.chunk_overlap,
-        max_concur_chunks=args.max_concurrent_chunks)
+    backend_params = backend.parse_backend_params(args)
+    model_info = backends.ModelInfo(args.processes, backend_params)
     args, mods_info = mods_validation(args, model_info)
     aligner = aligner_validation(args)
     args, vars_data = vars_validation(

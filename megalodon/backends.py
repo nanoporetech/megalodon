@@ -11,6 +11,21 @@ from megalodon import decode, fast5_io, logging, megalodon_helper as mh
 # model type specific information
 TAI_NAME = 'taiyaki'
 FAST5_NAME = 'fast5'
+PYGUPPY_NAME = 'pyguppy'
+
+# parameters for each backend run mode
+TAI_PARAMS = namedtuple('TAI_PARAMS', (
+    'available', 'taiyaki_model_fn', 'devices', 'chunk_size',
+    'chunk_overlap', 'max_concur_chunks'))
+TAI_PARAMS.__new__.__defaults__ = tuple([None,] * 5)
+FAST5_PARAMS = namedtuple('FAST5_PARAMS', (
+    'available', 'fast5s_dir', 'num_startup_reads'))
+FAST5_PARAMS.__new__.__defaults__ = tuple([None,] * 2)
+PYGUPPY_PARAMS = namedtuple('PYGUPPY_PARAMS', (
+    'available', 'host', 'port'))
+PYGUPPY_PARAMS.__new__.__defaults__ = tuple([None,] * 2)
+BACKEND_PARAMS = namedtuple('BACKEND_PARAMS', (
+    TAI_NAME, FAST5_PARAMS, PYGUPPY_PARAMS))
 
 # maximum time (in seconds) to wait before assigning device
 # over different processes. Actual time choosen randomly
@@ -25,6 +40,42 @@ SIGNAL_DATA = namedtuple('SIGNAL_DATA', (
 SIGNAL_DATA.__new__.__defaults__ = tuple([None,] * 5)
 
 
+def parse_backend_params(args, num_fast5_startup_reads=5):
+    # TOOD try to import high level packages to ensure available
+    # parse taiyaki backend params
+    if any(not hasattr(args, k) for k in (
+            'taiyaki_model_filename', 'load_default_model', 'chunk_size',
+            'chunk_overlap', 'max_concurrent_chunks')):
+        tai_params = TAI_PARAMS(False)
+    else:
+        tai_model_fn = mh.get_model_fn(
+            args.taiyaki_model_filename, args.load_default_model)
+        if all(param is not None for param in (
+                tai_model_fn, args.chunk_size, args.chunk_overlap,
+                args.max_concurrent_chunks)):
+            tai_params = TAI_PARAMS(
+                True, tai_model_fn, args.devices, args.chunk_size,
+                args.chunk_overlap, args.max_concurrent_chunks)
+        else:
+            tai_params = TAI_PARAMS(False)
+
+    # parse fast5 post_out backend params
+    if hasattr(args, 'fast5s_dir') and args.fast5s_dir is not None:
+        fast5_params = FAST5_PARAMS(
+            True, args.fast5s_dir, num_fast5_startup_reads)
+    else:
+        fast5_params = FAST5_PARAMS(False)
+
+    # parse pyguppy backend params
+    if any(not hasattr(args, k) for k in (
+            'guppy_server_host', 'guppy_server_port')):
+        pyguppy_params = PYGUPPY_PARAMS(False)
+    else:
+        pyguppy_params = PYGUPPY_PARAMS(
+            True, args.guppy_server_host, args.guppy_server_port)
+
+    return BACKEND_PARAMS(tai_params, fast5_params, pyguppy_params)
+
 def parse_device(device):
     if device is None or device == 'cpu':
         return 'cpu'
@@ -35,6 +86,7 @@ def parse_device(device):
     elif not device.startswith('cuda'):
         return 'cuda:{}'.format(device)
     return device
+
 
 class ModelInfo(object):
     def compute_mod_alphabet_attrs(self):
@@ -65,23 +117,18 @@ class ModelInfo(object):
         self.can_indices.append(curr_can_offset)
         self.can_indices = np.array(self.can_indices).astype(np.uintp)
         self.can_base_mods = dict(self.can_base_mods)
-        return
 
     def _load_taiyaki_model(self):
-        if any(arg is None for arg in (
-                self.chunk_size, self.chunk_overlap, self.max_concur_chunks)):
-            logger = logging.get_logger()
-            logger.debug(
-                'Must provide chunk_size, chunk_overlap, ' +
-                'max_concur_chunks in order to run the taiyaki ' +
-                'base calling backend.')
         self.model_type = TAI_NAME
 
-        if self.devices is None:
-            self.devices = ['cpu',]
-        self.process_devices = [parse_device(self.devices[i]) for i in np.tile(
-            np.arange(len(self.devices)),
-            (self.num_proc // len(self.devices)) + 1)][:self.num_proc]
+        if self.params.taiyaki.devices is None:
+            self.params.taiyaki.devices = ['cpu',]
+        self.process_devices = [
+            parse_device(self.params.taiyaki.devices[i])
+            for i in np.tile(
+                    np.arange(len(self.params.taiyaki.devices)),
+                    (self.num_proc //
+                     len(self.params.taiyaki.devices)) + 1)][:self.num_proc]
 
         try:
             # import modules
@@ -109,7 +156,8 @@ class ModelInfo(object):
         self.tai_run_model = tai_run_model
         self.torch = torch
 
-        tmp_model = self.load_taiyaki_model(self.taiyaki_model_fn)
+        tmp_model = self.load_taiyaki_model(
+            self.params.taiyaki.taiyaki_model_fn)
         ff_layer = tmp_model.sublayers[-1]
         self.is_cat_mod = (
             GlobalNormFlipFlopCatMod is not None and isinstance(
@@ -134,8 +182,6 @@ class ModelInfo(object):
             self.str_to_int_mod_labels = {}
         self.n_mods = len(self.mod_long_names)
 
-        return
-
     def _load_fast5_post_out(self):
         def get_model_info_from_fast5(read):
             try:
@@ -153,7 +199,7 @@ class ModelInfo(object):
         self.model_type = FAST5_NAME
         self.process_devices = [None,] * self.num_proc
 
-        read_iter = fast5_io.iterate_fast5_reads(self.fast5s_dir)
+        read_iter = fast5_io.iterate_fast5_reads(self.params.fast5.fast5s_dir)
         nreads = 0
         try:
             fast5_fn, read_id = next(read_iter)
@@ -177,7 +223,7 @@ class ModelInfo(object):
                 raise mh.MegaError(
                     'Model information from FAST5 files is inconsistent.')
             nreads += 1
-            if nreads >= self.num_startup_reads:
+            if nreads >= self.params.fast5.num_startup_reads:
                 break
 
         # compute values required for standard model attribute extraction
@@ -208,32 +254,31 @@ class ModelInfo(object):
             self.str_to_int_mod_labels = {}
             self.mod_long_names = []
 
-        return
+    def _load_pyguppy(self):
+        logger = logging.get_logger()
+        self.model_type = FAST5_NAME
+        self.process_devices = [None,] * self.num_proc
 
-    def __init__(
-            self, num_proc=1, fast5s_dir=None, num_startup_reads=5,
-            taiyaki_model_fn=None, devices=None, chunk_size=None,
-            chunk_overlap=None, max_concur_chunks=None):
+        from pyguppyclient.decode import ReadData
+        from pyguppyclient.client import GuppyClient
+        from pyguppyclient.caller import basecall
+
+        pyg_client = GuppyClient()
+
+
+    def __init__(self, backend_params, num_proc=1):
         self.num_proc = num_proc
 
-        # guppy posterior backend args
-        self.fast5s_dir = fast5s_dir
-        # number of reads to read in to identify model attributes
-        self.num_startup_reads = num_startup_reads
+        self.params = backend_params
 
-        # taiyaki backend args
-        self.taiyaki_model_fn = taiyaki_model_fn
-        self.devices = devices
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
-        self.max_concur_chunks = max_concur_chunks
-
-        if self.taiyaki_model_fn is not None:
+        if self.params.pyguppy.available:
+            self._load_pyguppy()
+        elif self.params.taiyaki.available:
             self._load_taiyaki_model()
-        elif self.fast5s_dir is not None:
+        elif self.params.fast5.available:
             self._load_fast5_post_out()
         else:
-            raise mh.MegaError('Invalid model specification.')
+            raise mh.MegaError('No basecall model backend enabled.')
 
         return
 
@@ -247,7 +292,8 @@ class ModelInfo(object):
         """
         if self.model_type == TAI_NAME:
             # setup for taiyaki model
-            self.model = self.load_taiyaki_model(self.taiyaki_model_fn)
+            self.model = self.load_taiyaki_model(
+                self.params.taiyaki.taiyaki_model_fn)
             if device is None or device == 'cpu':
                 self.device = self.torch.device('cpu')
             else:
@@ -295,22 +341,11 @@ class ModelInfo(object):
 
     def run_model(self, raw_sig, n_can_state=None):
         if self.model_type == TAI_NAME:
-            if any(arg is None for arg in (
-                    self.chunk_size, self.chunk_overlap,
-                    self.max_concur_chunks)):
-                logger = logging.get_logger()
-                logger.error(
-                    'Must provide chunk_size, chunk_overlap, ' +
-                    'max_concur_chunks in order to run the taiyaki ' +
-                    'base calling backend.')
-                raise mh.MegaError(
-                    'Must provide chunk_size, chunk_overlap, ' +
-                    'max_concur_chunks in order to run the taiyaki ' +
-                    'base calling backend')
             try:
                 trans_weights = self.tai_run_model(
-                    raw_sig, self.model, self.chunk_size, self.chunk_overlap,
-                    self.max_concur_chunks)
+                    raw_sig, self.model, self.params.taiyaki.chunk_size,
+                    self.params.taiyaki.chunk_overlap,
+                    self.params.taiyaki.max_concur_chunks)
             except AttributeError:
                 raise mh.MegaError('Out of date or incompatible model')
             except RuntimeError as e:

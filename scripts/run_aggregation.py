@@ -73,12 +73,6 @@ def get_parser():
         help='Write per-read modified base log probabilities ' +
         'out in non-standard modVCF field.')
 
-    mdl_grp = parser.add_argument_group('Model Arguments')
-    mdl_grp.add_argument(
-        '--taiyaki-model-filename',
-        help='Taiyaki model checkpoint file (for loading modified base ' +
-        'names). Default: Load default model ({})'.format(mh.MODEL_PRESET_DESC))
-
     misc_grp = parser.add_argument_group('Miscellaneous Arguments')
     misc_grp.add_argument(
         '--processes', type=int, default=1,
@@ -102,11 +96,6 @@ def main():
     elif args.mod_aggregate_method == mods.BIN_THRESH_NAME:
         mod_agg_info = mods.AGG_INFO(
             mods.BIN_THRESH_NAME, args.mod_binary_threshold)
-    mod_names = []
-    if mh.MOD_NAME in args.outputs:
-        logger.info('Loading model.')
-        mod_names = backends.ModelInfo(taiyaki_model_fn=mh.get_model_fn(
-            args.taiyaki_model_filename)).mod_long_names
     valid_read_ids = None
     if args.read_ids_filename is not None:
         with open(args.read_ids_filename) as read_ids_fp:
@@ -115,9 +104,8 @@ def main():
         args.outputs, args.megalodon_directory, args.processes,
         args.write_vcf_log_probs, args.heterozygous_factors,
         variants.HAPLIOD_MODE if args.haploid else variants.DIPLOID_MODE,
-        mod_names, mod_agg_info, args.write_mod_log_probs,
-        args.mod_output_formats, args.suppress_progress,
-        valid_read_ids, args.output_suffix)
+        mod_agg_info, args.write_mod_log_probs, args.mod_output_formats,
+        args.suppress_progress, valid_read_ids, args.output_suffix)
 
     if mh.VAR_NAME in args.outputs:
         logger.info('Sorting output variant file')
