@@ -62,9 +62,13 @@ def get_posteriors(read):
     # extract guppy StateData and calls
     latest_basecall = read.get_latest_analysis('Basecall_1D')
     state_data = read.get_analysis_dataset(
-        latest_basecall + '/BaseCalled_template', 'StateData', proxy=False)
+        latest_basecall + '/BaseCalled_template', 'StateData')
     state_attrs = read.get_analysis_attributes(
         latest_basecall + '/BaseCalled_template/StateData')
+    if state_data is None or state_attrs is None:
+        raise mh.MegaError(
+            'StateData not found in FAST5 file. Ensure --fsat5_out and ' +
+            '--post_out were set when running guppy.')
     # convert state data from integers to float values
     posteriors = (state_data.astype(np.float32) + state_attrs['offset']) * \
                  state_attrs['scale']

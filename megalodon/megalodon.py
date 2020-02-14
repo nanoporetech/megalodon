@@ -21,7 +21,7 @@ from tqdm import tqdm
 from tqdm._utils import _term_move_up
 
 from megalodon import (
-    aggregate, backends, decode, fast5_io, logging, mapping, mods,
+    aggregate, backends, fast5_io, logging, mapping, mods,
     variants, megalodon_helper as mh)
 from megalodon._version import MEGALODON_VERSION
 
@@ -82,17 +82,14 @@ def process_read(
         vars_data, vars_q, mods_q, mods_info, failed_reads_q):
     """ Workhorse per-read megalodon function (connects all the parts)
     """
-    r_post, mod_weights, can_nmods = model_info.get_posteriors(sig_info)
-
-    if mods_q is not None:
-        r_post_w_mods = np.concatenate([r_post, mod_weights], axis=1)
-    if not mods_info.do_output_mods:
-        mod_weights = None
-    r_seq, score, rl_cumsum, mods_scores = decode.decode_post(
-        r_post, mods_info.alphabet, mod_weights, can_nmods)
+    # perform basecalling using loaded backend
+    (r_seq, rl_cumsum, can_post, sig_info, post_w_mods,
+     mods_scores) = model_info.basecall_read(
+         sig_info, return_post_w_mods=mods_q is not None,
+         return_mod_scores=mods_info.do_output_mods,
+         update_sig_info=sig_map_q is not None)
     if bc_q is not None:
         bc_q.put((sig_info.read_id, r_seq, mods_scores))
-
     # if no mapping connection return after basecalls are passed out
     if caller_conn is None: return
 
@@ -133,22 +130,22 @@ def process_read(
     ref_to_block = interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum)
 
     if vars_q is not None:
-        mapped_r_post = r_post[post_mapped_start:post_mapped_end]
+        mapped_can_post = can_post[post_mapped_start:post_mapped_end]
         handle_errors(
             func=variants.call_read_vars,
             args=(vars_data, r_ref_pos, np_ref_seq, ref_to_block,
-                  mapped_r_post),
+                  mapped_can_post),
             r_vals=(sig_info.read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
             out_q=vars_q, fast5_fn=sig_info.fast5_fn + ':::' + sig_info.read_id,
             failed_reads_q=failed_reads_q)
     if mods_q is not None:
-        mapped_r_post_w_mods = r_post_w_mods[post_mapped_start:post_mapped_end]
+        mapped_post_w_mods = post_w_mods[post_mapped_start:post_mapped_end]
         mod_sig_map_q = sig_map_q if sig_map_info.annotate_mods else None
         handle_errors(
             func=mods.call_read_mods,
-            args=(r_ref_pos, r_ref_seq, ref_to_block, mapped_r_post_w_mods,
+            args=(r_ref_pos, r_ref_seq, ref_to_block, mapped_post_w_mods,
                   mods_info, mod_sig_map_q, sig_map_res),
             r_vals=(sig_info.read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),

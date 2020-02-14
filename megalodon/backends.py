@@ -1,6 +1,5 @@
 import re
 import sys
-import string
 import numpy as np
 from time import sleep
 from collections import defaultdict, namedtuple
@@ -17,15 +16,17 @@ PYGUPPY_NAME = 'pyguppy'
 TAI_PARAMS = namedtuple('TAI_PARAMS', (
     'available', 'taiyaki_model_fn', 'devices', 'chunk_size',
     'chunk_overlap', 'max_concur_chunks'))
-TAI_PARAMS.__new__.__defaults__ = tuple([None,] * 5)
+TAI_PARAMS.__new__.__defaults__ = tuple([None, ] * 5)
 FAST5_PARAMS = namedtuple('FAST5_PARAMS', (
     'available', 'fast5s_dir', 'num_startup_reads'))
-FAST5_PARAMS.__new__.__defaults__ = tuple([None,] * 2)
+FAST5_PARAMS.__new__.__defaults__ = tuple([None, ] * 2)
 PYGUPPY_PARAMS = namedtuple('PYGUPPY_PARAMS', (
     'available', 'host', 'port'))
-PYGUPPY_PARAMS.__new__.__defaults__ = tuple([None,] * 2)
+PYGUPPY_PARAMS.__new__.__defaults__ = tuple([None, ] * 2)
 BACKEND_PARAMS = namedtuple('BACKEND_PARAMS', (
     TAI_NAME, FAST5_PARAMS, PYGUPPY_PARAMS))
+
+COMPAT_GUPPY_MODEL_TYPES = set(('flipflop',))
 
 # maximum time (in seconds) to wait before assigning device
 # over different processes. Actual time choosen randomly
@@ -37,7 +38,7 @@ SIGNAL_DATA = namedtuple('SIGNAL_DATA', (
     'fast5_fn', 'read_id', 'raw_len', 'dacs', 'raw_signal',
     'scale_params', 'stride', 'posteriors'))
 # set default value of None for ref, alts and ref_start
-SIGNAL_DATA.__new__.__defaults__ = tuple([None,] * 5)
+SIGNAL_DATA.__new__.__defaults__ = tuple([None, ] * 5)
 
 
 def parse_backend_params(args, num_fast5_startup_reads=5):
@@ -75,6 +76,14 @@ def parse_backend_params(args, num_fast5_startup_reads=5):
             True, args.guppy_server_host, args.guppy_server_port)
 
     return BACKEND_PARAMS(tai_params, fast5_params, pyguppy_params)
+
+
+def _log_softmax_axis1(x):
+    """ Compute log softmax over axis=1
+    """
+    e_x = np.exp((x.T - np.max(x, axis=1)).T)
+    return np.log((e_x.T / e_x.sum(axis=1)).T)
+
 
 def parse_device(device):
     if device is None or device == 'cpu':
@@ -122,7 +131,7 @@ class ModelInfo(object):
         self.model_type = TAI_NAME
 
         if self.params.taiyaki.devices is None:
-            self.params.taiyaki.devices = ['cpu',]
+            self.params.taiyaki.devices = ['cpu', ]
         self.process_devices = [
             parse_device(self.params.taiyaki.devices[i])
             for i in np.tile(
@@ -180,7 +189,52 @@ class ModelInfo(object):
             self.can_alphabet = mh.ALPHABET
             self.mod_long_names = []
             self.str_to_int_mod_labels = {}
+            self.can_nmods = None
         self.n_mods = len(self.mod_long_names)
+
+    def _parse_minimal_alphabet_info(self):
+        # compute values required for standard model attribute extraction
+        self.n_mods = len(self.ordered_mod_long_names)
+        self.is_cat_mod = self.n_mods > 0
+        self.can_alphabet = None
+        for v_alphabet in mh.VALID_ALPHABETS:
+            if all(b in self.output_alphabet for b in v_alphabet):
+                self.can_alphabet = v_alphabet
+                break
+        if self.can_alphabet is None:
+            logger = logging.get_logger()
+            logger.error(
+                'Model information from FAST5 files contains invalid ' +
+                'alphabet ({})'.format(self.output_alphabet))
+            raise mh.MegaError('Invalid alphabet.')
+        # compute number of modified bases for each canonical base
+
+        if self.is_cat_mod:
+            self.can_nmods = np.diff(np.array(
+                [self.output_alphabet.index(b) for b in self.can_alphabet] +
+                [len(self.output_alphabet), ])) - 1
+            self.compute_mod_alphabet_attrs()
+        else:
+            if mh.nstate_to_nbase(self.output_size) != 4:
+                raise NotImplementedError(
+                    'Naive modified base flip-flop models are not ' +
+                    'supported.')
+            self.str_to_int_mod_labels = {}
+            self.mod_long_names = []
+            self.can_nmods = None
+
+        # compute indices over which to compute softmax for mod bases
+        self.can_indices = []
+        curr_n_mods = 0
+        for bi_nmods in self.can_nmods:
+            if bi_nmods == 0:
+                self.can_indices.append(None)
+            else:
+                # global canonical category is index 0 then mod cat indices
+                self.can_indices.append(np.insert(
+                    np.arange(curr_n_mods + 1, curr_n_mods + 1 + bi_nmods),
+                    0, 0))
+            curr_n_mods += bi_nmods
 
     def _load_fast5_post_out(self):
         def get_model_info_from_fast5(read):
@@ -190,14 +244,15 @@ class ModelInfo(object):
                 out_size = fast5_io.get_posteriors(read).shape[1]
                 mod_long_names = mod_long_names.split()
             except KeyError:
-                logger.error('Fast5 read does not contain required attributes.')
+                logger.error(
+                    'Fast5 read does not contain required attributes.')
                 raise mh.MegaError(
                     'Fast5 read does not contain required attributes.')
             return stride, mod_long_names, out_alphabet, out_size
 
         logger = logging.get_logger()
         self.model_type = FAST5_NAME
-        self.process_devices = [None,] * self.num_proc
+        self.process_devices = [None, ] * self.num_proc
 
         read_iter = fast5_io.iterate_fast5_reads(self.params.fast5.fast5s_dir)
         nreads = 0
@@ -213,10 +268,11 @@ class ModelInfo(object):
         for fast5_fn, read_id in read_iter:
             read = fast5_io.get_read(fast5_fn, read_id)
             r_s, r_omln, r_oa, r_os = get_model_info_from_fast5(read)
-            if (self.stride != r_s or
-                self.ordered_mod_long_names != r_omln or
-                self.output_alphabet != r_oa or
-                self.output_size != r_os):
+            if (
+                    self.stride != r_s or
+                    self.ordered_mod_long_names != r_omln or
+                    self.output_alphabet != r_oa or
+                    self.output_size != r_os):
                 logger.error(
                     'Model information from FAST5 files is inconsistent. ' +
                     'Assure all reads were called with the same model.')
@@ -226,45 +282,41 @@ class ModelInfo(object):
             if nreads >= self.params.fast5.num_startup_reads:
                 break
 
-        # compute values required for standard model attribute extraction
-        self.n_mods = len(self.ordered_mod_long_names)
-        self.is_cat_mod = self.n_mods > 0
-        self.can_alphabet = None
-        for v_alphabet in mh.VALID_ALPHABETS:
-            if all(b in self.output_alphabet for b in v_alphabet):
-                self.can_alphabet = v_alphabet
-                break
-        if self.can_alphabet is None:
-            logger.error(
-                'Model information from FAST5 files contains invalid ' +
-                'alphabet ({})'.format(self.output_alphabet))
-            raise mh.MegaError('Invalid alphabet.')
-        # compute number of modified bases for each canonical base
-        self.can_nmods = np.diff(np.array(
-            [self.output_alphabet.index(b) for b in self.can_alphabet] +
-            [len(self.output_alphabet),])) - 1
+        self._parse_minimal_alphabet_info()
 
-        if self.is_cat_mod:
-            self.compute_mod_alphabet_attrs()
-        else:
-            if mh.nstate_to_nbase(self.output_size) != 4:
-                raise NotImplementedError(
-                    'Naive modified base flip-flop models are not ' +
-                    'supported.')
-            self.str_to_int_mod_labels = {}
-            self.mod_long_names = []
+    def _load_pyguppy(self, init_sig_len=40):
+        self.model_type = PYGUPPY_NAME
+        self.process_devices = [None, ] * self.num_proc
 
-    def _load_pyguppy(self):
-        logger = logging.get_logger()
-        self.model_type = FAST5_NAME
-        self.process_devices = [None,] * self.num_proc
-
+        from zmq.error import Again
         from pyguppyclient.decode import ReadData
-        from pyguppyclient.client import GuppyClient
         from pyguppyclient.caller import basecall
+        self.pyguppy_ReadData = ReadData
+        self.pyguppy_basecall = basecall
 
-        pyg_client = GuppyClient()
+        try:
+            init_read = self.pyguppy_basecall(
+                ReadData(np.zeros(init_sig_len, dtype=np.int16), 'a'),
+                host=self.params.pyguppy.host, port=self.params.pyguppy.port)
+        except Again:
+            raise mh.MegaError(
+                'Cannot connect to guppy server running on port {}.'.format(
+                    self.params.pyguppy.port))
+        if init_read.state is None:
+            raise mh.MegaError(
+                'Guppy results do not contain posterior state. Ensure ' +
+                '--post_out is set during guppy server initialization.')
+        if init_read.model_type not in COMPAT_GUPPY_MODEL_TYPES:
+            raise mh.MegaError(
+                'Megalodon is not compatible with guppy model type: {}'.format(
+                    init_read.model_type))
 
+        self.stride = init_read.model_stride
+        self.ordered_mod_long_names = init_read.mod_long_names
+        self.output_alphabet = init_read.mod_alphabet
+        self.output_size = init_read.state_size
+
+        self._parse_minimal_alphabet_info()
 
     def __init__(self, backend_params, num_proc=1):
         self.num_proc = num_proc
@@ -316,8 +368,10 @@ class ModelInfo(object):
         if extract_sig_map_info:
             # if not processing signal mappings, don't save dacs
             dacs = fast5_io.get_signal(read, scale=False)
-            scale_params = mh.med_mad(dacs)
-            raw_sig = (dacs - scale_params[0]) / scale_params[1]
+            # scale parameters and trimming computed by guppy
+            if not self.model_type == PYGUPPY_NAME:
+                scale_params = mh.med_mad(dacs)
+                raw_sig = (dacs - scale_params[0]) / scale_params[1]
 
         if self.model_type == TAI_NAME:
             if raw_sig is None:
@@ -329,64 +383,161 @@ class ModelInfo(object):
         elif self.model_type == FAST5_NAME:
             bc_mod_post = fast5_io.get_posteriors(read)
             if extract_sig_map_info:
-                trim_start, trim_len = fast5_io.get_signal_trim_coordiates(read)
+                trim_start, trim_len = fast5_io.get_signal_trim_coordiates(
+                    read)
                 dacs = dacs[trim_start:trim_start + trim_len]
             return SIGNAL_DATA(
                 raw_len=bc_mod_post.shape[0] * self.stride, dacs=dacs,
                 fast5_fn=fast5_fn, read_id=read_id, stride=self.stride,
                 posteriors=bc_mod_post)
+        elif self.model_type == PYGUPPY_NAME:
+            if dacs is None:
+                dacs = fast5_io.get_signal(read, scale=False)
+            return SIGNAL_DATA(
+                dacs=dacs, raw_len=dacs.shape[0], fast5_fn=fast5_fn,
+                read_id=read_id, stride=self.stride)
 
         raise mh.MegaError('Invalid model type')
-        return
 
-    def run_model(self, raw_sig, n_can_state=None):
-        if self.model_type == TAI_NAME:
-            try:
-                trans_weights = self.tai_run_model(
-                    raw_sig, self.model, self.params.taiyaki.chunk_size,
-                    self.params.taiyaki.chunk_overlap,
-                    self.params.taiyaki.max_concur_chunks)
-            except AttributeError:
-                raise mh.MegaError('Out of date or incompatible model')
-            except RuntimeError as e:
-                logging.get_logger().debug(
-                    'Likely out of memory error: {}'.format(str(e)))
-                raise mh.MegaError(
-                    'Likely out of memory error. See log for details.')
-            if self.device != self.torch.device('cpu'):
-                self.torch.cuda.empty_cache()
-            if n_can_state is not None:
-                trans_weights = (
-                    np.ascontiguousarray(trans_weights[:,:n_can_state]),
-                    np.ascontiguousarray(trans_weights[:,n_can_state:]))
-        else:
-            raise mh.MegaError('Invalid model type.')
+    def run_taiyaki_model(self, raw_sig, n_can_state=None):
+        if self.model_type != TAI_NAME:
+            raise mh.MegaError(
+                'Attempted to run taiyaki model with non-taiyaki ' +
+                'initialization.')
+        try:
+            trans_weights = self.tai_run_model(
+                raw_sig, self.model, self.params.taiyaki.chunk_size,
+                self.params.taiyaki.chunk_overlap,
+                self.params.taiyaki.max_concur_chunks)
+        except AttributeError:
+            raise mh.MegaError('Out of date or incompatible model')
+        except RuntimeError as e:
+            logging.get_logger().debug(
+                'Likely out of memory error: {}'.format(str(e)))
+            raise mh.MegaError(
+                'Likely out of memory error. See log for details.')
+        if self.device != self.torch.device('cpu'):
+            self.torch.cuda.empty_cache()
+        if n_can_state is not None:
+            trans_weights = (
+                np.ascontiguousarray(trans_weights[:, :n_can_state]),
+                np.ascontiguousarray(trans_weights[:, n_can_state:]))
 
         return trans_weights
 
-    def get_posteriors(self, sig_info):
-        mod_weights, can_nmods = None, None
-        if self.model_type == TAI_NAME:
-            if self.is_cat_mod:
-                bc_weights, mod_weights = self.run_model(
-                    sig_info.raw_signal, self.n_can_state)
-                can_nmods = self.can_nmods
+    def _softmax_mod_weights(self, raw_mod_weights):
+        mod_layers = []
+        for lab_indices in self.can_indices:
+            if lab_indices is None:
+                mod_layers.append(
+                    np.ones((raw_mod_weights.shape[0], 1), dtype=np.float32))
             else:
-                bc_weights = self.run_model(sig_info.raw_signal)
-            bc_post = decode.crf_flipflop_trans_post(bc_weights, log=True)
-        elif self.model_type == FAST5_NAME:
-            bc_mod_post = sig_info.posteriors
-            if self.is_cat_mod:
-                bc_post, mod_weights = (
-                    np.ascontiguousarray(bc_mod_post[:,:self.n_can_state]),
-                    np.ascontiguousarray(bc_mod_post[:,self.n_can_state:]))
-                can_nmods = self.can_nmods
-            else:
-                bc_post = bc_mod_post
+                mod_layers.append(_log_softmax_axis1(
+                    raw_mod_weights[:, lab_indices]))
+        return np.concatenate(mod_layers, dim=1)
+
+    def run_pyguppy_model(
+            self, sig_info, return_post_w_mods, return_mod_scores,
+            update_sig_info):
+        if self.model_type != PYGUPPY_NAME:
+            raise mh.MegaError(
+                'Attempted to run pyguppy model with non-pyguppy ' +
+                'initialization.')
+
+        post_w_mods = mods_scores = None
+        called_read = self.pyguppy_basecall(
+            self.pyguppy_ReadData(sig_info.dacs, sig_info.read_id),
+            host=self.params.pyguppy.host, port=self.params.pyguppy.port)
+
+        # compute rl_cumsum from move table
+        rl_cumsum = np.where(called_read.move)[0]
+        rl_cumsum = np.insert(rl_cumsum, rl_cumsum.shape[0],
+                              called_read.move.shape[0])
+
+        if self.is_cat_mod:
+            # split canonical posteriors and mod transition weights
+            can_post = np.ascontiguousarray(
+                called_read.state[:, :self.n_can_state])
+            if return_mod_scores or return_post_w_mods:
+                mods_weights = self._softmax_mod_weights(
+                    called_read.state[:, self.n_can_state:])
+                if return_post_w_mods:
+                    post_w_mods = np.concatenate(
+                        [can_post, mods_weights], axis=1)
+                if return_mod_scores:
+                    # TODO apply np.NAN mask to scores not applicable to
+                    # canonical basecalls
+                    mods_scores = np.ascontiguousarray(
+                        mods_weights[rl_cumsum[:-1]])
         else:
+            can_post = called_read.state
+
+        if update_sig_info:
+            # add scale_params and trimmed dacs to sig_info
+            trimmed_dacs = sig_info.dacs[called_read.trimmed_samples:]
+            scale_params = (called_read.scaling['median'],
+                            called_read.scaling['med_abs_dev'])
+            sig_info = sig_info._replace(
+                raw_len=trimmed_dacs.shape[0], dacs=trimmed_dacs,
+                raw_signal=((trimmed_dacs - scale_params[0]) /
+                            scale_params[1]).asttype(np.float32))
+
+        return (called_read.seq, rl_cumsum, can_post, sig_info, post_w_mods,
+                mods_scores)
+
+    def basecall_read(
+            self, sig_info, return_post_w_mods=True, return_mod_scores=False,
+            update_sig_info=False):
+        if self.model_type in (TAI_NAME, FAST5_NAME, PYGUPPY_NAME):
             raise mh.MegaError('Invalid model type')
 
-        return bc_post, mod_weights, can_nmods
+        # decoding is performed within pyguppy server, so shortcurcuit return
+        # here as other methods require megalodon decoding.
+        if self.model_type == PYGUPPY_NAME:
+            return self.run_pyguppy_model(
+                sig_info, return_post_w_mods, return_mod_scores,
+                update_sig_info)
+
+        post_w_mods = mod_weights = None
+        if self.model_type == TAI_NAME:
+            # run neural network with taiyaki
+            if self.is_cat_mod:
+                bc_weights, mod_weights = self.run_taiyaki_model(
+                    sig_info.raw_signal, self.n_can_state)
+            else:
+                bc_weights = self.run_taiyaki_model(sig_info.raw_signal)
+            # perform forward-backward algorithm on neural net output
+            can_post = decode.crf_flipflop_trans_post(bc_weights, log=True)
+            if return_post_w_mods and self.is_cat_mod:
+                post_w_mods = np.concatenate([can_post, mod_weights], axis=1)
+            # set mod_weights to None if mod_scores not requested to
+            # avoid extra computation
+            if not return_mod_scores:
+                mod_weights = None
+        else:
+            # FAST5 stored posteriors backend
+            if self.is_cat_mod:
+                # split canonical posteriors and mod transition weights
+                # producing desired return arrays
+                can_post = np.ascontiguousarray(
+                    sig_info.posteriors[:, :self.n_can_state])
+                if return_mod_scores or return_post_w_mods:
+                    # convert raw neural net mod weights to softmax weights
+                    mod_weights = self._softmax_mod_weights(
+                        sig_info.posteriors[:, self.n_can_state:])
+                    if return_post_w_mods:
+                        post_w_mods = np.concatenate(
+                            [can_post, mod_weights], axis=1)
+                    if not return_mod_scores:
+                        mod_weights = None
+            else:
+                can_post = sig_info.posteriors
+
+        # decode posteriors to sequence and per-base mod scores
+        r_seq, _, rl_cumsum, mods_scores = decode.decode_post(
+            can_post, self.alphabet, mod_weights, self.can_nmods)
+
+        return r_seq, rl_cumsum, can_post, sig_info, post_w_mods, mods_scores
 
 
 if __name__ == '__main__':
