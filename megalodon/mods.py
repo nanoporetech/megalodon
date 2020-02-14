@@ -203,13 +203,13 @@ class ModsDb(object):
 
     def insert_mod_long_names(self, mod_long_names):
         self.cur.executemany(
-            'INSERT INTO mod_long_name (mod, mod_long_name) VALUES (?,?)',
-            mod_long_names)
+            'INSERT INTO mod_long_names (mod_base, mod_long_name) ' +
+            'VALUES (?,?)', mod_long_names)
         return
 
     def get_mod_long_names(self):
         return list(self.cur.execute(
-            'SELECT mod, mod_long_name FROM mod_long_name').fetchall())
+            'SELECT mod_base, mod_long_name FROM mod_long_names').fetchall())
 
     def get_pos_id_or_insert(self, chrm_id, strand, pos):
         try:
@@ -692,7 +692,7 @@ def call_read_mods(
 def _get_mods_queue(
         mods_q, mods_conn, mods_db_fn, db_safety, ref_names_and_lens,
         mods_txt_fn, pr_refs_fn, pr_ref_filts, pos_index_in_memory,
-        mod_long_name):
+        mod_long_names):
     def store_mod_call(
             r_mod_scores,  read_id, chrm, strand, r_start, ref_seq,
             read_len, q_st, q_en, cigar, been_warned):
@@ -736,7 +736,6 @@ def _get_mods_queue(
         """
         sleep(0.001)
         return
-
 
     logger = logging.get_logger('mods')
     been_warned = False
@@ -1261,6 +1260,7 @@ class AggMods(mh.AbstractAggregationClass):
         self.agg_method = agg_info.method
         self.binary_thresh = agg_info.binary_threshold
         self.write_mod_lp = write_mod_lp
+        self._mod_long_names = self.mods_db.get_mod_long_names()
         return
 
     def get_mod_long_names(self):

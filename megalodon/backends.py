@@ -1,8 +1,9 @@
 import re
 import sys
-import numpy as np
 from time import sleep
 from collections import defaultdict, namedtuple
+
+import numpy as np
 
 from megalodon import decode, fast5_io, logging, megalodon_helper as mh
 
@@ -21,12 +22,16 @@ FAST5_PARAMS = namedtuple('FAST5_PARAMS', (
     'available', 'fast5s_dir', 'num_startup_reads'))
 FAST5_PARAMS.__new__.__defaults__ = tuple([None, ] * 2)
 PYGUPPY_PARAMS = namedtuple('PYGUPPY_PARAMS', (
-    'available', 'host', 'port'))
-PYGUPPY_PARAMS.__new__.__defaults__ = tuple([None, ] * 2)
+    'available', 'host', 'port', 'timeout'))
+PYGUPPY_PARAMS.__new__.__defaults__ = tuple([None, ] * 3)
 BACKEND_PARAMS = namedtuple('BACKEND_PARAMS', (
-    TAI_NAME, FAST5_PARAMS, PYGUPPY_PARAMS))
+    TAI_NAME, FAST5_NAME, PYGUPPY_NAME))
 
 COMPAT_GUPPY_MODEL_TYPES = set(('flipflop',))
+DEFAULT_GUPPY_HOST = 'localhost'
+DEFAULT_GUPPY_PORT = 5555
+DEFAULT_GUPPY_TIMEOUT = 5.0
+PYGUPPY_PER_TRY_TIMEOUT = 0.1
 
 # maximum time (in seconds) to wait before assigning device
 # over different processes. Actual time choosen randomly
@@ -45,12 +50,12 @@ def parse_backend_params(args, num_fast5_startup_reads=5):
     # TOOD try to import high level packages to ensure available
     # parse taiyaki backend params
     if any(not hasattr(args, k) for k in (
-            'taiyaki_model_filename', 'load_default_model', 'chunk_size',
-            'chunk_overlap', 'max_concurrent_chunks')):
+            'chunk_size', 'chunk_overlap', 'max_concurrent_chunks',
+            'load_default_taiyaki_model', 'taiyaki_model_filename')):
         tai_params = TAI_PARAMS(False)
     else:
         tai_model_fn = mh.get_model_fn(
-            args.taiyaki_model_filename, args.load_default_model)
+            args.taiyaki_model_filename, args.load_default_taiyaki_model)
         if all(param is not None for param in (
                 tai_model_fn, args.chunk_size, args.chunk_overlap,
                 args.max_concurrent_chunks)):
@@ -69,11 +74,13 @@ def parse_backend_params(args, num_fast5_startup_reads=5):
 
     # parse pyguppy backend params
     if any(not hasattr(args, k) for k in (
-            'guppy_server_host', 'guppy_server_port')):
+            'guppy_server_host', 'guppy_server_port',
+            'do_not_use_guppy_server')) or args.do_not_use_guppy_server:
         pyguppy_params = PYGUPPY_PARAMS(False)
     else:
         pyguppy_params = PYGUPPY_PARAMS(
-            True, args.guppy_server_host, args.guppy_server_port)
+            True, args.guppy_server_host, args.guppy_server_port,
+            args.guppy_timeout)
 
     return BACKEND_PARAMS(tai_params, fast5_params, pyguppy_params)
 
@@ -130,14 +137,13 @@ class ModelInfo(object):
     def _load_taiyaki_model(self):
         self.model_type = TAI_NAME
 
-        if self.params.taiyaki.devices is None:
-            self.params.taiyaki.devices = ['cpu', ]
+        devices = self.params.taiyaki.devices
+        if devices is None:
+            devices = ['cpu', ]
         self.process_devices = [
-            parse_device(self.params.taiyaki.devices[i])
-            for i in np.tile(
-                    np.arange(len(self.params.taiyaki.devices)),
-                    (self.num_proc //
-                     len(self.params.taiyaki.devices)) + 1)][:self.num_proc]
+            parse_device(devices[i]) for i in np.tile(
+                np.arange(len(devices)),
+                (self.num_proc // len(devices)) + 1)][:self.num_proc]
 
         try:
             # import modules
@@ -224,14 +230,14 @@ class ModelInfo(object):
             self.can_nmods = None
 
         # compute indices over which to compute softmax for mod bases
-        self.can_indices = []
+        self.can_raw_mod_indices = []
         curr_n_mods = 0
         for bi_nmods in self.can_nmods:
             if bi_nmods == 0:
-                self.can_indices.append(None)
+                self.can_raw_mod_indices.append(None)
             else:
                 # global canonical category is index 0 then mod cat indices
-                self.can_indices.append(np.insert(
+                self.can_raw_mod_indices.append(np.insert(
                     np.arange(curr_n_mods + 1, curr_n_mods + 1 + bi_nmods),
                     0, 0))
             curr_n_mods += bi_nmods
@@ -290,18 +296,49 @@ class ModelInfo(object):
 
         from zmq.error import Again
         from pyguppyclient.decode import ReadData
-        from pyguppyclient.caller import basecall
+        from pyguppyclient.client import GuppyBasecallerClient
+        self.zmq_Again = Again
         self.pyguppy_ReadData = ReadData
-        self.pyguppy_basecall = basecall
+        self.pyguppy_GuppyBasecallerClient = GuppyBasecallerClient
 
+        self.pyguppy_retries = max(
+            1, int(self.params.pyguppy.timeout / PYGUPPY_PER_TRY_TIMEOUT))
+
+        init_client = self.pyguppy_GuppyBasecallerClient(
+            None, host=self.params.pyguppy.host,
+            port=self.params.pyguppy.port,
+            timeout=PYGUPPY_PER_TRY_TIMEOUT,
+            retries=self.pyguppy_retries)
         try:
-            init_read = self.pyguppy_basecall(
-                ReadData(np.zeros(init_sig_len, dtype=np.int16), 'a'),
-                host=self.params.pyguppy.host, port=self.params.pyguppy.port)
-        except Again:
+            self.config_name = init_client.get_configs()[0].ConfigName()
+        except IndexError:
+            raise mh.MegaError('No config found from guppy server.')
+        try:
+            self.config_name = self.config_name.decode()
+        except AttributeError:
+            # already decoded
+            pass
+        init_client.disconnect()
+        init_client = self.pyguppy_GuppyBasecallerClient(
+            self.config_name, host=self.params.pyguppy.host,
+            port=self.params.pyguppy.port,
+            timeout=PYGUPPY_PER_TRY_TIMEOUT,
+            retries=self.pyguppy_retries)
+        try:
+            init_client.connect()
+        except self.zmq_Again:
             raise mh.MegaError(
                 'Cannot connect to guppy server running on port {}.'.format(
                     self.params.pyguppy.port))
+        try:
+            init_read = init_client.basecall(
+                ReadData(np.zeros(init_sig_len, dtype=np.int16), 'a'),
+                state=True, trace=True)
+        except TimeoutError:
+            raise mh.MegaError(
+                'Cannot connect to guppy server running on port {}.'.format(
+                    self.params.pyguppy.port))
+        init_client.disconnect()
         if init_read.state is None:
             raise mh.MegaError(
                 'Guppy results do not contain posterior state. Ensure ' +
@@ -359,6 +396,14 @@ class ModelInfo(object):
                     logger.error('Invalid CUDA device: {}'.format(device))
                     raise mh.MegaError('Error setting CUDA GPU device.')
             self.model = self.model.eval()
+        elif self.model_type == PYGUPPY_NAME:
+            # open guppy client interface (None indicates using config
+            # from server)
+            self.client = self.pyguppy_GuppyBasecallerClient(
+                self.config_name, host=self.params.pyguppy.host,
+                port=self.params.pyguppy.port, timeout=PYGUPPY_PER_TRY_TIMEOUT,
+                retries=self.pyguppy_retries)
+            self.client.connect()
 
         return
 
@@ -427,14 +472,14 @@ class ModelInfo(object):
 
     def _softmax_mod_weights(self, raw_mod_weights):
         mod_layers = []
-        for lab_indices in self.can_indices:
+        for lab_indices in self.can_raw_mod_indices:
             if lab_indices is None:
                 mod_layers.append(
                     np.ones((raw_mod_weights.shape[0], 1), dtype=np.float32))
             else:
                 mod_layers.append(_log_softmax_axis1(
                     raw_mod_weights[:, lab_indices]))
-        return np.concatenate(mod_layers, dim=1)
+        return np.concatenate(mod_layers, axis=1)
 
     def run_pyguppy_model(
             self, sig_info, return_post_w_mods, return_mod_scores,
@@ -445,9 +490,13 @@ class ModelInfo(object):
                 'initialization.')
 
         post_w_mods = mods_scores = None
-        called_read = self.pyguppy_basecall(
-            self.pyguppy_ReadData(sig_info.dacs, sig_info.read_id),
-            host=self.params.pyguppy.host, port=self.params.pyguppy.port)
+        try:
+            called_read = self.client.basecall(
+                self.pyguppy_ReadData(sig_info.dacs, sig_info.read_id),
+                state=True, trace=True)
+        except TimeoutError:
+            raise mh.MegaError(
+                'Pyguppy server timeout. See --guppy-timeout option')
 
         # compute rl_cumsum from move table
         rl_cumsum = np.where(called_read.move)[0]
@@ -488,8 +537,8 @@ class ModelInfo(object):
     def basecall_read(
             self, sig_info, return_post_w_mods=True, return_mod_scores=False,
             update_sig_info=False):
-        if self.model_type in (TAI_NAME, FAST5_NAME, PYGUPPY_NAME):
-            raise mh.MegaError('Invalid model type')
+        if self.model_type not in (TAI_NAME, FAST5_NAME, PYGUPPY_NAME):
+            raise mh.MegaError('Invalid model backend')
 
         # decoding is performed within pyguppy server, so shortcurcuit return
         # here as other methods require megalodon decoding.
@@ -535,7 +584,7 @@ class ModelInfo(object):
 
         # decode posteriors to sequence and per-base mod scores
         r_seq, _, rl_cumsum, mods_scores = decode.decode_post(
-            can_post, self.alphabet, mod_weights, self.can_nmods)
+            can_post, self.can_alphabet, mod_weights, self.can_nmods)
 
         return r_seq, rl_cumsum, can_post, sig_info, post_w_mods, mods_scores
 
