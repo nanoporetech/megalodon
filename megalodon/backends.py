@@ -220,6 +220,18 @@ class ModelInfo(object):
                 [self.output_alphabet.index(b) for b in self.can_alphabet] +
                 [len(self.output_alphabet), ])) - 1
             self.compute_mod_alphabet_attrs()
+            # compute indices over which to compute softmax for mod bases
+            self.can_raw_mod_indices = []
+            curr_n_mods = 0
+            for bi_nmods in self.can_nmods:
+                if bi_nmods == 0:
+                    self.can_raw_mod_indices.append(None)
+                else:
+                    # global canonical category is index 0 then mod cat indices
+                    self.can_raw_mod_indices.append(np.insert(
+                        np.arange(curr_n_mods + 1, curr_n_mods + 1 + bi_nmods),
+                        0, 0))
+                curr_n_mods += bi_nmods
         else:
             if mh.nstate_to_nbase(self.output_size) != 4:
                 raise NotImplementedError(
@@ -228,19 +240,6 @@ class ModelInfo(object):
             self.str_to_int_mod_labels = {}
             self.mod_long_names = []
             self.can_nmods = None
-
-        # compute indices over which to compute softmax for mod bases
-        self.can_raw_mod_indices = []
-        curr_n_mods = 0
-        for bi_nmods in self.can_nmods:
-            if bi_nmods == 0:
-                self.can_raw_mod_indices.append(None)
-            else:
-                # global canonical category is index 0 then mod cat indices
-                self.can_raw_mod_indices.append(np.insert(
-                    np.arange(curr_n_mods + 1, curr_n_mods + 1 + bi_nmods),
-                    0, 0))
-            curr_n_mods += bi_nmods
 
     def _load_fast5_post_out(self):
         def get_model_info_from_fast5(read):
@@ -313,6 +312,8 @@ class ModelInfo(object):
             self.config_name = init_client.get_configs()[0].ConfigName()
         except IndexError:
             raise mh.MegaError('No config found from guppy server.')
+        except self.zmq_Again:
+            raise mh.MegaError('Unable to contact guppy server.')
         try:
             self.config_name = self.config_name.decode()
         except AttributeError:
@@ -352,6 +353,10 @@ class ModelInfo(object):
         self.ordered_mod_long_names = init_read.mod_long_names
         self.output_alphabet = init_read.mod_alphabet
         self.output_size = init_read.state_size
+        if self.ordered_mod_long_names is None:
+            self.ordered_mod_long_names = []
+        if self.output_alphabet is None:
+            self.output_alphabet = mh.ALPHABET
 
         self._parse_minimal_alphabet_info()
 

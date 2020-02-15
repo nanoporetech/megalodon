@@ -29,6 +29,7 @@ _DO_PROFILE = False
 _UNEXPECTED_ERROR_CODE = 'Unexpected error'
 _UNEXPECTED_ERROR_FN = 'unexpected_megalodon_errors.{}.err'
 _MAX_NUM_UNEXP_ERRORS = 50
+DO_INTERPOLATE_SIG_POS = False
 
 
 ###################
@@ -52,6 +53,7 @@ def handle_errors(func, args, r_vals, out_q, fast5_fn, failed_reads_q):
 
 
 def interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum):
+    # TODO Need to test and optimize this function
     # interpolate signal positions for consecutive reference bases assigned
     # to the same query base
     ref_to_block = np.empty(r_to_q_poss.shape[0], dtype=np.int32)
@@ -129,7 +131,10 @@ def process_read(
                                           rl_cumsum[r_ref_pos.q_trim_end])
     mapped_rl_cumsum = rl_cumsum[
         r_ref_pos.q_trim_start:r_ref_pos.q_trim_end + 1] - post_mapped_start
-    ref_to_block = interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum)
+    if DO_INTERPOLATE_SIG_POS:
+        ref_to_block = interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum)
+    else:
+        ref_to_block = mapped_rl_cumsum[r_to_q_poss]
 
     if vars_q is not None:
         mapped_can_post = can_post[post_mapped_start:post_mapped_end]
@@ -794,7 +799,7 @@ def parse_pr_ref_output(args):
     logger = logging.get_logger()
     if args.output_per_read_references:
         args.outputs.append(mh.PR_REF_NAME)
-        if args.refs_include_vars and args.refs_include_mods:
+        if args.refs_include_variants and args.refs_include_mods:
             logger.error('Cannot output both modified base and variants in ' +
                          'per-read references (remove one of ' +
                          '--refs-include-variants or --refs-include-mods).')
