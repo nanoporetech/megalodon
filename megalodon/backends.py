@@ -290,6 +290,61 @@ class ModelInfo(object):
         self._parse_minimal_alphabet_info()
 
     def _load_pyguppy(self, init_sig_len=40):
+        def get_default_congif_name():
+            get_config_client = self.pyguppy_GuppyBasecallerClient(
+                config_name=None, host=self.params.pyguppy.host,
+                port=self.params.pyguppy.port,
+                timeout=PYGUPPY_PER_TRY_TIMEOUT,
+                retries=self.pyguppy_retries)
+            try:
+                config_name = get_config_client.get_configs()[
+                    0].ConfigName()
+                config_name = config_name.decode()
+            except IndexError:
+                raise mh.MegaError('No config found from guppy server.')
+            except self.zmq_Again:
+                raise mh.MegaError('Unable to contact guppy server.')
+            except AttributeError:
+                # already decoded to string
+                pass
+            get_config_client.disconnect()
+            return config_name
+
+        def set_pyguppy_model_attributes():
+            init_client = self.pyguppy_GuppyBasecallerClient(
+                self.config_name, host=self.params.pyguppy.host,
+                port=self.params.pyguppy.port,
+                timeout=PYGUPPY_PER_TRY_TIMEOUT,
+                retries=self.pyguppy_retries)
+            try:
+                init_client.connect()
+                init_read = init_client.basecall(
+                    ReadData(np.zeros(init_sig_len, dtype=np.int16), 'a'),
+                    state=True, trace=True)
+            except (self.zmq_Again, TimeoutError):
+                raise mh.MegaError(
+                    'Cannot connect to guppy server running on port ' +
+                    '{}.'.format(self.params.pyguppy.port))
+            init_client.disconnect()
+            if init_read.state is None:
+                raise mh.MegaError(
+                    'Guppy results do not contain posterior state. Ensure ' +
+                    '--post_out is set during guppy server initialization.')
+            if init_read.model_type not in COMPAT_GUPPY_MODEL_TYPES:
+                raise mh.MegaError((
+                    'Megalodon is not compatible with guppy model type: ' +
+                    '{}').format(init_read.model_type))
+
+            self.stride = init_read.model_stride
+            self.ordered_mod_long_names = init_read.mod_long_names
+            self.output_alphabet = init_read.mod_alphabet
+            self.output_size = init_read.state_size
+            if self.ordered_mod_long_names is None:
+                self.ordered_mod_long_names = []
+            if self.output_alphabet is None:
+                self.output_alphabet = mh.ALPHABET
+            return
+
         self.model_type = PYGUPPY_NAME
         self.process_devices = [None, ] * self.num_proc
 
@@ -299,65 +354,11 @@ class ModelInfo(object):
         self.zmq_Again = Again
         self.pyguppy_ReadData = ReadData
         self.pyguppy_GuppyBasecallerClient = GuppyBasecallerClient
-
         self.pyguppy_retries = max(
             1, int(self.params.pyguppy.timeout / PYGUPPY_PER_TRY_TIMEOUT))
 
-        init_client = self.pyguppy_GuppyBasecallerClient(
-            None, host=self.params.pyguppy.host,
-            port=self.params.pyguppy.port,
-            timeout=PYGUPPY_PER_TRY_TIMEOUT,
-            retries=self.pyguppy_retries)
-        try:
-            self.config_name = init_client.get_configs()[0].ConfigName()
-        except IndexError:
-            raise mh.MegaError('No config found from guppy server.')
-        except self.zmq_Again:
-            raise mh.MegaError('Unable to contact guppy server.')
-        try:
-            self.config_name = self.config_name.decode()
-        except AttributeError:
-            # already decoded
-            pass
-        init_client.disconnect()
-        init_client = self.pyguppy_GuppyBasecallerClient(
-            self.config_name, host=self.params.pyguppy.host,
-            port=self.params.pyguppy.port,
-            timeout=PYGUPPY_PER_TRY_TIMEOUT,
-            retries=self.pyguppy_retries)
-        try:
-            init_client.connect()
-        except self.zmq_Again:
-            raise mh.MegaError(
-                'Cannot connect to guppy server running on port {}.'.format(
-                    self.params.pyguppy.port))
-        try:
-            init_read = init_client.basecall(
-                ReadData(np.zeros(init_sig_len, dtype=np.int16), 'a'),
-                state=True, trace=True)
-        except TimeoutError:
-            raise mh.MegaError(
-                'Cannot connect to guppy server running on port {}.'.format(
-                    self.params.pyguppy.port))
-        init_client.disconnect()
-        if init_read.state is None:
-            raise mh.MegaError(
-                'Guppy results do not contain posterior state. Ensure ' +
-                '--post_out is set during guppy server initialization.')
-        if init_read.model_type not in COMPAT_GUPPY_MODEL_TYPES:
-            raise mh.MegaError(
-                'Megalodon is not compatible with guppy model type: {}'.format(
-                    init_read.model_type))
-
-        self.stride = init_read.model_stride
-        self.ordered_mod_long_names = init_read.mod_long_names
-        self.output_alphabet = init_read.mod_alphabet
-        self.output_size = init_read.state_size
-        if self.ordered_mod_long_names is None:
-            self.ordered_mod_long_names = []
-        if self.output_alphabet is None:
-            self.output_alphabet = mh.ALPHABET
-
+        self.config_name = get_default_congif_name()
+        set_pyguppy_model_attributes()
         self._parse_minimal_alphabet_info()
 
     def __init__(self, backend_params, num_proc=1):
