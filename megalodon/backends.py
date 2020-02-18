@@ -8,6 +8,8 @@ import numpy as np
 from megalodon import decode, fast5_io, logging, megalodon_helper as mh
 
 
+LOGGER = logging.get_logger()
+
 # model type specific information
 TAI_NAME = 'taiyaki'
 FAST5_NAME = 'fast5'
@@ -152,16 +154,14 @@ class ModelInfo(object):
             from taiyaki.basecall_helpers import run_model as tai_run_model
             from taiyaki.layers import GlobalNormFlipFlopCatMod
         except ImportError:
-            logger = logging.get_logger()
-            logger.error(
+            LOGGER.error(
                 'Failed to import taiyaki. Ensure working ' +
                 'installations to run megalodon')
             sys.exit(1)
         try:
             import torch
         except ImportError:
-            logger = logging.get_logger()
-            logger.error(
+            LOGGER.error(
                 'Failed to import pytorch. Ensure working ' +
                 'installations to run megalodon')
             sys.exit(1)
@@ -208,8 +208,7 @@ class ModelInfo(object):
                 self.can_alphabet = v_alphabet
                 break
         if self.can_alphabet is None:
-            logger = logging.get_logger()
-            logger.error(
+            LOGGER.error(
                 'Model information from FAST5 files contains invalid ' +
                 'alphabet ({})'.format(self.output_alphabet))
             raise mh.MegaError('Invalid alphabet.')
@@ -249,13 +248,12 @@ class ModelInfo(object):
                 out_size = fast5_io.get_posteriors(read).shape[1]
                 mod_long_names = mod_long_names.split()
             except KeyError:
-                logger.error(
+                LOGGER.error(
                     'Fast5 read does not contain required attributes.')
                 raise mh.MegaError(
                     'Fast5 read does not contain required attributes.')
             return stride, mod_long_names, out_alphabet, out_size
 
-        logger = logging.get_logger()
         self.model_type = FAST5_NAME
         self.process_devices = [None, ] * self.num_proc
 
@@ -267,7 +265,7 @@ class ModelInfo(object):
             (self.stride, self.ordered_mod_long_names, self.output_alphabet,
              self.output_size) = get_model_info_from_fast5(read)
         except StopIteration:
-            logger.error('No reads found.')
+            LOGGER.error('No reads found.')
             raise mh.MegaError('No reads found.')
 
         for fast5_fn, read_id in read_iter:
@@ -278,7 +276,7 @@ class ModelInfo(object):
                     self.ordered_mod_long_names != r_omln or
                     self.output_alphabet != r_oa or
                     self.output_size != r_os):
-                logger.error(
+                LOGGER.error(
                     'Model information from FAST5 files is inconsistent. ' +
                     'Assure all reads were called with the same model.')
                 raise mh.MegaError(
@@ -398,8 +396,7 @@ class ModelInfo(object):
                     self.torch.cuda.set_device(self.device)
                     self.model = self.model.to(self.device)
                 except RuntimeError:
-                    logger = logging.get_logger()
-                    logger.error('Invalid CUDA device: {}'.format(device))
+                    LOGGER.error('Invalid CUDA device: {}'.format(device))
                     raise mh.MegaError('Error setting CUDA GPU device.')
             self.model = self.model.eval()
         elif self.model_type == PYGUPPY_NAME:
@@ -463,8 +460,7 @@ class ModelInfo(object):
         except AttributeError:
             raise mh.MegaError('Out of date or incompatible model')
         except RuntimeError as e:
-            logging.get_logger().debug(
-                'Likely out of memory error: {}'.format(str(e)))
+            LOGGER.debug('Likely out of memory error: {}'.format(str(e)))
             raise mh.MegaError(
                 'Likely out of memory error. See log for details.')
         if self.device != self.torch.device('cpu'):
