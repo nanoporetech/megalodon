@@ -289,7 +289,7 @@ class ModelInfo(object):
 
         self._parse_minimal_alphabet_info()
 
-    def _load_pyguppy(self, init_sig_len=40):
+    def _load_pyguppy(self, init_sig_len=1000):
         def get_default_congif_name():
             get_config_client = self.pyguppy_GuppyBasecallerClient(
                 config_name=None, host=self.params.pyguppy.host,
