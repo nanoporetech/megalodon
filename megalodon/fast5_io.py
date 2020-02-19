@@ -54,7 +54,7 @@ def get_signal(read, scale=True):
 
     if scale:
         med, mad = mh.med_mad(raw_sig)
-        raw_sig = (raw_sig - med) / mad
+        raw_sig = ((raw_sig - med) / mad).astype(np.float32)
 
     return raw_sig
 
