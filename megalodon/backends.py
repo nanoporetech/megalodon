@@ -1,5 +1,7 @@
+import os
 import re
 import sys
+import subprocess
 from time import sleep
 from collections import defaultdict, namedtuple
 
@@ -7,8 +9,6 @@ import numpy as np
 
 from megalodon import decode, fast5_io, logging, megalodon_helper as mh
 
-
-LOGGER = logging.get_logger()
 
 # model type specific information
 TAI_NAME = 'taiyaki'
@@ -24,16 +24,21 @@ FAST5_PARAMS = namedtuple('FAST5_PARAMS', (
     'available', 'fast5s_dir', 'num_startup_reads'))
 FAST5_PARAMS.__new__.__defaults__ = tuple([None, ] * 2)
 PYGUPPY_PARAMS = namedtuple('PYGUPPY_PARAMS', (
-    'available', 'host', 'port', 'timeout'))
-PYGUPPY_PARAMS.__new__.__defaults__ = tuple([None, ] * 3)
+    'available', 'config', 'bin_path', 'port', 'timeout', 'devices', 'out_dir',
+    'server_params'))
+PYGUPPY_PARAMS.__new__.__defaults__ = tuple([None, ] * 7)
 BACKEND_PARAMS = namedtuple('BACKEND_PARAMS', (
     TAI_NAME, FAST5_NAME, PYGUPPY_NAME))
 
 COMPAT_GUPPY_MODEL_TYPES = set(('flipflop',))
-DEFAULT_GUPPY_HOST = 'localhost'
+GUPPY_HOST = 'localhost'
+DEFAULT_GUPPY_SERVER_PATH = './ont-guppy/bin/guppy_basecall_server'
+DEFAULT_GUPPY_CFG = 'dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg'
 DEFAULT_GUPPY_PORT = 5555
 DEFAULT_GUPPY_TIMEOUT = 5.0
-PYGUPPY_PER_TRY_TIMEOUT = 0.1
+PYGUPPY_PER_TRY_TIMEOUT = 0.05
+GUPPY_LOG_BASE = 'guppy_log'
+GUPPY_SERVER_STARTED_TXT = 'Starting server on port:'
 
 # maximum time (in seconds) to wait before assigning device
 # over different processes. Actual time choosen randomly
@@ -47,13 +52,28 @@ SIGNAL_DATA = namedtuple('SIGNAL_DATA', (
 # set default value of None for ref, alts and ref_start
 SIGNAL_DATA.__new__.__defaults__ = tuple([None, ] * 5)
 
+LOGGER = logging.get_logger()
+
+
+def parse_device(device):
+    if device is None or device == 'cpu':
+        return 'cpu'
+    # add colon for UGE/SGE device type
+    if re.match('cuda[0-9]+', device) is not None:
+        return 'cuda:{}'.format(device[4:])
+    # if integer device is specified
+    elif not device.startswith('cuda'):
+        return 'cuda:{}'.format(device)
+    return device
+
 
 def parse_backend_params(args, num_fast5_startup_reads=5):
     # TOOD try to import high level packages to ensure available
     # parse taiyaki backend params
     if any(not hasattr(args, k) for k in (
             'chunk_size', 'chunk_overlap', 'max_concurrent_chunks',
-            'load_default_taiyaki_model', 'taiyaki_model_filename')):
+            'load_default_taiyaki_model', 'taiyaki_model_filename',
+            'devices')):
         tai_params = TAI_PARAMS(False)
     else:
         tai_model_fn = mh.get_model_fn(
@@ -76,13 +96,16 @@ def parse_backend_params(args, num_fast5_startup_reads=5):
 
     # parse pyguppy backend params
     if any(not hasattr(args, k) for k in (
-            'guppy_server_host', 'guppy_server_port',
+            'guppy_config', 'guppy_server_path', 'guppy_server_port',
+            'guppy_timeout', 'devices', 'output_directory', 'guppy_params',
             'do_not_use_guppy_server')) or args.do_not_use_guppy_server:
         pyguppy_params = PYGUPPY_PARAMS(False)
     else:
         pyguppy_params = PYGUPPY_PARAMS(
-            True, args.guppy_server_host, args.guppy_server_port,
-            args.guppy_timeout)
+            available=True, config=args.guppy_config,
+            bin_path=args.guppy_server_path, port=args.guppy_server_port,
+            timeout=args.guppy_timeout, devices=args.devices,
+            out_dir=args.output_directory, server_params=args.guppy_params)
 
     return BACKEND_PARAMS(tai_params, fast5_params, pyguppy_params)
 
@@ -92,18 +115,6 @@ def _log_softmax_axis1(x):
     """
     e_x = np.exp((x.T - np.max(x, axis=1)).T)
     return np.log((e_x.T / e_x.sum(axis=1)).T)
-
-
-def parse_device(device):
-    if device is None or device == 'cpu':
-        return 'cpu'
-    # add colon for UGE/SGE device type
-    if re.match('cuda[0-9]+', device) is not None:
-        return 'cuda:{}'.format(device[4:])
-    # if integer device is specified
-    elif not device.startswith('cuda'):
-        return 'cuda:{}'.format(device)
-    return device
 
 
 class ModelInfo(object):
@@ -137,6 +148,7 @@ class ModelInfo(object):
         self.can_base_mods = dict(self.can_base_mods)
 
     def _load_taiyaki_model(self):
+        LOGGER.info('Loading taiyaki basecalling backend.')
         self.model_type = TAI_NAME
 
         devices = self.params.taiyaki.devices
@@ -254,6 +266,7 @@ class ModelInfo(object):
                     'Fast5 read does not contain required attributes.')
             return stride, mod_long_names, out_alphabet, out_size
 
+        LOGGER.info('Loading FAST5 basecalling backend.')
         self.model_type = FAST5_NAME
         self.process_devices = [None, ] * self.num_proc
 
@@ -288,29 +301,49 @@ class ModelInfo(object):
         self._parse_minimal_alphabet_info()
 
     def _load_pyguppy(self, init_sig_len=1000):
-        def get_default_congif_name():
-            get_config_client = self.pyguppy_GuppyBasecallerClient(
-                config_name=None, host=self.params.pyguppy.host,
-                port=self.params.pyguppy.port,
-                timeout=PYGUPPY_PER_TRY_TIMEOUT,
-                retries=self.pyguppy_retries)
-            try:
-                config_name = get_config_client.get_configs()[
-                    0].ConfigName()
-                config_name = config_name.decode()
-            except IndexError:
-                raise mh.MegaError('No config found from guppy server.')
-            except self.zmq_Again:
-                raise mh.MegaError('Unable to contact guppy server.')
-            except AttributeError:
-                # already decoded to string
-                pass
-            get_config_client.disconnect()
-            return config_name
+        def start_guppy_server():
+            def is_server_init():
+                next_line = guppy_out_read_fp.readline()
+                return next_line is not None and next_line.startswith(
+                    GUPPY_SERVER_STARTED_TXT)
+
+            # set guppy logs output locations
+            self.guppy_log = os.path.join(
+                self.params.pyguppy.out_dir, GUPPY_LOG_BASE)
+            self.guppy_out_fp = open(self.guppy_log + '.out', 'w')
+            guppy_out_read_fp = open(self.guppy_log + '.out', 'r')
+            self.guppy_err_fp = open(self.guppy_log + '.err', 'w')
+            # prepare args to start guppy server
+            server_args = [
+                self.params.pyguppy.bin_path,
+                '-p', str(self.params.pyguppy.port),
+                '-l', self.guppy_log,
+                '-c', self.params.pyguppy.config,
+                '--post_out']
+            if self.params.pyguppy.devices is not None and \
+               len(self.params.pyguppy.devices) > 0 and \
+               self.params.pyguppy.devices[0] != 'cpu':
+                devices_str = '"{}"'.format(' '.join(
+                    parse_device(device) for device in
+                    self.params.pyguppy.devices))
+                server_args.extend(('-x', devices_str))
+            if self.params.pyguppy.server_params is not None:
+                server_args.extend(self.params.pyguppy.server_params.split())
+            self.guppy_server_proc = subprocess.Popen(
+                server_args, shell=False,
+                stdout=self.guppy_out_fp, stderr=self.guppy_err_fp)
+            # wait until server is successfully started or fails
+            while not is_server_init():
+                if self.guppy_server_proc.poll() is not None:
+                    raise mh.MegaError(
+                        'Guppy server initialization failed. See guppy logs ' +
+                        'in --output-directory for more details.')
+                sleep(0.01)
+            guppy_out_read_fp.close()
 
         def set_pyguppy_model_attributes():
             init_client = self.pyguppy_GuppyBasecallerClient(
-                self.config_name, host=self.params.pyguppy.host,
+                self.params.pyguppy.config, host=GUPPY_HOST,
                 port=self.params.pyguppy.port,
                 timeout=PYGUPPY_PER_TRY_TIMEOUT,
                 retries=self.pyguppy_retries)
@@ -319,15 +352,11 @@ class ModelInfo(object):
                 init_read = init_client.basecall(
                     ReadData(np.zeros(init_sig_len, dtype=np.int16), 'a'),
                     state=True, trace=True)
-            except (self.zmq_Again, TimeoutError):
+            except (Again, TimeoutError):
                 raise mh.MegaError(
                     'Cannot connect to guppy server running on port ' +
                     '{}.'.format(self.params.pyguppy.port))
             init_client.disconnect()
-            if init_read.state is None:
-                raise mh.MegaError(
-                    'Guppy results do not contain posterior state. Ensure ' +
-                    '--post_out is set during guppy server initialization.')
             if init_read.model_type not in COMPAT_GUPPY_MODEL_TYPES:
                 raise mh.MegaError((
                     'Megalodon is not compatible with guppy model type: ' +
@@ -341,21 +370,21 @@ class ModelInfo(object):
                 self.ordered_mod_long_names = []
             if self.output_alphabet is None:
                 self.output_alphabet = mh.ALPHABET
-            return
 
+        LOGGER.info('Loading guppy basecalling backend.')
         self.model_type = PYGUPPY_NAME
         self.process_devices = [None, ] * self.num_proc
 
+        # load necessary packages and store in object attrs
         from zmq.error import Again
         from pyguppyclient.decode import ReadData
         from pyguppyclient.client import GuppyBasecallerClient
-        self.zmq_Again = Again
         self.pyguppy_ReadData = ReadData
         self.pyguppy_GuppyBasecallerClient = GuppyBasecallerClient
+
         self.pyguppy_retries = max(
             1, int(self.params.pyguppy.timeout / PYGUPPY_PER_TRY_TIMEOUT))
-
-        self.config_name = get_default_congif_name()
+        start_guppy_server()
         set_pyguppy_model_attributes()
         self._parse_minimal_alphabet_info()
 
@@ -403,7 +432,7 @@ class ModelInfo(object):
             # open guppy client interface (None indicates using config
             # from server)
             self.client = self.pyguppy_GuppyBasecallerClient(
-                self.config_name, host=self.params.pyguppy.host,
+                self.params.pyguppy.config, host=GUPPY_HOST,
                 port=self.params.pyguppy.port, timeout=PYGUPPY_PER_TRY_TIMEOUT,
                 retries=self.pyguppy_retries)
             self.client.connect()
@@ -589,6 +618,13 @@ class ModelInfo(object):
             can_post, self.can_alphabet, mod_weights, self.can_nmods)
 
         return r_seq, rl_cumsum, can_post, sig_info, post_w_mods, mods_scores
+
+    def close(self):
+        if self.model_type == PYGUPPY_NAME:
+            self.guppy_server_proc.terminate()
+            self.guppy_out_fp.close()
+            self.guppy_err_fp.close()
+        return
 
 
 if __name__ == '__main__':

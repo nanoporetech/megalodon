@@ -31,6 +31,8 @@ _UNEXPECTED_ERROR_FN = 'unexpected_megalodon_errors.{}.err'
 _MAX_NUM_UNEXP_ERRORS = 50
 DO_INTERPOLATE_SIG_POS = False
 
+LOGGER = logging.get_logger()
+
 
 ###################
 # Read Processing #
@@ -116,8 +118,7 @@ def process_read(
             try:
                 sig_map_q.put(signal_mapping.get_remapping(*sig_map_res[1:]))
             except Exception as e:
-                logger = logging.get_logger()
-                logger.debug((
+                LOGGER.debug((
                     'Read: {} {} failed mapped signal validation with ' +
                     'error: {}').format(
                         sig_info.fast5_fn, sig_info.read_id, str(e)))
@@ -223,16 +224,15 @@ def _process_reads_worker(
         read_file_q, bc_q, vars_q, failed_reads_q, mods_q, caller_conn,
         sig_map_q, sig_map_info, model_info, vars_data, mods_info, device):
     # wrap process prep in try loop to avoid stalled command
-    logger = logging.get_logger('main')
     try:
         model_info.prep_model_worker(device)
         vars_data.reopen_variant_index()
-        logger.debug('Starting read worker {}'.format(mp.current_process()))
+        LOGGER.debug('Starting read worker {}'.format(mp.current_process()))
         sig_info = None
     except Exception:
         if caller_conn is not None:
             caller_conn.send(True)
-        logger.debug(('Read worker {} has failed process preparation.\n' +
+        LOGGER.debug(('Read worker {} has failed process preparation.\n' +
                       'Full error traceback:\n{}').format(
                           mp.current_process(), traceback.format_exc()))
         return
@@ -248,10 +248,10 @@ def _process_reads_worker(
             if fast5_fn is None:
                 if caller_conn is not None:
                     caller_conn.send(True)
-                logger.debug('Gracefully exiting read worker {}'.format(
+                LOGGER.debug('Gracefully exiting read worker {}'.format(
                     mp.current_process()))
                 break
-            logger.debug('Analyzing read {}'.format(read_id))
+            LOGGER.debug('Analyzing read {}'.format(read_id))
             sig_info = model_info.extract_signal_info(
                 fast5_fn, read_id, sig_map_q is not None)
             process_read(
@@ -260,23 +260,23 @@ def _process_reads_worker(
                 failed_reads_q)
             failed_reads_q.put((
                 False, True, None, None, None, sig_info.raw_len))
-            logger.debug('Successfully processed read {}'.format(read_id))
+            LOGGER.debug('Successfully processed read {}'.format(read_id))
         except KeyboardInterrupt:
             failed_reads_q.put((
                 True, True, 'Keyboard interrupt', fast5_fn, None, 0))
-            logger.debug('Keyboard interrupt during read {}'.format(read_id))
+            LOGGER.debug('Keyboard interrupt during read {}'.format(read_id))
             return
         except mh.MegaError as e:
             raw_len = sig_info.raw_len if hasattr(sig_info, 'raw_len') else 0
             failed_reads_q.put((
                 True, True, str(e), fast5_fn + ':::' + read_id, None, raw_len))
-            logger.debug('Incomplete processing for read {} ::: {}'.format(
+            LOGGER.debug('Incomplete processing for read {} ::: {}'.format(
                 read_id, str(e)))
         except Exception:
             failed_reads_q.put((
                 True, True, _UNEXPECTED_ERROR_CODE, fast5_fn + ':::' + read_id,
                 traceback.format_exc(), 0))
-            logger.debug('Unexpected error for read {}'.format(read_id))
+            LOGGER.debug('Unexpected error for read {}'.format(read_id))
 
     return
 
@@ -338,7 +338,6 @@ def post_process_aggregate(
 def _fill_files_queue(
         read_file_q, fast5s_dir, num_reads, read_ids_fn, recursive, num_ps,
         num_reads_conn):
-    logger = logging.get_logger()
     valid_read_ids = None
     if read_ids_fn is not None:
         with open(read_ids_fn) as read_ids_fp:
@@ -350,7 +349,7 @@ def _fill_files_queue(
         if valid_read_ids is not None and read_id not in valid_read_ids:
             continue
         if read_id in used_read_ids:
-            logger.debug(
+            LOGGER.debug(
                 ('Read ID ({}) found in previous read and will not ' +
                  'process from {}.').format(read_id, fast5_fn))
             continue
@@ -470,8 +469,7 @@ def _get_fail_queue(
 
         return reads_called, unexp_err_fp
 
-    logger = logging.get_logger()
-    logger.info('Processing reads.')
+    LOGGER.info('Processing reads.')
     reads_called, sig_called = 0, 0
     unexp_err_fp = None
     failed_reads = defaultdict(list)
@@ -511,19 +509,19 @@ def _get_fail_queue(
                 q_bar.close()
 
     if len(failed_reads[_UNEXPECTED_ERROR_CODE]) >= 1:
-        logger.warning((
+        LOGGER.warning((
             'Unexpected errors occured. See full ' +
             'error stack traces for first (up to) {0:d} errors in ' +
             '"{1}"').format(_MAX_NUM_UNEXP_ERRORS, unexp_err_fp.name))
     if any(len(fns) > 0 for fns in failed_reads.values()):
-        logger.info(
+        LOGGER.info(
             format_fail_summ(
                 'Unsuccessful processing types:',
                 [(len(fns), err) for err, fns in failed_reads.items()
                  if len(fns) > 0], reads_called))
         # TODO flag to output failed read names to file
     else:
-        logger.info('All reads processed successfully.')
+        LOGGER.info('All reads processed successfully.')
 
     return
 
@@ -537,8 +535,7 @@ def process_all_reads(
         out_dir, bc_fmt, aligner, vars_data, num_ps, num_update_errors,
         suppress_progress, mods_info, db_safety, pr_ref_filts, sig_map_info,
         do_show_qs):
-    logger = logging.get_logger()
-    logger.info('Preparing workers to process reads.')
+    LOGGER.info('Preparing workers to process reads.')
     # read filename queue filler
     # Note no maxsize for this queue to compute total number of reads while
     # also not delaying read processing
@@ -658,14 +655,14 @@ def process_all_reads(
             if out_name in outputs and getter_q.proc.is_alive():
                 getter_q.conn.send(True)
                 if out_name == mh.PR_VAR_NAME:
-                    logger.info(
+                    LOGGER.info(
                         'Waiting for variants database to complete indexing.')
                 elif out_name == mh.PR_MOD_NAME:
-                    logger.info(
+                    LOGGER.info(
                         'Waiting for mods database to complete indexing.')
                 getter_q.proc.join()
     except KeyboardInterrupt:
-        logger.error('Exiting due to keyboard interrupt.')
+        LOGGER.error('Exiting due to keyboard interrupt.')
         sys.exit(1)
 
     return
@@ -676,18 +673,17 @@ def process_all_reads(
 ####################
 
 def aligner_validation(args):
-    logger = logging.get_logger()
     if len(mh.ALIGN_OUTPUTS.intersection(args.outputs)) > 0:
         if args.reference is None:
-            logger.error(
+            LOGGER.error(
                 ('Output(s) requiring reference alignment requested ({}), ' +
                  'but --reference not provided.').format(', '.join(
                     mh.ALIGN_OUTPUTS.intersection(args.outputs))))
             sys.exit(1)
-        logger.info('Loading reference.')
+        LOGGER.info('Loading reference.')
         if not (os.path.exists(args.reference) and
                 os.path.isfile(args.reference)):
-            logger.error('Provided reference file does not exist or is ' +
+            LOGGER.error('Provided reference file does not exist or is ' +
                          'not a file.')
             sys.exit(1)
         aligner = mapping.alignerPlus(
@@ -701,27 +697,26 @@ def aligner_validation(args):
     else:
         aligner = None
         if args.reference is not None:
-            logger.warning(
+            LOGGER.warning(
                 '[--reference] provided, but no [--outputs] requiring ' +
                 'alignment was requested. Argument will be ignored.')
     return aligner
 
 
 def vars_validation(args, is_cat_mod, output_size, aligner):
-    logger = logging.get_logger()
     if mh.WHATSHAP_MAP_NAME in args.outputs and \
        mh.VAR_NAME not in args.outputs:
         args.outputs.append(mh.VAR_NAME)
     if mh.VAR_NAME in args.outputs and mh.PR_VAR_NAME not in args.outputs:
         args.outputs.append(mh.PR_VAR_NAME)
     if mh.PR_VAR_NAME in args.outputs and args.variant_filename is None:
-        logger.error(
+        LOGGER.error(
             '{} output requested, '.format(mh.PR_VAR_NAME) +
             'but --variant-filename not provided.')
         sys.exit(1)
     if mh.PR_VAR_NAME in args.outputs and not (
             is_cat_mod or mh.nstate_to_nbase(output_size) == 4):
-        logger.error(
+        LOGGER.error(
             'Variant calling from naive modified base flip-flop model is ' +
             'not supported.')
         sys.exit(1)
@@ -738,18 +733,17 @@ def vars_validation(args, is_cat_mod, output_size, aligner):
             loc_index_in_memory=not args.variant_locations_on_disk,
             variants_are_atomized=args.variants_are_atomized)
     except mh.MegaError as e:
-        logger.error(str(e))
+        LOGGER.error(str(e))
         sys.exit(1)
     if args.variant_filename is not None and \
        mh.PR_VAR_NAME not in args.outputs:
-        logger.warning(
+        LOGGER.warning(
             '--variants-filename provided, but variants output not ' +
             'requested (via --outputs). Argument will be ignored.')
     return args, vars_data
 
 
 def mods_validation(args, model_info):
-    logger = logging.get_logger()
     if args.refs_include_mods and mh.PR_MOD_NAME not in args.outputs:
         # TODO don't really have to output this data, but have to compute it
         # so sort out how to compute the output but not output it
@@ -757,7 +751,7 @@ def mods_validation(args, model_info):
     if mh.PR_MOD_NAME not in args.outputs and mh.MOD_NAME in args.outputs:
         args.outputs.append(mh.PR_MOD_NAME)
     if mh.PR_MOD_NAME in args.outputs and not model_info.is_cat_mod:
-        logger.error(
+        LOGGER.error(
             '{} output requested, '.format(mh.PR_MOD_NAME) +
             'but model provided is not a categotical modified base model.\n' +
             'Note that modified base calling from naive modified base ' +
@@ -765,17 +759,17 @@ def mods_validation(args, model_info):
         sys.exit(1)
     if model_info.is_cat_mod and mh.PR_MOD_NAME not in args.outputs and \
        mh.BC_MODS_NAME not in args.outputs:
-        logger.warning(
+        LOGGER.warning(
             ('Categorical modifications model provided, but neither {} nor ' +
              '{} requested (via --outputs). Modified base output will not ' +
              'be produced.').format(mh.PR_MOD_NAME, mh.BC_MODS_NAME))
     if args.mod_motif is not None and mh.PR_MOD_NAME not in args.outputs:
-        logger.warning((
+        LOGGER.warning((
             '--mod-motif provided, but {} not requested (via --outputs). ' +
             'Argument will be ignored.').format(mh.PR_MOD_NAME))
         args.mod_motif = None
     if args.refs_include_mods and mh.PR_REF_NAME not in args.outputs:
-        logger.warning((
+        LOGGER.warning((
             '--refs-include-mods provided, but {} not requested ' +
             '(via --outputs). Argument will be ignored.').format(
                 mh.PR_REF_NAME))
@@ -796,30 +790,29 @@ def mods_validation(args, model_info):
 
 
 def parse_pr_ref_output(args):
-    logger = logging.get_logger()
     if args.output_per_read_references:
         args.outputs.append(mh.PR_REF_NAME)
         if args.refs_include_variants and args.refs_include_mods:
-            logger.error('Cannot output both modified base and variants in ' +
+            LOGGER.error('Cannot output both modified base and variants in ' +
                          'per-read references (remove one of ' +
                          '--refs-include-variants or --refs-include-mods).')
             sys.exit(1)
         if args.refs_include_variants and mh.PR_VAR_NAME not in args.outputs:
             args.outputs.append(mh.PR_VAR_NAME)
-            logger.warning('--refs-include-variants set, so adding ' +
+            LOGGER.warning('--refs-include-variants set, so adding ' +
                            'per_read_variants to --outputs.')
         if args.refs_include_mods and mh.PR_MOD_NAME not in args.outputs:
             args.outputs.append(mh.PR_MOD_NAME)
-            logger.warning('--refs-include-mods set, so adding ' +
+            LOGGER.warning('--refs-include-mods set, so adding ' +
                            'per_read_mods to --outputs.')
     else:
         if args.refs_include_variants:
-            logger.warning(
+            LOGGER.warning(
                 '--refs-include-variantss but not ' +
                 '--output-per-read-references set. Ignoring ' +
                 '--refs-include-variants.')
         if args.refs_include_mods:
-            logger.warning(
+            LOGGER.warning(
                 '--refs-include-mods but not --output-per-read-references ' +
                 'set. Ignoring --refs-include-mods.')
     min_len, max_len = (args.refs_length_range
@@ -834,7 +827,6 @@ def parse_pr_ref_output(args):
 
 
 def parse_sig_map_output(args, model_info):
-    logger = logging.get_logger()
     if args.output_signal_mappings:
         from megalodon import signal_mapping
         global signal_mapping
@@ -843,12 +835,12 @@ def parse_sig_map_output(args, model_info):
         args.outputs.append(mh.SIG_MAP_NAME)
         if args.signal_map_include_mods and mh.PR_MOD_NAME not in args.outputs:
             args.outputs.append(mh.PR_MOD_NAME)
-            logger.warning('--signal-map-include-mods set, so adding ' +
+            LOGGER.warning('--signal-map-include-mods set, so adding ' +
                            '"per_read_mods" to --outputs.')
     else:
         sig_map_alphabet = None
         if args.signal_map_include_mods:
-            logger.warning(
+            LOGGER.warning(
                 '--signal-map-include-mods but not --output-signal-mappings ' +
                 'set. Ignoring --signal-map-include-mods.')
     min_len, max_len = (args.signal_map_length_range
@@ -865,10 +857,9 @@ def parse_sig_map_output(args, model_info):
 
 
 def mkdir(out_dir, overwrite):
-    logger = logging.get_logger()
     if os.path.exists(out_dir):
         if not overwrite:
-            logger.error(
+            LOGGER.error(
                 '--output-directory exists and --overwrite is not set.')
             sys.exit(1)
         if os.path.isfile(out_dir) or os.path.islink(out_dir):
@@ -909,20 +900,29 @@ def get_parser():
 
     pyg_grp = parser.add_argument_group('Pyguppy Backend Arguments')
     pyg_grp.add_argument(
+        '--guppy-config', default=backends.DEFAULT_GUPPY_CFG,
+        help='Guppy config. Default: %(default)s')
+    pyg_grp.add_argument(
+        '--guppy-server-path', default=backends.DEFAULT_GUPPY_SERVER_PATH,
+        help='Path to guppy server command. Default: %(default)s')
+    pyg_grp.add_argument(
         '--guppy-server-port', type=int, default=backends.DEFAULT_GUPPY_PORT,
         help='Guppy server port. Default: %(default)d')
 
     pyg_grp.add_argument(
-        '--guppy-server-host', default=backends.DEFAULT_GUPPY_HOST,
-        help=hidden_help('Host for pyguppy server. Default: %(default)s'))
+        '--do-not-use-guppy-server', action='store_true',
+        help=hidden_help('Use alternative basecalling backend (either ' +
+                         'FAST5 --post_out or taiyaki.'))
+    pyg_grp.add_argument(
+        '--guppy-params',
+        help=hidden_help('Extra guppy server parameters. Main purpose for ' +
+                         'optimal performance based on compute environment. ' +
+                         'Quote parameters to avoid them being parsed by ' +
+                         'megalodon.'))
     pyg_grp.add_argument(
         '--guppy-timeout', type=float, default=backends.DEFAULT_GUPPY_TIMEOUT,
         help=hidden_help('Timeout to wait for guppy server to call a single ' +
                          'read in seconds. Default: %(default)f'))
-    pyg_grp.add_argument(
-        '--do-not-use-guppy-server', action='store_true',
-        help=hidden_help('Use alternative basecalling backend (either ' +
-                         'FAST5 --post_out or taiyaki.'))
 
     out_grp = parser.add_argument_group('Output Arguments')
     out_grp.add_argument(
@@ -1101,11 +1101,6 @@ def get_parser():
         help=hidden_help('Chunk length for base calling. ' +
                          'Default: %(default)d'))
     tai_grp.add_argument(
-        '--devices', nargs='+',
-        help=hidden_help('GPU devices for taiyaki basecalling backend ' +
-                         '(--processes will be distributed even over ' +
-                         'specified --devices).'))
-    tai_grp.add_argument(
         '--chunk-overlap', type=int, default=100,
         help=hidden_help('Overlap between chunks to be stitched together. ' +
                          'Default: %(default)d'))
@@ -1176,6 +1171,9 @@ def get_parser():
         '--processes', type=int, default=1,
         help='Number of parallel processes. Default: %(default)d')
     misc_grp.add_argument(
+        '--devices', nargs='+',
+        help='GPU devices for guppy or taiyaki basecalling backends.')
+    misc_grp.add_argument(
         '--verbose-read-progress', type=int, default=3,
         help='Output verbose output on read progress. Outputs N most ' +
         'common points where reads could not be processed further. ' +
@@ -1217,10 +1215,9 @@ def _main():
 
     mkdir(args.output_directory, args.overwrite)
     logging.init_logger(args.output_directory)
-    logger = logging.get_logger()
-    logger.debug('Command: """' + ' '.join(sys.argv) + '"""')
+    LOGGER.debug('Command: """' + ' '.join(sys.argv) + '"""')
     if _DO_PROFILE:
-        logger.warning('Running profiling. This may slow processing.')
+        LOGGER.warning('Running profiling. This may slow processing.')
 
     args, pr_ref_filts = parse_pr_ref_output(args)
 
@@ -1239,6 +1236,7 @@ def _main():
         args.processes, args.verbose_read_progress, args.suppress_progress,
         mods_info, args.database_safety, pr_ref_filts, sig_map_info,
         not args.suppress_queues_status)
+    model_info.close()
 
     if aligner is not None:
         ref_fn = aligner.ref_fn
@@ -1246,12 +1244,12 @@ def _main():
         del aligner
 
     if mh.MAP_NAME in args.outputs:
-        logger.info('Spawning process to sort mappings')
+        LOGGER.info('Spawning process to sort mappings')
         map_p = post_process_mapping(
             args.output_directory, map_out_fmt, ref_fn)
 
     if mh.WHATSHAP_MAP_NAME in args.outputs:
-        logger.info('Spawning process to sort whatshap mappings')
+        LOGGER.info('Spawning process to sort whatshap mappings')
         whatshap_sort_fn, whatshap_p = post_process_whatshap(
             args.output_directory, map_out_fmt, ref_fn)
 
@@ -1262,25 +1260,25 @@ def _main():
             args.write_mod_log_probs, args.suppress_progress)
 
     if mh.VAR_NAME in args.outputs:
-        logger.info('Sorting output variant file')
+        LOGGER.info('Sorting output variant file')
         variant_fn = mh.get_megalodon_fn(args.output_directory, mh.VAR_NAME)
         sort_variant_fn = mh.add_fn_suffix(variant_fn, 'sorted')
         variants.sort_variants(variant_fn, sort_variant_fn)
-        logger.info('Indexing output variant file')
+        LOGGER.info('Indexing output variant file')
         index_variant_fn = variants.index_variants(sort_variant_fn)
 
     if mh.WHATSHAP_MAP_NAME in args.outputs:
         if whatshap_p.is_alive():
-            logger.info('Waiting for whatshap mappings sort')
+            LOGGER.info('Waiting for whatshap mappings sort')
             while whatshap_p.is_alive():
                 sleep(0.001)
-        logger.info(variants.get_whatshap_command(
+        LOGGER.info(variants.get_whatshap_command(
             index_variant_fn, whatshap_sort_fn,
             mh.add_fn_suffix(variant_fn, 'phased')))
 
     if mh.MAP_NAME in args.outputs:
         if map_p.is_alive():
-            logger.info('Waiting for mappings sort')
+            LOGGER.info('Waiting for mappings sort')
             while map_p.is_alive():
                 sleep(0.001)
 

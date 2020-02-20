@@ -5,7 +5,6 @@ from collections import namedtuple
 from abc import ABC, abstractmethod
 from multiprocessing.queues import Queue as mpQueue
 
-import pysam
 import numpy as np
 
 
