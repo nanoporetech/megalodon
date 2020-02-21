@@ -1,8 +1,8 @@
 import os
+import sys
 from glob import glob
 
 import numpy as np
-
 from ont_fast5_api.fast5_interface import get_fast5_file
 
 from megalodon import megalodon_helper as mh
@@ -12,12 +12,14 @@ def iterate_fast5_filenames(input_path, recursive=True):
     if recursive:
         for root, _, fns in os.walk(input_path, followlinks=True):
             for fn in fns:
-                if not fn.endswith('.fast5'): continue
+                if not fn.endswith('.fast5'):
+                    continue
                 yield os.path.join(root, fn)
     else:
         for fn in glob(os.path.join(input_path, '*.fast5')):
             yield fn
     return
+
 
 def iterate_fast5_reads(fast5s_dir, limit=None, recursive=True):
     """Return iterator yielding reads in a directory of fast5 files or a
@@ -40,8 +42,10 @@ def iterate_fast5_reads(fast5s_dir, limit=None, recursive=True):
                     return
     return
 
+
 def get_read(fast5_fn, read_id):
     return get_fast5_file(fast5_fn, mode="r").get_read(read_id)
+
 
 def get_signal(read, scale=True):
     """ Get raw signal from read.
@@ -58,6 +62,7 @@ def get_signal(read, scale=True):
 
     return raw_sig
 
+
 def get_posteriors(read):
     # extract guppy StateData and calls
     latest_basecall = read.get_latest_analysis('Basecall_1D')
@@ -71,14 +76,16 @@ def get_posteriors(read):
             '--post_out were set when running guppy.')
     # convert state data from integers to float values
     posteriors = (state_data.astype(np.float32) + state_attrs['offset']) * \
-                 state_attrs['scale']
+        state_attrs['scale']
 
     return posteriors
+
 
 def get_stride(read):
     latest_basecall = read.get_latest_analysis('Basecall_1D')
     return read.get_summary_data(
         latest_basecall)['basecall_1d_template']['block_stride']
+
 
 def get_mod_base_info(read):
     latest_basecall = read.get_latest_analysis('Basecall_1D')
@@ -90,8 +97,9 @@ def get_mod_base_info(read):
     mod_alphabet = mod_attrs['output_alphabet']
     return mod_base_long_names, mod_alphabet
 
+
 def get_signal_trim_coordiates(read):
-    latest_seg = read.get_latest_analysis('Segmentation')
+    seg_name = read.get_latest_analysis('Segmentation')
     trim_start = read.get_summary_data(seg_name)['segmentation'][
         'first_sample_template']
     trim_len = read.get_summary_data(seg_name)['segmentation'][
