@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
 import os
 import sys
+import argparse
+
+from megalodon import (
+    aggregate, logging, mods, variants, megalodon_helper as mh)
+
+
 # set blas library environment variables (without these the cblas calls
 # can completely halt processing)
 os.environ['OMP_NUM_THREADS'] = '1'
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
-import argparse
-from time import sleep
-
-from megalodon import (
-    aggregate, backends, logging, mapping, mods, variants,
-    megalodon_helper as mh)
+LOGGER = logging.get_logger()
 
 
 def get_parser():
     parser = argparse.ArgumentParser(
-        'Aggregate per-read, per-site statistics from previous megalodon call.')
+        'Aggregate per-read, per-site statistics from previous megalodon ' +
+        'call.')
 
     out_grp = parser.add_argument_group('Output Arguments')
     out_grp.add_argument(
@@ -65,7 +67,7 @@ def get_parser():
         '"--mod-aggregate-method binary_threshold". Default: %(default)s')
     mod_grp.add_argument(
         '--mod-output-formats', nargs='+',
-        default=[mh.MOD_BEDMETHYL_NAME,],
+        default=[mh.MOD_BEDMETHYL_NAME, ],
         choices=tuple(mh.MOD_OUTPUT_FMTS.keys()),
         help='Modified base aggregated output format(s). Default: %(default)s')
     mod_grp.add_argument(
@@ -83,13 +85,13 @@ def get_parser():
 
     return parser
 
+
 def main():
     args = get_parser().parse_args()
     log_suffix = ('aggregation' if args.output_suffix is None else
                   'aggregation.' + args.output_suffix)
     logging.init_logger(args.megalodon_directory, out_suffix=log_suffix)
-    logger = logging.get_logger()
-    logger.debug('Command: """' + ' '.join(sys.argv) + '"""')
+    LOGGER.debug('Command: """' + ' '.join(sys.argv) + '"""')
 
     if args.mod_aggregate_method == mods.EM_NAME:
         mod_agg_info = mods.AGG_INFO(mods.EM_NAME, None)
@@ -108,14 +110,14 @@ def main():
         args.suppress_progress, valid_read_ids, args.output_suffix)
 
     if mh.VAR_NAME in args.outputs:
-        logger.info('Sorting output variant file')
+        LOGGER.info('Sorting output variant file')
         variant_fn = mh.add_fn_suffix(
             mh.get_megalodon_fn(args.megalodon_directory, mh.VAR_NAME),
             args.output_suffix)
         sort_variant_fn = mh.add_fn_suffix(variant_fn, 'sorted')
         variants.sort_variants(variant_fn, sort_variant_fn)
-        logger.info('Indexing output variant file')
-        index_var_fn = variants.index_variants(sort_variant_fn)
+        LOGGER.info('Indexing output variant file')
+        variants.index_variants(sort_variant_fn)
 
     return
 

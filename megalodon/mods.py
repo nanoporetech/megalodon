@@ -26,7 +26,8 @@ DEFAULT_AGG_INFO = AGG_INFO(BIN_THRESH_NAME, None)
 FIXED_VCF_MI = [
     'INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
     'INFO=<ID=SN,Number=1,Type=String,Description="Strand">',
-    'FORMAT=<ID=VALID_DP,Number=1,Type=Integer,Description="Valid Read Depth">',
+    'FORMAT=<ID=VALID_DP,Number=1,Type=Integer,' +
+    'Description="Valid Read Depth">',
 ]
 MOD_MI_TMPLTS = [
     'FORMAT=<ID={0},Number=1,Type=Float,Description=' +
@@ -40,10 +41,12 @@ OUT_BUFFER_LIMIT = 10000
 
 _PROFILE_MODS_QUEUE = False
 
+LOGGER = logging.get_logger()
 
-###################
-##### Mods DB #####
-###################
+
+###########
+# Mods DB #
+###########
 
 class ModsDb(object):
     # note foreign key constraint is not applied here as this
@@ -104,8 +107,7 @@ class ModsDb(object):
 
         if read_only:
             if not os.path.exists(fn):
-                logger = logging.get_logger('mods')
-                logger.error((
+                LOGGER.error((
                     'Modified base per-read database file ({}) does ' +
                     'not exist.').format(fn))
                 raise mh.MegaError('Invalid mods DB filename.')
@@ -237,7 +239,8 @@ class ModsDb(object):
                 (inner loop) combination. To be zipped with
                 get_mod_base_ids_or_insert.
         """
-        if len(r_mod_scores) == 0: return []
+        if len(r_mod_scores) == 0:
+            return []
 
         r_uniq_pos = set(itemgetter(0)(pms) for pms in r_mod_scores)
         if self.pos_idx_in_mem:
@@ -248,7 +251,7 @@ class ModsDb(object):
                 for pos_and_id in self.cur.execute(
                         'SELECT pos, pos_id FROM pos ' +
                         'WHERE pos_chrm=? AND strand=? AND pos=?',
-                        (chrm_id, strand, pos_key)).fetchall())
+                        (chrm_id, strand, pos)).fetchall())
         pos_to_add = tuple(r_uniq_pos.difference(cs_pos_idx))
 
         if len(pos_to_add) > 0:
@@ -291,7 +294,8 @@ class ModsDb(object):
                 (inner loop) combination. To be zipped with
                 get_mod_base_ids_or_insert.
         """
-        if len(r_mod_scores) == 0: return []
+        if len(r_mod_scores) == 0:
+            return []
 
         r_uniq_mod_bases = set(
             (mod_base, motif, motif_pos, raw_motif)
@@ -605,7 +609,6 @@ def call_read_mods(
         return
 
 
-    logger = logging.get_logger('mods')
     # call all mods overlapping this read
     r_mod_scores = []
     # ignore when one or more mod_llrs is -inf (or close enough for exp)
@@ -622,7 +625,7 @@ def call_read_mods(
             except mh.MegaError:
                 ref_pos = (r_ref_pos.start + pos if r_ref_pos.strand == 1 else
                            r_ref_pos.start + len(r_ref_seq) - pos - 1)
-                logger.debug(
+                LOGGER.debug(
                     'Invalid sequence encountered calling modified base ' +
                     'at {}:{}'.format(r_ref_pos.chrm, ref_pos))
                 continue
@@ -700,12 +703,12 @@ def _get_mods_queue(
             mods_db.insert_read_scores(r_mod_scores, read_id, chrm, strand)
         except Exception as e:
             if not been_warned:
-                logger.warning(
+                LOGGER.warning(
                     'Error inserting modified base scores into database. See ' +
                     'log debug output for error details.')
                 been_warned = True
             import traceback
-            logger.debug(
+            LOGGER.debug(
                 'Error inserting modified base scores into database: ' +
                 str(e) + '\n' + traceback.format_exc())
 
@@ -737,7 +740,6 @@ def _get_mods_queue(
         sleep(0.001)
         return
 
-    logger = logging.get_logger('mods')
     been_warned = False
 
     mods_db = ModsDb(mods_db_fn, db_safety=db_safety, read_only=False,
@@ -745,7 +747,7 @@ def _get_mods_queue(
     mods_db.insert_chrms(ref_names_and_lens)
     mods_db.insert_mod_long_names(mod_long_names)
     mods_db.create_chrm_index()
-    logger.debug(('mod_getter: in_mem_indices: chrm: {} pos: {} mods: {} ' +
+    LOGGER.debug(('mod_getter: in_mem_indices: chrm: {} pos: {} mods: {} ' +
                   'uuid: {}').format(
                       mods_db.chrm_idx_in_mem, mods_db.pos_idx_in_mem,
                       mods_db.mod_idx_in_mem, mods_db.uuid_idx_in_mem))
@@ -758,7 +760,7 @@ def _get_mods_queue(
 
     if pr_refs_fn is not None:
         pr_refs_fp = open(pr_refs_fn, 'w')
-    logger.debug('mod_getter: init complete')
+    LOGGER.debug('mod_getter: init complete')
 
     while True:
         try:
@@ -776,7 +778,7 @@ def _get_mods_queue(
                 r_mod_scores,  read_id, chrm, strand, r_start, ref_seq,
                 read_len, q_st, q_en, cigar, been_warned)
         except Exception as e:
-            logger.debug('Error processing mods output for read: ' +
+            LOGGER.debug('Error processing mods output for read: ' +
                          '{}\nError type: {}'.format(read_id, str(e)))
 
     while not mods_q.empty():
@@ -788,7 +790,7 @@ def _get_mods_queue(
                 r_mod_scores,  read_id, chrm, strand, r_start, ref_seq,
                 read_len, q_st, q_en, cigar, been_warned)
         except Exception as e:
-            logger.debug('Error processing mods output for read: ' +
+            LOGGER.debug('Error processing mods output for read: ' +
                          '{}\nError type: {}'.format(read_id, str(e)))
 
     if mods_txt_fp is not None: mods_txt_fp.close()
@@ -885,7 +887,6 @@ class ModInfo(object):
             mod_output_fmts=[mh.MOD_BEDMETHYL_NAME],
             edge_buffer=mh.DEFAULT_EDGE_BUFFER, pos_index_in_memory=True,
             agg_info=DEFAULT_AGG_INFO):
-        logger = logging.get_logger()
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other alphabet info
         # don't want to pass all of these parameters around individually though
@@ -906,17 +907,17 @@ class ModInfo(object):
         self.ncan_base = len(self.alphabet)
         try:
             self.alphabet = self.alphabet.decode()
-        except:
+        except AttributeError:
             pass
         if model_info.is_cat_mod:
             # TODO also output "(alt to C)" for each mod
-            logger.info(
+            LOGGER.info(
                 'Using canonical alphabet {} and modified bases {}.'.format(
                     self.alphabet, ' '.join(
                         '{}={}'.format(*mod_b)
                         for mod_b in model_info.mod_long_names)))
         else:
-            logger.info(
+            LOGGER.info(
                 'Using canonical alphabet {}.'.format(self.alphabet))
 
         self.nbase = len(self.alphabet)

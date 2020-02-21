@@ -72,12 +72,11 @@ def parse_backend_params(args, num_fast5_startup_reads=5):
     # parse taiyaki backend params
     if any(not hasattr(args, k) for k in (
             'chunk_size', 'chunk_overlap', 'max_concurrent_chunks',
-            'load_default_taiyaki_model', 'taiyaki_model_filename',
-            'devices')):
+            'taiyaki_model_filename', 'devices')) or \
+            args.taiyaki_model_filename is None:
         tai_params = TAI_PARAMS(False)
     else:
-        tai_model_fn = mh.get_model_fn(
-            args.taiyaki_model_filename, args.load_default_taiyaki_model)
+        tai_model_fn = mh.resolve_path(args.taiyaki_model_filename)
         if all(param is not None for param in (
                 tai_model_fn, args.chunk_size, args.chunk_overlap,
                 args.max_concurrent_chunks)):

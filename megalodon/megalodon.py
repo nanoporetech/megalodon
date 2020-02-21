@@ -703,7 +703,7 @@ def aligner_validation(args):
     return aligner
 
 
-def vars_validation(args, is_cat_mod, output_size, aligner):
+def vars_validation(args, model_info, aligner):
     if mh.WHATSHAP_MAP_NAME in args.outputs and \
        mh.VAR_NAME not in args.outputs:
         args.outputs.append(mh.VAR_NAME)
@@ -715,13 +715,15 @@ def vars_validation(args, is_cat_mod, output_size, aligner):
             'but --variant-filename not provided.')
         sys.exit(1)
     if mh.PR_VAR_NAME in args.outputs and not (
-            is_cat_mod or mh.nstate_to_nbase(output_size) == 4):
+            model_info.is_cat_mod or
+            mh.nstate_to_nbase(model_info.output_size) == 4):
         LOGGER.error(
             'Variant calling from naive modified base flip-flop model is ' +
             'not supported.')
         sys.exit(1)
     var_calib_fn = mh.get_var_calibration_fn(
-        args.variant_calibration_filename, args.disable_variant_calibration)
+        model_info.params.pyguppy.config, args.variant_calibration_filename,
+        args.disable_variant_calibration)
     try:
         vars_data = variants.VarData(
             args.variant_filename, args.max_indel_size,
@@ -774,7 +776,8 @@ def mods_validation(args, model_info):
             '(via --outputs). Argument will be ignored.').format(
                 mh.PR_REF_NAME))
     mod_calib_fn = mh.get_mod_calibration_fn(
-        args.mod_calibration_filename, args.disable_mod_calibration)
+        model_info.params.pyguppy.config, args.mod_calibration_filename,
+        args.disable_mod_calibration)
     if args.mod_aggregate_method == mods.EM_NAME:
         agg_info = mods.AGG_INFO(mods.EM_NAME, None)
     elif args.mod_aggregate_method == mods.BIN_THRESH_NAME:
@@ -1105,12 +1108,6 @@ def get_parser():
         help=hidden_help('Overlap between chunks to be stitched together. ' +
                          'Default: %(default)d'))
     tai_grp.add_argument(
-        '--load-default-taiyaki-model', action='store_true',
-        help=hidden_help(('Load the default basecalling model included with ' +
-                          'megalodon ({}). Default: Assume guppy --post_out ' +
-                          'FAST5 files as input').format(
-                              mh.MODEL_PRESET_DESC)))
-    tai_grp.add_argument(
         '--max-concurrent-chunks', type=int, default=200,
         help=hidden_help('Only process N chunks concurrently per-read (to ' +
                          'avoid GPU memory errors). Default: %(default)d'))
@@ -1225,8 +1222,7 @@ def _main():
     model_info = backends.ModelInfo(backend_params, args.processes)
     args, mods_info = mods_validation(args, model_info)
     aligner = aligner_validation(args)
-    args, vars_data = vars_validation(
-        args, model_info.is_cat_mod, model_info.output_size, aligner)
+    args, vars_data = vars_validation(args, model_info, aligner)
     args, sig_map_info = parse_sig_map_output(args, model_info)
 
     process_all_reads(
