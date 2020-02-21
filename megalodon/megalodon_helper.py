@@ -61,7 +61,7 @@ STRAND_FIELD_NAME = 'STRAND'
 
 # outputs specification
 BC_NAME = 'basecalls'
-BC_OUT_FMTS = ('fasta',)
+BC_OUT_FMTS = ('fasta', 'fastq')
 BC_MODS_NAME = 'mod_basecalls'
 MAP_NAME = 'mappings'
 MAP_SUMM_NAME = 'mappings_summary'
@@ -93,7 +93,7 @@ OUTPUT_FNS = {
 LOG_FILENAME = 'log.txt'
 # outputs to be selected with command line --outputs argument
 OUTPUT_DESCS = {
-    BC_NAME: 'Called bases (FASTA)',
+    BC_NAME: 'Called bases (FASTA/Q)',
     BC_MODS_NAME: 'Basecall-anchored modified base scores (HDF5)',
     MAP_NAME: 'Mapped reads (BAM/CRAM/SAM)',
     PR_VAR_NAME: 'Per-read, per-site sequence variant scores database',

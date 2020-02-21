@@ -68,7 +68,6 @@ def parse_device(device):
 
 
 def parse_backend_params(args, num_fast5_startup_reads=5):
-    # TOOD try to import high level packages to ensure available
     # parse taiyaki backend params
     if any(not hasattr(args, k) for k in (
             'chunk_size', 'chunk_overlap', 'max_concurrent_chunks',
@@ -105,6 +104,13 @@ def parse_backend_params(args, num_fast5_startup_reads=5):
             bin_path=args.guppy_server_path, port=args.guppy_server_port,
             timeout=args.guppy_timeout, devices=args.devices,
             out_dir=args.output_directory, server_params=args.guppy_params)
+
+    if hasattr(args, 'basecalls_format') and \
+       args.basecalls_format == 'fastq' and \
+       not pyguppy_params.available:
+        LOGGER.warning(
+            'Quality score computation not enabled for taiyaki or FAST5 ' +
+            'backends. Quality scores will be invalid.')
 
     return BACKEND_PARAMS(tai_params, fast5_params, pyguppy_params)
 
@@ -560,8 +566,8 @@ class ModelInfo(object):
                 raw_signal=((trimmed_dacs - scale_params[0]) /
                             scale_params[1]).asttype(np.float32))
 
-        return (called_read.seq, rl_cumsum, can_post, sig_info, post_w_mods,
-                mods_scores)
+        return (called_read.seq, called_read.qual, rl_cumsum, can_post,
+                sig_info, post_w_mods, mods_scores)
 
     def basecall_read(
             self, sig_info, return_post_w_mods=True, return_mod_scores=False,
@@ -614,8 +620,11 @@ class ModelInfo(object):
         # decode posteriors to sequence and per-base mod scores
         r_seq, _, rl_cumsum, mods_scores = decode.decode_post(
             can_post, self.can_alphabet, mod_weights, self.can_nmods)
+        # TODO implement quality extraction for taiyaki and fast5 modes
+        r_qual = None
 
-        return r_seq, rl_cumsum, can_post, sig_info, post_w_mods, mods_scores
+        return (r_seq, r_qual, rl_cumsum, can_post, sig_info, post_w_mods,
+                mods_scores)
 
     def close(self):
         if self.model_type == PYGUPPY_NAME:

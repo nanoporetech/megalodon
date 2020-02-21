@@ -88,13 +88,13 @@ def process_read(
     """ Workhorse per-read megalodon function (connects all the parts)
     """
     # perform basecalling using loaded backend
-    (r_seq, rl_cumsum, can_post, sig_info, post_w_mods,
+    (r_seq, r_qual, rl_cumsum, can_post, sig_info, post_w_mods,
      mods_scores) = model_info.basecall_read(
          sig_info, return_post_w_mods=mods_q is not None,
          return_mod_scores=mods_info.do_output_mods,
          update_sig_info=sig_map_q is not None)
     if bc_q is not None:
-        bc_q.put((sig_info.read_id, r_seq, mods_scores))
+        bc_q.put((sig_info.read_id, r_seq, r_qual, mods_scores))
     # if no mapping connection return after basecalls are passed out
     if caller_conn is None:
         return
@@ -172,7 +172,28 @@ def process_read(
 
 def _get_bc_queue(
         bc_q, bc_conn, out_dir, bc_fmt, do_output_mods, mod_long_names):
+    def write_read(read_id, r_seq, r_qual, mods_scores):
+        if write_fastq:
+            if r_qual is None:
+                r_qual = '!' * len(r_seq)
+            bc_fp.write('@{}\n{}\n+\n{}\n'.format(read_id, r_seq, r_qual))
+        else:
+            bc_fp.write('>{}\n{}\n'.format(read_id, r_seq))
+        bc_fp.flush()
+
+        if do_output_mods:
+            try:
+                mods_fp.create_dataset(
+                    'Reads/' + read_id, data=mods_scores,
+                    compression="gzip")
+            except RuntimeError:
+                # same read_id encountered previously
+                pass
+        return
+
     bc_fp = open(mh.get_megalodon_fn(out_dir, mh.BC_NAME) + '.' + bc_fmt, 'w')
+    write_fastq = bc_fmt == 'fastq'
+    # TODO convert this to writing un-aligned sam with htseq recommended format
     if do_output_mods:
         mods_fp = h5py.File(mh.get_megalodon_fn(out_dir, mh.BC_MODS_NAME))
         mods_fp.create_group('Reads')
@@ -182,18 +203,8 @@ def _get_bc_queue(
 
     while True:
         try:
-            # TODO add quality output to add fastq option
-            read_id, r_seq, mods_scores = bc_q.get(block=False)
-            bc_fp.write('>{}\n{}\n'.format(read_id, r_seq))
-            bc_fp.flush()
-            if do_output_mods:
-                try:
-                    mods_fp.create_dataset(
-                        'Reads/' + read_id, data=mods_scores,
-                        compression="gzip")
-                except RuntimeError:
-                    # same read_id encountered previously
-                    pass
+            read_id, r_seq, r_qual, mods_scores = bc_q.get(block=False)
+            write_read(read_id, r_seq, r_qual, mods_scores)
         except queue.Empty:
             if bc_conn.poll():
                 break
@@ -201,17 +212,8 @@ def _get_bc_queue(
             continue
 
     while not bc_q.empty():
-        read_id, r_seq, mods_scores = bc_q.get(block=False)
-        bc_fp.write('>{}\n{}\n'.format(read_id, r_seq))
-        bc_fp.flush()
-        if do_output_mods:
-            try:
-                mods_fp.create_dataset(
-                    'Reads/' + read_id, data=mods_scores,
-                    compression="gzip")
-            except RuntimeError:
-                # same read_id encountered previously
-                pass
+        read_id, r_seq, r_qual, mods_scores = bc_q.get(block=False)
+        write_read(read_id, r_seq, r_qual, mods_scores)
 
     bc_fp.close()
     if do_output_mods:
