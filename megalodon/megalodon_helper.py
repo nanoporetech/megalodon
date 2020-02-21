@@ -219,6 +219,13 @@ def get_var_calibration_fn(
         guppy_config=None, var_calib_fn=None, disable_var_calib=False):
     if disable_var_calib:
         return None
+    if var_calib_fn is not None:
+        var_calib_fn = resolve_path(var_calib_fn)
+        if not os.path.exists(var_calib_fn):
+            raise MegaError(
+                'Sequence variants calibration file not found: {}'.format(
+                    var_calib_fn))
+        return var_calib_fn
     if guppy_config is not None:
         guppy_calib_fn = resolve_path(pkg_resources.resource_filename(
             'megalodon', os.path.join(
@@ -228,13 +235,6 @@ def get_var_calibration_fn(
                 'No default sequence variant calibration file found for ' +
                 'guppy config: {}'.format(guppy_config))
         return guppy_calib_fn
-    if var_calib_fn is not None:
-        var_calib_fn = resolve_path(var_calib_fn)
-        if not os.path.exists(var_calib_fn):
-            raise MegaError(
-                'Sequence variants calibration file not found: {}'.format(
-                    var_calib_fn))
-        return var_calib_fn
     raise MegaError('No valid sequence variant calibration specified.')
 
 
@@ -242,6 +242,13 @@ def get_mod_calibration_fn(
         guppy_config=None, mod_calib_fn=None, disable_mod_calib=False):
     if disable_mod_calib:
         return None
+    if mod_calib_fn is not None:
+        mod_calib_fn = resolve_path(mod_calib_fn)
+        if not os.path.exists(mod_calib_fn):
+            raise MegaError(
+                'Modified base calibration file not found: {}'.format(
+                    mod_calib_fn))
+        return mod_calib_fn
     if guppy_config is not None:
         guppy_calib_fn = resolve_path(pkg_resources.resource_filename(
             'megalodon', os.path.join(
@@ -251,13 +258,6 @@ def get_mod_calibration_fn(
                 'No default modified base calibration file found for guppy ' +
                 'config: {}'.format(guppy_config))
         return guppy_calib_fn
-    if mod_calib_fn is not None:
-        mod_calib_fn = resolve_path(mod_calib_fn)
-        if not os.path.exists(mod_calib_fn):
-            raise MegaError(
-                'Modified base calibration file not found: {}'.format(
-                    mod_calib_fn))
-        return mod_calib_fn
     raise MegaError('No valid modified base calibration specified.')
 
 

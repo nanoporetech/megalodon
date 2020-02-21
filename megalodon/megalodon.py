@@ -723,7 +723,8 @@ def vars_validation(args, model_info, aligner):
         sys.exit(1)
     var_calib_fn = mh.get_var_calibration_fn(
         model_info.params.pyguppy.config, args.variant_calibration_filename,
-        args.disable_variant_calibration)
+        args.disable_variant_calibration) \
+        if mh.PR_VAR_NAME in args.outputs else None
     try:
         vars_data = variants.VarData(
             args.variant_filename, args.max_indel_size,
@@ -777,7 +778,8 @@ def mods_validation(args, model_info):
                 mh.PR_REF_NAME))
     mod_calib_fn = mh.get_mod_calibration_fn(
         model_info.params.pyguppy.config, args.mod_calibration_filename,
-        args.disable_mod_calibration)
+        args.disable_mod_calibration) \
+        if mh.PR_MOD_NAME in args.outputs else None
     if args.mod_aggregate_method == mods.EM_NAME:
         agg_info = mods.AGG_INFO(mods.EM_NAME, None)
     elif args.mod_aggregate_method == mods.BIN_THRESH_NAME:
@@ -981,8 +983,7 @@ def get_parser():
         '--variant-calibration-filename',
         help='File containing emperical calibration for variant scores. ' +
         'See megalodon/scripts/calibrate_variant_llr_scores.py. Default: ' +
-        'Load default calibration for MinION/GridION R9.4.1 ' +
-        'modbases_dam-dcm-cpg_hac model only.')
+        'Load default calibration for specified guppy config.')
 
     var_grp.add_argument(
         '--context-min-alt-prob', type=float,
@@ -1047,8 +1048,7 @@ def get_parser():
         '--mod-calibration-filename',
         help='File containing emperical calibration for modified base ' +
         'scores.See megalodon/scripts/calibrate_mod_llr_scores.py. Default: ' +
-        'Load default calibration for MinION/GridION R9.4.1 ' +
-        'modbases_dam-dcm-cpg_hac model only.')
+        'Load default calibration for specified guppy config.')
 
     mod_grp.add_argument(
         '--disable-mod-calibration', action='store_true',
@@ -1219,20 +1219,19 @@ def _main():
     args, pr_ref_filts = parse_pr_ref_output(args)
 
     backend_params = backends.parse_backend_params(args)
-    model_info = backends.ModelInfo(backend_params, args.processes)
-    args, mods_info = mods_validation(args, model_info)
-    aligner = aligner_validation(args)
-    args, vars_data = vars_validation(args, model_info, aligner)
-    args, sig_map_info = parse_sig_map_output(args, model_info)
+    with backends.ModelInfo(backend_params, args.processes) as model_info:
+        args, mods_info = mods_validation(args, model_info)
+        aligner = aligner_validation(args)
+        args, vars_data = vars_validation(args, model_info, aligner)
+        args, sig_map_info = parse_sig_map_output(args, model_info)
 
-    process_all_reads(
-        args.fast5s_dir, not args.not_recursive, args.num_reads,
-        args.read_ids_filename, model_info, args.outputs,
-        args.output_directory, args.basecalls_format, aligner, vars_data,
-        args.processes, args.verbose_read_progress, args.suppress_progress,
-        mods_info, args.database_safety, pr_ref_filts, sig_map_info,
-        not args.suppress_queues_status)
-    model_info.close()
+        process_all_reads(
+            args.fast5s_dir, not args.not_recursive, args.num_reads,
+            args.read_ids_filename, model_info, args.outputs,
+            args.output_directory, args.basecalls_format, aligner, vars_data,
+            args.processes, args.verbose_read_progress, args.suppress_progress,
+            mods_info, args.database_safety, pr_ref_filts, sig_map_info,
+            not args.suppress_queues_status)
 
     if aligner is not None:
         ref_fn = aligner.ref_fn

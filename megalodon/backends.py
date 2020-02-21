@@ -113,7 +113,8 @@ def _log_softmax_axis1(x):
     """ Compute log softmax over axis=1
     """
     e_x = np.exp((x.T - np.max(x, axis=1)).T)
-    return np.log((e_x.T / e_x.sum(axis=1)).T)
+    with np.errstate(divide='ignore'):
+        return np.log((e_x.T / e_x.sum(axis=1)).T)
 
 
 class ModelInfo(object):
@@ -322,9 +323,9 @@ class ModelInfo(object):
             if self.params.pyguppy.devices is not None and \
                len(self.params.pyguppy.devices) > 0 and \
                self.params.pyguppy.devices[0] != 'cpu':
-                devices_str = '"{}"'.format(' '.join(
+                devices_str = ' '.join(
                     parse_device(device) for device in
-                    self.params.pyguppy.devices))
+                    self.params.pyguppy.devices)
                 server_args.extend(('-x', devices_str))
             if self.params.pyguppy.server_params is not None:
                 server_args.extend(self.params.pyguppy.server_params.split())
@@ -353,8 +354,8 @@ class ModelInfo(object):
                     state=True, trace=True)
             except (Again, TimeoutError):
                 raise mh.MegaError(
-                    'Cannot connect to guppy server running on port ' +
-                    '{}.'.format(self.params.pyguppy.port))
+                    'Failed to run test read with guppy. See guppy logs in ' +
+                    '--output-directory.')
             init_client.disconnect()
             if init_read.model_type not in COMPAT_GUPPY_MODEL_TYPES:
                 raise mh.MegaError((
@@ -400,8 +401,6 @@ class ModelInfo(object):
             self._load_fast5_post_out()
         else:
             raise mh.MegaError('No basecall model backend enabled.')
-
-        return
 
     @property
     def n_can_state(self):
@@ -623,6 +622,13 @@ class ModelInfo(object):
             self.guppy_server_proc.terminate()
             self.guppy_out_fp.close()
             self.guppy_err_fp.close()
+        return
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.close()
         return
 
 
