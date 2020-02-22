@@ -930,6 +930,10 @@ def get_parser():
         '--guppy-timeout', type=float, default=backends.DEFAULT_GUPPY_TIMEOUT,
         help=hidden_help('Timeout to wait for guppy server to call a single ' +
                          'read in seconds. Default: %(default)f'))
+    pyg_grp.add_argument(
+        '--list-supported-guppy-configs', action='store_true',
+        help=hidden_help('List guppy configs with sequence variant and ' +
+                         '(if applicable) modified base support.'))
 
     out_grp = parser.add_argument_group('Output Arguments')
     out_grp.add_argument(
@@ -1211,6 +1215,9 @@ def get_parser():
 
 def _main():
     args = get_parser().parse_args()
+    if args.list_supported_guppy_configs:
+        print('\n' + mh.get_supported_configs_message())
+        sys.exit()
 
     mkdir(args.output_directory, args.overwrite)
     logging.init_logger(args.output_directory)

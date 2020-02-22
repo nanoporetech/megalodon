@@ -261,6 +261,27 @@ def get_mod_calibration_fn(
     raise MegaError('No valid modified base calibration specified.')
 
 
+def get_supported_configs_message():
+    configs = os.listdir(resolve_path(pkg_resources.resource_filename(
+        'megalodon', MODEL_DATA_DIR_NAME)))
+    if len(configs) == 0:
+        return ('No guppy config calibration files found. Check that ' +
+                'megalodon installation is valid.')
+    out_msg = ('Megalodon support for guppy configs (basecalling and ' +
+               'mapping supported for flip-flop configs):\n' +
+               'Variant Support    Modbase Support    Config\n')
+    for config in configs:
+        config_files = os.listdir(resolve_path(
+            pkg_resources.resource_filename('megalodon', os.path.join(
+                MODEL_DATA_DIR_NAME, config))))
+        out_msg += 'X' + ' ' * 18 if VAR_CALIBRATION_FN in config_files else \
+                   ' ' * 19
+        out_msg += 'X' + ' ' * 18 if MOD_CALIBRATION_FN in config_files else \
+                   ' ' * 19
+        out_msg += config + '\n'
+    return out_msg
+
+
 ###########################
 # Multi-processing Helper #
 ###########################

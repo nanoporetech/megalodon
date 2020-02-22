@@ -7,42 +7,40 @@ Megalodon
 """""""""
 
 Megalodon is a research tool for per-read and aggregated modified base and sequence variant calling by anchoring the information rich basecalling neural network output to a reference genome/transriptome.
-Megalodon takes raw nanopore reads as input and produces multiple outputs, primarily including basecalls (FASTA), reference mappings (SAM/BAM/CRAM), sequence variant calls (per-read and VCF) and modified base calls (per-read and bedgraph/bedmethyl/VCF).
+Megalodon takes raw nanopore reads as input and produces multiple outputs, primarily including basecalls (FASTA/Q), reference mappings (SAM/BAM/CRAM), sequence variant calls (per-read and VCF) and modified base calls (per-read and bedgraph/bedmethyl/modVCF).
 
 Detailed documentation for all ``megalodon`` arguments and algorithms can be found on the `megalodon documentation page <https://nanoporetech.github.io/megalodon/>`_.
 
 Prerequisites
 -------------
 
-Megalodon requires ``numpy`` to be installed before running megalodon installation command (install with ``pip install numpy``).
+As of version 2.0, the primary megalodon run mode requires the guppy basecaller.
+See the `community page for download/installation instructions <https://community.nanoporetech.com/downloads>`_.
 
-As of version 1.0.0, megalodon can be run directly on FAST5 files output by guppy (requires ``--fast5_out`` and ``--post_out`` flags).
-Using guppy FAST5 input, megalodon requires no other prerequisites (aside from those automatically installed by ``pip``).
-
-In order to run megalodon directly from raw (un-basecalled) FAST5 files, `taiyaki <https://github.com/nanoporetech/taiyaki>`_ is currently required.
-Megalodon requires only a minimal taiyaki installation via ``pip install git+https://github.com/nanoporetech/taiyaki.git``.
-Full ``taiyaki`` installation (via ``make install``) is not necessary for megalodon functionality, but makes GPU configuration (via ``pytorch``) more painless.
+All other requirements are handled by ``pip`` or ``conda`` installation.
+If installing from source, ``numpy`` must be installed before running installation for cython optimizations.
 
 .. note::
 
-   The two currently implemented basecalling backends (``guppy`` and ``taiyaki``) have a number of advantages and disadvantages.
-   ``Guppy`` is computationally faster but requires disk storage of the neural network outputs (~10 times increase over raw reads).
-   The ``guppy`` backend should be chosen if speed is important and a sufficient amount of temporary fast disk space is available.
-   The ``taiyaki`` basecalling backend is computationally slower than ``guppy`` (usually 5-10 times) but requires storing only the minimal outputs on disk.
-   For very advanced users, the ``taiyaki`` backend is also extensible to any ``taiyaki`` flip-flop model architecture while ``guppy`` only supports a set of optimized basecalling model architectures.
+   Taiyaki installation is no longer required to run most megalodon functionality.
+   Only the taiyaki basecalling backend and mapped signal output (for basecall model training) require a taiyaki installation.
 
 Installation
 ------------
 
 ::
 
-   pip install numpy cython
-   pip install git+https://github.com/nanoporetech/megalodon.git
+   pip install megalodon
+   # or
+   conda install megalodon
 
 Getting Started
 ---------------
 
 Megalodon is accessed via the command line interface ``megalodon`` command.
+The path to the ``guppy_basecall_server`` command is required to run megalodon.
+By default megalodon assumes this path is ``./ont-guppy/bin/guppy_basecall_server``.
+Use ``--guppy-server-path`` to specify a different path.
 
 ::
 
@@ -53,28 +51,24 @@ Megalodon is accessed via the command line interface ``megalodon`` command.
 
     # Example commands calling variants and CpG methylation
     #   Compute settings: GPU devices 0 and 1 with 10 CPU cores
-
-    # Using taiyaki backend
     megalodon raw_fast5s/ \
-        --load-default-model --outputs basecalls mappings variants mods \
-        --reference reference.fa --variant-filename variants.vcf.gz \
-        --mod-motif Z CG 0 --devices 0 1 --processes 10 --verbose-read-progress 3
-
-    # Using guppy backend
-    ont-guppy/bin/guppy_basecaller \
-        -i raw_fast5s/ -s basecalled_fast5s/ \
-        -c ont-guppy/data/dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg \
-       --post_out --fast5_out --device cuda:0 --num_callers 10
-    megalodon basecalled_fast5s/ \
         --outputs basecalls mappings variants mods \
         --reference reference.fa --variant-filename variants.vcf.gz \
-        --mod-motif Z CG 0 --devices 0 1 --processes 10 --verbose-read-progress 3
+        --mod-motif Z CG 0 --devices 0 1 --processes 40 --verbose-read-progress 3
 
 This command produces the ``megalodon_results`` output directory containing basecalls, mappings, sequence variants and modified base results.
-The format for each output is described below and in more detail on the `documentation page <https://nanoporetech.github.io/megalodon/>`_
+The format for each output is described below and in more detail in the `full documentation <https://nanoporetech.github.io/megalodon/>`_
+
+
+TOOD possibly reformat to separate model and guppy parameter issues.
 
 .. note::
 
+   By default megalodon uses the ``dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg`` config.
+   Use the ``--guppy-config`` option to specify a different guppy model config.
+   Only flip-flop models are currently supported by megalodon.
+   Sequence variant and modified base outputs require megalodon calibration files
+   ``--list-supported-guppy-configs``
    The default basecalling model (used in this example command) is for R9.4.1, MinION/GridION reads.
    This model contains modified bases 5mC (encoded as a ``Z`` base) and 6mA (encoded as a ``Y`` base) trained in biological contexts only (5mC in human CpG and E. coli CCWGG and 6mA in E. coli GATC).
 
@@ -151,24 +145,6 @@ This pipeline is described in detail on the `full documentation page <https://na
 The default diploid variant settings are optimized for this full phasing pipeline and not for direct validation at this point.
 This includes overcalling heterozygous sites in order to accurately phase as many variants as possible via whatshap.
 Thus validation of the direct diploid variant calling results will likely show overcalling of heterozygous sites.
-
-Taiyaki-backend Computing
--------------------------
-
-Megalodon processes reads from a queue using a pool of workers.
-The number of workers is set using the ``--processes`` argument.
-Each process is linked to a taiyaki basecalling backend and a separate thread for reference mapping.
-The threaded mapping interface allows megalodon to load the reference into shared memory (via `mappy <https://github.com/lh3/minimap2/tree/master/python>`_).
-
-In order to use GPU resources set the ``--devices`` argument.
-If ``--devices`` is set, the taiyaki backends will be distribured evenly over the specified ``--devices``.
-In order to control the GPU memory usage, the ``--max-concurrent-chunks`` argument allows a user to restrict the maximum number of chunks to process concurrently (per ``--process``).
-Note that the model parameters must be loaded into each GPU process (default high accuracy model consumes ~1GB of GPU memory) and thus limits the number of processes that can be spawned per GPU device.
-
-The ``--chunk-size`` and ``--chunk-overlap`` arguments allow users to specify read chunking, but signal normalization is always carried out over the entire read.
-
-A number of helper processes will be spawned in order to perform more minor tasks, which should take minimal compute resources.
-These include enumerating read ids and files, collecting and reporting progress information and getting data from read processing queues and writing outputs (basecalls, mappings, sequence variants and modified bases).
 
 Disk Performance Considerations
 *******************************
