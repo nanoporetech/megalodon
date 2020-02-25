@@ -149,6 +149,8 @@ Thus validation of the direct diploid variant calling results will likely show o
 Disk Performance Considerations
 *******************************
 
+TODO add note about queue status bars.
+
 Within megalodon, per-read modified base and variant statistics are stored in an on-disk sqlite database.
 During read processing per-read, per-site statistics are funneled through a single thread to handle the database input.
 If the requested compute resources are not being utililized to their fullest extent during read processing slow disk write is the most likely bottleneck.
@@ -162,13 +164,7 @@ Moving the database location from a remote or network file system to a local fas
 Model Compatibility
 -------------------
 
-The model and calibration files included with megalodon are applicable only to MinION or GridION R9.4.1 flowcells.
-New models trained with taiyaki can be used with megalodon, but in order to obtain the highest performance the megalodon (variant and modified base) calibration files should be reproduced for any new model.
-
-The default model included with megalodon provides 5mC and 6mA detection.
-5mC was trained only in the human (CpG) and E. coli (CCWGG) contexts while the 6mA was trained only on the E. coli (GATC) context.
-Modified base detection outside of these contexts has not been tested and may produce sub-optimal results.
-As noted above newly trained models using taiyaki can be used with megalodon, but calibration files should be reproduced for each new model.
+TODO update for guppy calibration files
 
 RNA
 ---
@@ -179,7 +175,7 @@ This support can be accessed within the ``rna`` code branch (access via ``git cl
 Licence and Copyright
 ---------------------
 
-|copy| 2019 Oxford Nanopore Technologies Ltd.
+|copy| 2019-20 Oxford Nanopore Technologies Ltd.
 
 .. |copy| unicode:: 0xA9 .. copyright sign
 
