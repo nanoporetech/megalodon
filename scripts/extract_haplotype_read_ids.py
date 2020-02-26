@@ -2,6 +2,7 @@ import argparse
 
 import pysam
 
+
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -10,6 +11,7 @@ def get_parser():
         'out_basename', help='Basename for read ids output.')
 
     return parser
+
 
 def main():
     args = get_parser().parse_args()

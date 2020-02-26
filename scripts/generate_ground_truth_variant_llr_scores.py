@@ -51,7 +51,7 @@ def call_variant(
     pos_alt_seq = np.concatenate([
         pos_ref_seq[:pos_bb], mh.seq_to_int(var_alt_seq),
         pos_ref_seq[pos_bb + len(var_ref_seq):]])
-    blk_start  = rl_cumsum[r_to_q_poss[r_var_pos - pos_bb]]
+    blk_start = rl_cumsum[r_to_q_poss[r_var_pos - pos_bb]]
     blk_end = rl_cumsum[r_to_q_poss[r_var_pos + pos_ab] + 1]
 
     if blk_end - blk_start < max(len(pos_ref_seq), len(pos_alt_seq)):
@@ -65,6 +65,7 @@ def call_variant(
 
     return loc_ref_score - loc_alt_score
 
+
 def call_alt_true_indel(
         indel_size, r_var_pos, true_ref_seq, r_seq, map_thr_buf, context_bases,
         r_post, rl_cumsum, all_paths):
@@ -72,7 +73,6 @@ def call_alt_true_indel(
         return next(mappy.Aligner(
             seq=false_ref_seq, preset=str('map-ont'), best_n=1).map(
                 str(r_seq), buf=map_thr_buf))
-
 
     if indel_size == 0:
         false_base = choice(
@@ -108,8 +108,8 @@ def call_alt_true_indel(
         raise mh.MegaError('Indel mapped read mapped to reverse strand.')
 
     r_to_q_poss = mapping.parse_cigar(r_algn.cigar, r_algn.strand)
-    if (r_algn.r_st > r_var_pos - context_bases[1] or
-        r_algn.r_en < r_var_pos + context_bases[1]):
+    if r_algn.r_st > r_var_pos - context_bases[1] or \
+       r_algn.r_en < r_var_pos + context_bases[1]:
         raise mh.MegaError('Indel mapped read clipped variant position.')
 
     post_mapped_start = rl_cumsum[r_algn.q_st]
@@ -117,10 +117,11 @@ def call_alt_true_indel(
         r_algn.q_st:r_algn.q_en + 1] - post_mapped_start
 
     score = call_variant(
-        r_post, post_mapped_start, r_var_pos, rl_cumsum, r_to_q_poss,
+        r_post, post_mapped_start, r_var_pos, mapped_rl_cumsum, r_to_q_poss,
         var_ref_seq, var_alt_seq, context_bases, all_paths, ref_seq=r_ref_seq)
 
     return score, var_ref_seq, var_alt_seq
+
 
 def process_read(
         raw_sig, read_id, model_info, caller_conn, map_thr_buf, do_false_ref,
@@ -233,6 +234,7 @@ def process_read(
 
     return read_var_calls
 
+
 def _process_reads_worker(
         fast5_q, var_calls_q, caller_conn, model_info, device, do_false_ref):
     model_info.prep_model_worker(device)
@@ -262,8 +264,10 @@ def _process_reads_worker(
 
     return
 
+
 if _DO_PROFILE:
     _process_reads_wrapper = _process_reads_worker
+
     def _process_reads_worker(*args):
         import cProfile
         cProfile.runctx('_process_reads_wrapper(*args)', globals(), locals(),
@@ -308,7 +312,7 @@ def _get_variant_calls(
                 out_fp.write('{}\t{}\t{}\t{}\n'.format(*var_call))
             out_fp.flush()
         else:
-            err_types[str(e)] += 1
+            err_types[read_var_calls] += 1
         if not suppress_progress:
             bar.update(1)
     out_fp.close()
@@ -325,8 +329,8 @@ def _get_variant_calls(
 
 
 def process_all_reads(
-        fast5s_dir, num_reads, read_ids_fn, model_info, aligner, num_ps, out_fn,
-        suppress_progress, do_false_ref):
+        fast5s_dir, num_reads, read_ids_fn, model_info, aligner, num_ps,
+        out_fn, suppress_progress, do_false_ref):
     sys.stderr.write('Preparing workers and calling reads.\n')
     # read filename queue filler
     fast5_q = mp.Queue()
@@ -438,6 +442,7 @@ def get_parser():
 
     return parser
 
+
 def main():
     args = get_parser().parse_args()
 
@@ -454,6 +459,7 @@ def main():
         args.compute_false_reference_scores)
 
     return
+
 
 if __name__ == '__main__':
     main()

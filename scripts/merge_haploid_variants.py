@@ -42,6 +42,7 @@ def get_parser():
 
     return parser
 
+
 def are_same_var(v0, v1, v2):
     if v1 is None or v2 is None:
         return False
@@ -52,10 +53,12 @@ def are_same_var(v0, v1, v2):
             all((v0i == v1i == v2i)
                 for v0i, v1i, v2i in zip(v0.alts, v1.alts, v2.alts)))
 
+
 def parse_qual(qual):
     if qual is None:
         return 0
     return int(qual)
+
 
 def compute_diploid_stats(gl1, gl2):
     probs, gts = [], []
@@ -89,6 +92,7 @@ def compute_diploid_stats(gl1, gl2):
 
     return gt, gq, gl, pl, qual
 
+
 def write_var(curr_v0_rec, curr_v1_rec, curr_v2_rec, out_vars, contig):
     s0_attrs = next(iter(curr_v0_rec.samples.values()))
     gt0, gq0, gl0, pl0, dp = (
@@ -117,7 +121,8 @@ def write_var(curr_v0_rec, curr_v1_rec, curr_v2_rec, out_vars, contig):
         gt = '{}|{}'.format(*gt0)
         gq, gl, pl = gq0, gl0, pl0
 
-    if rid is None: rid = '.'
+    if rid is None:
+        rid = '.'
     qual = '.' if qual == 0 else '{:d}'.format(qual)
     gl_fmt = ','.join('{:.2f}' for _ in range(len(gl))).format(*gl)
     pl_fmt = ','.join('{:.0f}' for _ in range(len(pl))).format(*pl)
@@ -126,6 +131,7 @@ def write_var(curr_v0_rec, curr_v1_rec, curr_v2_rec, out_vars, contig):
         gt=gt, gq=gq, gl=gl_fmt, pl=pl_fmt))
 
     return
+
 
 def iter_contig_vars(vars0_contig_iter, vars1_contig_iter, vars2_contig_iter):
     def next_or_none(vars_iter):
@@ -138,15 +144,14 @@ def iter_contig_vars(vars0_contig_iter, vars1_contig_iter, vars2_contig_iter):
         return var.pos, var.ref, var.alts
 
     def get_pos_vars(curr_recs, next_rec, vars_iter, v0_vars=None):
-        if (v0_vars is not None and
-            list(v0_vars.keys())[0][0] < list(curr_recs.keys())[0][0]):
+        if v0_vars is not None and \
+           list(v0_vars.keys())[0][0] < list(curr_recs.keys())[0][0]:
             return curr_recs, next_rec
         while (next_rec is not None and
                next_rec.pos == list(curr_recs.keys())[0][0]):
             curr_recs[get_uniq_pos(next_rec)] = next_rec
             next_rec = next_or_none(vars_iter)
         return curr_recs, next_rec
-
 
     first_v0_rec = next_or_none(vars0_contig_iter)
     first_v1_rec = next_or_none(vars1_contig_iter)
@@ -169,27 +174,28 @@ def iter_contig_vars(vars0_contig_iter, vars1_contig_iter, vars2_contig_iter):
         curr_v2_recs, next_v2_rec = get_pos_vars(
             curr_v2_recs, next_v2_rec, vars2_contig_iter, curr_v0_recs)
         for pos in set(curr_v0_recs).union(curr_v1_recs).union(curr_v2_recs):
-            if pos not in curr_v0_recs: continue
+            if pos not in curr_v0_recs:
+                continue
             yield (curr_v0_recs[pos],
                    curr_v1_recs[pos] if pos in curr_v1_recs else None,
                    curr_v2_recs[pos] if pos in curr_v2_recs else None)
         curr_v0_recs = (
             dict([(get_uniq_pos(next_v0_rec), next_v0_rec)])
-            if next_v0_rec is not None else {(-1,):None})
+            if next_v0_rec is not None else {(-1, ): None})
         curr_v1_recs = (
             dict([(get_uniq_pos(next_v1_rec), next_v1_rec)])
-            if next_v1_rec is not None else {(-1,):None})
+            if next_v1_rec is not None else {(-1, ): None})
         curr_v2_recs = (
             dict([(get_uniq_pos(next_v2_rec), next_v2_rec)])
-            if next_v2_rec is not None else {(-1,):None})
+            if next_v2_rec is not None else {(-1, ): None})
 
     for pos in set(curr_v0_recs).union(curr_v1_recs).union(curr_v2_recs):
-        if pos not in curr_v0_recs: continue
+        if pos not in curr_v0_recs:
+            continue
         yield (curr_v0_recs[pos],
                curr_v1_recs[pos] if pos in curr_v1_recs else None,
                curr_v2_recs[pos] if pos in curr_v2_recs else None)
 
-    return
 
 def main():
     args = get_parser().parse_args()
@@ -216,14 +222,13 @@ def main():
                 iter(vars0_idx.fetch(contig)),
                 iter(vars1_idx.fetch(contig)),
                 iter(vars2_idx.fetch(contig))):
-            if curr_v0_rec is None: continue
+            if curr_v0_rec is None:
+                continue
             write_var(curr_v0_rec, curr_v1_rec, curr_v2_rec, out_vars, contig)
 
     out_vars.close()
 
-    index_var_fn = variants.index_variants(args.out_vcf)
-
-    return
+    variants.index_variants(args.out_vcf)
 
 
 if __name__ == '__main__':

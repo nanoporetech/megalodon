@@ -1,5 +1,4 @@
 import re
-import sys
 import argparse
 from collections import OrderedDict
 
@@ -15,8 +14,8 @@ INFO_PAT = re.compile('([^;=]+)(?:=([^;]+))?')
 
 def get_parser():
     parser = argparse.ArgumentParser(
-        description= 'Consolidate variants including filtering out reference ' +
-        'variants and calling overlapping variants.')
+        description='Consolidate variants including filtering out ' +
+        'reference variants and calling overlapping variants.')
     parser.add_argument(
         'variants',
         help='Megalodon called variant file. Must contain GL sample field.')
@@ -33,8 +32,9 @@ def get_parser():
         help='Minimum depth to include a variant. Default: No depth filter')
     parser.add_argument(
         '--trim-variants', action='store_true',
-        help='Trim extra padding sequence included by megalodon (e.g. around ' +
-        'repeat-region indels). Default: Output as found in input variants.')
+        help='Trim extra padding sequence included by megalodon (e.g. ' +
+        'around repeat-region indels). Default: Output as found in input ' +
+        'variants.')
 
     ssv_grp = parser.add_argument_group('Strand-specific Variant Arguments')
     ssv_grp.add_argument(
@@ -90,12 +90,12 @@ class Variant(object):
     @property
     def hp_len(self):
         return np.max([np.max(np.diff(np.concatenate([
-            [-1,],
+            [-1, ],
             np.where(np.array([
                 b1 != b2 for b1, b2 in
                 zip(allele_seq[:-1], allele_seq[1:])]))[0],
-            [len(allele_seq) - 1,]])))
-                       for allele_seq in [self.ref,] + self.alts])
+            [len(allele_seq) - 1, ]])))
+                       for allele_seq in [self.ref, ] + self.alts])
 
     @property
     def do_output(self):
@@ -114,7 +114,7 @@ class Variant(object):
     @staticmethod
     def generate_gts(ploidy, num_alleles):
         if ploidy == 1:
-            return [[a,] for a in range(num_alleles)]
+            return [[a, ] for a in range(num_alleles)]
         assert ploidy == 2, ('Cannot process variants with ploidy ' +
                              'greater than 2.')
         gts = []
@@ -131,7 +131,8 @@ class Variant(object):
         """ Select most likely variant allele
         """
         gt = GT_PAT.search(self.sample['GT'])
-        if gt is None: raise mh.MegaError('Invalid genotype: {}'.format(
+        if gt is None:
+            raise mh.MegaError('Invalid genotype: {}'.format(
                 self.sample['GT']))
         gt = gt.groupdict()
         ploidy = 1 if gt['a2'] is None else 2
@@ -187,11 +188,12 @@ class Variant(object):
         return
 
     def write_variant(self, out_fp):
-        if self.do_trim_var: self.trim_variant()
+        if self.do_trim_var:
+            self.trim_variant()
         out_fp.write('\t'.join(map(str, (
             self.chrm, self.start, self.id, self.ref, ','.join(self.alts),
             self.qual, self.filt,
-            ';'.join((self.info[k] if v is None else '{}={}'.format(k,v)
+            ';'.join((self.info[k] if v is None else '{}={}'.format(k, v)
                       for k, v in self.info.items())), self.raw_fmt,
             ':'.join((v for v in self.sample.values()))))) + '\n')
 
@@ -245,7 +247,8 @@ def main():
     header = next(vars_iter)
     if rev_vars is not None:
         header += ('##INFO=<ID={},Number=1,Type=String,Description' +
-                   '="Variant Evidence Strand">\n').format(mh.STRAND_FIELD_NAME)
+                   '="Variant Evidence Strand">\n').format(
+                       mh.STRAND_FIELD_NAME)
     out_fp.write(header)
     for var in vars_iter:
         # output non-overlapping variants from reverse strand
@@ -256,12 +259,13 @@ def main():
             next_rev_var = next(rev_vars)
         if next_rev_var is None or var.end < next_rev_var.start:
             # non-overlapping
-            if rev_vars is not None: var.set_strand('1')
+            if rev_vars is not None:
+                var.set_strand('1')
             var.write_variant(out_fp)
         else:
             # overlapping variants from strands
-            if (not args.exclude_both_strand_homopolymers and
-                var.hp_len >= args.homopolymer_min_length):
+            if not args.exclude_both_strand_homopolymers and \
+               var.hp_len >= args.homopolymer_min_length:
                 # note don't set strand here as evidence is from both strands
                 var.write_variant(out_fp)
             if rev_vars is not None:

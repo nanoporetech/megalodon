@@ -21,6 +21,7 @@ def get_parser():
 
     return parser
 
+
 def main():
     args = get_parser().parse_args()
 
@@ -41,7 +42,7 @@ def main():
             loc_id = out_vars_db.get_loc_id_or_insert(
                 chrm_id, test_start, test_end, pos, ref_seq, var_name)
             alt_id = out_vars_db.get_alt_id_or_insert(alt_seq)
-            read_id =  out_vars_db.get_read_id_or_insert(uuid)
+            read_id = out_vars_db.get_read_id_or_insert(uuid)
             out_vars_db.insert_data(score, loc_id, alt_id, read_id)
 
     if out_vars_db.chrm_idx_in_mem:
@@ -53,7 +54,6 @@ def main():
     out_vars_db.create_data_covering_index()
     out_vars_db.close()
 
-    return
 
 if __name__ == '__main__':
     main()
