@@ -51,6 +51,11 @@ def compute_mod_sites_stats(
                 np.where(~motif_m_dat['is_mod'])[0],
                 num_unmod - num_mod, replace=False)] = False
             motif_m_dat = motif_m_dat[bal_idx]
+    if motif_m_dat.shape[0] == 0:
+        sys.stderr.write((
+            'Balancing removed all sites (num_mod: {}    ' +
+            'num_can: {}).\n').format(num_mod, num_unmod))
+        return
     if VERBOSE:
         sys.stderr.write(
             'Computing PR/ROC for {} in {} at {}\n'.format(
