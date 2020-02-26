@@ -434,7 +434,7 @@ def prep_errors_bar(
 def _get_fail_queue(
         failed_reads_q, f_conn, getter_num_reads_conn, num_update_errors,
         suppress_progress, do_show_qs, getter_qs):
-    def update_prog(reads_called, sig_called, unexp_err_fp):
+    def update_prog(reads_called, sig_called, unexp_err_fp, read_called=True):
         if is_err:
             failed_reads[err_type].append(fast5_fn)
             if err_type == _UNEXPECTED_ERROR_CODE:
@@ -461,7 +461,8 @@ def _get_fail_queue(
                     for q_name, q_bar in q_bars.items():
                         q_bar.n = getter_qs[q_name].queue.qsize()
                         q_bar.refresh()
-                bar.update(1)
+                if read_called:
+                    bar.update(1)
                 if num_update_errors > 0:
                     bar.write(prog_prefix + format_fail_summ(
                         bar_header,
@@ -504,7 +505,7 @@ def _get_fail_queue(
             while any(getter_qs[q_name].queue.qsize() > 0
                       for q_name in q_bars.keys()):
                 reads_called, unexp_err_fp = update_prog(
-                    reads_called, 0, unexp_err_fp)
+                    reads_called, 0, unexp_err_fp, False)
         bar.close()
         if q_bars is not None:
             for q_bar in q_bars.values():
