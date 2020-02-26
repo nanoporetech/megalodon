@@ -1,21 +1,20 @@
-import os
 import sys
 import argparse
 import numpy as np
 import pandas as pd
 
 import matplotlib
-if sys.platform == 'darwin':
-    matplotlib.use("TkAgg")
 import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
-
 from sklearn.metrics import (
     roc_curve, auc, precision_recall_curve, average_precision_score)
 
 from megalodon import megalodon_helper as mh
 
+
+if sys.platform == 'darwin':
+    matplotlib.use("TkAgg")
 
 VERBOSE = False
 
@@ -28,10 +27,6 @@ BC_GRIDSIZE = 1000
 BC_LEGEND_LABEL = 'Sample'
 BC_SAMPLE_NAME = 'Sample'
 BC_CONTROL_NAME = 'Control'
-
-#BC_LEGEND_LABEL = 'Model'
-#BC_SAMPLE_NAME = 'Categorical\nModified Bases\nFlip-Flop'
-#BC_CONTROL_NAME = '"High Accuracy"\nFlip-flop'
 
 
 def compute_mod_sites_stats(
@@ -56,7 +51,8 @@ def compute_mod_sites_stats(
                 np.where(~motif_m_dat['is_mod'])[0],
                 num_unmod - num_mod, replace=False)] = False
             motif_m_dat = motif_m_dat[bal_idx]
-    if VERBOSE: sys.stderr.write(
+    if VERBOSE:
+        sys.stderr.write(
             'Computing PR/ROC for {} in {} at {}\n'.format(
                 mod_base, motif, v_name))
     # compute roc and presicion recall
@@ -82,7 +78,8 @@ def compute_mod_sites_stats(
             mod_base, motif, v_name, optim_f1, optim_thresh, avg_prcn, roc_auc,
             sum(motif_m_dat['is_mod']), sum(~motif_m_dat['is_mod'])))
 
-    if VERBOSE: sys.stderr.write('Plotting {} in {} at {}\n'.format(
+    if VERBOSE:
+        sys.stderr.write('Plotting {} in {} at {}\n'.format(
             mod_base, motif, v_name))
     plt.figure(figsize=(11, 7))
     sns.kdeplot(motif_m_dat[motif_m_dat['is_mod']]['llr'],
@@ -91,7 +88,7 @@ def compute_mod_sites_stats(
     sns.kdeplot(motif_m_dat[~motif_m_dat['is_mod']]['llr'],
                 shade=True, bw=MOD_BANDWIDTH, gridsize=MOD_GRIDSIZE,
                 label='No')
-    plt.legend(prop={'size':16}, title='Is Modified?')
+    plt.legend(prop={'size': 16}, title='Is Modified?')
     plt.xlabel('Log Likelihood Ratio\nLess Modified <--> More Modified')
     plt.ylabel('Density')
     plt.title('Modified Base: {}\tMotif: {}\tSites: {}'.format(
@@ -120,10 +117,12 @@ def compute_mod_sites_stats(
                'auc={:0.2f}').format(mod_base, motif, v_name, roc_auc))
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
-    return
+
 
 def report_mod_metrics(
         m_dat, args, out_fp, pdf_fp, valid_sites, balance_classes):
+    if VERBOSE:
+        sys.stderr.write('Computing modified base metrics\n')
     # cap -inf log probs to lowest other value
     mod_is_ninf = np.isneginf(m_dat['mod_log_prob'])
     m_dat.loc[mod_is_ninf, 'mod_log_prob'] = np.min(
@@ -148,10 +147,10 @@ def report_mod_metrics(
                 filt_m_dat, motif, mod_base, v_name, out_fp, pdf_fp,
                 balance_classes)
 
-    return
 
 def merge_mods_data(mod_dat, ctrl_dat, gt_dat, mod_chrm_sw):
-    if VERBOSE: sys.stderr.write('Merging modified base data\n')
+    if VERBOSE:
+        sys.stderr.write('Merging modified base data\n')
     # merge scores with known mod sites
     if ctrl_dat is not None:
         mod_dat['is_mod'] = np.full(mod_dat.shape[0], True)
@@ -166,8 +165,10 @@ def merge_mods_data(mod_dat, ctrl_dat, gt_dat, mod_chrm_sw):
 
     return m_dat
 
+
 def plot_acc(mod_acc, ctrl_acc, mod_parsim_acc, ctrl_parsim_acc, pdf_fp):
-    if VERBOSE: sys.stderr.write('Plotting mapping accuracy distribution(s)\n')
+    if VERBOSE:
+        sys.stderr.write('Plotting mapping accuracy distribution(s)\n')
     plt.figure(figsize=(11, 7))
     sns.kdeplot(mod_acc, shade=True,
                 bw=BC_BANDWIDTH, gridsize=BC_GRIDSIZE, label=BC_SAMPLE_NAME)
@@ -175,7 +176,7 @@ def plot_acc(mod_acc, ctrl_acc, mod_parsim_acc, ctrl_parsim_acc, pdf_fp):
         sns.kdeplot(ctrl_acc, shade=True,
                     bw=BC_BANDWIDTH, gridsize=BC_GRIDSIZE,
                     label=BC_CONTROL_NAME)
-    plt.legend(prop={'size':16}, title=BC_LEGEND_LABEL)
+    plt.legend(prop={'size': 16}, title=BC_LEGEND_LABEL)
     plt.xlabel('Mapping Accuracy')
     plt.ylabel('Density')
     plt.title('Mapping Accuracy')
@@ -190,7 +191,7 @@ def plot_acc(mod_acc, ctrl_acc, mod_parsim_acc, ctrl_parsim_acc, pdf_fp):
         sns.kdeplot(ctrl_parsim_acc, shade=True,
                     bw=BC_BANDWIDTH, gridsize=BC_GRIDSIZE,
                     label=BC_CONTROL_NAME)
-    plt.legend(prop={'size':16}, title=BC_LEGEND_LABEL)
+    plt.legend(prop={'size': 16}, title=BC_LEGEND_LABEL)
     plt.xlabel('Mapping Accuracy')
     plt.ylabel('Density')
     plt.title('Mapping Accuracy (Parsimonious: match - ins / ref_len)')
@@ -198,15 +199,14 @@ def plot_acc(mod_acc, ctrl_acc, mod_parsim_acc, ctrl_parsim_acc, pdf_fp):
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
 
-    return
 
 def report_acc_metrics(res_dir, out_fp):
     try:
         bc_dat = pd.read_csv(mh.get_megalodon_fn(res_dir, mh.MAP_SUMM_NAME),
                              sep='\t')
         bc_acc = bc_dat['pct_identity']
-        parsim_acc = 100 * (bc_dat['num_match'] - bc_dat['num_ins']) / \
-                     (bc_dat['num_align'] - bc_dat['num_ins'])
+        parsim_acc = (100 * (bc_dat['num_match'] - bc_dat['num_ins']) /
+                      (bc_dat['num_align'] - bc_dat['num_ins']))
         mean_bc_acc = np.mean(bc_acc)
         med_bc_acc = np.median(bc_acc)
         # crude mode by rounding to 1 decimal
@@ -219,39 +219,55 @@ def report_acc_metrics(res_dir, out_fp):
                                     mode_bc_acc, bc_dat.shape[0]))
     except FileNotFoundError:
         bc_acc = parsim_acc = None
-        if VERBOSE: sys.stderr.write(
+        if VERBOSE:
+            sys.stderr.write(
                 'WARNING: Mappings not found for {}\n'.format(res_dir))
 
     return bc_acc, parsim_acc
 
-def parse_mod_data(args, out_fp):
-    if VERBOSE: sys.stderr.write('Reading megalodon data\n')
-    mod_acc, parsim_acc = report_acc_metrics(args.megalodon_results_dir, out_fp)
+
+def parse_mod_data(args, out_fp, all_valid_sites):
+    if VERBOSE:
+        sys.stderr.write('Reading megalodon data\n')
+    mod_acc, parsim_acc = report_acc_metrics(
+        args.megalodon_results_dir, out_fp)
 
     try:
         mod_dat = pd.read_csv(
             mh.get_megalodon_fn(args.megalodon_results_dir,
                                 mh.PR_MOD_TXT_NAME), sep='\t')
+        if all_valid_sites is not None:
+            # filter to valid sites
+            mod_idx = mod_dat.set_index(['chrm', 'pos']).index
+            mod_dat = mod_dat[mod_idx.isin(all_valid_sites)]
+
     except FileNotFoundError:
         mod_dat = None
 
     return mod_dat, mod_acc, parsim_acc
 
-def parse_control_mods(args, out_fp):
+
+def parse_control_mods(args, out_fp, all_valid_sites):
     ctrl_acc = ctrl_parsim_acc = ctrl_dat = gt_dat = mod_chrm_sw = None
     if args.control_megalodon_results_dir is not None:
-        if VERBOSE: sys.stderr.write('Reading control mods data\n')
+        if VERBOSE:
+            sys.stderr.write('Reading control mods data\n')
         ctrl_acc, ctrl_parsim_acc = report_acc_metrics(
             args.control_megalodon_results_dir, out_fp)
         try:
             ctrl_dat = pd.read_csv(
                 mh.get_megalodon_fn(args.control_megalodon_results_dir,
                                     mh.PR_MOD_TXT_NAME), sep='\t')
+            if all_valid_sites is not None:
+                # filter to valid sites
+                ctrl_idx = ctrl_dat.set_index(['chrm', 'pos']).index
+                ctrl_dat = ctrl_dat[ctrl_idx.isin(all_valid_sites)]
         except FileNotFoundError:
             ctrl_dat = None
 
     elif args.ground_truth_data is not None:
-        if VERBOSE: sys.stderr.write('Reading ground truth data\n')
+        if VERBOSE:
+            sys.stderr.write('Reading ground truth data\n')
         gt_dat = pd.read_csv(
             args.ground_truth_data, header=None,
             names=['chrm', 'pos', 'is_mod'])
@@ -263,10 +279,12 @@ def parse_control_mods(args, out_fp):
 
     return ctrl_acc, ctrl_parsim_acc, ctrl_dat, gt_dat, mod_chrm_sw
 
+
 def parse_valid_sites(valid_sites_arg):
     if valid_sites_arg is None:
-        return [('', None),]
-    if VERBOSE: sys.stderr.write('Reading valid sites data\n')
+        return None, None
+    if VERBOSE:
+        sys.stderr.write('Reading valid sites data\n')
     valid_sites = []
     for name, valid_sites_fn in valid_sites_arg:
         try:
@@ -278,15 +296,22 @@ def parse_valid_sites(valid_sites_arg):
             print('Could not find valid sites file: {}'.format(valid_sites_fn))
             continue
     if len(valid_sites) == 0:
-        return [('', None),]
-    return valid_sites
+        return None, None
+    # create set of all valid sites
+    all_valid_sites = valid_sites[0][1].copy()
+    if len(valid_sites) > 1:
+        all_valid_sites = all_valid_sites.append(
+            list(zip(*valid_sites[1:]))[1])
+    return valid_sites, all_valid_sites
+
 
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         'megalodon_results_dir',
-        help='Output directory from megalodon with mappings and per_read_mods ' +
-        'in outputs. Must have --write-mods-text set for mods validation.')
+        help='Output directory from megalodon with mappings and ' +
+        'per_read_mods in outputs. Must have --write-mods-text set for ' +
+        'mods validation.')
     parser.add_argument(
         '--control-megalodon-results-dir',
         help='Megalodon output directory with modified base control sample.')
@@ -318,38 +343,43 @@ def get_parser():
 
     return parser
 
+
 def main():
     args = get_parser().parse_args()
     global VERBOSE
     VERBOSE = not args.quiet
     pdf_fp = PdfPages(args.out_pdf)
-    out_fp = sys.stdout if args.out_filename is None else \
-             open(args.out_filename, 'w')
-    valid_sites = parse_valid_sites(args.valid_sites)
+    out_fp = (sys.stdout if args.out_filename is None else
+              open(args.out_filename, 'w'))
+    valid_sites, all_valid_sites = parse_valid_sites(args.valid_sites)
 
     out_fp.write('Mapping metrics: Median Alignment Accuracy :: ' +
                  'Mean Alignment Accuracy :: Mode Alignment Accuracy :: ' +
                  'Num. of Mapped Reads\n')
-    mod_dat, mod_acc, mod_parsim_acc = parse_mod_data(args, out_fp)
+    mod_dat, mod_acc, mod_parsim_acc = parse_mod_data(
+        args, out_fp, all_valid_sites)
 
     ctrl_acc, ctrl_parsim_acc, ctrl_dat, gt_dat, mod_chrm_sw \
-        = parse_control_mods(args, out_fp)
+        = parse_control_mods(args, out_fp, all_valid_sites)
     if mod_acc is not None:
         plot_acc(mod_acc, ctrl_acc, mod_parsim_acc, ctrl_parsim_acc, pdf_fp)
     # could just compute mapping metrics
     if mod_dat is None or all(d is None for d in (
             ctrl_dat, gt_dat, mod_chrm_sw)):
         pdf_fp.close()
-        if out_fp is not sys.stdout: out_fp.close()
+        if out_fp is not sys.stdout:
+            out_fp.close()
         return
     m_dat = merge_mods_data(mod_dat, ctrl_dat, gt_dat, mod_chrm_sw)
     report_mod_metrics(
         m_dat, args, out_fp, pdf_fp, valid_sites,
         not args.allow_unbalance_classes)
     pdf_fp.close()
-    if out_fp is not sys.stdout: out_fp.close()
+    if out_fp is not sys.stdout:
+        out_fp.close()
 
     return
+
 
 if __name__ == '__main__':
     main()
