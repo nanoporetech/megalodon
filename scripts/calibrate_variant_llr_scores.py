@@ -4,14 +4,16 @@ import argparse
 from collections import defaultdict
 
 import matplotlib
-if sys.platform == 'darwin':
-    matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
 import numpy as np
 
 from megalodon import calibration
+
+
+if sys.platform == 'darwin':
+    matplotlib.use("TkAgg")
 
 
 def plot_calib(
@@ -40,6 +42,7 @@ def plot_calib(
     plt.close()
     return
 
+
 def extract_llrs(llr_fn, max_indel_len=None):
     snp_ref_llrs, ins_ref_llrs, del_ref_llrs = (
         defaultdict(list) for _ in range(3))
@@ -47,10 +50,12 @@ def extract_llrs(llr_fn, max_indel_len=None):
         for line in llr_fp:
             is_ref_correct, llr, ref_seq, alt_seq = line.split()
             llr = float(llr)
-            if is_ref_correct != 'True': continue
-            if np.isnan(llr): continue
-            if (max_indel_len is not None and
-                np.abs(len(ref_seq) - len(alt_seq)) > max_indel_len):
+            if is_ref_correct != 'True':
+                continue
+            if np.isnan(llr):
+                continue
+            if max_indel_len is not None and \
+               np.abs(len(ref_seq) - len(alt_seq)) > max_indel_len:
                 continue
             if len(ref_seq) == 1 and len(alt_seq) == 1:
                 snp_ref_llrs[(ref_seq, alt_seq)].append(llr)
@@ -73,10 +78,10 @@ def prep_out(out_fn, overwrite):
     try:
         open(out_fn, 'w').close()
         os.remove(out_fn)
-    except:
+    except Exception:
         sys.stderr.write(
-            '*' * 60 + '\nERROR: Attempt to write to --out-filename location ' +
-            'failed with the following error.\n' + '*' * 60 + '\n\n')
+            '*' * 60 + '\nERROR: Attempt to write to --out-filename ' +
+            'location failed with the following error.\n' + '*' * 60 + '\n\n')
         raise
 
     return
@@ -98,7 +103,8 @@ def get_parser():
         help='Number of discrete calibration values to compute. ' +
         'Default: %(default)d')
     parser.add_argument(
-        '--smooth-bandwidth', type=float, default=calibration.DEFAULT_SMOOTH_BW,
+        '--smooth-bandwidth', type=float,
+        default=calibration.DEFAULT_SMOOTH_BW,
         help='Smoothing bandwidth. Default: %(default)f')
     parser.add_argument(
         '--min-density', type=float, default=calibration.DEFAULT_MIN_DENSITY,
@@ -155,7 +161,8 @@ def main():
                 args.min_density, pdf_fp is not None)
         snp_calibs[(ref_seq, alt_seq)] = (snp_calib, snp_llr_range)
         if pdf_fp is not None:
-            plot_calib(pdf_fp, 'SNP: ' + ref_seq + ' -> ' + alt_seq, *plot_data)
+            plot_calib(pdf_fp, 'SNP: ' + ref_seq + ' -> ' + alt_seq,
+                       *plot_data)
     sys.stderr.write('Computing deletion calibration.\n')
     del_calibs = {}
     for del_len, del_llrs in sorted(del_ref_llrs.items()):

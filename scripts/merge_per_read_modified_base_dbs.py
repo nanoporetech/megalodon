@@ -22,6 +22,7 @@ def get_parser():
 
     return parser
 
+
 def main():
     args = get_parser().parse_args()
 
@@ -42,7 +43,7 @@ def main():
             pos_id = out_mods_db.get_pos_id_or_insert(chrm_id, strand, pos)
             mod_base_id = out_mods_db.get_mod_base_id_or_insert(
                 mod_base, motif, motif_pos, raw_motif)
-            read_id =  out_mods_db.get_read_id_or_insert(uuid)
+            read_id = out_mods_db.get_read_id_or_insert(uuid)
             out_mods_db.insert_data(score, pos_id, mod_base_id, read_id)
 
     if out_mods_db.chrm_idx_in_mem:
@@ -54,7 +55,6 @@ def main():
     out_mods_db.create_data_covering_index()
     out_mods_db.close()
 
-    return
 
 if __name__ == '__main__':
     main()

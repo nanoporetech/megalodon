@@ -4,14 +4,16 @@ import argparse
 from collections import defaultdict
 
 import matplotlib
-if sys.platform == 'darwin':
-    matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
 import numpy as np
 
 from megalodon import calibration
+
+
+if sys.platform == 'darwin':
+    matplotlib.use("TkAgg")
 
 
 def plot_calib(
@@ -40,13 +42,15 @@ def plot_calib(
     plt.close()
     return
 
+
 def extract_llrs(llr_fn):
     mod_base_llrs = defaultdict(lambda: ([], []))
     with open(llr_fn) as llr_fp:
         for line in llr_fp:
             is_mod, llr, mod_base = line.split()
             llr = float(llr)
-            if np.isnan(llr): continue
+            if np.isnan(llr):
+                continue
             if is_mod == 'True':
                 mod_base_llrs[mod_base][0].append(llr)
             else:
@@ -65,10 +69,10 @@ def prep_out(out_fn, overwrite):
     try:
         open(out_fn, 'w').close()
         os.remove(out_fn)
-    except:
+    except Exception:
         sys.stderr.write(
-            '*' * 60 + '\nERROR: Attempt to write to --out-filename location ' +
-            'failed with the following error.\n' + '*' * 60 + '\n\n')
+            '*' * 60 + '\nERROR: Attempt to write to --out-filename ' +
+            'location failed with the following error.\n' + '*' * 60 + '\n\n')
         raise
 
     return
@@ -90,7 +94,8 @@ def get_parser():
         help='Number of discrete calibration values to compute. ' +
         'Default: %(default)d')
     parser.add_argument(
-        '--smooth-bandwidth', type=float, default=calibration.DEFAULT_SMOOTH_BW,
+        '--smooth-bandwidth', type=float,
+        default=calibration.DEFAULT_SMOOTH_BW,
         help='Smoothing bandwidth. Default: %(default)f')
     parser.add_argument(
         '--min-density', type=float, default=calibration.DEFAULT_MIN_DENSITY,
@@ -132,7 +137,8 @@ def main():
         save_kwargs[mod_base + '_calibration_table'] = mod_calib
         if pdf_fp is not None:
             plot_calib(pdf_fp, mod_base, *plot_data)
-    if pdf_fp is not None: pdf_fp.close()
+    if pdf_fp is not None:
+        pdf_fp.close()
 
     # save calibration table for reading into mod calibration table
     sys.stderr.write('Saving calibrations to file.\n')
