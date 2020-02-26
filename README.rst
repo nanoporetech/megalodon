@@ -7,7 +7,7 @@ Megalodon
 """""""""
 
 Megalodon is a research tool to extract high accuracy modified base and sequence variant calls from raw nanopore reads by anchoring the information rich basecalling neural network output to a reference genome/transriptome.
-Raw nanopore reads are processed to produce multiple outputs, primarily including basecalls (FASTA/Q), reference mappings (SAM/BAM/CRAM), sequence variant calls (per-read and VCF) and modified base calls (per-read and bedgraph/bedmethyl/modVCF).
+Raw nanopore reads are processed by a single command to produce basecalls (FASTA/Q), reference mappings (SAM/BAM/CRAM), sequence variant calls (per-read and VCF) and modified base calls (per-read and bedgraph/bedmethyl/modVCF).
 
 Detailed documentation for all ``megalodon`` arguments and algorithms can be found on the `megalodon documentation page <https://nanoporetech.github.io/megalodon/>`_.
 
@@ -22,11 +22,13 @@ If installing from source, ``numpy`` must be installed before running installati
 
 .. note::
 
-   Taiyaki installation is no longer required to run most megalodon functionality.
-   Only the taiyaki basecalling backend and mapped signal output (for basecall model training) require a taiyaki installation.
+   `Taiyaki <https://github.com/nanoporetech/taiyaki>`_ installation is only required to output mapped signal files (for basecall models training) or to run the taiyaki basecalling backend (for neural network designs including experimental layers).
 
 Installation
 ------------
+
+Megalodon is a command line tool.
+``pip`` and ``conda`` are the recommended installation interfaces for megalodon.
 
 ::
 
@@ -38,9 +40,9 @@ Getting Started
 ---------------
 
 Megalodon is accessed via the command line interface ``megalodon`` command.
-The path to the ``guppy_basecall_server`` command is required to run megalodon.
-By default megalodon assumes this path is ``./ont-guppy/bin/guppy_basecall_server``.
-Use ``--guppy-server-path`` to specify a different path.
+The path to the ``guppy_basecall_server`` executable is required to run megalodon.
+By default, megalodon assumes this path is ``./ont-guppy/bin/guppy_basecall_server``.
+Use the ``--guppy-server-path`` argument to specify a different path.
 
 ::
 
@@ -49,28 +51,16 @@ Use ``--guppy-server-path`` to specify a different path.
     # megalodon help (all args)
     megalodon --help-long
 
-    # Example commands calling variants and CpG methylation
-    #   Compute settings: GPU devices 0 and 1 with 10 CPU cores
+    # Example command to output basecalls, mappings, variants and CpG methylation
+    #   Compute settings: GPU devices 0 and 1 with 40 CPU cores
     megalodon raw_fast5s/ \
         --outputs basecalls mappings variants mods \
         --reference reference.fa --variant-filename variants.vcf.gz \
-        --mod-motif Z CG 0 --devices 0 1 --processes 40 --verbose-read-progress 3
+        --mod-motif Z CG 0 --devices 0 1 --processes 40 \
+        --verbose-read-progress 3
 
-This command produces the ``megalodon_results`` output directory containing basecalls, mappings, sequence variants and modified base results.
-The format for each output is described below and in more detail in the `full documentation <https://nanoporetech.github.io/megalodon/>`_
-
-
-TOOD possibly reformat to separate model and guppy parameter issues.
-
-.. note::
-
-   By default megalodon uses the ``dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg`` config.
-   Use the ``--guppy-config`` option to specify a different guppy model config.
-   Only flip-flop models are currently supported by megalodon.
-   Sequence variant and modified base outputs require megalodon calibration files
-   ``--list-supported-guppy-configs``
-   The default basecalling model (used in this example command) is for R9.4.1, MinION/GridION reads.
-   This model contains modified bases 5mC (encoded as a ``Z`` base) and 6mA (encoded as a ``Y`` base) trained in biological contexts only (5mC in human CpG and E. coli CCWGG and 6mA in E. coli GATC).
+This command produces the ``megalodon_results`` output directory containing all requested output files and logs.
+The format for each output is described briefly below and in more detail in the `full documentation <https://nanoporetech.github.io/megalodon/>`_
 
 Inputs
 ------
@@ -78,10 +68,10 @@ Inputs
 - Raw reads
 
   - Directory containing raw read FAST5 files
-  - By default the directory will be searched recursively for read files (ending in ``.fast5``)
+  - By default, the directory will be searched recursively for read files (ending in ``.fast5``)
 - Reference
 
-  - Genome or transcriptome sequence reference file in FASTA format (minimap2 index may be provided instead)
+  - Genome or transcriptome sequence reference (FASTA or minimap2 index)
 - Variants File
 
   - Format: VCF or BCF
@@ -100,9 +90,7 @@ All megalodon outputs are output into the directory specified with the ``--outpu
 
 - Basecalls
 
-  - Format: FASTA
-
-    - FASTQ format output is not currently available
+  - Format: FASTA/Q
   - Basecall-anchored modified base scores are also available (via HDF5 output)
 - Mappings
 
@@ -136,6 +124,27 @@ All megalodon outputs are output into the directory specified with the ``--outpu
     - VCF sample field contains ``GT``, ``GQ``, ``DP``, ``GL``, and ``PL`` attributes
     - Default run mode is diploid. To run in haploid mode, set ``--haploid`` flag.
     - For best results on a diploid genome see the variant phasing workflow on the `full documentation page <https://nanoporetech.github.io/megalodon/variant_phasing.html>`_.
+
+Guppy Models and Parameters
+---------------------------
+
+By default, megalodon uses the ``dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg`` guppy config.
+This config is compatible with DNA, R9.4.1, MinION/GridION reads and allows output of 5mC and 6mA calls in biological contexts (CpG, dcm and dam sites).
+Use the ``--guppy-config`` option to specify a different guppy model config.
+
+All configs can be used to output basecalls and mappings (as well as signal mapping files for basecall training; see ``--output-signal-mappings`` in ``--help-long``).
+Modified base and sequence variant outputs require megalodon calibration files.
+To list configs with default calibration files, run ``megalodon --list-supported-guppy-configs``.
+
+Only flip-flop configs/models are currently supported by megalodon (this excludes k-mer based and RLE model types).
+
+In addition to the ``--guppy-config`` and ``--guppy-server-path`` options, a number of additional arguments control the behavior of the guppy backend.
+An alternative server port can be specified with the ``--guppy-server-port`` argument (useful when multiple megalodon/guppy_server are active on the same machine).
+The ``--guppy-params`` argument will pass arguments directly to the ``guppy_basecall_server`` initialization call.
+These arguments must be valid arguments for the provided guppy server executable.
+For example to optimize GPU usage for an nvidia V100 GPU, the following option might be specified: ``--guppy-parmas "--num_callers 5 --ipc_threads 6"``
+
+Finally the ``--guppy-timeout`` arguments ensures that a run will not stall on a small number of reads taking a very long time (default 5 seconds).
 
 High Quality Phased Variant Calls
 ---------------------------------

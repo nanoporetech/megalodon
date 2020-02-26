@@ -202,9 +202,9 @@ def _get_map_queue(
             elif op == 1:
                 nins += op_len
         # compute alignment stats
-        summ_fp.write('{}\t{:.2f}\t{}\t{}\t{}\t{}\t{:.2f}\n'.format(
+        summ_fp.write('{}\t{:.2f}\t{}\t{}\t{}\t{}\t{:.2f}\t{}\n'.format(
             read_id, 100 * nmatch / float(nalign), nalign, nmatch, ndel, nins,
-            (q_en - q_st) * 100 / float(bc_len)))
+            (q_en - q_st) * 100 / float(bc_len), chrm))
         summ_fp.flush()
 
         return
@@ -225,7 +225,7 @@ def _get_map_queue(
 
     summ_fp = open(mh.get_megalodon_fn(out_dir, mh.MAP_SUMM_NAME), 'w')
     summ_fp.write('read_id\tpct_identity\tnum_align\tnum_match\t' +
-                  'num_del\tnum_ins\tread_pct_coverage\n')
+                  'num_del\tnum_ins\tread_pct_coverage\tchrom\n')
 
     map_fp = open_alignment_out_file(
         out_dir, map_fmt, ref_names_and_lens, ref_fn)
