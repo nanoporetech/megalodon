@@ -30,9 +30,8 @@ BC_CONTROL_NAME = 'Control'
 
 
 def compute_mod_sites_stats(
-        m_dat, motif, mod_base, v_name, out_fp, pdf_fp, balance_classes):
-    motif_m_dat = m_dat[(m_dat['motif'] == motif) &
-                        (m_dat['mod_base'] == mod_base)]
+        m_dat, mod_base, v_name, out_fp, pdf_fp, balance_classes):
+    motif_m_dat = m_dat[m_dat['mod_base'] == mod_base]
     if motif_m_dat.shape[0] == 0:
         # motif/mod_base can conflict with valid sites
         return
@@ -58,8 +57,7 @@ def compute_mod_sites_stats(
         return
     if VERBOSE:
         sys.stderr.write(
-            'Computing PR/ROC for {} in {} at {}\n'.format(
-                mod_base, motif, v_name))
+            'Computing PR/ROC for {} at {}\n'.format(mod_base, v_name))
     # compute roc and presicion recall
     precision, recall, thresh = precision_recall_curve(
         motif_m_dat['is_mod'], motif_m_dat['llr'])
@@ -78,14 +76,13 @@ def compute_mod_sites_stats(
     roc_auc = auc(fpr, tpr)
 
     out_fp.write((
-        'Modified base metrics for {} in {} at {}:\t{:.6f} (at {:.4f} )\t' +
+        'Modified base metrics for {} at {}:\t{:.6f} (at {:.4f} )\t' +
         '{:.6f}\t{:.6f}\t{}\t{}\n').format(
-            mod_base, motif, v_name, optim_f1, optim_thresh, avg_prcn, roc_auc,
+            mod_base, v_name, optim_f1, optim_thresh, avg_prcn, roc_auc,
             sum(motif_m_dat['is_mod']), sum(~motif_m_dat['is_mod'])))
 
     if VERBOSE:
-        sys.stderr.write('Plotting {} in {} at {}\n'.format(
-            mod_base, motif, v_name))
+        sys.stderr.write('Plotting {} at {}\n'.format(mod_base, v_name))
     plt.figure(figsize=(11, 7))
     sns.kdeplot(motif_m_dat[motif_m_dat['is_mod']]['llr'],
                 shade=True, bw=MOD_BANDWIDTH, gridsize=MOD_GRIDSIZE,
@@ -96,8 +93,7 @@ def compute_mod_sites_stats(
     plt.legend(prop={'size': 16}, title='Is Modified?')
     plt.xlabel('Log Likelihood Ratio\nLess Modified <--> More Modified')
     plt.ylabel('Density')
-    plt.title('Modified Base: {}\tMotif: {}\tSites: {}'.format(
-        mod_base, motif, v_name))
+    plt.title('Modified Base: {}\tSites: {}'.format(mod_base, v_name))
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
 
@@ -107,8 +103,8 @@ def compute_mod_sites_stats(
     plt.xlim([-0.05, 1.05])
     plt.xlabel('Recall')
     plt.ylabel('Precision')
-    plt.title(('Modified Base: {}\tMotif: {}\tSites: {}\tPrecision-Recall ' +
-               'curve: AP={:0.2f}').format(mod_base, motif, v_name, avg_prcn))
+    plt.title(('Modified Base: {}\tSites: {}\tPrecision-Recall ' +
+               'curve: AP={:0.2f}').format(mod_base, v_name, avg_prcn))
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
 
@@ -118,8 +114,8 @@ def compute_mod_sites_stats(
     plt.ylim([-0.05, 1.05])
     plt.xlabel('False Positive Rate')
     plt.ylabel('True Positive Rate')
-    plt.title(('Modified Base: {}\tMotif: {}\tSites: {}\tROC curve: ' +
-               'auc={:0.2f}').format(mod_base, motif, v_name, roc_auc))
+    plt.title(('Modified Base: {}\tSites: {}\tROC curve: ' +
+               'auc={:0.2f}').format(mod_base, v_name, roc_auc))
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
 
@@ -136,10 +132,8 @@ def report_mod_metrics(
     m_dat.loc[can_is_ninf, 'can_log_prob'] = np.min(
         m_dat['can_log_prob'][~can_is_ninf])
     m_dat['llr'] = m_dat['mod_log_prob'] - m_dat['can_log_prob']
-    uniq_grps = m_dat.groupby(['mod_base', 'motif']).size().reset_index()
-
-    if valid_sites is not None:
-        m_idx = m_dat.set_index(['chrm', 'pos']).index
+    uniq_mod_bases = m_dat.groupby(['mod_base', ]).size().reset_index()
+    m_idx = m_dat.set_index(['chrm', 'pos']).index
 
     out_fp.write('Modified Base Metrics: Optimal F1 :: Optimal Threshold :: ' +
                  'Average Precision :: ROC AUC :: Num. Modified Sites :: ' +
@@ -147,10 +141,9 @@ def report_mod_metrics(
     for v_name, valid_sites_i in valid_sites:
         filt_m_dat = m_dat if valid_sites_i is None else m_dat[
             m_idx.isin(valid_sites_i)]
-        for mod_base, motif in zip(uniq_grps.mod_base, uniq_grps.motif):
+        for mod_base in uniq_mod_bases.mod_base:
             compute_mod_sites_stats(
-                filt_m_dat, motif, mod_base, v_name, out_fp, pdf_fp,
-                balance_classes)
+                filt_m_dat, mod_base, v_name, out_fp, pdf_fp, balance_classes)
 
 
 def merge_mods_data(mod_dat, ctrl_dat, gt_dat, mod_chrm_sw):
@@ -287,7 +280,7 @@ def parse_control_mods(args, out_fp, all_valid_sites):
 
 def parse_valid_sites(valid_sites_arg):
     if valid_sites_arg is None:
-        return None, None
+        return [('all_sites', None), ], None
     if VERBOSE:
         sys.stderr.write('Reading valid sites data\n')
     valid_sites = []
@@ -301,7 +294,7 @@ def parse_valid_sites(valid_sites_arg):
             print('Could not find valid sites file: {}'.format(valid_sites_fn))
             continue
     if len(valid_sites) == 0:
-        return None, None
+        return [('all_sites', None), ], None
     # create set of all valid sites
     all_valid_sites = valid_sites[0][1].copy()
     if len(valid_sites) > 1:
