@@ -8,8 +8,8 @@ This page describes the output file formats produced by ``megalodon``.
 Base Calling
 ------------
 
-Basecalling produces only FASTA format output at this time.
-Basecalls will be output into the ``basecalls.fasta`` file within the ``--output-directory``.
+Basecalling produces either FASTQ or FASTA formats.
+Basecalls will be output into the ``basecalls.fastq`` or ``basecalls.fasta`` file within the ``--output-directory``.
 
 Basecall anchored modified base calls are output into a custom HDF5 format (similar to the guppy output format descibed on the community page).
 The HDF5 format contains a single dataset, ``mod_long_names`` at the root level which contains the modified base long names as described in the model used for calling.

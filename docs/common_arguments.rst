@@ -12,34 +12,25 @@ Required Argument
   - Both single and multi FAST5 formats are supported.
   - Default searches recursively for fast5 read files. To search only one-level specify `--not-recursive`.
 
---------------
-Model Argument
---------------
+----------------------
+Guppy Backend Argument
+----------------------
 
-- ``--taiyaki-model-filename``
+- ``--guppy-config``
 
-  - `taiyaki <https://github.com/nanoporetech/taiyaki>`_ basecalling model checkpoint file
-  - In order to identify modified bases a model trained to identify those modifications must be provided.
+  - Guppy config.
+  - Default: ``dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg``
 
-    - Train a new modified base model using taiyaki.
+- ``--guppy-server-path``
 
-  - Guppy JSON-format models can be converted to taiyaki checkpoints/models with the ``taiyaki/bin/json_to_checkpoint.py`` script for use with megalodon.
-- ``--load-default-model``
+  - Path to guppy server executable.
+  - Default: ``./ont-guppy/bin/guppy_basecall_server``
 
-  - Use the default the model included with megalodon
+- ``--guppy-server-port``
 
-    - Applicable to MinION or GridION R9.4.1 flowcells.
-    - Equivalent to the high accuracy modbase model for MinKNOW/guppy.
-    - Includes modified bases 5mC and 6mA in biological contexts: 5mC in human (CpG) and E. coli (CCWGG) contexts and 6mA in E. coli (GATC) context.
-- ``--devices``
-
-  - GPU devices to use for basecalling acceleration.
-  - If not provided CPU basecalling will be performed.
-  - A separate GPU process will be spawned for each CPU worker process requested (spread evenly over specified ``--devices``).
-
-    - Each GPU process must load the model parameters (~450MB for the default high-accuracy model).
-    - Extra headroom for chunks must be allowed as well.
-    - ``1`` process per 0.6 GB of GPU memory is a good default.
+  - Guppy server port.
+  - Useful when running multiple instances of ``guppy_basecall_server`` or ``megalodon`` on the same machine.
+  - Default: ``5555``
 
 ----------------
 Output Arguments
@@ -91,15 +82,11 @@ Sequence Variant Arguments
     - Variants file must be sorted.
     - If variant file is not compressed and indexed this will be performed before further processing.
   - Variants must be matched to the ``--reference`` provided.
-- ``--write-variants-text``
+- ``--variant-calibration-filename``
 
-  - Output per-read variants in text format.
-
-    - Output includes columns: ``read_id``, ``chrm``, ``strand``, ``pos``, ``ref_log_prob``, ``alt_log_prob``, ``var_ref_seq``, ``var_alt_seq``, ``var_id``
-    - Log probabilities are calibrated to match observed log-likelihood ratios from ground truth samples.
-
-      - Reference log probabilities are included to make processing mutliple alternative allele sites easier to process.
-    - Position is 0-based
+  - File containing emperical calibration for sequence variant scores.
+  - As created by megalodon/scripts/calibrate_variant_llr_scores.py.
+  - Default: Load default calibration file for guppy config.
 
 -----------------------
 Modified Base Arguments
@@ -109,18 +96,11 @@ Modified Base Arguments
 
   - Restrict modified base results to the specified motifs.
   - If not provided (and ``per_read_mods`` or ``mods`` outputs requested) all relevant sites are tested (e.g. all ``C`` bases for ``5mC``).
-- ``--write-mods-text``
+- ``--mod-calibration-filename``
 
-  - Output per-read modified bases in text format.
-
-    - Output includes columns: ``read_id``, ``chrm``, ``strand``, ``pos``, ``mod_log_probs``, ``can_log_prob``, ``mod_bases``, ``motif``
-    - Log probabilities are calibrated to match observed log-likelihood ratios from ground truth samples.
-
-      - Canonical log probabilities are included to make processing mutliple modification sites easier to process.
-
-        - Note that the included model does not model such sites, but megalodon is capable of handling these sites (e.g. testing for 5mC and 5hmC simultaneously is supported given a basecalling model).
-    - ``motif`` includes the searched motif (via ``--mod-motif``) as well as the relative modified base position within that motif (e.g. ``CG:0`` for provided ``--mod-motif Z CG 0``).
-    - Position is 0-based
+  - File containing emperical calibration for modified base scores.
+  - As created by megalodon/scripts/calibrate_mod_llr_scores.py.
+  - Default: Load default calibration file for guppy config.
 
 -----------------------
 Miscellaneous Arguments
@@ -128,7 +108,13 @@ Miscellaneous Arguments
 
 - ``--processes``
 
-  - Number of CPU worker processes to spawn.
+  - Number of CPU read-processing workers to spawn.
+- ``--devices``
+
+  - GPU devices to use for basecalling acceleration.
+  - If not provided CPU basecalling will be performed.
+  - Device names can be provided in the following formats: ``0``, ``cuda0`` or ``cuda:0``.
+  - Multiple devices can be specified separated by a space.
 - ``--verbose-read-progress``
 
   - Output dynamic updates to potential issues during processing.

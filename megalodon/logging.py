@@ -1,13 +1,15 @@
 import os
+import sys
 import logging
 
 from megalodon import megalodon_helper as mh
 
+
 class CustomFormatter(logging.Formatter):
-    err_fmt  = "*" * 100 + "\n\tERROR: %(msg)s\n" + "*" * 100
-    warn_fmt  = "*" * 20 + " WARNING: %(msg)s " + "*" * 20
+    err_fmt = "*" * 100 + "\n\tERROR: %(msg)s\n" + "*" * 100
+    warn_fmt = "*" * 20 + " WARNING: %(msg)s " + "*" * 20
     info_fmt = "[%(asctime)s] %(message)s"
-    dbg_fmt  = "DBG: %(module)s: %(lineno)d: %(msg)s"
+    dbg_fmt = "DBG: %(module)s: %(lineno)d: %(msg)s"
 
     def __init__(self, fmt='[%(asctime)s] %(levelname)-8s: %(message)s'):
         super().__init__(fmt=fmt, datefmt='%H:%M:%S', style='%')
@@ -31,6 +33,7 @@ class CustomFormatter(logging.Formatter):
 
         return result
 
+
 def init_logger(out_dir, out_suffix=None):
     log_fn = os.path.join(out_dir, mh.LOG_FILENAME)
     if out_suffix is not None:
@@ -49,6 +52,7 @@ def init_logger(out_dir, out_suffix=None):
     root_logger.addHandler(console)
 
     return
+
 
 def get_logger(module_name=''):
     return logging.getLogger(module_name)

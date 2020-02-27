@@ -1,4 +1,3 @@
-import sys
 import argparse
 
 from tqdm import tqdm
@@ -9,7 +8,8 @@ parser = argparse.ArgumentParser(
     description='Remove variants incompatible with whatshap')
 parser.add_argument('in_vcf', help='Megalodon VCF file')
 parser.add_argument('out_vcf', help='Output VCF file')
-parser.add_argument('--filtered-records', help='File to output filtered records.')
+parser.add_argument(
+    '--filtered-records', help='File to output filtered records.')
 
 
 def is_complex_variant(ref, alts):
@@ -27,6 +27,7 @@ def is_complex_variant(ref, alts):
                 return True
     return False
 
+
 def get_qual(vcf_line):
     qual = vcf_line.split()[5]
     try:
@@ -35,9 +36,11 @@ def get_qual(vcf_line):
         qual = 0
     return qual
 
+
 def get_pos_ref_alts(vcf_line):
     chrm, pos, _, ref, alts = vcf_line.split()[:5]
     return chrm, int(pos), ref, alts.split(',')
+
 
 def main():
     args = parser.parse_args()
@@ -80,6 +83,7 @@ def main():
         filt_fp.close()
 
     return
+
 
 if __name__ == '__main__':
     main()

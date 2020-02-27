@@ -12,13 +12,14 @@ from megalodon import logging, mods, variants, megalodon_helper as mh
 _DO_PROFILE_AGG_MOD = False
 _DO_PROFILE_GET_MODS = False
 _DO_PROFILE_AGG_FILLER = False
-_DO_PROF = _DO_PROFILE_AGG_MOD or _DO_PROFILE_AGG_FILLER or _DO_PROFILE_GET_MODS
+_DO_PROF = (_DO_PROFILE_AGG_MOD or _DO_PROFILE_AGG_FILLER or
+            _DO_PROFILE_GET_MODS)
 _N_MOD_PROF = 200000
 
 
-############################################
-##### Aggregate Variants and Mod Stats #####
-############################################
+####################################
+# Aggregate Variants and Mod Stats #
+####################################
 
 def _agg_vars_worker(
         locs_q, var_stats_q, var_prog_q, vars_db_fn, write_vcf_lp,
@@ -45,6 +46,7 @@ def _agg_vars_worker(
 
     return
 
+
 def _get_var_stats_queue(
         var_stats_q, var_conn, out_dir, ref_names_and_lens, out_suffix,
         write_vcf_lp):
@@ -59,7 +61,8 @@ def _get_var_stats_queue(
     while True:
         try:
             var_var = var_stats_q.get(block=False)
-            if var_var is None: continue
+            if var_var is None:
+                continue
             agg_var_fp.write_variant(var_var)
         except queue.Empty:
             if var_conn.poll():
@@ -75,15 +78,18 @@ def _get_var_stats_queue(
 
     return
 
+
 def _agg_mods_worker(
         pos_q, mod_stats_q, mod_prog_q, mods_db_fn, mod_agg_info,
         valid_read_ids, write_mod_lp):
     # functions for profiling purposes
     def get_pos_data():
         return pos_q.get(block=False)
+
     def put_mod_site(mod_site):
         mod_stats_q.put(mod_site)
         return
+
     def do_sleep():
         sleep(0.0001)
         return
@@ -110,13 +116,16 @@ def _agg_mods_worker(
 
     return
 
+
 if _DO_PROFILE_AGG_MOD:
     _agg_mods_wrapper = _agg_mods_worker
+
     def _agg_mods_worker(*args):
         import cProfile
         cProfile.runctx('_agg_mods_wrapper(*args)', globals(), locals(),
                         filename='aggregate_mods.prof')
         return
+
 
 def _get_mod_stats_queue(
         mod_stats_q, mod_conn, out_dir, mod_names, ref_names_and_lens,
@@ -124,6 +133,7 @@ def _get_mod_stats_queue(
     def get_mod_site():
         # function for profiling purposes
         return mod_stats_q.get(block=False)
+
     def do_sleep():
         # function for profiling purposes
         sleep(0.001)
@@ -164,14 +174,17 @@ def _get_mod_stats_queue(
 
     return
 
+
 if _DO_PROFILE_GET_MODS:
     _get_mod_stats_queue_wrapper = _get_mod_stats_queue
+
     def _get_mod_stats_queue(*args):
         import cProfile
         cProfile.runctx('_get_mod_stats_queue_wrapper(*args)',
                         globals(), locals(),
                         filename='get_mods_queue.prof')
         return
+
 
 def _agg_prog_worker(
         var_prog_q, mod_prog_q, num_vars, num_mods, prog_conn,
@@ -186,7 +199,7 @@ def _agg_prog_worker(
         elif not suppress_progress:
             var_bar = tqdm(desc='Variants', unit=' sites', total=num_vars,
                            position=0, smoothing=0, dynamic_ncols=True)
-    elif num_mods > 0 and  not suppress_progress:
+    elif num_mods > 0 and not suppress_progress:
         mod_bar = tqdm(desc='Mods', unit=' sites', total=num_mods,
                        position=0, smoothing=0, dynamic_ncols=True)
 
@@ -194,14 +207,18 @@ def _agg_prog_worker(
         try:
             var_prog_q.get(block=False)
             if not suppress_progress:
-                if var_bar is not None: var_bar.update(1)
-                if mod_bar is not None: mod_bar.update(0)
+                if var_bar is not None:
+                    var_bar.update(1)
+                if mod_bar is not None:
+                    mod_bar.update(0)
         except queue.Empty:
             try:
                 mod_prog_q.get(block=False)
                 if not suppress_progress:
-                    if var_bar is not None: var_bar.update(0)
-                    if mod_bar is not None: mod_bar.update(1)
+                    if var_bar is not None:
+                        var_bar.update(0)
+                    if mod_bar is not None:
+                        mod_bar.update(1)
             except queue.Empty:
                 sleep(0.001)
                 if prog_conn.poll():
@@ -210,10 +227,12 @@ def _agg_prog_worker(
 
     while not var_prog_q.empty():
         var_prog_q.get(block=False)
-        if not suppress_progress: var_bar.update(1)
+        if not suppress_progress:
+            var_bar.update(1)
     while not mod_prog_q.empty():
         mod_prog_q.get(block=False)
-        if not suppress_progress: mod_bar.update(1)
+        if not suppress_progress:
+            mod_bar.update(1)
     if var_bar is not None:
         var_bar.close()
     if mod_bar is not None:
@@ -223,28 +242,33 @@ def _agg_prog_worker(
 
     return
 
+
 def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps, limit=None):
     agg_db = agg_class(db_fn, load_in_mem_indices=False)
     for i, loc in enumerate(agg_db.iter_uniq()):
         locs_q.put(loc)
-        if limit is not None and i >= limit: break
+        if limit is not None and i >= limit:
+            break
     for _ in range(num_ps):
         locs_q.put(None)
 
     return
 
+
 if _DO_PROFILE_AGG_FILLER:
     _fill_locs_queue_wrapper = _fill_locs_queue
+
     def _fill_locs_queue(*args):
         import cProfile
         cProfile.runctx('_fill_locs_queue_wrapper(*args)', globals(), locals(),
                         filename='agg_fill_locs.prof')
         return
 
+
 def aggregate_stats(
         outputs, out_dir, num_ps, write_vcf_lp, het_factors, call_mode,
-        mod_names, mod_agg_info, write_mod_lp, mod_output_fmts,
-        suppress_progress, valid_read_ids=None, out_suffix=None):
+        mod_agg_info, write_mod_lp, mod_output_fmts, suppress_progress,
+        valid_read_ids=None, out_suffix=None):
     if mh.VAR_NAME in outputs and mh.MOD_NAME in outputs:
         num_ps = max(num_ps // 2, 1)
 
@@ -285,6 +309,7 @@ def aggregate_stats(
     if mh.MOD_NAME in outputs:
         mods_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME)
         agg_mods = mods.AggMods(mods_db_fn, load_in_mem_indices=False)
+        mod_long_names = agg_mods.get_mod_long_names()
         num_mods = agg_mods.num_uniq()
         ref_names_and_lens = agg_mods.mods_db.get_all_chrm_and_lens()
         agg_mods.close()
@@ -292,7 +317,7 @@ def aggregate_stats(
         # create process to collect mods stats from workers
         mod_stats_q, mod_stats_p, main_mod_stats_conn = mh.create_getter_q(
             _get_mod_stats_queue, (
-                out_dir, mod_names, ref_names_and_lens, out_suffix,
+                out_dir, mod_long_names, ref_names_and_lens, out_suffix,
                 write_mod_lp, mod_output_fmts))
         # create process to fill mod locs queue
         mod_filler_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
@@ -316,10 +341,10 @@ def aggregate_stats(
 
     # create progress process
     logger.info((
-        'Aggregating {} variants and {} modified base sites over reads.\n\t\t' +
-        'NOTE: If this step is very slow, ensure the output directory is ' +
-        'located on a fast read disk (e.g. local SSD). Aggregation can be ' +
-        'restarted using the megalodon/scripts/run_aggregation.py ' +
+        'Aggregating {} variants and {} modified base sites over reads.\n' +
+        '\t\tNOTE: If this step is very slow, ensure the output directory ' +
+        'is located on a fast read disk (e.g. local SSD). Aggregation can ' +
+        'be restarted using the megalodon/scripts/run_aggregation.py ' +
         'script.').format(num_vars, num_mods))
     main_prog_conn, prog_conn = mp.Pipe()
     prog_p = mp.Process(

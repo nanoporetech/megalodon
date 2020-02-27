@@ -10,6 +10,7 @@ FIELDS_LINE = ('#CHROM	POS	ID	REF	ALT	QUAL	FILTER' +
                '	INFO	FORMAT	SAMPLE')
 RECORD_LINE = ('{chrm}\t{pos}\t{rid}\t{ref}\t{alts}\t.\t.\t{info}\t.\t.\n')
 
+
 def get_parser():
     parser = argparse.ArgumentParser(
         description='Atomize variants so this does not have to be ' +
@@ -26,6 +27,7 @@ def get_parser():
         help='Maximum difference in number of reference and alternate ' +
         'bases. Default: %(default)d')
     return parser
+
 
 def main():
     args = get_parser().parse_args()
@@ -69,6 +71,7 @@ def main():
     variants.index_variants(args.out_vcf)
 
     return
+
 
 if __name__ == '__main__':
     main()

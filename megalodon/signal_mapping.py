@@ -1,11 +1,13 @@
+import sys
 import queue
 from time import sleep
 
 import numpy as np
 
 from ont_fast5_api import fast5_interface
-from taiyaki import (alphabet, fast5utils, mapping as tai_mapping,
-                     prepare_mapping_funcs, signal as tai_signal)
+from taiyaki import (
+    alphabet, fast5utils, mapping as tai_mapping, prepare_mapping_funcs,
+    megalodon_helper as mh, signal as tai_signal)
 
 
 def get_remapping(
@@ -30,18 +32,20 @@ def get_remapping(
     # skip last value since this is where the two seqs end
     for ref_pos, q_pos in enumerate(r_to_q_poss[:-1]):
         # if the query position maps to the end of the mapping skip it
-        if rl_cumsum[q_pos + r_ref_pos.q_trim_start] >= path.shape[0]: continue
+        if rl_cumsum[q_pos + r_ref_pos.q_trim_start] >= path.shape[0]:
+            continue
         path[rl_cumsum[q_pos + r_ref_pos.q_trim_start]] = ref_pos
     remapping = tai_mapping.Mapping.from_remapping_path(
         sig, path, ref_seq, stride)
     try:
         remapping.add_integer_reference(sig_map_alphabet)
-    except:
+    except Exception:
         raise mh.MegaError('Invalid reference sequence encountered')
 
     return (remapping.get_read_dictionary(
         shift_from_pA, scale_from_pA, read_id),
             prepare_mapping_funcs.RemapResult.SUCCESS)
+
 
 def get_alphabet_info(model_info):
     flat_alphabet = model_info.output_alphabet[0]
@@ -51,10 +55,11 @@ def get_alphabet_info(model_info):
             can_base = base
         flat_alphabet += can_base
     mod_long_names = [] if len(model_info.mod_long_names) == 0 else \
-                     list(zip(*model_info.mod_long_names))[1]
+        list(zip(*model_info.mod_long_names))[1]
     return alphabet.AlphabetInfo(
         model_info.output_alphabet, flat_alphabet,
         mod_long_names, do_reorder=True)
+
 
 def write_signal_mappings(sig_map_q, sig_map_conn, sig_map_fn, alphabet_info):
     def iter_mappings():
@@ -73,7 +78,6 @@ def write_signal_mappings(sig_map_q, sig_map_conn, sig_map_fn, alphabet_info):
             yield read_mapping
 
         return
-
 
     prepare_mapping_funcs.generate_output_from_results(
         iter_mappings(), sig_map_fn, alphabet_info, verbose=False)

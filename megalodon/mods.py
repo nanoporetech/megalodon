@@ -26,7 +26,8 @@ DEFAULT_AGG_INFO = AGG_INFO(BIN_THRESH_NAME, None)
 FIXED_VCF_MI = [
     'INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
     'INFO=<ID=SN,Number=1,Type=String,Description="Strand">',
-    'FORMAT=<ID=VALID_DP,Number=1,Type=Integer,Description="Valid Read Depth">',
+    'FORMAT=<ID=VALID_DP,Number=1,Type=Integer,' +
+    'Description="Valid Read Depth">',
 ]
 MOD_MI_TMPLTS = [
     'FORMAT=<ID={0},Number=1,Type=Float,Description=' +
@@ -40,10 +41,12 @@ OUT_BUFFER_LIMIT = 10000
 
 _PROFILE_MODS_QUEUE = False
 
+LOGGER = logging.get_logger()
 
-###################
-##### Mods DB #####
-###################
+
+###########
+# Mods DB #
+###########
 
 class ModsDb(object):
     # note foreign key constraint is not applied here as this
@@ -68,6 +71,9 @@ class ModsDb(object):
             ('motif', 'TEXT'),
             ('motif_pos', 'INTEGER'),
             ('raw_motif', 'TEXT')))),
+        ('mod_long_names', OrderedDict((
+            ('mod_base', 'TEXT'),
+            ('mod_long_name', 'TEXT')))),
         ('read', OrderedDict((
             ('read_id', 'INTEGER PRIMARY KEY'),
             ('uuid', 'TEXT')))),
@@ -101,8 +107,7 @@ class ModsDb(object):
 
         if read_only:
             if not os.path.exists(fn):
-                logger = logging.get_logger('mods')
-                logger.error((
+                LOGGER.error((
                     'Modified base per-read database file ({}) does ' +
                     'not exist.').format(fn))
                 raise mh.MegaError('Invalid mods DB filename.')
@@ -198,6 +203,16 @@ class ModsDb(object):
                 for strand in (1, -1))
         return
 
+    def insert_mod_long_names(self, mod_long_names):
+        self.cur.executemany(
+            'INSERT INTO mod_long_names (mod_base, mod_long_name) ' +
+            'VALUES (?,?)', mod_long_names)
+        return
+
+    def get_mod_long_names(self):
+        return list(self.cur.execute(
+            'SELECT mod_base, mod_long_name FROM mod_long_names').fetchall())
+
     def get_pos_id_or_insert(self, chrm_id, strand, pos):
         try:
             if self.pos_idx_in_mem:
@@ -224,7 +239,8 @@ class ModsDb(object):
                 (inner loop) combination. To be zipped with
                 get_mod_base_ids_or_insert.
         """
-        if len(r_mod_scores) == 0: return []
+        if len(r_mod_scores) == 0:
+            return []
 
         r_uniq_pos = set(itemgetter(0)(pms) for pms in r_mod_scores)
         if self.pos_idx_in_mem:
@@ -235,7 +251,7 @@ class ModsDb(object):
                 for pos_and_id in self.cur.execute(
                         'SELECT pos, pos_id FROM pos ' +
                         'WHERE pos_chrm=? AND strand=? AND pos=?',
-                        (chrm_id, strand, pos_key)).fetchall())
+                        (chrm_id, strand, pos)).fetchall())
         pos_to_add = tuple(r_uniq_pos.difference(cs_pos_idx))
 
         if len(pos_to_add) > 0:
@@ -278,7 +294,8 @@ class ModsDb(object):
                 (inner loop) combination. To be zipped with
                 get_mod_base_ids_or_insert.
         """
-        if len(r_mod_scores) == 0: return []
+        if len(r_mod_scores) == 0:
+            return []
 
         r_uniq_mod_bases = set(
             (mod_base, motif, motif_pos, raw_motif)
@@ -329,7 +346,8 @@ class ModsDb(object):
 
     def insert_read_scores(self, r_mod_scores, uuid, chrm, strand):
         self.cur.execute('INSERT INTO read (uuid) VALUES (?)', (uuid,))
-        if len(r_mod_scores) == 0: return
+        if len(r_mod_scores) == 0:
+            return
 
         read_id = self.cur.lastrowid
         chrm_id = self.get_chrm_id(chrm)
@@ -519,9 +537,9 @@ class ModsDb(object):
         return
 
 
-################################
-##### Reference Mod Markup #####
-################################
+########################
+# Reference Mod Markup #
+########################
 
 def annotate_mods(r_start, ref_seq, r_mod_scores, strand):
     """ Annotate reference sequence with called modified bases.
@@ -537,7 +555,8 @@ def annotate_mods(r_start, ref_seq, r_mod_scores, strand):
         with np.errstate(divide='ignore'):
             can_lp = np.log1p(-np.exp(mod_lps).sum())
         # called canonical
-        if can_lp >= mod_lps.max(): continue
+        if can_lp >= mod_lps.max():
+            continue
         most_prob_mod = np.argmax(mod_lps)
         mod_seqs.append(ref_seq[prev_pos:mod_pos - r_start] +
                         mod_bases[most_prob_mod])
@@ -550,9 +569,9 @@ def annotate_mods(r_start, ref_seq, r_mod_scores, strand):
     return mod_seq
 
 
-################################
-##### Per-read Mod Scoring #####
-################################
+########################
+# Per-read Mod Scoring #
+########################
 
 def score_mod_seq(
         tpost, seq, mod_cats, can_mods_offsets,
@@ -578,6 +597,7 @@ def score_mod_seq(
         tpost, seq, mod_cats, can_mods_offsets, tpost_start, tpost_end,
         all_paths)
 
+
 def call_read_mods(
         r_ref_pos, r_ref_seq, ref_to_block, r_post, mods_info, mod_sig_map_q,
         sig_map_res):
@@ -586,13 +606,13 @@ def call_read_mods(
         for motif, rel_pos, mod_bases, raw_motif in mods_info.all_mod_motifs:
             for motif_match in motif.finditer(r_ref_seq):
                 m_pos = motif_match.start() + rel_pos
-                if m_pos < mods_info.edge_buffer: continue
-                if m_pos > max_pos: break
+                if m_pos < mods_info.edge_buffer:
+                    continue
+                if m_pos > max_pos:
+                    break
                 yield m_pos, mod_bases, motif_match.group(), rel_pos, raw_motif
         return
 
-
-    logger = logging.get_logger('mods')
     # call all mods overlapping this read
     r_mod_scores = []
     # ignore when one or more mod_llrs is -inf (or close enough for exp)
@@ -609,7 +629,7 @@ def call_read_mods(
             except mh.MegaError:
                 ref_pos = (r_ref_pos.start + pos if r_ref_pos.strand == 1 else
                            r_ref_pos.start + len(r_ref_seq) - pos - 1)
-                logger.debug(
+                LOGGER.debug(
                     'Invalid sequence encountered calling modified base ' +
                     'at {}:{}'.format(r_ref_pos.chrm, ref_pos))
                 continue
@@ -631,13 +651,15 @@ def call_read_mods(
             calib_llrs = []
             for mod_base in mod_bases:
                 pos_mod_mods = pos_can_mods.copy()
-                pos_mod_mods[pos_bb] = mods_info.str_to_int_mod_labels[mod_base]
+                pos_mod_mods[pos_bb] = mods_info.str_to_int_mod_labels[
+                    mod_base]
                 loc_mod_score = score_mod_seq(
                     r_post, pos_ref_seq, pos_mod_mods,
                     mods_info.can_mods_offsets, blk_start, blk_end,
                     mods_info.mod_all_paths)
                 if loc_mod_score is None:
-                    raise mh.MegaError('Score computation error (memory error)')
+                    raise mh.MegaError(
+                        'Score computation error (memory error)')
 
                 # calibrate llr scores
                 calib_llrs.append(mods_info.calibrate_llr(
@@ -672,13 +694,14 @@ def call_read_mods(
     return r_mod_scores
 
 
-###############################
-##### Per-read Mod Output #####
-###############################
+#######################
+# Per-read Mod Output #
+#######################
 
 def _get_mods_queue(
         mods_q, mods_conn, mods_db_fn, db_safety, ref_names_and_lens,
-        mods_txt_fn, pr_refs_fn, pr_ref_filts, pos_index_in_memory):
+        mods_txt_fn, pr_refs_fn, pr_ref_filts, pos_index_in_memory,
+        mod_long_names):
     def store_mod_call(
             r_mod_scores,  read_id, chrm, strand, r_start, ref_seq,
             read_len, q_st, q_en, cigar, been_warned):
@@ -686,12 +709,12 @@ def _get_mods_queue(
             mods_db.insert_read_scores(r_mod_scores, read_id, chrm, strand)
         except Exception as e:
             if not been_warned:
-                logger.warning(
-                    'Error inserting modified base scores into database. See ' +
-                    'log debug output for error details.')
+                LOGGER.warning(
+                    'Error inserting modified base scores into database. ' +
+                    'See log debug output for error details.')
                 been_warned = True
             import traceback
-            logger.debug(
+            LOGGER.debug(
                 'Error inserting modified base scores into database: ' +
                 str(e) + '\n' + traceback.format_exc())
 
@@ -723,15 +746,14 @@ def _get_mods_queue(
         sleep(0.001)
         return
 
-
-    logger = logging.get_logger('mods')
     been_warned = False
 
     mods_db = ModsDb(mods_db_fn, db_safety=db_safety, read_only=False,
                      pos_index_in_memory=pos_index_in_memory)
     mods_db.insert_chrms(ref_names_and_lens)
+    mods_db.insert_mod_long_names(mod_long_names)
     mods_db.create_chrm_index()
-    logger.debug(('mod_getter: in_mem_indices: chrm: {} pos: {} mods: {} ' +
+    LOGGER.debug(('mod_getter: in_mem_indices: chrm: {} pos: {} mods: {} ' +
                   'uuid: {}').format(
                       mods_db.chrm_idx_in_mem, mods_db.pos_idx_in_mem,
                       mods_db.mod_idx_in_mem, mods_db.uuid_idx_in_mem))
@@ -744,7 +766,7 @@ def _get_mods_queue(
 
     if pr_refs_fn is not None:
         pr_refs_fp = open(pr_refs_fn, 'w')
-    logger.debug('mod_getter: init complete')
+    LOGGER.debug('mod_getter: init complete')
 
     while True:
         try:
@@ -762,7 +784,7 @@ def _get_mods_queue(
                 r_mod_scores,  read_id, chrm, strand, r_start, ref_seq,
                 read_len, q_st, q_en, cigar, been_warned)
         except Exception as e:
-            logger.debug('Error processing mods output for read: ' +
+            LOGGER.debug('Error processing mods output for read: ' +
                          '{}\nError type: {}'.format(read_id, str(e)))
 
     while not mods_q.empty():
@@ -774,11 +796,13 @@ def _get_mods_queue(
                 r_mod_scores,  read_id, chrm, strand, r_start, ref_seq,
                 read_len, q_st, q_en, cigar, been_warned)
         except Exception as e:
-            logger.debug('Error processing mods output for read: ' +
+            LOGGER.debug('Error processing mods output for read: ' +
                          '{}\nError type: {}'.format(read_id, str(e)))
 
-    if mods_txt_fp is not None: mods_txt_fp.close()
-    if pr_refs_fn is not None: pr_refs_fp.close()
+    if mods_txt_fp is not None:
+        mods_txt_fp.close()
+    if pr_refs_fn is not None:
+        pr_refs_fp.close()
     if mods_db.pos_idx_in_mem:
         mods_db.create_pos_index()
     if mods_db.mod_idx_in_mem:
@@ -788,8 +812,10 @@ def _get_mods_queue(
 
     return
 
+
 if _PROFILE_MODS_QUEUE:
     _get_mods_queue_wrapper = _get_mods_queue
+
     def _get_mods_queue(*args):
         import cProfile
         cProfile.runctx('_get_mods_queue_wrapper(*args)', globals(), locals(),
@@ -797,16 +823,16 @@ if _PROFILE_MODS_QUEUE:
         return
 
 
-####################
-##### Mod Info #####
-####################
+############
+# Mod Info #
+############
 
 class ModInfo(object):
     single_letter_code = {
-        'A':'A', 'C':'C', 'G':'G', 'T':'T', 'B':'CGT',
-        'D':'AGT', 'H':'ACT', 'K':'GT', 'M':'AC',
-        'N':'ACGT', 'R':'AG', 'S':'CG', 'V':'ACG',
-        'W':'AT', 'Y':'CT'}
+        'A': 'A', 'C': 'C', 'G': 'G', 'T': 'T', 'B': 'CGT',
+        'D': 'AGT', 'H': 'ACT', 'K': 'GT', 'M': 'AC',
+        'N': 'ACGT', 'R': 'AG', 'S': 'CG', 'V': 'ACG',
+        'W': 'AT', 'Y': 'CT'}
 
     def distinct_bases(self, b1, b2):
         return len(set(self.single_letter_code[b1]).intersection(
@@ -837,7 +863,6 @@ class ModInfo(object):
         else:
             # parse detection motifs
             for mod_bases, raw_motif, pos in all_mod_motifs_raw:
-                mods_bases = list(mod_bases)
                 for mod_base in mod_bases:
                     assert mod_base in self.str_to_int_mod_labels, (
                         'Modified base label ({}) not found in model ' +
@@ -871,7 +896,6 @@ class ModInfo(object):
             mod_output_fmts=[mh.MOD_BEDMETHYL_NAME],
             edge_buffer=mh.DEFAULT_EDGE_BUFFER, pos_index_in_memory=True,
             agg_info=DEFAULT_AGG_INFO):
-        logger = logging.get_logger()
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other alphabet info
         # don't want to pass all of these parameters around individually though
@@ -892,17 +916,17 @@ class ModInfo(object):
         self.ncan_base = len(self.alphabet)
         try:
             self.alphabet = self.alphabet.decode()
-        except:
+        except AttributeError:
             pass
         if model_info.is_cat_mod:
             # TODO also output "(alt to C)" for each mod
-            logger.info(
+            LOGGER.info(
                 'Using canonical alphabet {} and modified bases {}.'.format(
                     self.alphabet, ' '.join(
                         '{}={}'.format(*mod_b)
                         for mod_b in model_info.mod_long_names)))
         else:
-            logger.info(
+            LOGGER.info(
                 'Using canonical alphabet {}.'.format(self.alphabet))
 
         self.nbase = len(self.alphabet)
@@ -935,9 +959,9 @@ class ModInfo(object):
         return self.calib_table.calibrate_llr(score, mod_base)
 
 
-#########################
-##### modVCF Writer #####
-#########################
+#################
+# modVCF Writer #
+#################
 
 class ModSite(object):
     """ Modified base site for entry into Mod Writers.
@@ -982,16 +1006,20 @@ class ModSite(object):
     def _sorted_format_keys(self):
         sorted_keys = sorted(self.sample_dict.keys())
         if 'LOG_PROBS' in sorted_keys:
-            # move log probs to end of format field for easier human readability
+            # move log probs to end of format field for easier
+            # human readability
             sorted_keys.append(sorted_keys.pop(sorted_keys.index('LOG_PROBS')))
         return sorted_keys
+
     @property
     def format(self):
         return ':'.join(map(str, self._sorted_format_keys))
+
     @property
     def sample(self):
         return ':'.join((str(self.sample_dict[k])
                          for k in self._sorted_format_keys))
+
     @property
     def info(self):
         str_tags = []
@@ -1032,26 +1060,33 @@ class ModSite(object):
     def __eq__(self, mod2):
         return (self.chrm, self.pos, self.strand) == (
             mod2.chrm, mod2.pos, mod2.strand)
+
     def __ne__(self, var2):
         return (self.chrm, self.pos, self.strand) != (
-            mod2.chrm, mod2.pos, mod2.strand)
+            var2.chrm, var2.pos, var2.strand)
+
     def __lt__(self, var2):
         return (self.chrm, self.pos, self.strand) < (
-            mod2.chrm, mod2.pos, mod2.strand)
+            var2.chrm, var2.pos, var2.strand)
+
     def __le__(self, var2):
         return (self.chrm, self.pos, self.strand) <= (
-            mod2.chrm, mod2.pos, mod2.strand)
+            var2.chrm, var2.pos, var2.strand)
+
     def __gt__(self, var2):
         return (self.chrm, self.pos, self.strand) > (
-            mod2.chrm, mod2.pos, mod2.strand)
+            var2.chrm, var2.pos, var2.strand)
+
     def __ge__(self, var2):
         return (self.chrm, self.pos, self.strand) >= (
-            mod2.chrm, mod2.pos, mod2.strand)
+            var2.chrm, var2.pos, var2.strand)
+
 
 class ModVcfWriter(object):
     """ modVCF writer class
     """
-    version_options = set(['4.2',])
+    version_options = set(['4.2', ])
+
     def __init__(
             self, basename, mods, mode='w',
             header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER',
@@ -1107,13 +1142,15 @@ class ModVcfWriter(object):
         self.handle.close()
         return
 
+
 class ModBedMethylWriter(object):
     """ bedMethyl writer class
 
     Note that the bedMethyl format cannot store more than one modification
     type, so multiple file handles will be opened.
     """
-    def __init__(self, basename, mods, mode='w', buffer_limit=OUT_BUFFER_LIMIT):
+    def __init__(
+            self, basename, mods, mode='w', buffer_limit=OUT_BUFFER_LIMIT):
         self.basename = basename
         self.mods = mods
         self.mod_short_names, self.mod_long_names = zip(*self.mods)
@@ -1122,10 +1159,10 @@ class ModBedMethylWriter(object):
         self.buffers = dict(
             (mod_short_name, []) for mod_short_name, _ in self.mods)
         self.handles = dict(
-            (mod_short_name,
-             open('{}.{}.{}'.format(self.basename, mod_long_name,
-                                    mh.MOD_OUTPUT_EXTNS[mh.MOD_BEDMETHYL_NAME]),
-                  self.mode, encoding='utf-8'))
+            (mod_short_name, open('{}.{}.{}'.format(
+                self.basename, mod_long_name,
+                mh.MOD_OUTPUT_EXTNS[mh.MOD_BEDMETHYL_NAME]),
+                                  self.mode, encoding='utf-8'))
             for mod_short_name, mod_long_name in self.mods)
         return
 
@@ -1158,15 +1195,17 @@ class ModBedMethylWriter(object):
             handle.close()
         return
 
+
 class ModWigWriter(object):
     """ Modified base wiggle variableStep writer class
 
-    Note that the wiggle/bedgraph format cannot store more than one modification
-    type or multiple strands, so multiple file handles will be opened.
+    Note that the wiggle/bedgraph format cannot store more than one
+    modification type or multiple strands, so multiple file handles will
+    be opened.
     """
     def __init__(
             self, basename, mods, mode='w',
-            strands={'+':'fwd_strand', '-':'rev_strand'}):
+            strands={'+': 'fwd_strand', '-': 'rev_strand'}):
         self.basename = basename
         self.mods = mods
         self.mods_lookup = dict(mods)
@@ -1198,32 +1237,34 @@ class ModWigWriter(object):
     def close(self):
         # write all data on close since all data is required to write
         # wiggle format
-        for (mod_base, strand), all_cs_mod_sites in self.mod_sites_data.items():
+        for (mod_base, strand), all_cs_mod_sites in \
+              self.mod_sites_data.items():
             with open('{}.{}.{}.{}'.format(
                     self.basename, self.mods_lookup[mod_base],
-                    self.strands[strand], mh.MOD_OUTPUT_EXTNS[mh.MOD_WIG_NAME]),
+                    self.strands[strand],
+                    mh.MOD_OUTPUT_EXTNS[mh.MOD_WIG_NAME]),
                       self.mode, encoding='utf-8') as wig_fp:
                 # write header
                 track_name = ('Modified Base {} Proportion Modified ' +
                               '({})').format(
                                   self.mods_lookup[mod_base],
                                   self.strands[strand])
-                wig_fp.write(
-                    'track type=wiggle_0 name="{0}" description="{0}"\n'.format(
-                        track_name))
+                wig_fp.write((
+                    'track type=wiggle_0 name="{0}" ' +
+                    'description="{0}"\n').format(track_name))
                 for chrom, cs_mod_sites in all_cs_mod_sites.items():
-                    wig_fp.write('variableStep chrom={} span=1\n'.format(chrom))
                     wig_fp.write(
-                        '\n'.join((
-                            '{} {}'.format(pos, mod_prop)
-                            for pos, mod_prop in sorted(cs_mod_sites))) + '\n')
+                        'variableStep chrom={} span=1\n'.format(chrom))
+                    wig_fp.write('\n'.join((
+                        '{} {}'.format(pos, mod_prop)
+                        for pos, mod_prop in sorted(cs_mod_sites))) + '\n')
 
         return
 
 
-##################################
-##### Mods Aggregation Class #####
-##################################
+##########################
+# Mods Aggregation Class #
+##########################
 
 class AggMods(mh.AbstractAggregationClass):
     """ Class to assist in database queries for per-site aggregation of
@@ -1246,7 +1287,13 @@ class AggMods(mh.AbstractAggregationClass):
         self.agg_method = agg_info.method
         self.binary_thresh = agg_info.binary_threshold
         self.write_mod_lp = write_mod_lp
+        self._mod_long_names = self.mods_db.get_mod_long_names()
         return
+
+    def get_mod_long_names(self):
+        if self._mod_long_names is None:
+            self._mod_long_names = self.mods_db.get_mod_long_names()
+        return self._mod_long_names
 
     def num_uniq(self):
         if self.n_uniq_mods is None:
@@ -1261,7 +1308,6 @@ class AggMods(mh.AbstractAggregationClass):
         return
 
     def est_binary_thresh(self, pos_scores):
-        mod_cov = len(pos_scores)
         valid_cov = 0
         mod_types = set(mt for read_mods in pos_scores.values()
                         for mt in read_mods.keys())
@@ -1291,6 +1337,7 @@ class AggMods(mh.AbstractAggregationClass):
         computation
         """
         max_prop = 1.0 - min_prop
+
         def clip(mix_props):
             """Clip proportions to specified range, while maintaining sum to 1
             """
@@ -1327,7 +1374,6 @@ class AggMods(mh.AbstractAggregationClass):
             mix_props[upper_clip_idx] = 1.0
             return mix_props
 
-
         mod_types = sorted(set(mt for read_mods in pos_scores.values()
                                for mt in read_mods.keys()))
         mt_probs = np.exp(np.array([[r_mods[mt] for mt in mod_types]
@@ -1360,8 +1406,8 @@ class AggMods(mh.AbstractAggregationClass):
             mod_pos, return_uuids=valid_read_ids is not None)
         mod_type_stats = defaultdict(dict)
         for r_stats in pr_mod_stats:
-            if (valid_read_ids is not None and
-                r_stats.read_id not in valid_read_ids):
+            if valid_read_ids is not None and \
+               r_stats.read_id not in valid_read_ids:
                 continue
             mod_type_stats[r_stats.read_id][r_stats.mod_base] = r_stats.score
         total_cov = len(mod_type_stats)
@@ -1386,8 +1432,9 @@ class AggMods(mh.AbstractAggregationClass):
             mods_lps = [[] for _ in mod_props]
             for read_mod_scores in mod_type_stats.values():
                 try:
-                    for mod_i, mod_lp in enumerate([read_mod_scores[mod_type]
-                                                    for mod_type in mod_props]):
+                    for mod_i, mod_lp in enumerate([
+                            read_mod_scores[mod_type]
+                            for mod_type in mod_props]):
                         mods_lps[mod_i].append(mod_lp)
                 except KeyError:
                     continue

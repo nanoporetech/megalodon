@@ -21,9 +21,9 @@ INS_CALIB_TMPLT = 'ins_{}_calibration'
 INS_LLR_RNG_TMPLT = 'ins_{}_llr_range'
 
 
-##################################
-##### Calibration Estimation #####
-##################################
+##########################
+# Calibration Estimation #
+##########################
 
 def determine_min_dens_edge(
         sm_ref, sm_alt, num_calib_vals, min_dens_val, smooth_ls):
@@ -52,12 +52,10 @@ def determine_min_dens_edge(
             np.around(smooth_ls[-upper_invalid_dens_pos]).astype(int))
 
 
-
 def compute_smooth_mono_density(llrs, num_calib_vals, smooth_bw, smooth_ls):
     def guassian(x):
         return (np.exp(-x ** 2 / (2 * smooth_bw ** 2)) /
                 (smooth_bw * np.sqrt(2 * np.pi)))
-
 
     smooth_vals = np.zeros(num_calib_vals)
     for llr in tqdm(llrs, smoothing=0, dynamic_ncols=True):
@@ -97,8 +95,8 @@ def compute_calibration(
     # then recompute smooth values
     new_input_llr_range = determine_min_dens_edge(
         sm_ref, sm_alt, num_calib_vals, min_dens_val, smooth_ls)
-    if (new_input_llr_range[0] != -max_input_llr or
-        new_input_llr_range[1] != max_input_llr):
+    if new_input_llr_range[0] != -max_input_llr or \
+       new_input_llr_range[1] != max_input_llr:
         sys.stderr.write(
             '\tSetting new input llr range for more robust calibration ' +
             '({}, {})\n'.format(*new_input_llr_range))
@@ -110,7 +108,6 @@ def compute_calibration(
         sys.stderr.write('\tComputing new alternative emperical density.\n')
         sm_alt, s_alt = compute_smooth_mono_density(
             alt_llrs, num_calib_vals, smooth_bw, smooth_ls)
-
 
     prob_alt = sm_alt / (sm_ref + sm_alt)
     # compute probability mid-point
@@ -146,8 +143,8 @@ def compute_mirrored_calibration(
     new_input_llr_range = determine_min_dens_edge(
         sm_ref, sm_ref[::-1], num_calib_vals, min_dens_val, smooth_ls)
     assert new_input_llr_range[0] == -new_input_llr_range[1]
-    if (new_input_llr_range[0] != -max_input_llr or
-        new_input_llr_range[1] != max_input_llr):
+    if new_input_llr_range[0] != -max_input_llr or \
+       new_input_llr_range[1] != max_input_llr:
         sys.stderr.write(
             '\tSetting new input llr range for more robust calibration ' +
             '({}, {})\n'.format(*new_input_llr_range))
@@ -156,7 +153,6 @@ def compute_mirrored_calibration(
         sys.stderr.write('\tComputing new reference emperical density.\n')
         sm_ref, s_ref = compute_smooth_mono_density(
             ref_llrs, num_calib_vals, smooth_bw, smooth_ls)
-
 
     prob_alt = sm_ref[::-1] / (sm_ref + sm_ref[::-1])
     # compute probability mid-point (llr=0 for mirrored)
@@ -175,9 +171,9 @@ def compute_mirrored_calibration(
     return np.log((1 - mono_prob) / mono_prob), new_input_llr_range, plot_data
 
 
-#####################
-##### LLR Stats #####
-#####################
+#############
+# LLR Stats #
+#############
 
 def compute_log_probs(alt_llrs):
     """ Compute log probabilities from a set of log likelihood ratios all
@@ -191,9 +187,9 @@ def compute_log_probs(alt_llrs):
     return ref_lp - alt_llrs
 
 
-###############################
-##### Calibration Readers #####
-###############################
+#######################
+# Calibration Readers #
+#######################
 
 class VarCalibrator(object):
     def _load_calibration(self):
@@ -269,7 +265,7 @@ class VarCalibrator(object):
         seq_len_diff = len(read_ref_seq) - len(read_alt_seq)
         if seq_len_diff == 0:
             ref_seq, alt_seq = simplify_var_seq(read_ref_seq, read_alt_seq)
-            # default to a "generic" SNP type that is the total of all SNP types
+            # default to a "generic" SNP type (total of all SNP types)
             try:
                 calib_table = self.snp_calib_tables[(ref_seq, alt_seq)]
                 input_vals = self.snp_input_values[(ref_seq, alt_seq)]
@@ -289,13 +285,14 @@ class VarCalibrator(object):
 
         idx = np.searchsorted(input_vals, llr, side='left')
         # full closest search would be:
-        #if idx > 0 and (idx == self.num_calib_vals or
+        # if idx > 0 and (idx == self.num_calib_vals or
         #                np.abs(llr - input_vals[idx - 1]) <
         #                np.abs(llr - input_vals[idx])):
         # but for performance just adjust last index
         if idx == self.num_calib_vals:
             idx -= 1
         return calib_table[idx]
+
 
 class ModCalibrator(object):
     def _load_calibration(self):
@@ -311,7 +308,8 @@ class ModCalibrator(object):
             input_vals = np.linspace(
                 mod_llr_range[0], mod_llr_range[1],
                 self.num_calib_vals, endpoint=True)
-            mod_calib_table = calib_data[mod_base + '_calibration_table'].copy()
+            mod_calib_table = calib_data[
+                mod_base + '_calibration_table'].copy()
             self.mod_base_calibs[mod_base] = (input_vals, mod_calib_table)
 
         return
@@ -330,7 +328,7 @@ class ModCalibrator(object):
         input_vals, calib_table = self.mod_base_calibs[mod_base]
         idx = np.searchsorted(input_vals, llr, side='left')
         # full closest search would be:
-        #if idx > 0 and (idx == self.num_calib_vals or
+        # if idx > 0 and (idx == self.num_calib_vals or
         #                np.abs(llr - input_vals[idx - 1]) <
         #                np.abs(llr - input_vals[idx])):
         # but for performance just adjust last index
