@@ -906,13 +906,13 @@ def get_parser():
         'fast5s_dir',
         help='Directory containing raw fast5 (will be searched recursively).')
 
-    pyg_grp = parser.add_argument_group('Pyguppy Backend Arguments')
+    pyg_grp = parser.add_argument_group('Guppy Backend Arguments')
     pyg_grp.add_argument(
         '--guppy-config', default=backends.DEFAULT_GUPPY_CFG,
         help='Guppy config. Default: %(default)s')
     pyg_grp.add_argument(
         '--guppy-server-path', default=backends.DEFAULT_GUPPY_SERVER_PATH,
-        help='Path to guppy server command. Default: %(default)s')
+        help='Path to guppy server executable. Default: %(default)s')
     pyg_grp.add_argument(
         '--guppy-server-port', type=int, default=backends.DEFAULT_GUPPY_PORT,
         help='Guppy server port. Default: %(default)d')
