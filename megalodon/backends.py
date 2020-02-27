@@ -564,7 +564,8 @@ class ModelInfo(object):
             sig_info = sig_info._replace(
                 raw_len=trimmed_dacs.shape[0], dacs=trimmed_dacs,
                 raw_signal=((trimmed_dacs - scale_params[0]) /
-                            scale_params[1]).asttype(np.float32))
+                            scale_params[1]).astype(np.float32),
+                scale_params=scale_params)
 
         return (called_read.seq, called_read.qual, rl_cumsum, can_post,
                 sig_info, post_w_mods, mods_scores)
