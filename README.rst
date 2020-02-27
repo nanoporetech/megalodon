@@ -6,7 +6,8 @@
 Megalodon
 """""""""
 
-Megalodon is a research tool to extract high accuracy modified base and sequence variant calls from raw nanopore reads by anchoring the information rich basecalling neural network output to a reference genome/transriptome.
+Megalodon is a research command line tool to extract high accuracy modified base and sequence variant calls from raw nanopore reads by anchoring the information rich basecalling neural network output to a reference genome/transriptome.
+
 Raw nanopore reads are processed by a single command to produce basecalls (FASTA/Q), reference mappings (SAM/BAM/CRAM), sequence variant calls (per-read and VCF) and modified base calls (per-read and bedgraph/bedmethyl/modVCF).
 
 Detailed documentation for all ``megalodon`` arguments and algorithms can be found on the `megalodon documentation page <https://nanoporetech.github.io/megalodon/>`_.
@@ -22,7 +23,9 @@ If installing from source, ``numpy`` must be installed before running installati
 
 .. note::
 
-   `Taiyaki <https://github.com/nanoporetech/taiyaki>`_ installation is only required to output mapped signal files (for basecall models training) or to run the taiyaki basecalling backend (for neural network designs including experimental layers).
+   `Taiyaki <https://github.com/nanoporetech/taiyaki>`_ is no longer required to run megalodon, but installation is required for two specific run modes:
+   1) output mapped signal files (for basecall models training)
+   2) runing the taiyaki basecalling backend (for neural network designs including experimental layers)
 
 Installation
 ------------
@@ -75,53 +78,43 @@ Inputs
 - Variants File
 
   - Format: VCF or BCF
-  - Megalodon currently requires a set of candidate variants for ``--outputs variants`` (provide via ``--variant-filename`` argument).
-
-    - If not indexed, indexing will be performed
+  - Megalodon requires a set of candidate variants for ``--outputs variants`` (provide via ``--variant-filename`` argument).
   - Only small indels (default less than ``50`` bases) are tested by default.
-
-    - Specify the ``--max-indel-size`` argument to process larger indels
-    - The ``--variant-context-bases`` argument may need to be increased for larger indels.
 
 Outputs
 -------
 
-All megalodon outputs are output into the directory specified with the ``--output-directory`` option with standard file names and extensions.
+All megalodon outputs are written into the directory specified with the ``--output-directory`` option with standard file names and extensions.
 
 - Basecalls
 
-  - Format: FASTA/Q
-  - Basecall-anchored modified base scores are also available (via HDF5 output)
+  - Format: FASTQ (default) or FASTA
+  - Basecall-anchored modified base scores are also available in HDF5 format (``--outputs mod_basecalls``).
 - Mappings
 
   - Format: SAM, BAM (default), or CRAM
-  - A tab-separated mapping text summary is produced including per-read alignment statistics
-
-    - ``percent_identity`` is defined as ``num_matched_bases`` / ``num_align_bases``
+  - A tab-separated mapping text summary is also produced including per-read alignment statistics.
 - Modified Base Calls
 
-  - In order to restrict modified base calls to a particular motif specify the ``--mod-motif`` along with the modified base, canonical motif and relative modified base position within the motif. For example in order to output only CpG methylation specify ``--mod-motif Z CG 0``.
   - Per-read modified base calls
 
-    - Per-read SQL DB containing scores at each tested reference location
+    - Per-read SQL DB containing modified base scores at each covered reference location
+    - Tab-delimited output can be produced by adding the ``--write-mods-text`` flag or produced post-run using the ``megalodon/scripts/write_per_read_modified_base_text.py`` script.
 
-      - Contains an indexed table with per-read, per-position, modified base scores, as well as auxiliary tables with read, modification type and reference position information.
-    - Tab-delimited output can be produced by adding the ``--write-mods-text`` flag or produced after a run using the ``megalodon/scripts/write_per_read_modified_base_text.py`` script.
+      - This output can drastically slow processing, especially on slower disk or when outputting modified bases at all contexts.
   - Aggregated calls
 
-    - Aggregated calls are output in either bedMethyl format (default; one file per modified base), a VCF variant format (including all modified bases) or wiggle format (one file per modified base/strand combination).
+    - Format: bedgraph, bedmethyl (default), and/or modVCF
+  - In order to restrict modified base calls to a specific motif(s) specify the ``--mod-motif`` argument. For example, to restrict calls to CpG sites specify ``--mod-motif Z CG 0``.
 - Sequence Variant Calls
 
   - Per-read Variant Calls
 
-    - SQL DB containing scores for each tested variant
-
-      - Contains a single ``variants`` table indexed by reference position
-    - Tab-delimited output can be produced by adding the ``--write-variants-text`` flag or produced after a run using the ``megalodon/scripts/write_per_read_sequence_variant_text.py`` script.
+    - SQL DB containing per-read variant scores for each covered variant
+    - Tab-delimited output can be produced by adding the ``--write-variants-text`` flag or produced post-run using the ``megalodon/scripts/write_per_read_sequence_variant_text.py`` script.
   - Aggregated calls
 
     - Format: VCF
-    - VCF sample field contains ``GT``, ``GQ``, ``DP``, ``GL``, and ``PL`` attributes
     - Default run mode is diploid. To run in haploid mode, set ``--haploid`` flag.
     - For best results on a diploid genome see the variant phasing workflow on the `full documentation page <https://nanoporetech.github.io/megalodon/variant_phasing.html>`_.
 
@@ -151,35 +144,26 @@ High Quality Phased Variant Calls
 
 In order to obtain the highest quality diploid sequence variant calls the full variant phasing pipeline employing whatshap should be applied.
 This pipeline is described in detail on the `full documentation page <https://nanoporetech.github.io/megalodon/variant_phasing.html>`_.
-The default diploid variant settings are optimized for this full phasing pipeline and not for direct validation at this point.
-This includes overcalling heterozygous sites in order to accurately phase as many variants as possible via whatshap.
-Thus validation of the direct diploid variant calling results will likely show overcalling of heterozygous sites.
+The default diploid variant settings are optimized for the full phasing pipeline and not the highest quality diploid calls directly from a single megalodon call.
 
 Disk Performance Considerations
 *******************************
 
-TODO add note about queue status bars.
-
-Within megalodon, per-read modified base and variant statistics are stored in an on-disk sqlite database.
-During read processing per-read, per-site statistics are funneled through a single thread to handle the database input.
-If the requested compute resources are not being utililized to their fullest extent during read processing slow disk write is the most likely bottleneck.
-Moving the database, stored within the directory specified with the ``--output-directory`` argument, to a location with faster disk I/O performance should imporove performance.
+Per-read modified base and variant statistics are stored in an on-disk sqlite database.
+As of version 2.0, the status of output queues is displayed by default.
+If any of these status bars indicate a full queue, megalodon will stall waiting on that process to write data to disk.
+Moving the  ``--output-directory`` to a location with faster disk I/O performance should imporove performance.
 
 For the aggregation stage of processing the disk read speed has a magnified effect.
 During aggregation binary searches for results grouped per-site must be performed over the on-disk database.
-While database optimization to reduce the disk reads has been implemented the performance for data extraction can be extremely slow for large runs.
+While database optimization to reduce the disk reads has been implemented, the performance for data extraction can be extremely slow for large runs.
 Moving the database location from a remote or network file system to a local fast (SSD) disk can increase compute efficiency as much as 100X-1000X.
-
-Model Compatibility
--------------------
-
-TODO update for guppy calibration files
 
 RNA
 ---
 
 Megalodon provides experimental support for direct RNA processing.
-This support can be accessed within the ``rna`` code branch (access via ``git clone --branch rna https://github.com/nanoporetech/megalodon``).
+This support can be accessed within the ``rna`` github branch (access via ``git clone --branch rna https://github.com/nanoporetech/megalodon``).
 
 Licence and Copyright
 ---------------------

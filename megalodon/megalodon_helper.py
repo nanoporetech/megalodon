@@ -61,7 +61,7 @@ STRAND_FIELD_NAME = 'STRAND'
 
 # outputs specification
 BC_NAME = 'basecalls'
-BC_OUT_FMTS = ('fasta', 'fastq')
+BC_OUT_FMTS = ('fastq', 'fasta')
 BC_MODS_NAME = 'mod_basecalls'
 MAP_NAME = 'mappings'
 MAP_SUMM_NAME = 'mappings_summary'
