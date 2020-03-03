@@ -559,8 +559,10 @@ class ModelInfo(object):
         if update_sig_info:
             # add scale_params and trimmed dacs to sig_info
             trimmed_dacs = sig_info.dacs[called_read.trimmed_samples:]
-            scale_params = (called_read.scaling['median'],
-                            called_read.scaling['med_abs_dev'])
+            # guppy does not apply the med norm factor
+            scale_params = (
+                called_read.scaling['median'],
+                called_read.scaling['med_abs_dev'] * mh.MED_NORM_FACTOR)
             sig_info = sig_info._replace(
                 raw_len=trimmed_dacs.shape[0], dacs=trimmed_dacs,
                 raw_signal=((trimmed_dacs - scale_params[0]) /
