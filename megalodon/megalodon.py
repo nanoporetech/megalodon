@@ -109,11 +109,10 @@ def process_read(
         pass_sig_map_filts = mapping.read_passes_filters(
             sig_map_info, len(r_seq), r_ref_pos.q_trim_start,
             r_ref_pos.q_trim_end, r_cigar)
-        sig_map_res = [
+        sig_map_res = signal_mapping.SIG_MAP_RESULT(
             pass_sig_map_filts, sig_info.fast5_fn, sig_info.dacs,
             sig_info.scale_params, r_ref_seq, sig_info.stride,
-            sig_map_info.alphabet, sig_info.read_id, r_to_q_poss, rl_cumsum,
-            r_ref_pos]
+            sig_info.read_id, r_to_q_poss, rl_cumsum, r_ref_pos, sig_map_info)
         if not sig_map_info.annotate_mods and pass_sig_map_filts:
             try:
                 sig_map_q.put(signal_mapping.get_remapping(*sig_map_res[1:]))
@@ -838,8 +837,8 @@ def parse_sig_map_output(args, model_info):
     if args.output_signal_mappings:
         from megalodon import signal_mapping
         global signal_mapping
-        sig_map_alphabet = signal_mapping.get_alphabet_info(
-            model_info).alphabet
+        sig_map_alphabet_info = signal_mapping.get_alphabet_info(model_info)
+        sig_map_alphabet = sig_map_alphabet_info.alphabet
         args.outputs.append(mh.SIG_MAP_NAME)
         if args.signal_map_include_mods and mh.PR_MOD_NAME not in args.outputs:
             args.outputs.append(mh.PR_MOD_NAME)
@@ -854,12 +853,20 @@ def parse_sig_map_output(args, model_info):
     min_len, max_len = (args.signal_map_length_range
                         if args.signal_map_length_range is not None else
                         (None, None))
+    if args.signal_map_all_mod_motifs and not args.signal_map_include_mods:
+        LOGGER.warning(
+            '--signal-map-all-mod-motifs but not --signal-map-include-mods ' +
+            'set. Ignoring --signal-map-all-mod-motifs.')
+    # set mod_thresh to infinity if all sites are to be labeled as
+    # modified (--signal-map-all-mod-motifs)
+    mod_thresh = (np.inf if args.signal_map_all_mod_motifs
+                  else args.signal_map_mod_thresh)
 
     sig_map_info = mh.PR_REF_INFO(
         pct_idnt=args.signal_map_percent_identity_threshold,
         pct_cov=args.signal_map_percent_coverage_threshold,
         min_len=min_len, max_len=max_len, alphabet=sig_map_alphabet,
-        annotate_mods=args.signal_map_include_mods)
+        annotate_mods=args.signal_map_include_mods, mod_thresh=mod_thresh)
 
     return args, sig_map_info
 
@@ -1151,6 +1158,10 @@ def get_parser():
     sigmap_grp.add_argument(
         '--output-signal-mappings', action='store_true',
         help=hidden_help('Output signal mapped file (see taiyaki).'))
+
+    sigmap_grp.add_argument(
+        '--signal-map-all-mod-motifs', action='store_true',
+        help=hidden_help('Annotate all --mod-motif occurences as modified.'))
     sigmap_grp.add_argument(
         '--signal-map-include-mods', action='store_true',
         help=hidden_help('Include modified base calls in signal ' +
@@ -1159,6 +1170,10 @@ def get_parser():
         '--signal-map-length-range', type=int, nargs=2,
         help=hidden_help('Only include reads with specified read length ' +
                          'in signal mapping output.'))
+    sigmap_grp.add_argument(
+        '--signal-map-mod-thresh', type=float, default=0.0,
+        help=hidden_help('Threshold (log(can_prob/mod_prob)) used to ' +
+                         'annotate a modified base in signal mapping output.'))
     sigmap_grp.add_argument(
         '--signal-map-percent-identity-threshold', type=float,
         help=hidden_help('Only include reads with higher percent identity ' +

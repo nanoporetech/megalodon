@@ -541,7 +541,7 @@ class ModsDb(object):
 # Reference Mod Markup #
 ########################
 
-def annotate_mods(r_start, ref_seq, r_mod_scores, strand):
+def annotate_mods(r_start, ref_seq, r_mod_scores, strand, mod_thresh=0.1):
     """ Annotate reference sequence with called modified bases.
 
     Note: Reference sequence is in read orientation and mod calls are in
@@ -555,7 +555,7 @@ def annotate_mods(r_start, ref_seq, r_mod_scores, strand):
         with np.errstate(divide='ignore'):
             can_lp = np.log1p(-np.exp(mod_lps).sum())
         # called canonical
-        if can_lp >= mod_lps.max():
+        if can_lp - mod_lps.max() > mod_thresh:
             continue
         most_prob_mod = np.argmax(mod_lps)
         mod_seqs.append(ref_seq[prev_pos:mod_pos - r_start] +
@@ -676,19 +676,21 @@ def call_read_mods(
                 raw_motif))
 
     # annotate mods on reference sequence and send to signal mapping queue
-    if mod_sig_map_q is not None and sig_map_res[0]:
+    if mod_sig_map_q is not None and sig_map_res.pass_filts:
         # import locally so that import of mods module does not require
         # taiyaki install (required for signal_mapping module)
         from megalodon import signal_mapping
         r_mod_seq = annotate_mods(
-            r_ref_pos.start, sig_map_res[4], r_mod_scores, r_ref_pos.strand)
-        invalid_chars = set(r_mod_seq).difference(sig_map_res[6])
+            r_ref_pos.start, sig_map_res.ref_seq, r_mod_scores,
+            r_ref_pos.strand, sig_map_res.sig_map_info.mod_thresh)
+        invalid_chars = set(r_mod_seq).difference(
+            sig_map_res.sig_map_info.alphabet)
         if len(invalid_chars) > 0:
             raise mh.MegaError(
                 'Inavlid charcters found in mapped signal sequence: ' +
                 '({})'.format(''.join(invalid_chars)))
         # replace reference sequence with mod annotated sequence
-        sig_map_res[4] = r_mod_seq
+        sig_map_res = sig_map_res._replace(ref_seq=r_mod_seq)
         mod_sig_map_q.put(signal_mapping.get_remapping(*sig_map_res[1:]))
 
     return r_mod_scores
