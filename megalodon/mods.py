@@ -702,7 +702,7 @@ def call_read_mods(
 
 def _get_mods_queue(
         mods_q, mods_conn, mods_db_fn, db_safety, ref_names_and_lens,
-        mods_txt_fn, pr_refs_fn, pr_ref_filts, pos_index_in_memory,
+        mods_txt_fn, pr_refs_fn, ref_out_info, pos_index_in_memory,
         mod_long_names):
     def store_mod_call(
             r_mod_scores,  read_id, chrm, strand, r_start, ref_seq,
@@ -734,7 +734,7 @@ def _get_mods_queue(
             mods_txt_fp.write(mod_out_text)
         if pr_refs_fn is not None:
             if not mapping.read_passes_filters(
-                    pr_ref_filts, read_len, q_st, q_en, cigar):
+                    ref_out_info, read_len, q_st, q_en, cigar):
                 return
 
             pr_refs_fp.write('>{}\n{}\n'.format(read_id, annotate_mods(
@@ -894,7 +894,7 @@ class ModInfo(object):
     def __init__(
             self, model_info, all_mod_motifs_raw=None, mod_all_paths=False,
             write_mods_txt=None, mod_context_bases=None,
-            do_output_mods=False, do_pr_ref_mods=False, mods_calib_fn=None,
+            do_output_mods=False, mods_calib_fn=None,
             mod_output_fmts=[mh.MOD_BEDMETHYL_NAME],
             edge_buffer=mh.DEFAULT_EDGE_BUFFER, pos_index_in_memory=True,
             agg_info=DEFAULT_AGG_INFO):
@@ -906,7 +906,6 @@ class ModInfo(object):
         self.write_mods_txt = write_mods_txt
         self.mod_context_bases = mod_context_bases
         self.do_output_mods = do_output_mods
-        self.do_pr_ref_mods = do_pr_ref_mods
         self.mod_long_names = model_info.mod_long_names
         self.calib_table = calibration.ModCalibrator(mods_calib_fn)
         self.mod_output_fmts = mod_output_fmts

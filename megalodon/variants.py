@@ -1002,7 +1002,7 @@ def annotate_variants(r_start, ref_seq, r_var_calls, strand):
 
 def _get_variants_queue(
         vars_q, vars_conn, vars_db_fn, vars_txt_fn, db_safety, pr_refs_fn,
-        pr_ref_filts, whatshap_map_fn, ref_names_and_lens, ref_fn,
+        ref_out_info, whatshap_map_fn, ref_names_and_lens, ref_fn,
         loc_index_in_memory):
     def write_whatshap_alignment(
             read_id, var_seq, var_quals, chrm, strand, r_st, var_cigar):
@@ -1058,7 +1058,7 @@ def _get_variants_queue(
             vars_txt_fp.write(var_out_text)
         if do_ann_vars:
             if not mapping.read_passes_filters(
-                    pr_ref_filts, read_len, q_st, q_en, cigar):
+                    ref_out_info, read_len, q_st, q_en, cigar):
                 return
             var_seq, var_quals, var_cigar = annotate_variants(
                 r_start, ref_seq, r_var_calls, strand)
@@ -1169,9 +1169,8 @@ class VarData(object):
             self, variant_fn, max_indel_size=mh.DEFAULT_MAX_INDEL_SIZE,
             all_paths=False, write_vars_txt=False,
             context_bases=mh.DEFAULT_VAR_CONTEXT_BASES, vars_calib_fn=None,
-            call_mode=DIPLOID_MODE, do_pr_ref_vars=False, aligner=None,
-            keep_var_fp_open=False, do_validate_reference=True,
-            edge_buffer=mh.DEFAULT_EDGE_BUFFER,
+            call_mode=DIPLOID_MODE, aligner=None, keep_var_fp_open=False,
+            do_validate_reference=True, edge_buffer=mh.DEFAULT_EDGE_BUFFER,
             context_min_alt_prob=mh.DEFAULT_CONTEXT_MIN_ALT_PROB,
             loc_index_in_memory=True, variants_are_atomized=False):
         self.max_indel_size = max_indel_size
@@ -1185,7 +1184,6 @@ class VarData(object):
                 'Must provide 2 context bases values (for single base ' +
                 'variants and indels).')
         self.call_mode = call_mode
-        self.do_pr_ref_vars = do_pr_ref_vars
         self.edge_buffer = edge_buffer
         self.context_min_alt_prob = context_min_alt_prob
         self.loc_index_in_memory = loc_index_in_memory

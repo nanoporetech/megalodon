@@ -132,16 +132,16 @@ def compute_pct_identity(cigar):
     return 100 * nmatch / float(nalign)
 
 
-def read_passes_filters(pr_ref_filts, read_len, q_st, q_en, cigar):
-    if pr_ref_filts.min_len is not None and read_len < pr_ref_filts.min_len:
+def read_passes_filters(ref_out_info, read_len, q_st, q_en, cigar):
+    if ref_out_info.min_len is not None and read_len < ref_out_info.min_len:
         return False
-    if pr_ref_filts.max_len is not None and read_len > pr_ref_filts.max_len:
+    if ref_out_info.max_len is not None and read_len > ref_out_info.max_len:
         return False
-    if pr_ref_filts.pct_cov is not None and \
-       100 * (q_en - q_st) / read_len < pr_ref_filts.pct_cov:
+    if ref_out_info.pct_cov is not None and \
+       100 * (q_en - q_st) / read_len < ref_out_info.pct_cov:
         return False
-    if pr_ref_filts.pct_idnt is not None and \
-       compute_pct_identity(cigar) < pr_ref_filts.pct_idnt:
+    if ref_out_info.pct_idnt is not None and \
+       compute_pct_identity(cigar) < ref_out_info.pct_idnt:
         return False
     return True
 
@@ -175,7 +175,7 @@ def test_open_alignment_out_file(out_dir, map_fmt, ref_names_and_lens, ref_fn):
 
 def _get_map_queue(
         mo_q, map_conn, out_dir, ref_names_and_lens, map_fmt, ref_fn,
-        do_output_pr_refs, pr_ref_filts):
+        do_output_pr_refs, ref_out_info):
     def write_alignment(
             read_id, q_seq, chrm, strand, r_st, q_st, q_en, cigar):
         bc_len = len(q_seq)
@@ -219,7 +219,7 @@ def _get_map_queue(
                   cigar) = mo_q.get(block=False)
         write_alignment(read_id, q_seq, chrm, strand, r_st, q_st, q_en, cigar)
         if do_output_pr_refs and read_passes_filters(
-                pr_ref_filts, len(q_seq), q_st, q_en, cigar):
+                ref_out_info, len(q_seq), q_st, q_en, cigar):
             write_pr_ref(read_id, ref_seq)
         return
 

@@ -73,8 +73,8 @@ VAR_NAME = 'variants'
 PR_MOD_NAME = 'per_read_mods'
 PR_MOD_TXT_NAME = 'per_read_mods_text'
 MOD_NAME = 'mods'
-PR_REF_NAME = 'per_read_ref'
-SIG_MAP_NAME = 'signal_mapping'
+SIG_MAP_NAME = 'signal_mappings'
+PR_REF_NAME = 'per_read_refs'
 OUTPUT_FNS = {
     BC_NAME: 'basecalls',
     BC_MODS_NAME: 'basecalls.modified_base_scores.hdf5',
@@ -87,8 +87,8 @@ OUTPUT_FNS = {
     PR_MOD_NAME: 'per_read_modified_base_calls.db',
     PR_MOD_TXT_NAME: 'per_read_modified_base_calls.txt',
     MOD_NAME: 'modified_bases',
-    PR_REF_NAME: 'per_read_references.fasta',
-    SIG_MAP_NAME: 'signal_mappings.hdf5'
+    SIG_MAP_NAME: 'signal_mappings.hdf5',
+    PR_REF_NAME: 'per_read_references.fasta'
 }
 LOG_FILENAME = 'log.txt'
 # outputs to be selected with command line --outputs argument
@@ -101,7 +101,9 @@ OUTPUT_DESCS = {
     WHATSHAP_MAP_NAME: (
         'Sequence variant annotated mappings for use with whatshap'),
     PR_MOD_NAME: 'Per-read, per-site modified base scores database',
-    MOD_NAME: 'Sample-level aggregated modified base calls (modVCF)'
+    MOD_NAME: 'Sample-level aggregated modified base calls (modVCF)',
+    SIG_MAP_NAME: 'Signal mappings for taiyaki model training (HDF5)',
+    PR_REF_NAME: 'Per-read reference sequence for model training (FASTA)'
 }
 
 # output formats for modified bases and file extensions
@@ -125,8 +127,9 @@ GETTER_PROC = namedtuple('getter_proc', ('queue', 'proc', 'conn'))
 
 PR_REF_INFO = namedtuple('pr_ref_info', (
     'pct_idnt', 'pct_cov', 'min_len', 'max_len', 'alphabet',
-    'collapse_alphabet', 'annotate_mods', 'mod_thresh'))
-PR_REF_INFO.__new__.__defaults__ = (None, None, None, None)
+    'collapse_alphabet', 'annotate_mods', 'annotate_vars', 'mod_thresh',
+    'output_sig_maps', 'output_pr_refs'))
+PR_REF_INFO.__new__.__defaults__ = (None, None, None, None, False, False)
 
 # directory names define model preset string
 # currently only one model trained
