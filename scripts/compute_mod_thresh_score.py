@@ -50,7 +50,7 @@ def main():
         for r_stats in pr_mod_stats:
             mod_type_stats[r_stats.read_id][r_stats.mod_base] = r_stats.score
         for r_mod_stats in mod_type_stats.values():
-            mod_lps = np.array(r_mod_stats.values())
+            mod_lps = np.array(list(r_mod_stats.values()))
             with np.errstate(divide='ignore'):
                 can_lp = np.log1p(-np.exp(mod_lps).sum())
             for mod_base, mod_lp in r_mod_stats.items():

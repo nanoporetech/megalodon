@@ -126,7 +126,7 @@ GETTER_PROC = namedtuple('getter_proc', ('queue', 'proc', 'conn'))
 PR_REF_INFO = namedtuple('pr_ref_info', (
     'pct_idnt', 'pct_cov', 'min_len', 'max_len', 'alphabet',
     'collapse_alphabet', 'annotate_mods', 'mod_thresh'))
-PR_REF_INFO.__new__.__defaults__ = (None, None, None)
+PR_REF_INFO.__new__.__defaults__ = (None, None, None, None)
 
 # directory names define model preset string
 # currently only one model trained

@@ -410,19 +410,21 @@ def prep_errors_bar(
             q_bars = OrderedDict((q_name, tqdm(
                 desc=q_name, total=mh._MAX_QUEUE_SIZE, smoothing=0,
                 dynamic_ncols=True, position=q_num + 1,
-                bar_format='current queue status {desc: <20}: ' +
+                bar_format='output queue capacity {desc: <20}: ' +
                 '{percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}'))
                                  for q_num, q_name in enumerate(valid_q_names))
     if num_update_errors > 0:
         prog_prefix = ''.join(
             [_term_move_up(), ] * (num_update_errors + 1)) + '\r'
         if num_qs > 0:
-            bar_header = ('{} most common unsuccessful read types (full ' +
-                          'queues indicate I/O bottleneck):').format(
-                              num_update_errors)
+            bar_header = (
+                '{} most common unsuccessful processing stages (full ' +
+                'output queues indicate I/O bottleneck):').format(
+                    num_update_errors)
         else:
-            bar_header = '{} most common unsuccessful read types:'.format(
-                num_update_errors)
+            bar_header = (
+                '{} most common unsuccessful processing stages:').format(
+                    num_update_errors)
         # write failed read update header
         bar.write(prog_prefix + format_fail_summ(
             bar_header, num_errs=num_update_errors), file=sys.stderr)

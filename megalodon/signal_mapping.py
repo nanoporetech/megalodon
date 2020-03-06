@@ -6,15 +6,16 @@ from collections import namedtuple
 import numpy as np
 
 from ont_fast5_api import fast5_interface
+from megalodon import megalodon_helper as mh, logging
 from taiyaki import (
     alphabet, fast5utils, mapping as tai_mapping, prepare_mapping_funcs,
-    megalodon_helper as mh, signal as tai_signal)
+    signal as tai_signal)
 
 
+LOGGER = logging.get_logger()
 SIG_MAP_RESULT = namedtuple('SIG_MAP_RESULT', (
     'pass_filts', 'fast5_fn', 'dacs', 'scale_params', 'ref_seq', 'stride',
-    'read_id', 'r_to_q_poss', 'rl_cumsum', 'ref_pos', 'read_variants',
-    'sig_map_info'))
+    'read_id', 'r_to_q_poss', 'rl_cumsum', 'ref_pos', 'sig_map_info'))
 
 
 def get_remapping(
@@ -83,8 +84,6 @@ def write_signal_mappings(sig_map_q, sig_map_conn, sig_map_fn, alphabet_info):
         while not sig_map_q.empty():
             read_mapping = sig_map_q.get(block=False)
             yield read_mapping
-
-        return
 
     prepare_mapping_funcs.generate_output_from_results(
         iter_mappings(), sig_map_fn, alphabet_info, verbose=False)
