@@ -856,7 +856,7 @@ def parse_ref_outputs(args, model_info):
     elif args.ref_mod_threshold is not None:
         mod_thresh = args.ref_mod_threshold
 
-    ref_out_info = mh.PR_REF_INFO(
+    ref_out_info = mh.REF_OUT_INFO(
         pct_idnt=args.ref_percent_identity_threshold,
         pct_cov=args.ref_percent_coverage_threshold,
         min_len=min_len, max_len=max_len, alphabet=sig_map_alphabet,

@@ -125,11 +125,11 @@ ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, SIG_MAP_NAME, PR_VAR_NAME,
                      VAR_NAME, WHATSHAP_MAP_NAME, PR_MOD_NAME, MOD_NAME))
 GETTER_PROC = namedtuple('getter_proc', ('queue', 'proc', 'conn'))
 
-PR_REF_INFO = namedtuple('pr_ref_info', (
+REF_OUT_INFO = namedtuple('ref_out_info', (
     'pct_idnt', 'pct_cov', 'min_len', 'max_len', 'alphabet',
     'collapse_alphabet', 'annotate_mods', 'annotate_vars', 'mod_thresh',
     'output_sig_maps', 'output_pr_refs'))
-PR_REF_INFO.__new__.__defaults__ = (None, None, None, None, False, False)
+REF_OUT_INFO.__new__.__defaults__ = (None, None, None, None, False, False)
 
 # directory names define model preset string
 # currently only one model trained

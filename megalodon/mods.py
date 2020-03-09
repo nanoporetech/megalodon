@@ -682,9 +682,9 @@ def call_read_mods(
         from megalodon import signal_mapping
         r_mod_seq = annotate_mods(
             r_ref_pos.start, sig_map_res.ref_seq, r_mod_scores,
-            r_ref_pos.strand, sig_map_res.sig_map_info.mod_thresh)
+            r_ref_pos.strand, sig_map_res.ref_out_info.mod_thresh)
         invalid_chars = set(r_mod_seq).difference(
-            sig_map_res.sig_map_info.alphabet)
+            sig_map_res.ref_out_info.alphabet)
         if len(invalid_chars) > 0:
             raise mh.MegaError(
                 'Inavlid charcters found in mapped signal sequence: ' +

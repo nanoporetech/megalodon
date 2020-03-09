@@ -443,10 +443,10 @@ class ModelInfo(object):
 
         return
 
-    def extract_signal_info(self, fast5_fn, read_id, extract_sig_map_info):
+    def extract_signal_info(self, fast5_fn, read_id, extract_dacs):
         read = fast5_io.get_read(fast5_fn, read_id)
         dacs = scale_params = raw_sig = None
-        if extract_sig_map_info:
+        if extract_dacs:
             # if not processing signal mappings, don't save dacs
             dacs = fast5_io.get_signal(read, scale=False)
             # scale parameters and trimming computed by guppy
@@ -463,7 +463,7 @@ class ModelInfo(object):
                 stride=self.stride)
         elif self.model_type == FAST5_NAME:
             bc_mod_post = fast5_io.get_posteriors(read)
-            if extract_sig_map_info:
+            if extract_dacs:
                 trim_start, trim_len = fast5_io.get_signal_trim_coordiates(
                     read)
                 dacs = dacs[trim_start:trim_start + trim_len]

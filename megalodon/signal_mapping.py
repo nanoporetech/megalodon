@@ -15,12 +15,12 @@ from taiyaki import (
 LOGGER = logging.get_logger()
 SIG_MAP_RESULT = namedtuple('SIG_MAP_RESULT', (
     'pass_filts', 'fast5_fn', 'dacs', 'scale_params', 'ref_seq', 'stride',
-    'read_id', 'r_to_q_poss', 'rl_cumsum', 'ref_pos', 'sig_map_info'))
+    'read_id', 'r_to_q_poss', 'rl_cumsum', 'ref_pos', 'ref_out_info'))
 
 
 def get_remapping(
         sig_fn, dacs, scale_params, ref_seq, stride, read_id, r_to_q_poss,
-        rl_cumsum, r_ref_pos, sig_map_info):
+        rl_cumsum, r_ref_pos, ref_out_info):
     read = fast5_interface.get_fast5_file(sig_fn, 'r').get_read(read_id)
     channel_info = dict(fast5utils.get_channel_info(read).items())
     rd_factor = channel_info['range'] / channel_info['digitisation']
@@ -46,7 +46,7 @@ def get_remapping(
     remapping = tai_mapping.Mapping.from_remapping_path(
         sig, path, ref_seq, stride)
     try:
-        remapping.add_integer_reference(sig_map_info.alphabet)
+        remapping.add_integer_reference(ref_out_info.alphabet)
     except Exception:
         raise mh.MegaError('Invalid reference sequence encountered')
 
