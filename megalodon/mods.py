@@ -541,7 +541,7 @@ class ModsDb(object):
 # Reference Mod Markup #
 ########################
 
-def annotate_mods(r_start, ref_seq, r_mod_scores, strand, mod_thresh=0.1):
+def annotate_mods(r_start, ref_seq, r_mod_scores, strand, mod_thresh=0.0):
     """ Annotate reference sequence with called modified bases.
 
     Note: Reference sequence is in read orientation and mod calls are in
