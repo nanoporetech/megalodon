@@ -16,6 +16,8 @@ _DO_PROF = (_DO_PROFILE_AGG_MOD or _DO_PROFILE_AGG_FILLER or
             _DO_PROFILE_GET_MODS)
 _N_MOD_PROF = 200000
 
+LOGGER = logging.get_logger()
+
 
 ####################################
 # Aggregate Variants and Mod Stats #
@@ -272,7 +274,6 @@ def aggregate_stats(
     if mh.VAR_NAME in outputs and mh.MOD_NAME in outputs:
         num_ps = max(num_ps // 2, 1)
 
-    logger = logging.get_logger('agg')
     num_vars, num_mods, var_prog_q, mod_prog_q = (
         0, 0, queue.Queue(), queue.Queue())
     if mh.VAR_NAME in outputs:
@@ -282,7 +283,7 @@ def aggregate_stats(
         num_vars = agg_vars.num_uniq()
         ref_names_and_lens = agg_vars.vars_db.get_all_chrm_and_lens()
         agg_vars.close()
-        logger.info('Spawning variant aggregation processes.')
+        LOGGER.info('Spawning variant aggregation processes.')
         # create process to collect var stats from workers
         var_stats_q, var_stats_p, main_var_stats_conn = mh.create_getter_q(
             _get_var_stats_queue, (
@@ -313,7 +314,7 @@ def aggregate_stats(
         num_mods = agg_mods.num_uniq()
         ref_names_and_lens = agg_mods.mods_db.get_all_chrm_and_lens()
         agg_mods.close()
-        logger.info('Spawning modified base aggregation processes.')
+        LOGGER.info('Spawning modified base aggregation processes.')
         # create process to collect mods stats from workers
         mod_stats_q, mod_stats_p, main_mod_stats_conn = mh.create_getter_q(
             _get_mod_stats_queue, (
@@ -340,7 +341,7 @@ def aggregate_stats(
             agg_mods_ps.append(p)
 
     # create progress process
-    logger.info((
+    LOGGER.info((
         'Aggregating {} variants and {} modified base sites over reads.\n' +
         '\t\tNOTE: If this step is very slow, ensure the output directory ' +
         'is located on a fast read disk (e.g. local SSD). Aggregation can ' +

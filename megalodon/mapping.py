@@ -12,6 +12,7 @@ from megalodon import megalodon_helper as mh, logging
 
 MAP_POS = namedtuple('MAP_POS', (
     'chrm', 'strand', 'start', 'end', 'q_trim_start', 'q_trim_end'))
+LOGGER = logging.get_logger()
 
 
 # mappy aligner with extra attrs
@@ -268,8 +269,7 @@ def sort_and_index_mapping(map_fn, out_fn, ref_fn=None, do_index=False):
             sleep(1)
             pysam.index(out_fn)
     except pysam.utils.SamtoolsError:
-        logger = logging.get_logger()
-        logger.warning('Sorting and/or indexing mapping failed.')
+        LOGGER.warning('Sorting and/or indexing mapping failed.')
 
     return
 
