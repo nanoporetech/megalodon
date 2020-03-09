@@ -184,52 +184,36 @@ Taiyaki Backend Arguments
 
   - Guppy JSON-format models can be converted to taiyaki checkpoints/models with the ``taiyaki/bin/json_to_checkpoint.py`` script for use with megalodon.
 
-----------------
-Reference Output
-----------------
+-------------------------------
+Reference/Signal Mapping Output
+-------------------------------
 
-This output category is intended for use in generating reference sequences for taiyaki basecall model training.
+This output category is intended for use in generating reference sequences or signal mapping files for taiyaki basecall model training.
 
-- ``--output-per-read-references``
+- ``--ref-include-mods``
 
-  - Flag to trigger this output type (similar to adding an option to ``--outputs``)
-- ``--refs-include-mods``
-
-  - Include modified base calls in per-read reference output.
-- ``--refs-include-variants``
+  - Include modified base calls in ``per_read_refs`` or ``signal_mappings`` outputs.
+- ``--ref-include-variants``
 
   - Include sequence variant calls in per-read reference output.
-- ``--refs-percent-identity-threshold``
-
-  - Only include reads with higher percent identity in per-read reference output.
-- ``--refs-percent-coverage-threshold``
-
-  -  Only include reads with higher read alignment coverage in per-read reference output.
-- ``--refs-length-range``
+- ``--ref-length-range``
 
   - Only include reads with specified read length in per-read reference output.
+- ``--ref-percent-identity-threshold``
 
----------------------
-Signal Mapping Output
----------------------
+  - Only include reads with higher percent identity in per-read reference output.
+- ``--ref-percent-coverage-threshold``
 
-This output category produces a mapped signal file, the direct input to train a new basecalling model (via ``taiyaki``).
+  -  Only include reads with higher read alignment coverage in per-read reference output.
+- ``--ref-mods-all-motifs``
 
-- ``--output-signal-mappings``
+  - Annotate all ``--mod-motif`` occurences as modified.
+  - Requires that `--ref-include-mods`` is set.
+- ``--ref-mod-threshold``
 
-  - Output signal mapped file (see taiyaki).
-- ``--signal-map-include-mods``
-
-  - Include modified base calls in signal mapping output.
-- ``--signal-map-length-range``
-
-  - Only include reads with specified read length in signal mapping output.
-- ``--signal-map-percent-identity-threshold``
-
-  - Only include reads with higher percent identity in signal mapping output.
-- ``--signal-map-percent-coverage-threshold``
-
-  - Only include reads with higher read alignment coverage in signal mapping output.
+  - Threshold (in ``log(can_prob/mod_prob)`` space) used to annotate a modified bases in ``signal_mappings`` or ``per_read_refs`` outputs.
+  - See ``scripts/compute_mod_thresh_score.py`` for help computing this threshold.
+  - Requires that `--ref-include-mods`` is set.
 
 -----------------------
 Miscellaneous Arguments

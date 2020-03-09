@@ -83,7 +83,7 @@ def interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum):
 
 
 def process_read(
-        sig_info, model_info, bc_q, caller_conn, sig_map_q, sig_map_info,
+        sig_info, model_info, bc_q, caller_conn, sig_map_q, ref_out_info,
         vars_data, vars_q, mods_q, mods_info, failed_reads_q):
     """ Workhorse per-read megalodon function (connects all the parts)
     """
@@ -107,14 +107,13 @@ def process_read(
     sig_map_res = None
     if sig_map_q is not None:
         pass_sig_map_filts = mapping.read_passes_filters(
-            sig_map_info, len(r_seq), r_ref_pos.q_trim_start,
+            ref_out_info, len(r_seq), r_ref_pos.q_trim_start,
             r_ref_pos.q_trim_end, r_cigar)
-        sig_map_res = [
+        sig_map_res = signal_mapping.SIG_MAP_RESULT(
             pass_sig_map_filts, sig_info.fast5_fn, sig_info.dacs,
             sig_info.scale_params, r_ref_seq, sig_info.stride,
-            sig_map_info.alphabet, sig_info.read_id, r_to_q_poss, rl_cumsum,
-            r_ref_pos]
-        if not sig_map_info.annotate_mods and pass_sig_map_filts:
+            sig_info.read_id, r_to_q_poss, rl_cumsum, r_ref_pos, ref_out_info)
+        if not ref_out_info.annotate_mods and pass_sig_map_filts:
             try:
                 sig_map_q.put(signal_mapping.get_remapping(*sig_map_res[1:]))
             except Exception as e:
@@ -151,7 +150,7 @@ def process_read(
             failed_reads_q=failed_reads_q)
     if mods_q is not None:
         mapped_post_w_mods = post_w_mods[post_mapped_start:post_mapped_end]
-        mod_sig_map_q = sig_map_q if sig_map_info.annotate_mods else None
+        mod_sig_map_q = sig_map_q if ref_out_info.annotate_mods else None
         handle_errors(
             func=mods.call_read_mods,
             args=(r_ref_pos, r_ref_seq, ref_to_block, mapped_post_w_mods,
@@ -224,7 +223,7 @@ def _get_bc_queue(
 
 def _process_reads_worker(
         read_file_q, bc_q, vars_q, failed_reads_q, mods_q, caller_conn,
-        sig_map_q, sig_map_info, model_info, vars_data, mods_info, device):
+        sig_map_q, ref_out_info, model_info, vars_data, mods_info, device):
     # wrap process prep in try loop to avoid stalled command
     try:
         model_info.prep_model_worker(device)
@@ -258,7 +257,7 @@ def _process_reads_worker(
                 fast5_fn, read_id, sig_map_q is not None)
             process_read(
                 sig_info, model_info, bc_q, caller_conn, sig_map_q,
-                sig_map_info, vars_data, vars_q, mods_q, mods_info,
+                ref_out_info, vars_data, vars_q, mods_q, mods_info,
                 failed_reads_q)
             failed_reads_q.put((
                 False, True, None, None, None, sig_info.raw_len))
@@ -411,19 +410,21 @@ def prep_errors_bar(
             q_bars = OrderedDict((q_name, tqdm(
                 desc=q_name, total=mh._MAX_QUEUE_SIZE, smoothing=0,
                 dynamic_ncols=True, position=q_num + 1,
-                bar_format='current queue status {desc: <20}: ' +
+                bar_format='output queue capacity {desc: <20}: ' +
                 '{percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}'))
                                  for q_num, q_name in enumerate(valid_q_names))
     if num_update_errors > 0:
         prog_prefix = ''.join(
             [_term_move_up(), ] * (num_update_errors + 1)) + '\r'
         if num_qs > 0:
-            bar_header = ('{} most common unsuccessful read types (full ' +
-                          'queues indicate I/O bottleneck):').format(
-                              num_update_errors)
+            bar_header = (
+                '{} most common unsuccessful processing stages (full ' +
+                'output queues indicate I/O bottleneck):').format(
+                    num_update_errors)
         else:
-            bar_header = '{} most common unsuccessful read types:'.format(
-                num_update_errors)
+            bar_header = (
+                '{} most common unsuccessful processing stages:').format(
+                    num_update_errors)
         # write failed read update header
         bar.write(prog_prefix + format_fail_summ(
             bar_header, num_errs=num_update_errors), file=sys.stderr)
@@ -536,8 +537,7 @@ def _get_fail_queue(
 def process_all_reads(
         fast5s_dir, recursive, num_reads, read_ids_fn, model_info, outputs,
         out_dir, bc_fmt, aligner, vars_data, num_ps, num_update_errors,
-        suppress_progress, mods_info, db_safety, pr_ref_filts, sig_map_info,
-        do_show_qs):
+        suppress_progress, mods_info, db_safety, ref_out_info, do_show_qs):
     LOGGER.info('Preparing workers to process reads.')
     # read filename queue filler
     # Note no maxsize for this queue to compute total number of reads while
@@ -564,15 +564,15 @@ def process_all_reads(
                             mods_info.mod_long_names))
     if mh.MAP_NAME in outputs:
         do_output_pr_refs = (mh.PR_REF_NAME in outputs and
-                             not mods_info.do_pr_ref_mods and
-                             not vars_data.do_pr_ref_vars)
+                             not ref_out_info.annotate_mods and
+                             not ref_out_info.annotate_vars)
         getter_qs[mh.MAP_NAME] = mh.create_getter_q(
             mapping._get_map_queue, (
                 out_dir, aligner.ref_names_and_lens, aligner.out_fmt,
-                aligner.ref_fn, do_output_pr_refs, pr_ref_filts))
+                aligner.ref_fn, do_output_pr_refs, ref_out_info))
     if mh.PR_VAR_NAME in outputs:
         pr_refs_fn = mh.get_megalodon_fn(out_dir, mh.PR_REF_NAME) if (
-            mh.PR_REF_NAME in outputs and vars_data.do_pr_ref_vars) else None
+            mh.PR_REF_NAME in outputs and ref_out_info.annotate_vars) else None
         whatshap_map_fn = (
             mh.get_megalodon_fn(out_dir, mh.WHATSHAP_MAP_NAME) + '.' +
             aligner.out_fmt) if mh.WHATSHAP_MAP_NAME in outputs else None
@@ -581,19 +581,19 @@ def process_all_reads(
         getter_qs[mh.PR_VAR_NAME] = mh.create_getter_q(
             variants._get_variants_queue, (
                 mh.get_megalodon_fn(out_dir, mh.PR_VAR_NAME),
-                vars_txt_fn, db_safety, pr_refs_fn, pr_ref_filts,
+                vars_txt_fn, db_safety, pr_refs_fn, ref_out_info,
                 whatshap_map_fn, aligner.ref_names_and_lens, aligner.ref_fn,
                 vars_data.loc_index_in_memory))
     if mh.PR_MOD_NAME in outputs:
         pr_refs_fn = mh.get_megalodon_fn(out_dir, mh.PR_REF_NAME) if (
-            mh.PR_REF_NAME in outputs and mods_info.do_pr_ref_mods) else None
+            mh.PR_REF_NAME in outputs and ref_out_info.annotate_mods) else None
         mods_txt_fn = (mh.get_megalodon_fn(out_dir, mh.PR_MOD_TXT_NAME)
                        if mods_info.write_mods_txt else None)
         getter_qs[mh.PR_MOD_NAME] = mh.create_getter_q(
             mods._get_mods_queue, (
                 mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME), db_safety,
                 aligner.ref_names_and_lens, mods_txt_fn,
-                pr_refs_fn, pr_ref_filts, mods_info.pos_index_in_memory,
+                pr_refs_fn, ref_out_info, mods_info.pos_index_in_memory,
                 mods_info.mod_long_names))
     if mh.SIG_MAP_NAME in outputs:
         alphabet_info = signal_mapping.get_alphabet_info(model_info)
@@ -620,7 +620,7 @@ def process_all_reads(
                 read_file_q, getter_qs[mh.BC_NAME].queue,
                 getter_qs[mh.PR_VAR_NAME].queue, fr_prog_getter.queue,
                 getter_qs[mh.PR_MOD_NAME].queue, caller_conn,
-                getter_qs[mh.SIG_MAP_NAME].queue, sig_map_info, model_info,
+                getter_qs[mh.SIG_MAP_NAME].queue, ref_out_info, model_info,
                 vars_data, mods_info, device))
         p.daemon = True
         p.start()
@@ -675,7 +675,7 @@ def process_all_reads(
 # Input validation #
 ####################
 
-def aligner_validation(args):
+def parse_aligner_args(args):
     if len(mh.ALIGN_OUTPUTS.intersection(args.outputs)) > 0:
         if args.reference is None:
             LOGGER.error(
@@ -706,7 +706,7 @@ def aligner_validation(args):
     return aligner
 
 
-def vars_validation(args, model_info, aligner):
+def parse_var_args(args, model_info, aligner):
     if mh.WHATSHAP_MAP_NAME in args.outputs and \
        mh.VAR_NAME not in args.outputs:
         args.outputs.append(mh.VAR_NAME)
@@ -734,7 +734,7 @@ def vars_validation(args, model_info, aligner):
             args.variant_all_paths, args.write_variants_text,
             args.variant_context_bases, var_calib_fn,
             variants.HAPLIOD_MODE if args.haploid else variants.DIPLOID_MODE,
-            args.refs_include_variants, aligner, edge_buffer=args.edge_buffer,
+            aligner, edge_buffer=args.edge_buffer,
             context_min_alt_prob=args.context_min_alt_prob,
             loc_index_in_memory=not args.variant_locations_on_disk,
             variants_are_atomized=args.variants_are_atomized)
@@ -749,40 +749,27 @@ def vars_validation(args, model_info, aligner):
     return args, vars_data
 
 
-def mods_validation(args, model_info):
-    if args.refs_include_mods and mh.PR_MOD_NAME not in args.outputs:
-        # TODO don't really have to output this data, but have to compute it
-        # so sort out how to compute the output but not output it
-        args.outputs.append(mh.PR_MOD_NAME)
+def parse_mod_args(args, model_info):
     if mh.PR_MOD_NAME not in args.outputs and mh.MOD_NAME in args.outputs:
         args.outputs.append(mh.PR_MOD_NAME)
     if mh.PR_MOD_NAME in args.outputs and not model_info.is_cat_mod:
-        LOGGER.error(
-            '{} output requested, '.format(mh.PR_MOD_NAME) +
-            'but model provided is not a categotical modified base model.\n' +
-            'Note that modified base calling from naive modified base ' +
-            'model is not currently supported.')
+        LOGGER.error((
+            '{} output requested, but specified model does not support ' +
+            'calling modified bases.').format(mh.PR_MOD_NAME))
         sys.exit(1)
     if model_info.is_cat_mod and mh.PR_MOD_NAME not in args.outputs and \
        mh.BC_MODS_NAME not in args.outputs:
         LOGGER.warning(
-            ('Categorical modifications model provided, but neither {} nor ' +
-             '{} requested (via --outputs). Modified base output will not ' +
-             'be produced.').format(mh.PR_MOD_NAME, mh.BC_MODS_NAME))
+            ('Model supporting modified base calling specified, but neither ' +
+             '{} nor {} requested.').format(mh.PR_MOD_NAME, mh.BC_MODS_NAME))
     if args.mod_motif is not None and mh.PR_MOD_NAME not in args.outputs:
-        LOGGER.warning((
-            '--mod-motif provided, but {} not requested (via --outputs). ' +
-            'Argument will be ignored.').format(mh.PR_MOD_NAME))
+        LOGGER.warning(('--mod-motif provided, but {} not requested. ' +
+                        'Ignoring --mod-motif.').format(mh.PR_MOD_NAME))
         args.mod_motif = None
-    if args.refs_include_mods and mh.PR_REF_NAME not in args.outputs:
-        LOGGER.warning((
-            '--refs-include-mods provided, but {} not requested ' +
-            '(via --outputs). Argument will be ignored.').format(
-                mh.PR_REF_NAME))
-    mod_calib_fn = mh.get_mod_calibration_fn(
+    mod_calib_fn = (mh.get_mod_calibration_fn(
         model_info.params.pyguppy.config, args.mod_calibration_filename,
-        args.disable_mod_calibration) \
-        if mh.PR_MOD_NAME in args.outputs else None
+        args.disable_mod_calibration)
+                    if mh.PR_MOD_NAME in args.outputs else None)
     if args.mod_aggregate_method == mods.EM_NAME:
         agg_info = mods.AGG_INFO(mods.EM_NAME, None)
     elif args.mod_aggregate_method == mods.BIN_THRESH_NAME:
@@ -791,77 +778,93 @@ def mods_validation(args, model_info):
     mods_info = mods.ModInfo(
         model_info, args.mod_motif, args.mod_all_paths,
         args.write_mods_text, args.mod_context_bases,
-        mh.BC_MODS_NAME in args.outputs, args.refs_include_mods, mod_calib_fn,
+        mh.BC_MODS_NAME in args.outputs, mod_calib_fn,
         args.mod_output_formats, args.edge_buffer,
         not args.mod_positions_on_disk, agg_info)
     return args, mods_info
 
 
-def parse_pr_ref_output(args):
-    if args.output_per_read_references:
-        args.outputs.append(mh.PR_REF_NAME)
-        if args.refs_include_variants and args.refs_include_mods:
+def parse_ref_out_args(args, model_info):
+    output_pr_refs = output_sig_maps = False
+    if mh.SIG_MAP_NAME in args.outputs or mh.PR_REF_NAME in args.outputs:
+        if args.ref_include_variants and args.ref_include_mods:
             LOGGER.error('Cannot output both modified base and variants in ' +
                          'per-read references (remove one of ' +
                          '--refs-include-variants or --refs-include-mods).')
             sys.exit(1)
-        if args.refs_include_variants and mh.PR_VAR_NAME not in args.outputs:
+        if args.ref_include_mods and mh.PR_MOD_NAME not in args.outputs:
+            args.outputs.append(mh.PR_MOD_NAME)
+            LOGGER.warning('--ref-include-mods set, so adding ' +
+                           '"per_read_mods" to --outputs.')
+        if args.ref_mods_all_motifs and not args.ref_include_mods:
+            LOGGER.warning(
+                '--ref-mods-all-motifs but not --ref-include-mods set. ' +
+                'Ignoring --ref-mods-all-motifs.')
+        if args.ref_mod_threshold and not args.ref_include_mods:
+            LOGGER.warning(
+                '--ref-mod-threshold but not --ref-include-mods set. ' +
+                'Ignoring --ref-mod-threshold.')
+
+    if mh.SIG_MAP_NAME in args.outputs:
+        output_sig_maps = True
+        from megalodon import signal_mapping
+        global signal_mapping
+        sig_map_alphabet_info = signal_mapping.get_alphabet_info(model_info)
+        sig_map_alphabet = sig_map_alphabet_info.alphabet
+
+    if mh.PR_REF_NAME in args.outputs:
+        output_pr_refs = True
+        if args.ref_include_variants and mh.PR_VAR_NAME not in args.outputs:
             args.outputs.append(mh.PR_VAR_NAME)
             LOGGER.warning('--refs-include-variants set, so adding ' +
                            'per_read_variants to --outputs.')
-        if args.refs_include_mods and mh.PR_MOD_NAME not in args.outputs:
-            args.outputs.append(mh.PR_MOD_NAME)
-            LOGGER.warning('--refs-include-mods set, so adding ' +
-                           'per_read_mods to --outputs.')
     else:
-        if args.refs_include_variants:
+        if args.ref_include_variants:
             LOGGER.warning(
-                '--refs-include-variantss but not ' +
-                '--output-per-read-references set. Ignoring ' +
-                '--refs-include-variants.')
-        if args.refs_include_mods:
-            LOGGER.warning(
-                '--refs-include-mods but not --output-per-read-references ' +
-                'set. Ignoring --refs-include-mods.')
-    min_len, max_len = (args.refs_length_range
-                        if args.refs_length_range is not None else
-                        (None, None))
-    pr_ref_filts = mh.PR_REF_INFO(
-        pct_idnt=args.refs_percent_identity_threshold,
-        pct_cov=args.refs_percent_coverage_threshold,
-        min_len=min_len, max_len=max_len)
+                '{0} set but {1} not requested. Ignoring {0}.'.format(
+                    '--ref-include-variants', mh.PR_REF_NAME))
 
-    return args, pr_ref_filts
-
-
-def parse_sig_map_output(args, model_info):
-    if args.output_signal_mappings:
-        from megalodon import signal_mapping
-        global signal_mapping
-        sig_map_alphabet = signal_mapping.get_alphabet_info(
-            model_info).alphabet
-        args.outputs.append(mh.SIG_MAP_NAME)
-        if args.signal_map_include_mods and mh.PR_MOD_NAME not in args.outputs:
-            args.outputs.append(mh.PR_MOD_NAME)
-            LOGGER.warning('--signal-map-include-mods set, so adding ' +
-                           '"per_read_mods" to --outputs.')
-    else:
+    if mh.SIG_MAP_NAME not in args.outputs and \
+       mh.PR_REF_NAME not in args.outputs:
         sig_map_alphabet = None
-        if args.signal_map_include_mods:
-            LOGGER.warning(
-                '--signal-map-include-mods but not --output-signal-mappings ' +
-                'set. Ignoring --signal-map-include-mods.')
-    min_len, max_len = (args.signal_map_length_range
-                        if args.signal_map_length_range is not None else
+        for arg_flag, arg_str in (
+                (args.ref_mods_all_motifs, '--ref-mods-all-motifs'),
+                (args.ref_include_mods, '--ref-include-mods'),
+                (args.ref_length_range, '--ref-length-range'),
+                (args.ref_mod_threshold, '--ref-mod-thresh'),
+                (args.ref_percent_identity_threshold,
+                 '--ref-percent-identity-threshold'),
+                (args.ref_percent_coverage_threshold,
+                 '--ref-percent-coverage-threshold')):
+            if arg_flag:
+                LOGGER.warning((
+                    '{0} set but neither {1} nor {2} requested. Ignoring ' +
+                    '{0}.').format(arg_str, mh.SIG_MAP_NAME, mh.PR_REF_NAME))
+
+    min_len, max_len = (args.ref_length_range
+                        if args.ref_length_range is not None else
                         (None, None))
+    # set mod_thresh to infinity if all sites are to be labeled as
+    # modified (--ref-mods-all-motifs)
+    mod_thresh = 0.0
+    if args.ref_mods_all_motifs:
+        mod_thresh = np.inf
+        if args.ref_mod_threshold is not None:
+            LOGGER.warning(
+                '--ref-mods-all-motifs and --ref-mod-threshold ' +
+                'both set. Ignoring --ref-mod-threshold.')
+    elif args.ref_mod_threshold is not None:
+        mod_thresh = args.ref_mod_threshold
 
-    sig_map_info = mh.PR_REF_INFO(
-        pct_idnt=args.signal_map_percent_identity_threshold,
-        pct_cov=args.signal_map_percent_coverage_threshold,
+    ref_out_info = mh.REF_OUT_INFO(
+        pct_idnt=args.ref_percent_identity_threshold,
+        pct_cov=args.ref_percent_coverage_threshold,
         min_len=min_len, max_len=max_len, alphabet=sig_map_alphabet,
-        annotate_mods=args.signal_map_include_mods)
+        annotate_mods=args.ref_include_mods,
+        annotate_vars=args.ref_include_variants, mod_thresh=mod_thresh,
+        output_pr_refs=output_pr_refs, output_sig_maps=output_sig_maps)
 
-    return args, sig_map_info
+    return args, ref_out_info
 
 
 def mkdir(out_dir, overwrite):
@@ -1047,15 +1050,14 @@ def get_parser():
     mod_grp = parser.add_argument_group('Modified Base Arguments')
     mod_grp.add_argument(
         '--mod-motif', action="append", nargs=3,
-        metavar=('base', 'motif', 'position'),
+        metavar=('BASE', 'MOTIF', 'REL_POSITION'),
         help='Restrict modified base calls to specified motif(s). For ' +
-        'example to restrict to CpG, dcm and dam motifs use ' +
-        '"--mod-motif Z CG 0 --mod-motif Z CCWGG 1 --mod-motif Y GATC 1".')
+        'example to restrict to CpG sites use "--mod-motif Z CG 0".')
     mod_grp.add_argument(
         '--mod-calibration-filename',
         help='File containing emperical calibration for modified base ' +
-        'scores.See megalodon/scripts/calibrate_mod_llr_scores.py. Default: ' +
-        'Load default calibration for specified guppy config.')
+        'scores. See megalodon/scripts/calibrate_mod_llr_scores.py. ' +
+        'Default: Load default calibration for specified guppy config.')
 
     mod_grp.add_argument(
         '--disable-mod-calibration', action='store_true',
@@ -1073,7 +1075,7 @@ def get_parser():
                          'modified base calls. (Default: Viterbi ' +
                          'best-path score)'))
     mod_grp.add_argument(
-        '--mod-binary-threshold', type=float, nargs=1,
+        '--mod-binary-threshold', type=float,
         default=mods.DEFAULT_BINARY_THRESH,
         help=hidden_help('Threshold for modified base aggregation ' +
                          '(probability of modified/canonical base). ' +
@@ -1122,51 +1124,38 @@ def get_parser():
         '--taiyaki-model-filename',
         help=hidden_help('Taiyaki basecalling model checkpoint file.'))
 
-    refout_grp = parser.add_argument_group('Reference Output Arguments')
-    refout_grp.add_argument(
-        '--output-per-read-references', action='store_true',
-        help=hidden_help('Output per-read references.'))
-    refout_grp.add_argument(
-        '--refs-include-mods', action='store_true',
-        help=hidden_help('Include modified base calls in per-read ' +
-                         'reference output.'))
-    refout_grp.add_argument(
-        '--refs-include-variants', action='store_true',
-        help=hidden_help('Include variant calls in per-read ' +
-                         'reference output.'))
-    refout_grp.add_argument(
-        '--refs-length-range', type=int, nargs=2,
+    sigmap_grp = parser.add_argument_group(
+        'Reference/Signal Mapping Output Arguments')
+    sigmap_grp.add_argument(
+        '--ref-include-mods', action='store_true',
+        help=hidden_help('Include modified base calls in signal_mappings/' +
+                         'per_read_refs output.'))
+    sigmap_grp.add_argument(
+        '--ref-include-variants', action='store_true',
+        help=hidden_help('Include variant calls in per_read_refs output ' +
+                         '(does not apply to signal_mappings output).'))
+    sigmap_grp.add_argument(
+        '--ref-length-range', type=int, nargs=2,
+        metavar=('MIN_LENGTH', 'MAX_LENGTH'),
         help=hidden_help('Only include reads with specified read length ' +
-                         'in per-read reference output.'))
-    refout_grp.add_argument(
-        '--refs-percent-identity-threshold', type=float,
+                         'in signal_mappings/per_read_refs output.'))
+    sigmap_grp.add_argument(
+        '--ref-percent-identity-threshold', type=float,
         help=hidden_help('Only include reads with higher percent identity ' +
-                         'in per-read reference output.'))
-    refout_grp.add_argument(
-        '--refs-percent-coverage-threshold', type=float,
+                         'in signal_mappings/per_read_refs output.'))
+    sigmap_grp.add_argument(
+        '--ref-percent-coverage-threshold', type=float,
         help=hidden_help('Only include reads with higher read alignment ' +
-                         'coverage in per-read reference output.'))
-
-    sigmap_grp = parser.add_argument_group('Signal Mapping Output Arguments')
+                         'coverage in signal_mappings/per_read_refs output.'))
     sigmap_grp.add_argument(
-        '--output-signal-mappings', action='store_true',
-        help=hidden_help('Output signal mapped file (see taiyaki).'))
+        '--ref-mods-all-motifs', action='store_true',
+        help=hidden_help('Annotate all --mod-motif occurences as modified.'))
     sigmap_grp.add_argument(
-        '--signal-map-include-mods', action='store_true',
-        help=hidden_help('Include modified base calls in signal ' +
-                         'mapping output.'))
-    sigmap_grp.add_argument(
-        '--signal-map-length-range', type=int, nargs=2,
-        help=hidden_help('Only include reads with specified read length ' +
-                         'in signal mapping output.'))
-    sigmap_grp.add_argument(
-        '--signal-map-percent-identity-threshold', type=float,
-        help=hidden_help('Only include reads with higher percent identity ' +
-                         'in signal mapping output.'))
-    sigmap_grp.add_argument(
-        '--signal-map-percent-coverage-threshold', type=float,
-        help=hidden_help('Only include reads with higher read alignment ' +
-                         'coverage in signal mapping output.'))
+        '--ref-mod-threshold', type=float,
+        help=hidden_help('Threshold (log(can_prob/mod_prob)) used to ' +
+                         'annotate a modified bases in signal_mappings/' +
+                         'per_read_refs output. See ' +
+                         'scripts/compute_mod_thresh_score.py'))
 
     misc_grp = parser.add_argument_group('Miscellaneous Arguments')
     misc_grp.add_argument(
@@ -1226,21 +1215,21 @@ def _main():
     if _DO_PROFILE:
         LOGGER.warning('Running profiling. This may slow processing.')
 
-    args, pr_ref_filts = parse_pr_ref_output(args)
-
     backend_params = backends.parse_backend_params(args)
     with backends.ModelInfo(backend_params, args.processes) as model_info:
-        args, mods_info = mods_validation(args, model_info)
-        aligner = aligner_validation(args)
-        args, vars_data = vars_validation(args, model_info, aligner)
-        args, sig_map_info = parse_sig_map_output(args, model_info)
+        # process ref out first as it might add mods or variants to outputs
+        args, ref_out_info = parse_ref_out_args(args, model_info)
+        args, mods_info = parse_mod_args(args, model_info)
+        # aligner can take a while to load, so load as late as possible
+        aligner = parse_aligner_args(args)
+        args, vars_data = parse_var_args(args, model_info, aligner)
 
         process_all_reads(
             args.fast5s_dir, not args.not_recursive, args.num_reads,
             args.read_ids_filename, model_info, args.outputs,
             args.output_directory, args.basecalls_format, aligner, vars_data,
             args.processes, args.verbose_read_progress, args.suppress_progress,
-            mods_info, args.database_safety, pr_ref_filts, sig_map_info,
+            mods_info, args.database_safety, ref_out_info,
             not args.suppress_queues_status)
 
     if aligner is not None:
