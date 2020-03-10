@@ -455,17 +455,15 @@ def main():
 
     sys.stderr.write('Loading model.\n')
     backend_params = backends.parse_backend_params(args)
-    model_info = backends.ModelInfo(backend_params, args.processes)
-    sys.stderr.write('Loading reference.\n')
-    aligner = mapping.alignerPlus(
-        str(args.reference), preset=str('map-ont'), best_n=1)
+    with backends.ModelInfo(backend_params, args.processes) as model_info:
+        sys.stderr.write('Loading reference.\n')
+        aligner = mapping.alignerPlus(
+            str(args.reference), preset=str('map-ont'), best_n=1)
 
-    process_all_reads(
-        args.fast5s_dir, args.num_reads, args.read_ids_filename, model_info,
-        aligner, args.processes, args.output, args.suppress_progress,
-        args.compute_false_reference_scores)
-
-    return
+        process_all_reads(
+            args.fast5s_dir, args.num_reads, args.read_ids_filename,
+            model_info, aligner, args.processes, args.output,
+            args.suppress_progress, args.compute_false_reference_scores)
 
 
 if __name__ == '__main__':
