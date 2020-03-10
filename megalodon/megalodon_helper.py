@@ -1,5 +1,6 @@
 import os
 import sys
+import shutil
 import pkg_resources
 import multiprocessing as mp
 from collections import namedtuple
@@ -212,6 +213,20 @@ def add_fn_suffix(fn, suffix):
         base_fn, fn_ext = os.path.splitext(fn)
         fn = base_fn + '.' + suffix + fn_ext
     return fn
+
+
+def mkdir(out_dir, overwrite):
+    if os.path.exists(out_dir):
+        if not overwrite:
+            raise MegaError(
+                '--output-directory exists and --overwrite is not set.')
+        if os.path.isfile(out_dir) or os.path.islink(out_dir):
+            os.remove(out_dir)
+        else:
+            shutil.rmtree(out_dir)
+    os.mkdir(out_dir)
+
+    return
 
 
 ############################

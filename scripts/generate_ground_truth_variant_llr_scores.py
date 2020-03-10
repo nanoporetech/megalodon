@@ -12,8 +12,7 @@ import numpy as np
 from tqdm import tqdm
 
 from megalodon import (
-    decode, fast5_io, megalodon_helper as mh,
-    megalodon, backends, mapping, variants)
+    megalodon_helper as mh, megalodon, backends, mapping, variants)
 
 
 CONTEXT_BASES = [mh.DEFAULT_SNV_CONTEXT, mh.DEFAULT_INDEL_CONTEXT]
@@ -30,7 +29,7 @@ _DO_PROFILE = False
 
 
 def call_variant(
-        r_post, post_mapped_start, r_var_pos, rl_cumsum, r_to_q_poss,
+        can_post, post_mapped_start, r_var_pos, rl_cumsum, r_to_q_poss,
         var_ref_seq, var_alt_seq, context_bases, all_paths,
         np_ref_seq=None, ref_seq=None):
     var_context_bases = (context_bases[0]
@@ -57,10 +56,10 @@ def call_variant(
     if blk_end - blk_start < max(len(pos_ref_seq), len(pos_alt_seq)):
         return np.NAN
     loc_ref_score = variants.score_seq(
-        r_post, pos_ref_seq, post_mapped_start + blk_start,
+        can_post, pos_ref_seq, post_mapped_start + blk_start,
         post_mapped_start + blk_end, all_paths)
     loc_alt_score = variants.score_seq(
-        r_post, pos_alt_seq, post_mapped_start + blk_start,
+        can_post, pos_alt_seq, post_mapped_start + blk_start,
         post_mapped_start + blk_end, all_paths)
 
     return loc_ref_score - loc_alt_score
@@ -68,7 +67,7 @@ def call_variant(
 
 def call_alt_true_indel(
         indel_size, r_var_pos, true_ref_seq, r_seq, map_thr_buf, context_bases,
-        r_post, rl_cumsum, all_paths):
+        can_post, rl_cumsum, all_paths):
     def run_aligner():
         return next(mappy.Aligner(
             seq=false_ref_seq, preset=str('map-ont'), best_n=1).map(
@@ -117,28 +116,22 @@ def call_alt_true_indel(
         r_algn.q_st:r_algn.q_en + 1] - post_mapped_start
 
     score = call_variant(
-        r_post, post_mapped_start, r_var_pos, mapped_rl_cumsum, r_to_q_poss,
+        can_post, post_mapped_start, r_var_pos, mapped_rl_cumsum, r_to_q_poss,
         var_ref_seq, var_alt_seq, context_bases, all_paths, ref_seq=r_ref_seq)
 
     return score, var_ref_seq, var_alt_seq
 
 
 def process_read(
-        raw_sig, read_id, model_info, caller_conn, map_thr_buf, do_false_ref,
+        sig_info, model_info, caller_conn, map_thr_buf, do_false_ref,
         context_bases=CONTEXT_BASES, edge_buffer=EDGE_BUFFER,
         max_indel_len=MAX_INDEL_LEN, all_paths=ALL_PATHS,
         every_n=TEST_EVERY_N_LOCS, max_pos_per_read=MAX_POS_PER_READ):
-    if model_info.is_cat_mod:
-        bc_weights, mod_weights = model_info.run_model(
-            raw_sig, n_can_state=model_info.n_can_state)
-    else:
-        bc_weights = model_info.run_model(raw_sig)
-
-    r_post = decode.crf_flipflop_trans_post(bc_weights, log=True)
-    r_seq, score, rl_cumsum, _ = decode.decode_post(r_post)
+    r_seq, _, rl_cumsum, can_post, _, _, _ = model_info.basecall_read(
+        sig_info, return_post_w_mods=False)
 
     r_ref_seq, r_to_q_poss, r_ref_pos, _ = mapping.map_read(
-        r_seq, read_id, caller_conn)
+        r_seq, sig_info.read_id, caller_conn)
     np_ref_seq = mh.seq_to_int(r_ref_seq)
     if np_ref_seq.shape[0] < edge_buffer * 2:
         raise NotImplementedError(
@@ -162,7 +155,7 @@ def process_read(
             try:
                 score, var_ref_seq, var_alt_seq = call_alt_true_indel(
                     0, r_var_pos, r_ref_seq, r_seq, map_thr_buf,
-                    context_bases, r_post, rl_cumsum, all_paths)
+                    context_bases, can_post, rl_cumsum, all_paths)
                 read_var_calls.append((False, score, var_ref_seq, var_alt_seq))
             except mh.MegaError:
                 # introduced error either causes read not to map,
@@ -174,7 +167,7 @@ def process_read(
                 try:
                     score, var_ref_seq, var_alt_seq = call_alt_true_indel(
                         indel_size, r_var_pos, r_ref_seq, r_seq, map_thr_buf,
-                        context_bases, r_post, rl_cumsum, all_paths)
+                        context_bases, can_post, rl_cumsum, all_paths)
                     read_var_calls.append((
                         False, score, var_ref_seq, var_alt_seq))
                 except mh.MegaError:
@@ -182,7 +175,7 @@ def process_read(
                 try:
                     score, var_ref_seq, var_alt_seq = call_alt_true_indel(
                         -indel_size, r_var_pos, r_ref_seq, r_seq, map_thr_buf,
-                        context_bases, r_post, rl_cumsum, all_paths)
+                        context_bases, can_post, rl_cumsum, all_paths)
                     read_var_calls.append((
                         False, score, var_ref_seq, var_alt_seq))
                 except mh.MegaError:
@@ -195,7 +188,7 @@ def process_read(
         for var_alt_seq in CAN_BASES_SET.difference(var_ref_seq):
             try:
                 score = call_variant(
-                    r_post, post_mapped_start, r_var_pos, mapped_rl_cumsum,
+                    can_post, post_mapped_start, r_var_pos, mapped_rl_cumsum,
                     r_to_q_poss, var_ref_seq, var_alt_seq, context_bases,
                     all_paths, np_ref_seq=np_ref_seq)
             except mh.MegaError:
@@ -210,7 +203,7 @@ def process_read(
             var_alt_seq = r_ref_seq[r_var_pos]
             try:
                 score = call_variant(
-                    r_post, post_mapped_start, r_var_pos, mapped_rl_cumsum,
+                    can_post, post_mapped_start, r_var_pos, mapped_rl_cumsum,
                     r_to_q_poss, var_ref_seq, var_alt_seq, context_bases,
                     all_paths, np_ref_seq=np_ref_seq)
             except mh.MegaError:
@@ -224,7 +217,7 @@ def process_read(
                 choice(CAN_BASES) for _ in range(indel_size))
             try:
                 score = call_variant(
-                    r_post, post_mapped_start, r_var_pos, mapped_rl_cumsum,
+                    can_post, post_mapped_start, r_var_pos, mapped_rl_cumsum,
                     r_to_q_poss, var_ref_seq, var_alt_seq, context_bases,
                     all_paths, np_ref_seq=np_ref_seq)
             except mh.MegaError:
@@ -253,10 +246,9 @@ def _process_reads_worker(
             break
 
         try:
-            raw_sig = fast5_io.get_signal(fast5_io.get_read(fast5_fn, read_id))
+            sig_info = model_info.extract_signal_info(fast5_fn, read_id)
             read_var_calls = process_read(
-                raw_sig, read_id, model_info, caller_conn, map_thr_buf,
-                do_false_ref)
+                sig_info, model_info, caller_conn, map_thr_buf, do_false_ref)
             var_calls_q.put((True, read_var_calls))
         except Exception as e:
             var_calls_q.put((False, str(e)))
@@ -389,10 +381,28 @@ def get_parser():
         'fast5s_dir',
         help='Directory containing raw fast5 (will be searched recursively).')
 
-    mdl_grp = parser.add_argument_group('Model Arguments')
-    mdl_grp.add_argument(
-        '--taiyaki-model-filename',
-        help='Taiyaki model checkpoint file.')
+    pyg_grp = parser.add_argument_group('Guppy Backend Arguments')
+    pyg_grp.add_argument(
+        '--guppy-config', default=backends.DEFAULT_GUPPY_CFG,
+        help='Guppy config. Default: %(default)s')
+    pyg_grp.add_argument(
+        '--guppy-server-path', default=backends.DEFAULT_GUPPY_SERVER_PATH,
+        help='Path to guppy server executable. Default: %(default)s')
+    pyg_grp.add_argument(
+        '--guppy-server-port', type=int, default=backends.DEFAULT_GUPPY_PORT,
+        help='Guppy server port. Default: %(default)d')
+    pyg_grp.add_argument(
+        '--guppy-params',
+        help='Extra guppy server parameters. Main purpose for optimal ' +
+        'performance based on compute environment. Quote parameters to ' +
+        'avoid them being parsed by megalodon.')
+    pyg_grp.add_argument(
+        '--guppy-timeout', type=float, default=backends.DEFAULT_GUPPY_TIMEOUT,
+        help='Timeout to wait for guppy server to call a single read in ' +
+        'seconds. Default: %(default)f')
+    pyg_grp.add_argument(
+        '--guppy-logs-output-directory', default='guppy_logs',
+        help='Directory to output guppy logs. Default: %(default)s')
 
     map_grp = parser.add_argument_group('Mapping Arguments')
     map_grp.add_argument(
@@ -411,23 +421,10 @@ def get_parser():
         help='File containing read ids to process (one per ' +
         'line). Default: All reads')
 
-    tai_grp = parser.add_argument_group('Taiyaki Signal Chunking Arguments')
-    tai_grp.add_argument(
-        '--devices', type=int, nargs='+',
-        help='CUDA GPU devices to use (only valid for taiyaki), default: CPU')
-    tai_grp.add_argument(
-        '--chunk_size', type=int, default=1000,
-        help='Chunk length for base calling. Default: %(default)d')
-    tai_grp.add_argument(
-        '--chunk_overlap', type=int, default=100,
-        help='Overlap between chunks to be stitched together. ' +
-        'Default: %(default)d')
-    tai_grp.add_argument(
-        '--max_concurrent_chunks', type=int, default=50,
-        help='Only process N chunks concurrently per-read (to avoid GPU ' +
-        'memory errors). Default: %(default)d')
-
     misc_grp = parser.add_argument_group('Miscellaneous Arguments')
+    misc_grp.add_argument(
+        '--devices', nargs='+',
+        help='GPU devices for guppy or taiyaki basecalling backends.')
     misc_grp.add_argument(
         '--processes', type=int, default=1,
         help='Number of parallel processes. Default: %(default)d')
@@ -445,6 +442,16 @@ def get_parser():
 
 def main():
     args = get_parser().parse_args()
+    # add required attributes for loading guppy, but not valid options for
+    # this script.
+    args.do_not_use_guppy_server = False
+    args.output_directory = args.guppy_logs_output_directory
+    try:
+        mh.mkdir(args.output_directory, False)
+    except mh.MegaError:
+        sys.stderr.write(
+            '***** WARNING ***** Guppy logs output directory exists. ' +
+            'Potentially overwriting guppy logs.\n')
 
     sys.stderr.write('Loading model.\n')
     backend_params = backends.parse_backend_params(args)
