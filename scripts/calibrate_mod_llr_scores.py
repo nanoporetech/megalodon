@@ -3,17 +3,11 @@ import sys
 import argparse
 from collections import defaultdict
 
-import matplotlib
+import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
-import numpy as np
-
 from megalodon import calibration
-
-
-if sys.platform == 'darwin':
-    matplotlib.use("TkAgg")
 
 
 def plot_calib(

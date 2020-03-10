@@ -443,7 +443,7 @@ class ModelInfo(object):
 
         return
 
-    def extract_signal_info(self, fast5_fn, read_id, extract_dacs):
+    def extract_signal_info(self, fast5_fn, read_id, extract_dacs=False):
         read = fast5_io.get_read(fast5_fn, read_id)
         dacs = scale_params = raw_sig = None
         if extract_dacs:

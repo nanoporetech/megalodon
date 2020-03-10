@@ -2,7 +2,6 @@ import os
 import sys
 import h5py
 import queue
-import shutil
 import argparse
 import threading
 import traceback
@@ -867,21 +866,6 @@ def parse_ref_out_args(args, model_info):
     return args, ref_out_info
 
 
-def mkdir(out_dir, overwrite):
-    if os.path.exists(out_dir):
-        if not overwrite:
-            LOGGER.error(
-                '--output-directory exists and --overwrite is not set.')
-            sys.exit(1)
-        if os.path.isfile(out_dir) or os.path.islink(out_dir):
-            os.remove(out_dir)
-        else:
-            shutil.rmtree(out_dir)
-    os.mkdir(out_dir)
-
-    return
-
-
 ########
 # Main #
 ########
@@ -1209,7 +1193,12 @@ def _main():
         print('\n' + mh.get_supported_configs_message())
         sys.exit()
 
-    mkdir(args.output_directory, args.overwrite)
+    try:
+        mh.mkdir(args.output_directory, args.overwrite)
+    except mh.MegaError as e:
+        LOGGER.error(str(e))
+        sys.exit(1)
+
     logging.init_logger(args.output_directory)
     LOGGER.debug('Command: """' + ' '.join(sys.argv) + '"""')
     if _DO_PROFILE:
