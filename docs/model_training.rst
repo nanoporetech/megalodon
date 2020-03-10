@@ -93,4 +93,19 @@ In order to output modified base training data a modbase model must be provided.
 Megalodon Calibration
 ---------------------
 
-TODO: Describe megalodon calibration.
+When a new model is trained the produced scores must be calibrated to acheive optimal aggregated results (over reads).
+Once produced calibration files can be passed to megalodon via the ``--variant-calibration-filename`` and ``--mod-calibration-filename`` arguments.
+
+Calibration requires a ground truth against which to compute scores.
+For sequence variants, a high quality reference for a set of reads is required.
+Random sequence variants are proposed and scored in order to create distributions over which to calibrate the produced scores.
+In order to create a sequence variant calbration file, run ``megalodon/scripts/generate_ground_truth_variant_llr_scores.py`` followed by ``megalodon/scripts/calibrate_variant_llr_scores.py``.
+The optional ``--out-pdf`` provides visualization of the likelihood ratio score correction.
+
+For modified bases a ground truth containing known modified reference sites as well as known canonical base sites is required.
+Similarly to sequence variant calibration, a modified base calibration file is created by running ``megalodon/scripts/generate_ground_truth_mod_llr_scores.py`` followed by ``megalodon/scripts/calibrate_mod_llr_scores.py``.
+It is recommended that modified base calibration sites be specified by passing a CSV flie containing the known modified and canonical sites.
+Modified base ground truths can also be specified by passing a control sample as well as specifying a prefix for all modified base reference mappings.
+
+Currently the per-read text output is required to compute calibration files.
+In the future, calibration files will be able to be computed from the database files to avoid I/O issues surrounding text file output.
