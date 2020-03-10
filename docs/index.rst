@@ -80,3 +80,4 @@ Contents
    computing_considerations
    variant_phasing
    file_formats
+   model_training
