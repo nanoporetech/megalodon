@@ -101,6 +101,9 @@ def compute_calibration(
     # then recompute smooth values
     new_input_llr_range = determine_min_dens_edge(
         sm_ref, sm_alt, num_calib_vals, min_dens_val, smooth_ls)
+    if new_input_llr_range[1] - new_input_llr_range[0] <= 0:
+        raise mh.MegaError('Ground truth smoothed monotonic densities do ' +
+                           'not overlap. Consider lowering min_dens_val.')
     if new_input_llr_range[0] != -max_input_llr or \
        new_input_llr_range[1] != max_input_llr:
         sys.stderr.write(
