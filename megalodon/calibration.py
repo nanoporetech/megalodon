@@ -8,7 +8,7 @@ from megalodon import megalodon_helper as mh
 
 DEFAULT_SMOOTH_BW = 0.8
 DEFAULT_SMOOTH_MAX = 200
-DEFAULT_SMOOTH_NVALS = 1001
+DEFAULT_SMOOTH_NVALS = 5001
 DEFAULT_MIN_DENSITY = 5e-6
 
 VAR_CALIB_TYPE = 'snp_type_indel_len'
@@ -25,28 +25,34 @@ INS_LLR_RNG_TMPLT = 'ins_{}_llr_range'
 # Calibration Estimation #
 ##########################
 
-def determine_min_dens_edge(
-        sm_ref, sm_alt, num_calib_vals, min_dens_val, smooth_ls):
+def determine_min_dens_edge(sm_ref, sm_alt, min_dens_val, smooth_ls):
     """ Compute positions where the density values are too small to produce
-    robust calibration estimates and return range with valid density values
+    robust calibration estimates and return range with valid density values.
+
+    Assumes input densities are smooth and monotonic decreasing from a
+    single peak.
     """
+    ref_peak = np.argmax(sm_ref)
+    alt_peak = np.argmax(sm_alt)
     lower_invalid_dens_pos = 0
-    ref_before = np.where(sm_ref[:num_calib_vals // 2] < min_dens_val)[0]
+    ref_before = np.where(sm_ref[:ref_peak] < min_dens_val)[0]
     if len(ref_before) > 0:
         lower_invalid_dens_pos = max(ref_before[-1], lower_invalid_dens_pos)
-    alt_before = np.where(sm_alt[:num_calib_vals // 2] < min_dens_val)[0]
+    alt_before = np.where(sm_alt[:alt_peak] < min_dens_val)[0]
     if len(alt_before) > 0:
         lower_invalid_dens_pos = max(alt_before[-1], lower_invalid_dens_pos)
 
     upper_invalid_dens_pos = 1
-    ref_after = np.where(sm_ref[num_calib_vals // 2:] < min_dens_val)[0]
+    ref_after = np.where(sm_ref[ref_peak:] < min_dens_val)[0]
     if len(ref_after) > 0:
-        upper_invalid_dens_pos = max((num_calib_vals // 2) - ref_after[0] + 1,
-                                     upper_invalid_dens_pos)
-    alt_after = np.where(sm_alt[num_calib_vals // 2:] < min_dens_val)[0]
+        upper_invalid_dens_pos = max(
+            sm_ref.shape[0] - ref_peak - ref_after[0] + 1,
+            upper_invalid_dens_pos)
+    alt_after = np.where(sm_alt[alt_peak:] < min_dens_val)[0]
     if len(alt_after) > 0:
-        upper_invalid_dens_pos = max((num_calib_vals // 2) - alt_after[0] + 1,
-                                     upper_invalid_dens_pos)
+        upper_invalid_dens_pos = max(
+            sm_alt.shape[0] - alt_peak - alt_after[0] + 1,
+            upper_invalid_dens_pos)
 
     return (np.around(smooth_ls[lower_invalid_dens_pos]).astype(int),
             np.around(smooth_ls[-upper_invalid_dens_pos]).astype(int))
