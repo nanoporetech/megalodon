@@ -100,7 +100,7 @@ def compute_calibration(
     # find a valid clipping location according to min_dens_val
     # then recompute smooth values
     new_input_llr_range = determine_min_dens_edge(
-        sm_ref, sm_alt, num_calib_vals, min_dens_val, smooth_ls)
+        sm_ref, sm_alt, min_dens_val, smooth_ls)
     if new_input_llr_range[1] - new_input_llr_range[0] <= 0:
         raise mh.MegaError('Ground truth smoothed monotonic densities do ' +
                            'not overlap. Consider lowering min_dens_val.')
@@ -150,7 +150,7 @@ def compute_mirrored_calibration(
     # find a valid clipping location according to min_dens_val
     # then recompute smooth values
     new_input_llr_range = determine_min_dens_edge(
-        sm_ref, sm_ref[::-1], num_calib_vals, min_dens_val, smooth_ls)
+        sm_ref, sm_ref[::-1], min_dens_val, smooth_ls)
     assert new_input_llr_range[0] == -new_input_llr_range[1]
     if new_input_llr_range[0] != -max_input_llr or \
        new_input_llr_range[1] != max_input_llr:
