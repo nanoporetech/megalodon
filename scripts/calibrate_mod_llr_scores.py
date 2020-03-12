@@ -10,9 +10,12 @@ from matplotlib.backends.backend_pdf import PdfPages
 from megalodon import calibration
 
 
+PROB_COLORS = ("#bcbddc", "#807dba", "#6a51a3")
+
+
 def plot_calib(
         pdf_fp, mod_base, smooth_ls, s_ref, sm_ref, s_alt, sm_alt,
-        mono_prob, prob_alt):
+        mono_prob, prob_alt, prob_threshs, add_prob_thresh):
     f, axarr = plt.subplots(3, sharex=True, figsize=(11, 7))
     axarr[0].plot(smooth_ls, s_ref, color='orange')
     axarr[0].plot(smooth_ls, sm_ref, color='red')
@@ -32,6 +35,21 @@ def plot_calib(
         smooth_ls, np.log((1 - mono_prob) / mono_prob), color='orange')
     axarr[2].set_ylabel('Calibrated LLR\norage=monotonic')
     axarr[2].set_xlabel('Theoretical LLR (NN Score)')
+    if add_prob_thresh:
+        # indicate the cutoff points for several common cutoff locations
+        thresh_f = np.log((1 - mono_prob) / mono_prob)
+        for p, col in zip(prob_threshs, PROB_COLORS):
+            llr_x = np.log(p / (1 - p))
+            thresh_val = np.argmin(np.abs(thresh_f - llr_x))
+            nthresh_val = np.argmin(np.abs(thresh_f + llr_x))
+            for i in range(2):
+                axarr[i].axvline(x=smooth_ls[thresh_val], color=col)
+                axarr[i].axvline(x=smooth_ls[nthresh_val], color=col)
+            axarr[2].axvline(x=smooth_ls[thresh_val], color=col)
+            axarr[2].axvline(x=smooth_ls[nthresh_val], color=col, label=p)
+            axarr[2].legend(loc='upper right', bbox_to_anchor=(1, -0.12),
+                            ncol=3)
+
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
     return
@@ -104,6 +122,12 @@ def get_parser():
         help='Output pdf filename for modified base calibration ' +
         'visualization. Default: Do not produce plot.')
     parser.add_argument(
+        '--pdf-prob-thresholds', nargs=3, type=float, default=[0.75, 0.8, 0.9],
+        help='Probability thresholds to mark on output pdf.')
+    parser.add_argument(
+        '--plot-without-prob-thresholds', action='store_true',
+        help='Do not include probability thresholds in plot(s).')
+    parser.add_argument(
         '--overwrite', action='store_true',
         help='Overwrite --out-filename if it exists.')
 
@@ -130,7 +154,8 @@ def main():
         save_kwargs[mod_base + '_llr_range'] = mod_llr_range
         save_kwargs[mod_base + '_calibration_table'] = mod_calib
         if pdf_fp is not None:
-            plot_calib(pdf_fp, mod_base, *plot_data)
+            plot_calib(pdf_fp, mod_base, *plot_data, args.pdf_prob_thresholds,
+                       not args.plot_without_prob_thresholds)
     if pdf_fp is not None:
         pdf_fp.close()
 
