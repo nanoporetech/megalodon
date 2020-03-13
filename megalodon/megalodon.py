@@ -706,6 +706,8 @@ def parse_aligner_args(args):
 
 
 def parse_var_args(args, model_info, aligner):
+    if args.ref_include_variants and mh.PR_VAR_NAME not in args.outputs:
+        args.outputs.append(mh.PR_VAR_NAME)
     if mh.WHATSHAP_MAP_NAME in args.outputs and \
        mh.VAR_NAME not in args.outputs:
         args.outputs.append(mh.VAR_NAME)
@@ -749,6 +751,8 @@ def parse_var_args(args, model_info, aligner):
 
 
 def parse_mod_args(args, model_info):
+    if args.ref_include_mods and mh.PR_MOD_NAME not in args.outputs:
+        args.outputs.append(mh.PR_MOD_NAME)
     if mh.PR_MOD_NAME not in args.outputs and mh.MOD_NAME in args.outputs:
         args.outputs.append(mh.PR_MOD_NAME)
     if mh.PR_MOD_NAME in args.outputs and not model_info.is_cat_mod:
