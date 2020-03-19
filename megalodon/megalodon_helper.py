@@ -3,8 +3,8 @@ import sys
 import shutil
 import pkg_resources
 import multiprocessing as mp
-from collections import namedtuple
 from abc import ABC, abstractmethod
+from collections import namedtuple, OrderedDict
 from multiprocessing.queues import Queue as mpQueue
 
 import numpy as np
@@ -93,19 +93,19 @@ OUTPUT_FNS = {
 }
 LOG_FILENAME = 'log.txt'
 # outputs to be selected with command line --outputs argument
-OUTPUT_DESCS = {
-    BC_NAME: 'Called bases (FASTA/Q)',
-    BC_MODS_NAME: 'Basecall-anchored modified base scores (HDF5)',
-    MAP_NAME: 'Mapped reads (BAM/CRAM/SAM)',
-    PR_VAR_NAME: 'Per-read, per-site sequence variant scores database',
-    VAR_NAME: 'Sample-level aggregated sequence variant calls (VCF)',
-    WHATSHAP_MAP_NAME: (
-        'Sequence variant annotated mappings for use with whatshap'),
-    PR_MOD_NAME: 'Per-read, per-site modified base scores database',
-    MOD_NAME: 'Sample-level aggregated modified base calls (modVCF)',
-    SIG_MAP_NAME: 'Signal mappings for taiyaki model training (HDF5)',
-    PR_REF_NAME: 'Per-read reference sequence for model training (FASTA)'
-}
+OUTPUT_DESCS = OrderedDict([
+    (BC_NAME, 'Called bases (FASTA/Q)'),
+    (BC_MODS_NAME, 'Basecall-anchored modified base scores (HDF5)'),
+    (MAP_NAME, 'Mapped reads (BAM/CRAM/SAM)'),
+    (PR_VAR_NAME, 'Per-read, per-site sequence variant scores database'),
+    (VAR_NAME, 'Sample-level aggregated sequence variant calls (VCF)'),
+    (WHATSHAP_MAP_NAME,
+     'Sequence variant annotated mappings for use with whatshap'),
+    (PR_MOD_NAME, 'Per-read, per-site modified base scores database'),
+    (MOD_NAME, 'Sample-level aggregated modified base calls (modVCF)'),
+    (SIG_MAP_NAME, 'Signal mappings for taiyaki model training (HDF5)'),
+    (PR_REF_NAME, 'Per-read reference sequence for model training (FASTA)')
+])
 
 # output formats for modified bases and file extensions
 MOD_BEDMETHYL_NAME = 'bedmethyl'

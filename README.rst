@@ -146,6 +146,17 @@ In order to obtain the highest quality diploid sequence variant calls the full v
 This pipeline is described in detail on the `full documentation page <https://nanoporetech.github.io/megalodon/variant_phasing.html>`_.
 The default diploid variant settings are optimized for the full phasing pipeline and not the highest quality diploid calls directly from a single megalodon call.
 
+High-Density Variants
+*********************
+
+When running megalodon with a high density of variants (more than 1 variant per 100 reference bases), certain steps can be taken to increase performace.
+In particular, megalodon requires variants to be atomized first.
+In order to improve performance, this step can be carried out as a pre-processing step.
+
+To perform this pre-processing use the ``megalodon/scripts/atomize_variants.py`` command.
+This will produce an atomized variants file.
+When running megalodon with this variants file the ``--variants-are-atomized`` flag should be set.
+
 Disk Performance Considerations
 *******************************
 
