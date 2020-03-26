@@ -6,7 +6,7 @@ import datetime
 from time import sleep
 from array import array
 from operator import itemgetter
-from itertools import product, combinations
+from itertools import chain, combinations, product, repeat
 from collections import defaultdict, namedtuple, OrderedDict
 
 import pysam
@@ -22,9 +22,10 @@ _DEBUG_PER_READ = False
 
 VARIANT_DATA = namedtuple('VARIANT_DATA', (
     'np_ref', 'np_alts', 'id', 'chrom', 'start', 'stop',
-    'ref', 'alts', 'ref_start', 'has_context_base'))
-# set default value of None for ref, alts and ref_start
-VARIANT_DATA.__new__.__defaults__ = (None, None, None, False)
+    'ref', 'alts', 'ref_start', 'strand', 'has_context_base'))
+# set default value of None for ref, alts, ref_start and strand;
+# false for has_context_base
+VARIANT_DATA.__new__.__defaults__ = (None, None, None, None, False)
 
 DIPLOID_MODE = 'diploid'
 HAPLIOD_MODE = 'haploid'
@@ -34,9 +35,14 @@ SAMPLE_NAME = 'SAMPLE'
 WHATSHAP_MAX_QUAL = 40
 WHATSHAP_RG_ID = '1'
 HAS_CONTEXT_BASE_TAG = 'CB'
+CONTEXT_BASE_MI_LINE = (
+    '##INFO=<ID={},Number=0,Type=Flag,Description=' +
+    '"REF and ALT contain a single upstream context base">').format(
+        HAS_CONTEXT_BASE_TAG)
 FIXED_VCF_MI = [
     'phasing=none',
     'INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
+    CONTEXT_BASE_MI_LINE,
     'FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
     'FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype Quality">',
     'FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read Depth">',
@@ -50,10 +56,12 @@ FORMAT_LOG_PROB_MI = (
     'Description="Per-read log10 likelihoods for alternative ' +
     'alleles (semi-colon separated)">')
 
+LOGGER = logging.get_logger()
 
-#######################
-##### Variants DB #####
-#######################
+
+###############
+# Variants DB #
+###############
 
 class VarsDb(object):
     # note foreign key constraint is not applied here as this
@@ -90,7 +98,8 @@ class VarsDb(object):
 
     # namedtuple for returning var info from a single position
     var_data = namedtuple('var_data', [
-        'score', 'pos', 'ref_seq', 'var_name', 'read_id', 'chrm', 'alt_seq'])
+        'score', 'pos', 'ref_seq', 'var_name', 'read_id', 'chrm', 'alt_seq',
+        'has_context_base'])
     text_field_names = (
         'read_id', 'chrm', 'strand', 'pos', 'ref_log_prob', 'alt_log_prob',
         'ref_seq', 'alt_seq', 'var_id')
@@ -113,8 +122,7 @@ class VarsDb(object):
 
         if read_only:
             if not os.path.exists(fn):
-                logger = logging.get_logger('vars')
-                logger.error((
+                LOGGER.error((
                     'Variant per-read database file ({}) does ' +
                     'not exist.').format(fn))
                 raise mh.MegaError('Invalid variant DB filename.')
@@ -191,6 +199,8 @@ class VarsDb(object):
             if self.chrm_idx_in_mem:
                 self.chrm_id_idx[chrm] = chrm_id
                 self.chrm_name_idx[chrm_id] = chrm
+            if self.loc_idx_in_mem:
+                self.loc_idx[chrm_id] = {}
         return chrm_id
 
     def insert_chrms(self, chrm_names_and_lens):
@@ -206,13 +216,19 @@ class VarsDb(object):
                 range(next_chrm_id,
                       next_chrm_id + len(chrm_names_and_lens[0])),
                 chrm_names_and_lens[0]))
+        if self.loc_idx_in_mem:
+            self.loc_idx.update(
+                (chrm_id, {})
+                for chrm_id in range(
+                        next_chrm_id,
+                        next_chrm_id + len(chrm_names_and_lens[0])))
         return
 
     def get_loc_id_or_insert(
             self, chrm_id, test_start, test_end, pos, ref_seq, var_name):
         try:
             if self.loc_idx_in_mem:
-                loc_id = self.loc_idx[(chrm_id, test_start, test_end)]
+                loc_id = self.loc_idx[chrm_id][(test_start, test_end)]
             else:
                 loc_id = self.cur.execute(
                     'SELECT loc_id FROM loc WHERE loc_chrm=? AND ' +
@@ -225,52 +241,49 @@ class VarsDb(object):
                 (chrm_id, test_start, test_end, pos, ref_seq, var_name))
             loc_id = self.cur.lastrowid
             if self.loc_idx_in_mem:
-                self.loc_idx[(chrm_id, test_start, test_end)] = loc_id
+                self.loc_idx[chrm_id][(test_start, test_end)] = loc_id
         return loc_id
 
     def get_loc_ids_or_insert(self, r_var_scores, chrm_id):
         """ Extract all location IDs and add those locations not currently
         found in the database
         """
-        if len(r_var_scores) == 0: return []
+        if len(r_var_scores) == 0:
+            return []
 
         r_locs = dict((
-            ((chrm_id, test_start, test_end), (pos, ref_seq, var_name))
+            ((test_start, test_end), (pos, ref_seq, var_name))
             for pos, _, ref_seq, _, var_name,
             test_start, test_end in r_var_scores))
         if self.loc_idx_in_mem:
-            locs_to_add = tuple(set(r_locs).difference(self.loc_idx))
+            cs_loc_idx = self.loc_idx[chrm_id]
         else:
-            test_starts, test_ends = map(
-                set, list(zip(*r_locs.keys()))[1:])
-            loc_ids = dict((
-                ((chrm_id, test_start, test_end), loc_id)
-                for chrm_id, test_start, test_end, loc_id in  self.cur.execute(
-                        ('SELECT loc_chrm, test_start, test_end, loc_id ' +
+            test_starts, test_ends = map(set, zip(*r_locs.keys()))
+            cs_loc_idx = dict((
+                ((test_start, test_end), loc_id)
+                for test_start, test_end, loc_id in self.cur.execute(
+                        ('SELECT test_start, test_end, loc_id ' +
                          'FROM loc WHERE loc_chrm=? AND ' +
                          'test_start in ({0}) AND test_end in ({1})').format(
-                             ','.join(['?',] * len(test_starts)),
-                             ','.join(['?',] * len(test_ends))),
+                             ','.join(['?', ] * len(test_starts)),
+                             ','.join(['?', ] * len(test_ends))),
                         (chrm_id, *test_starts, *test_ends)).fetchall()))
-            locs_to_add = tuple(set(r_locs).difference(loc_ids))
+        locs_to_add = tuple(set(r_locs).difference(cs_loc_idx))
 
         if len(locs_to_add) > 0:
             next_loc_id = self.get_num_uniq_var_loc() + 1
             self.cur.executemany(
                 'INSERT INTO loc (loc_chrm, test_start, test_end, ' +
                 'pos, ref_seq, var_name) VALUES (?,?,?,?,?,?)',
-                ((*loc_key, *r_locs[loc_key]) for loc_key in locs_to_add))
-
-        loc_idx = self.loc_idx if self.loc_idx_in_mem else loc_ids
-        if len(locs_to_add) > 0:
-            loc_idx.update(zip(
+                ((chrm_id, *loc_key, *r_locs[loc_key])
+                 for loc_key in locs_to_add))
+            cs_loc_idx.update(zip(
                 locs_to_add,
                 range(next_loc_id, next_loc_id + len(locs_to_add))))
-        r_loc_ids = [
-            loc_idx[(chrm_id, test_start, test_end)]
-            for _, _, _, _, _, test_start, test_end in r_var_scores]
 
-        return r_loc_ids
+        return chain.from_iterable(
+            repeat(cs_loc_idx[(test_start, test_end)], len(alt_lps))
+            for _, alt_lps, _, _, _, test_start, test_end in r_var_scores)
 
     def get_alt_id_or_insert(self, alt_seq):
         try:
@@ -290,43 +303,37 @@ class VarsDb(object):
         return alt_id
 
     def get_alt_ids_or_insert(self, r_var_scores):
-        if len(r_var_scores) == 0: return []
+        if len(r_var_scores) == 0:
+            return []
 
-        logger = logging.get_logger()
-        r_seqs_and_lps = [
-            tuple(zip(alt_seqs, alt_lps))
-            for _, alt_lps, _, alt_seqs, _, _, _ in r_var_scores]
-        r_uniq_seqs = set(seq_lp_i[0] for loc_seqs_lps in r_seqs_and_lps
-                          for seq_lp_i in loc_seqs_lps)
+        r_uniq_seqs = set(
+            alt_seq for _, _, _, alt_seqs, _, _, _ in r_var_scores
+            for alt_seq in alt_seqs)
         if self.alt_idx_in_mem:
+            alt_idx = self.alt_idx
             alts_to_add = tuple(r_uniq_seqs.difference(self.alt_idx))
         else:
-            alt_ids = dict((
+            alt_idx = dict((
                 (alt_seq, alt_id)
-                for alt_seq, alt_id in  self.cur.execute(
+                for alt_seq, alt_id in self.cur.execute(
                         ('SELECT alt_seq, alt_id ' +
                          'FROM alt WHERE alt_seq in ({})').format(
-                             ','.join(['?',] * len(r_uniq_seqs))),
+                             ','.join(['?', ] * len(r_uniq_seqs))),
                         r_uniq_seqs).fetchall()))
-            alts_to_add = tuple(r_uniq_seqs.difference(alt_ids))
+            alts_to_add = tuple(r_uniq_seqs.difference(alt_idx))
 
         if len(alts_to_add) > 0:
             next_alt_id = self.get_num_uniq_alt_seqs() + 1
             self.cur.executemany(
                 'INSERT INTO alt (alt_seq) VALUES (?)',
                 ((alt_seq,) for alt_seq in alts_to_add))
-
-        alt_idx = self.alt_idx if self.alt_idx_in_mem else alt_ids
-        if len(alts_to_add) > 0:
             alt_idx.update(zip(
                 alts_to_add,
                 range(next_alt_id, next_alt_id + len(alts_to_add))))
-        r_alt_ids = [
-            tuple((alt_idx[alt_seq], alt_lp)
-                  for alt_seq, alt_lp in loc_seqs_lps)
-            for loc_seqs_lps in r_seqs_and_lps]
 
-        return r_alt_ids
+        return ((alt_idx[alt_seq], alt_lp)
+                for _, alt_lps, _, alt_seqs, _, _, _ in r_var_scores
+                for alt_seq, alt_lp in zip(alt_seqs, alt_lps))
 
     def get_read_id_or_insert(self, uuid):
         try:
@@ -346,17 +353,17 @@ class VarsDb(object):
     def insert_read_scores(self, r_var_scores, uuid, chrm, strand):
         self.cur.execute('INSERT INTO read (uuid, strand) VALUES (?,?)',
                          (uuid, strand))
-        if len(r_var_scores) == 0: return
+        if len(r_var_scores) == 0:
+            return
 
         read_id = self.cur.lastrowid
         chrm_id = self.get_chrm_id(chrm)
         loc_ids = self.get_loc_ids_or_insert(r_var_scores, chrm_id)
         alt_ids = self.get_alt_ids_or_insert(r_var_scores)
 
-        read_insert_data = ((alt_lp, loc_id, alt_id, read_id)
-                            for loc_id, loc_alts in zip(loc_ids, alt_ids)
-                            for alt_id, alt_lp in loc_alts)
-
+        read_insert_data = (
+            (alt_lp, loc_id, alt_id, read_id)
+            for loc_id, (alt_id, alt_lp) in zip(loc_ids, alt_ids))
         self.cur.executemany(
             'INSERT INTO data VALUES (?,?,?,?)', read_insert_data)
         return
@@ -497,21 +504,23 @@ class VarsDb(object):
         return num_chrms
 
     def get_num_uniq_var_loc(self):
-        num_locs = self.cur.execute('SELECT MAX(loc_id) FROM loc').fetchone()[0]
+        num_locs = self.cur.execute(
+            'SELECT MAX(loc_id) FROM loc').fetchone()[0]
         if num_locs is None:
             num_locs = 0
         return num_locs
 
     def get_num_uniq_alt_seqs(self):
-        num_alts = self.cur.execute('SELECT MAX(alt_id) FROM alt').fetchone()[0]
+        num_alts = self.cur.execute(
+            'SELECT MAX(alt_id) FROM alt').fetchone()[0]
         if num_alts is None:
             num_alts = 0
         return num_alts
 
     def iter_locs(self):
         for loc in self.cur.execute(
-                'SELECT loc_id, loc_chrm, pos, ref_seq, var_name ' +
-                'FROM loc').fetchall():
+                'SELECT loc_id, loc_chrm, pos, ref_seq, var_name, ' +
+                'test_start FROM loc').fetchall():
             yield loc
         return
 
@@ -530,15 +539,15 @@ class VarsDb(object):
     def get_loc_stats(self, loc_data, return_uuids=False):
         read_id_conv = self.get_uuid if return_uuids else lambda x: x
         # these attributes are specified in self.iter_locs
-        loc_id, chrm_id, pos, ref_seq, var_name = loc_data
+        loc_id, chrm_id, pos, ref_seq, var_name, test_start = loc_data
         chrm = self.get_chrm(chrm_id)
         return [
             self.var_data(
                 score, pos, ref_seq, var_name, read_id_conv(read_id),
-                chrm, self.get_alt_seq(alt_id))
+                chrm, self.get_alt_seq(alt_id), test_start != pos)
             for score, read_id, alt_id, loc_id in self.cur.execute(
-                    'SELECT score, score_read, score_alt, score_loc FROM data ' +
-                    'WHERE score_loc=?', (loc_id,)).fetchall()]
+                    'SELECT score, score_read, score_alt, score_loc ' +
+                    'FROM data WHERE score_loc=?', (loc_id,)).fetchall()]
 
     def close(self):
         self.db.commit()
@@ -546,23 +555,23 @@ class VarsDb(object):
         return
 
 
-############################
-##### Helper Functions #####
-############################
+####################
+# Helper Functions #
+####################
 
 def logsumexp(x):
     x_max = x.max()
     return np.log(np.sum(np.exp(x - x_max))) + x_max
 
 
-####################################
-##### Per-read Variant Scoring #####
-####################################
+############################
+# Per-read Variant Scoring #
+############################
 
 def write_per_read_debug(
         var_ref_pos, var_id, read_ref_pos, np_s_var_ref_seq, np_s_var_alt_seqs,
         np_s_context_seqs, loc_contexts_ref_lps, loc_contexts_alts_lps,
-        w_context, logger):
+        w_context):
     ref_seq = mh.int_to_seq(np_s_var_ref_seq)
     if read_ref_pos.strand == -1:
         ref_seq = mh.revcomp(ref_seq)
@@ -588,8 +597,9 @@ def write_per_read_debug(
                         ref_lp, ','.join(('{:.2f}'.format(alt_lp)
                                           for alt_lp in alt_lps)),
                         'WITH_CONTEXT' if w_context else 'NO_CONTEXT')
-    logger.debug(out_txt)
+    LOGGER.debug(out_txt)
     return
+
 
 def score_seq(tpost, seq, tpost_start=0, tpost_end=None,
               all_paths=False):
@@ -604,7 +614,7 @@ def score_seq(tpost, seq, tpost_start=0, tpost_end=None,
     """
     seq = seq.astype(np.uintp)
     if tpost_end is None:
-        tpost_end = post.shape[0]
+        tpost_end = tpost.shape[0]
     if seq.shape[0] >= tpost_end - tpost_start:
         raise mh.MegaError('Mapped signal too short for proposed sequence.')
 
@@ -614,16 +624,17 @@ def score_seq(tpost, seq, tpost_start=0, tpost_end=None,
 
     return score
 
+
 def score_variants_with_context(
         vars_iter, ref_to_block, r_post, read_ref_fwd_seq, r_var_calls,
         read_cached_scores, read_ref_pos=None, all_paths=False,
-        calibrate_llr=lambda *x: x[0], logger=None):
+        calibrate_llr=lambda *x: x[0]):
     for (np_s_var_ref_seq, np_s_var_alt_seqs, np_s_context_seqs,
          s_ref_start, s_ref_end, variant) in vars_iter:
         ref_cntxt_ref_lp, ref_cntxt_alt_lps = read_cached_scores[(
             variant.id, variant.start, variant.stop)]
 
-        blk_start  = ref_to_block[s_ref_start]
+        blk_start = ref_to_block[s_ref_start]
         blk_end = ref_to_block[s_ref_end]
 
         # filter to context sequences that can be evaluated given the
@@ -651,8 +662,9 @@ def score_variants_with_context(
             alt_context_seqs = (
                 np.concatenate([
                     up_context_seq, np_s_var_alt_seq, dn_context_seq])
-                for up_context_seq, dn_context_seq in filt_np_s_context_seqs[1:])
-            loc_contexts_alt_lps = np.array([ref_cntxt_alt_lp,] + [
+                for up_context_seq, dn_context_seq in
+                filt_np_s_context_seqs[1:])
+            loc_contexts_alt_lps = np.array([ref_cntxt_alt_lp, ] + [
                 score_seq(r_post, alt_seq, blk_start, blk_end, all_paths)
                 for alt_seq in alt_context_seqs])
             loc_alt_lp = logsumexp(loc_contexts_alt_lps)
@@ -667,11 +679,11 @@ def score_variants_with_context(
         # inferred negative reference likelihood, so re-normalize here
         loc_alt_log_ps = calibration.compute_log_probs(np.array(loc_alt_llrs))
 
-        if _DEBUG_PER_READ and logger is not None and read_ref_pos is not None:
+        if _DEBUG_PER_READ and read_ref_pos is not None:
             write_per_read_debug(
                 variant.start, variant.id, read_ref_pos,
                 np_s_var_ref_seq, np_s_var_alt_seqs, filt_np_s_context_seqs,
-                loc_contexts_ref_lps, loc_contexts_alts_lps, True, logger)
+                loc_contexts_ref_lps, loc_contexts_alts_lps, True)
 
         r_var_calls.append((
             variant.ref_start, loc_alt_log_ps, variant.ref,
@@ -680,16 +692,17 @@ def score_variants_with_context(
 
     return r_var_calls
 
+
 def score_variants_independently(
         vars_iter, ref_to_block, r_post, read_ref_fwd_seq, read_ref_pos=None,
         all_paths=False, calibrate_llr=lambda *x: x[0],
-        context_min_alt_prob=1.0, logger=None):
+        context_min_alt_prob=1.0):
     r_var_calls = []
     read_cached_scores = {}
     filt_read_variants = []
     for (np_s_var_ref_seq, np_s_var_alt_seqs, np_s_context_seqs,
          s_ref_start, s_ref_end, variant) in vars_iter:
-        blk_start  = ref_to_block[s_ref_start]
+        blk_start = ref_to_block[s_ref_start]
         blk_end = ref_to_block[s_ref_end]
         if blk_end - blk_start <= max(
                 len(up_seq) + len(dn_seq)
@@ -702,7 +715,8 @@ def score_variants_independently(
             continue
 
         np_ref_seq = np.concatenate([
-            np_s_context_seqs[0][0], np_s_var_ref_seq, np_s_context_seqs[0][1]])
+            np_s_context_seqs[0][0], np_s_var_ref_seq,
+            np_s_context_seqs[0][1]])
         loc_ref_lp = score_seq(
             r_post, np_ref_seq, blk_start, blk_end, all_paths)
 
@@ -719,7 +733,7 @@ def score_variants_independently(
                 r_post, np_alt_seq, blk_start, blk_end, all_paths)
             loc_alt_lps.append(loc_alt_lp)
             if _DEBUG_PER_READ:
-                loc_contexts_alts_lps.append(np.array([loc_alt_lp,]))
+                loc_contexts_alts_lps.append(np.array([loc_alt_lp, ]))
             # calibrate log probs
             loc_alt_llrs.append(calibrate_llr(
                 loc_ref_lp - loc_alt_lp, variant.ref, var_alt_seq))
@@ -728,11 +742,11 @@ def score_variants_independently(
         # inferred negative reference likelihood, so re-normalize here
         loc_alt_log_ps = calibration.compute_log_probs(np.array(loc_alt_llrs))
 
-        if _DEBUG_PER_READ and logger is not None and read_ref_pos is not None:
+        if _DEBUG_PER_READ and read_ref_pos is not None:
             write_per_read_debug(
                 variant.start, variant.id, read_ref_pos,
                 np_s_var_ref_seq, np_s_var_alt_seqs, np_s_context_seqs,
-                np.array([loc_ref_lp,]), loc_contexts_alts_lps, False, logger)
+                np.array([loc_ref_lp, ]), loc_contexts_alts_lps, False)
 
         if sum(np.exp(loc_alt_log_ps)) >= context_min_alt_prob:
             # if the probability of a variant scored independently is greater
@@ -750,6 +764,7 @@ def score_variants_independently(
 
     return r_var_calls, read_cached_scores, filt_read_variants
 
+
 def call_read_vars(
         vars_data, read_ref_pos, strand_read_np_ref_seq, ref_to_block, r_post):
     if read_ref_pos.end - read_ref_pos.start <= 2 * vars_data.edge_buffer:
@@ -759,7 +774,6 @@ def call_read_vars(
     read_ref_fwd_seq = (strand_read_np_ref_seq if read_ref_pos.strand == 1 else
                         mh.revcomp_np(strand_read_np_ref_seq))
     # call all variantss overlapping this read
-    logger = logging.get_logger('per_read_vars')
     read_variants = vars_data.fetch_read_variants(
         read_ref_pos, read_ref_fwd_seq)
 
@@ -775,7 +789,7 @@ def call_read_vars(
          filt_read_variants) = score_variants_independently(
              vars_iter, ref_to_block, r_post, read_ref_fwd_seq, read_ref_pos,
              vars_data.all_paths, vars_data.calib_table.calibrate_llr,
-             vars_data.context_min_alt_prob, logger)
+             vars_data.context_min_alt_prob)
 
     # second round for variants with some evidence for alternative alleles
     # process with other potential variants as context
@@ -785,15 +799,15 @@ def call_read_vars(
         r_var_calls = score_variants_with_context(
             vars_iter, ref_to_block, r_post, read_ref_fwd_seq, r_var_calls,
             read_cached_scores, read_ref_pos, vars_data.all_paths,
-            vars_data.calib_table.calibrate_llr, logger)
+            vars_data.calib_table.calibrate_llr)
 
     # re-sort variants after adding context-included computations
     return sorted(r_var_calls, key=lambda x: x[0])
 
 
-#######################################
-##### Propose All Variant Helpers #####
-#######################################
+###############################
+# Propose All Variant Helpers #
+###############################
 
 def score_all_single_deletions(
         read_np_seq, r_post, ref_to_block, start, end, context_bases):
@@ -803,9 +817,9 @@ def score_all_single_deletions(
             max(0, del_pos - context_bases),
             min(read_np_seq.shape[0], del_pos + 1 + context_bases))
         np_ref = read_np_seq[del_pos:del_pos + 1]
-        np_alts = [np.array([], dtype=np.uintp),]
+        np_alts = [np.array([], dtype=np.uintp), ]
         ctxt_seqs = [[read_np_seq[ctxt_start:del_pos],
-                      read_np_seq[del_pos + 1:ctxt_end]],]
+                      read_np_seq[del_pos + 1:ctxt_end]], ]
         # technically the variant ref_start should be 1-based, but it will be
         # returned so just use 0-based here.
         variant = VARIANT_DATA(
@@ -818,6 +832,7 @@ def score_all_single_deletions(
             for pos, scores, _, _, _, _, _ in score_variants_independently(
                     vars_iter, ref_to_block, r_post, read_np_seq)[0]]
 
+
 def score_all_single_insertions(
         read_np_seq, r_post, ref_to_block, start, end, context_bases):
     vars_iter = []
@@ -826,9 +841,9 @@ def score_all_single_insertions(
             max(0, del_pos - context_bases),
             min(read_np_seq.shape[0], del_pos + 1 + context_bases))
         np_ref = np.array([], dtype=np.uintp)
-        np_alts = [np.array([b,], dtype=np.uintp) for b in range(4)]
+        np_alts = [np.array([b, ], dtype=np.uintp) for b in range(4)]
         ctxt_seqs = [[read_np_seq[ctxt_start:del_pos],
-                      read_np_seq[del_pos + 1:ctxt_end]],]
+                      read_np_seq[del_pos + 1:ctxt_end]], ]
         # technically the variant ref_start should be 1-based, but it will be
         # returned so just use 0-based here.
         variant = VARIANT_DATA(
@@ -843,13 +858,14 @@ def score_all_single_insertions(
             for score, alt in zip(scores, alts)]
 
 
-###################################
-##### Per-read Variant Output #####
-###################################
+###########################
+# Per-read Variant Output #
+###########################
 
 def log_prob_to_phred(log_prob):
     with np.errstate(divide='ignore'):
         return -10 * np.log10(1 - np.exp(log_prob))
+
 
 def simplify_var_seq(ref_seq, alt_seq):
     trim_before = trim_after = 0
@@ -865,6 +881,7 @@ def simplify_var_seq(ref_seq, alt_seq):
         alt_seq = alt_seq[:-1]
 
     return ref_seq, alt_seq, trim_before, trim_after
+
 
 def iter_non_overlapping_variants(r_var_calls):
     def get_max_prob_allele_var(var_grp):
@@ -893,8 +910,8 @@ def iter_non_overlapping_variants(r_var_calls):
                     var_alt_seqs, _, _, _) = most_prob_var
         return var_pos, alt_lps, var_ref_seq, var_alt_seqs, ref_lp
 
-
-    if len(r_var_calls) == 0: return
+    if len(r_var_calls) == 0:
+        return
     r_var_calls_iter = iter(r_var_calls)
     # initialize var_grp with first var
     var_data = next(r_var_calls_iter)
@@ -911,7 +928,7 @@ def iter_non_overlapping_variants(r_var_calls):
 
     # yeild last var grp data
     yield get_max_prob_allele_var(var_grp)
-    return
+
 
 def annotate_variants(r_start, ref_seq, r_var_calls, strand):
     """ Annotate reference sequence with called variants.
@@ -982,9 +999,10 @@ def annotate_variants(r_start, ref_seq, r_var_calls, strand):
 
     return var_seq, var_quals, var_cigar
 
+
 def _get_variants_queue(
         vars_q, vars_conn, vars_db_fn, vars_txt_fn, db_safety, pr_refs_fn,
-        pr_ref_filts, whatshap_map_fn, ref_names_and_lens, ref_fn,
+        ref_out_info, whatshap_map_fn, ref_names_and_lens, ref_fn,
         loc_index_in_memory):
     def write_whatshap_alignment(
             read_id, var_seq, var_quals, chrm, strand, r_st, var_cigar):
@@ -1016,12 +1034,12 @@ def _get_variants_queue(
             vars_db.insert_read_scores(r_var_calls, read_id, chrm, strand)
         except Exception as e:
             if not been_warned:
-                logger.warning(
+                LOGGER.warning(
                     'Error inserting sequence variant scores into database. ' +
                     'See log debug output for error details.')
                 been_warned = True
             import traceback
-            logger.debug(
+            LOGGER.debug(
                 'Error inserting modified base scores into database: ' +
                 str(e) + '\n' + traceback.format_exc())
 
@@ -1040,7 +1058,7 @@ def _get_variants_queue(
             vars_txt_fp.write(var_out_text)
         if do_ann_vars:
             if not mapping.read_passes_filters(
-                    pr_ref_filts, read_len, q_st, q_en, cigar):
+                    ref_out_info, read_len, q_st, q_en, cigar):
                 return
             var_seq, var_quals, var_cigar = annotate_variants(
                 r_start, ref_seq, r_var_calls, strand)
@@ -1053,8 +1071,6 @@ def _get_variants_queue(
 
         return been_warned
 
-
-    logger = logging.get_logger('vars_getter')
     been_warned = False
 
     vars_db = VarsDb(vars_db_fn, db_safety=db_safety, read_only=False,
@@ -1072,16 +1088,19 @@ def _get_variants_queue(
 
     if whatshap_map_fn is not None:
         _, map_fmt = os.path.splitext(whatshap_map_fn)
-        if map_fmt == '.bam': w_mode = 'wb'
-        elif map_fmt == '.cram': w_mode = 'wc'
-        elif map_fmt == '.sam': w_mode = 'w'
+        if map_fmt == '.bam':
+            w_mode = 'wb'
+        elif map_fmt == '.cram':
+            w_mode = 'wc'
+        elif map_fmt == '.sam':
+            w_mode = 'w'
         else:
             raise mh.MegaError('Invalid mapping output format')
         header = {
             'HD': {'VN': '1.4'},
             'SQ': [{'LN': ref_len, 'SN': ref_name}
                    for ref_name, ref_len in sorted(zip(*ref_names_and_lens))],
-            'RG': [{'ID':WHATSHAP_RG_ID, 'SM':SAMPLE_NAME},]}
+            'RG': [{'ID': WHATSHAP_RG_ID, 'SM': SAMPLE_NAME}, ]}
         whatshap_map_fp = pysam.AlignmentFile(
             whatshap_map_fn, w_mode, header=header, reference_filename=ref_fn)
 
@@ -1106,9 +1125,12 @@ def _get_variants_queue(
             r_var_calls, read_id, chrm, strand, r_start, ref_seq, read_len,
             q_st, q_en, cigar, been_warned)
 
-    if vars_txt_fp is not None: vars_txt_fp.close()
-    if pr_refs_fn is not None: pr_refs_fp.close()
-    if whatshap_map_fn is not None: whatshap_map_fp.close()
+    if vars_txt_fp is not None:
+        vars_txt_fp.close()
+    if pr_refs_fn is not None:
+        pr_refs_fp.close()
+    if whatshap_map_fn is not None:
+        whatshap_map_fp.close()
     vars_db.create_alt_index()
     if vars_db.loc_idx_in_mem:
         vars_db.create_loc_index()
@@ -1118,9 +1140,9 @@ def _get_variants_queue(
     return
 
 
-######################
-##### VCF Reader #####
-######################
+##############
+# VCF Reader #
+##############
 
 class VarData(object):
     def check_vars_match_ref(
@@ -1130,15 +1152,15 @@ class VarData(object):
         a reference sequence file.
         """
         for contig in contigs[:num_contigs]:
-            for var_data in list(vars_idx.fetch(contig))[:num_sites_per_contig]:
+            for var_data in list(
+                    vars_idx.fetch(contig))[:num_sites_per_contig]:
                 ref_seq = aligner.seq(contig, var_data.start, var_data.stop)
                 if ref_seq != var_data.ref:
                     # variant reference sequence does not match reference
-                    logger = logging.get_logger('vars')
-                    logger.debug((
-                        'Reference sequence does not match variant reference ' +
-                        'sequence at {} expected "{}" got "{}"').format(
-                            var_data.start, var_data.ref, ref_seq))
+                    LOGGER.debug((
+                        'Reference sequence does not match variant ' +
+                        'reference sequence at {} expected "{}" got ' +
+                        '"{}"').format(var_data.start, var_data.ref, ref_seq))
                     return False
 
         return True
@@ -1147,12 +1169,10 @@ class VarData(object):
             self, variant_fn, max_indel_size=mh.DEFAULT_MAX_INDEL_SIZE,
             all_paths=False, write_vars_txt=False,
             context_bases=mh.DEFAULT_VAR_CONTEXT_BASES, vars_calib_fn=None,
-            call_mode=DIPLOID_MODE, do_pr_ref_vars=False, aligner=None,
-            keep_var_fp_open=False, do_validate_reference=True,
-            edge_buffer=mh.DEFAULT_EDGE_BUFFER,
+            call_mode=DIPLOID_MODE, aligner=None, keep_var_fp_open=False,
+            do_validate_reference=True, edge_buffer=mh.DEFAULT_EDGE_BUFFER,
             context_min_alt_prob=mh.DEFAULT_CONTEXT_MIN_ALT_PROB,
             loc_index_in_memory=True, variants_are_atomized=False):
-        logger = logging.get_logger('vars')
         self.max_indel_size = max_indel_size
         self.all_paths = all_paths
         self.write_vars_txt = write_vars_txt
@@ -1164,7 +1184,6 @@ class VarData(object):
                 'Must provide 2 context bases values (for single base ' +
                 'variants and indels).')
         self.call_mode = call_mode
-        self.do_pr_ref_vars = do_pr_ref_vars
         self.edge_buffer = edge_buffer
         self.context_min_alt_prob = context_min_alt_prob
         self.loc_index_in_memory = loc_index_in_memory
@@ -1174,17 +1193,17 @@ class VarData(object):
         if self.variant_fn is None:
             return
 
-        logger.info('Loading variants.')
+        LOGGER.info('Loading variants.')
         vars_idx = pysam.VariantFile(self.variant_fn)
         try:
             contigs = list(vars_idx.header.contigs.keys())
             try:
                 vars_idx.fetch(next(iter(contigs)), 0, 0)
             except StopIteration:
-                logger.error('Variants file must contain contigs in header.')
+                LOGGER.error('Variants file must contain contigs in header.')
                 raise
         except ValueError:
-            logger.warn(
+            LOGGER.warn(
                 'Variants file must be indexed. Performing indexing now.')
             vars_idx.close()
             self.variant_fn = index_variants(self.variant_fn)
@@ -1194,7 +1213,8 @@ class VarData(object):
                 raise mh.MegaError(
                     'Must provide aligner if variants filename is provided ' +
                     'and reference validation is requested.')
-            if len(set(aligner.ref_names_and_lens[0]).intersection(contigs)) == 0:
+            if len(set(aligner.ref_names_and_lens[0]).intersection(
+                    contigs)) == 0:
                 raise mh.MegaError((
                     'Reference and variant files contain no chromosomes/' +
                     'contigs in common.\n\t\tFirst 3 reference contigs:' +
@@ -1217,6 +1237,7 @@ class VarData(object):
     @property
     def substitution_context(self):
         return self.context_bases[0]
+
     @property
     def indel_context(self):
         return self.context_bases[1]
@@ -1319,17 +1340,18 @@ class VarData(object):
         return
 
     @staticmethod
-    def iter_context_variants(variants, context_max_dist):
+    def iter_context_variants(read_variants, context_max_dist):
         """ Iterate variants as well as variants within context_max_dist
         """
-        vars_iter = iter(variants)
+        vars_iter = iter(read_variants)
+
         def next_var_or_none():
             try:
                 return next(vars_iter)
             except StopIteration:
                 return None
 
-        curr_vars = [next_var_or_none(),]
+        curr_vars = [next_var_or_none(), ]
         next_var = next_var_or_none()
         if next_var is None:
             if curr_vars[0] is not None:
@@ -1402,7 +1424,6 @@ class VarData(object):
         if this is not done, allele probabilities will not be normalized
         correctly.
         """
-        variants = []
         for _, site_vars in sorted(grouped_read_vars.items()):
             if len(site_vars) == 1:
                 # add upstream seq to simple indels
@@ -1413,7 +1434,7 @@ class VarData(object):
                 site_var = site_vars[0]._replace(
                     ref=out_ref_seq, alts=out_alt_seqs, ref_start=out_start,
                     has_context_base=has_context_base)
-                variants.append(site_var)
+                yield site_var
                 continue
 
             # join all valid ids
@@ -1441,14 +1462,14 @@ class VarData(object):
                 site_vars[0].np_ref, np_alts, site_vars[0].start,
                 read_ref_fwd_seq, read_ref_pos)
 
-            variants.append(VARIANT_DATA(
+            yield VARIANT_DATA(
                 np_ref=site_vars[0].np_ref, np_alts=np_alts,
                 id=site_var_ids, chrom=site_vars[0].chrom,
                 start=site_vars[0].start, stop=site_vars[0].stop,
                 ref=out_ref_seq, alts=out_alt_seqs, ref_start=out_start,
-                has_context_base=has_context_base))
+                strand=site_vars[0].strand, has_context_base=has_context_base)
 
-        return variants
+        return
 
     @staticmethod
     def expand_ambig_variant(
@@ -1470,7 +1491,7 @@ class VarData(object):
         # equivalent add this position
         while (expand_pos < read_ref_fwd_seq.shape[0] and
                indel_seq[(expand_pos - expand_start) %
-                          indel_seq.shape[0]] ==
+                         indel_seq.shape[0]] ==
                read_ref_fwd_seq[expand_pos]):
             expand_dnstrm_seq.append(read_ref_fwd_seq[expand_pos])
             expand_pos += 1
@@ -1509,13 +1530,14 @@ class VarData(object):
                 # convert all substitutions into single base substitutions
                 for sub_offset, (np_ref_base, np_alt_base) in enumerate(zip(
                         var.np_ref, np_alt_seq)):
-                    if np_ref_base == np_alt_base: continue
+                    if np_ref_base == np_alt_base:
+                        continue
                     var_data = VARIANT_DATA(
                         np_ref=np.array([np_ref_base], dtype=np.uintp),
                         np_alts=(np.array([np_alt_base], dtype=np.uintp),),
                         id=var.id, chrom=var.chrom,
                         start=var.start + sub_offset,
-                        stop=var.start + sub_offset + 1)
+                        stop=var.start + sub_offset + 1, strand=var.strand)
                     grouped_read_vars[(
                         var.start + sub_offset,
                         var.start + sub_offset + 1)].append(var_data)
@@ -1542,30 +1564,32 @@ class VarData(object):
                 grouped_read_vars[(
                     var_start, var_start + np_ref_seq.shape[0])].append(
                         VARIANT_DATA(
-                            np_ref=np_ref_seq, np_alts=(np_alt_seq,), id=var.id,
-                            chrom=var.chrom, start=var_start,
-                            stop=var_start + np_ref_seq.shape[0]))
+                            np_ref=np_ref_seq, np_alts=(np_alt_seq,),
+                            id=var.id, chrom=var.chrom, start=var_start,
+                            stop=var_start + np_ref_seq.shape[0],
+                            strand=var.strand))
         return grouped_read_vars
 
     def parse_vars(self, fetch_res, read_ref_pos, read_ref_fwd_seq):
-        read_vars = []
         for var in fetch_res:
             # fetch results include any overlap where only inclusive overlap
             # are valid here
-            if (var.stop + self.edge_buffer > read_ref_pos.end or
-                var.start - self.edge_buffer < read_ref_pos.start):
+            if var.stop + self.edge_buffer > read_ref_pos.end or \
+               var.start - self.edge_buffer < read_ref_pos.start:
                 continue
+            # read strand if written (applicable for diff ctc signal mapping)
+            strand = (int(var.info[mh.STRAND_FIELD_NAME])
+                      if mh.STRAND_FIELD_NAME in var.info else None)
 
             try:
                 # faster to extract from array than convert seq to int
                 np_ref_seq = read_ref_fwd_seq[
                     var.start - read_ref_pos.start:
                     var.stop - read_ref_pos.start]
-                #np_ref_seq_from_var = mh.seq_to_int(var.ref)
-                #assert np.all(np_ref_seq == np_ref_seq_from_var)
+                # np_ref_seq_from_var = mh.seq_to_int(var.ref)
+                # assert np.all(np_ref_seq == np_ref_seq_from_var)
             except mh.MegaError:
-                logger = logging.get_logger()
-                logger.debug((
+                LOGGER.debug((
                     'Encountered invalid variant reference sequence, {}, ' +
                     'from variant at {}:{} with id: {}'.format(
                         var.ref, var.chrom, var.pos, var.id)))
@@ -1575,8 +1599,7 @@ class VarData(object):
                 try:
                     np_alt_seq = mh.seq_to_int(alt_seq)
                 except mh.MegaError:
-                    logger = logging.get_logger()
-                    logger.debug((
+                    LOGGER.debug((
                         'Encountered invalid variant alternative sequence, ' +
                         '{}, from variant at {}:{} with id: {}'.format(
                             alt_seq, var.chrom, var.pos, var.id)))
@@ -1587,19 +1610,17 @@ class VarData(object):
             # if atomized variant contains a padding context base remove it
             # for correct variant grouping
             start_trim = 0
-            has_context_base = False
             if self.variants_are_atomized and HAS_CONTEXT_BASE_TAG in var.info:
                 np_ref_seq = np_ref_seq[1:]
                 np_alt_seqs = [np_alt_seq[1:] for np_alt_seq in np_alt_seqs]
                 start_trim = 1
-                has_context_base = True
-            read_vars.append(VARIANT_DATA(
+            yield VARIANT_DATA(
                 np_ref=np_ref_seq, np_alts=np_alt_seqs, id=var.id,
                 chrom=var.chrom, start=var.start + start_trim,
                 stop=var.start + start_trim + np_ref_seq.shape[0], ref=var.ref,
-                alts=var.alts, ref_start=var.start,
-                has_context_base=has_context_base))
-        return read_vars
+                alts=var.alts, ref_start=var.start, strand=strand,
+                has_context_base=start_trim == 1)
+        return
 
     def fetch_read_variants(self, read_ref_pos, read_ref_fwd_seq):
         try:
@@ -1624,11 +1645,11 @@ class VarData(object):
         """Iterator over variants overlapping the read mapped position.
 
         Args:
-            read_variants: List of variant objects (from fetch_read_variants)
+            read_variants: Variant objects iterator (from fetch_read_variants)
             read_ref_pos: Read reference mapping position
                 (`megalodon.mapping.MAP_POS`)
-            read_ref_fwd_seq: Mapped reference sequence. Forward strand sequence
-                no matter the mapped strand.
+            read_ref_fwd_seq: Mapped reference sequence. Forward strand
+                sequence no matter the mapped strand.
             max_contexts: Maximum number of context variant combinations to
                 include around each variant.
 
@@ -1643,9 +1664,9 @@ class VarData(object):
             variant_id: string idnentifier for the variant
             pos: variant position (0-based coordinate)
 
-        Variantss within edge buffer of the end of the mapping will be ignored.
+        Variants within edge buffer of the end of the mapping will be ignored.
 
-        If more than max_contexts variantss exist within context_basss then only
+        If more than max_contexts variants exist within context_basss then only
         the max_contexts most proximal to the variant in question will be
         returned.
         """
@@ -1681,12 +1702,12 @@ class VarData(object):
             # first context is always reference sequence
             up_context_seq = context_ref_seq[:context_rel_var_start]
             dn_context_seq = context_ref_seq[context_rel_var_end:]
-            context_seqs = [(up_context_seq, dn_context_seq),]
+            context_seqs = [(up_context_seq, dn_context_seq), ]
 
-            if (context_max_dist == 0 or max_contexts == 1 or
-                len(context_vars) == 0):
-                return (context_ref_start, context_read_start, context_read_end,
-                        context_seqs)
+            if context_max_dist == 0 or max_contexts == 1 or \
+               len(context_vars) == 0:
+                return (context_ref_start, context_read_start,
+                        context_read_end, context_seqs)
 
             for context_vars_i in self.iter_variant_combos_by_distance(
                     variant, context_vars):
@@ -1702,8 +1723,6 @@ class VarData(object):
             return (context_ref_start, context_read_start, context_read_end,
                     context_seqs)
 
-
-        logger = logging.get_logger('vars')
         for variant, context_variants in self.iter_context_variants(
                 read_variants, context_max_dist):
             (context_ref_start, context_read_start, context_read_end,
@@ -1718,11 +1737,11 @@ class VarData(object):
                 context_read_start, context_read_end = (
                     read_ref_fwd_seq.shape[0] - context_read_end,
                     read_ref_fwd_seq.shape[0] - context_read_start)
-            if np.concatenate([np_var_ref,] + list(np_var_alts) + [
+            if np.concatenate([np_var_ref, ] + list(np_var_alts) + [
                     seq for cntxt_seqs in np_context_seqs
                     for seq in cntxt_seqs]).max() > len(mh.ALPHABET):
                 # some sequence contained invalid characters
-                logger.debug(
+                LOGGER.debug(
                     'Invalid sequence encountered for variant ' +
                     '"{}" at {}:{}'.format(
                         variant.id, variant.chrom, variant.start))
@@ -1739,9 +1758,9 @@ class VarData(object):
             llr, var_ref_seq, var_alt_seq)
 
 
-######################
-##### VCF Writer #####
-######################
+##############
+# VCF Writer #
+##############
 
 class Variant(object):
     """ Variant for entry into VcfWriter.
@@ -1772,17 +1791,21 @@ class Variant(object):
         if 'GT' in sorted_keys:
             sorted_keys.insert(0, sorted_keys.pop(sorted_keys.index('GT')))
         if 'LOG_PROBS' in sorted_keys:
-            # move log probs to end of format field for easier human readability
+            # move log probs to end of format field for better readability
             sorted_keys.append(sorted_keys.pop(sorted_keys.index('LOG_PROBS')))
         return sorted_keys
+
     @property
     def format(self):
         return ':'.join(map(str, self._sorted_format_keys))
+
     @property
     def sample(self):
-        if len(self.sample_dict) == 0: return '.'
+        if len(self.sample_dict) == 0:
+            return '.'
         return ':'.join((str(self.sample_dict[k])
                          for k in self._sorted_format_keys))
+
     @property
     def info(self):
         str_tags = []
@@ -1817,15 +1840,14 @@ class Variant(object):
         try:
             qual = int(np.around(np.minimum(raw_pl[0], mh.MAX_PL_VALUE)))
         except ValueError:
-            logger = logging.get_logger('vars')
-            logger.debug(
+            LOGGER.debug(
                 'NAN quality value encountered. gts:{}, probs:{}'.format(
                     str(gts), str(probs)))
             qual = mh.MAX_PL_VALUE
         self.qual = '{:.0f}'.format(qual) if qual > 0 else '.'
         self.add_sample_field('GQ', '{:.0f}'.format(np.around(s_pl[1])))
-        self.add_sample_field(
-            'GL', ','.join('{:.2f}' for _ in range(probs.shape[0])).format(*gl))
+        self.add_sample_field('GL', ','.join(
+            '{:.2f}' for _ in range(probs.shape[0])).format(*gl))
         self.add_sample_field(
             'PL', ','.join('{:.0f}' for _ in range(probs.shape[0])).format(
                 *np.around(pl)))
@@ -1845,15 +1867,14 @@ class Variant(object):
         try:
             qual = int(np.minimum(np.around(raw_pl[0]), mh.MAX_PL_VALUE))
         except ValueError:
-            logger = logging.get_logger('vars')
-            logger.debug(
+            LOGGER.debug(
                 'NAN quality value encountered. gts:{}, probs:{}'.format(
                     str(gts), str(probs)))
             qual = mh.MAX_PL_VALUE
         self.qual = '{:.0f}'.format(qual) if qual > 0 else '.'
         self.add_sample_field('GQ', '{:.0f}'.format(np.around(s_pl[1])))
-        self.add_sample_field(
-            'GL', ','.join('{:.2f}' for _ in range(probs.shape[0])).format(*gl))
+        self.add_sample_field('GL', ','.join(
+            '{:.2f}' for _ in range(probs.shape[0])).format(*gl))
         self.add_sample_field(
             'PL', ','.join('{:.0f}' for _ in range(probs.shape[0])).format(
                 *np.around(pl)))
@@ -1861,14 +1882,19 @@ class Variant(object):
 
     def __eq__(self, var2):
         return (self.chrm, self.pos, self.id) == (var2.chrm, var2.pos, var2.id)
+
     def __ne__(self, var2):
         return (self.chrm, self.pos, self.id) != (var2.chrm, var2.pos, var2.id)
+
     def __lt__(self, var2):
         return (self.chrm, self.pos, self.id) < (var2.chrm, var2.pos, var2.id)
+
     def __le__(self, var2):
         return (self.chrm, self.pos, self.id) <= (var2.chrm, var2.pos, var2.id)
+
     def __gt__(self, var2):
         return (self.chrm, self.pos, self.id) > (var2.chrm, var2.pos, var2.id)
+
     def __ge__(self, var2):
         return (self.chrm, self.pos, self.id) >= (var2.chrm, var2.pos, var2.id)
 
@@ -1876,7 +1902,8 @@ class Variant(object):
 class VcfWriter(object):
     """ VCF writer class
     """
-    version_options = set(['4.1',])
+    version_options = set(['4.1', ])
+
     def __init__(
             self, filename, mode='w',
             header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER',
@@ -1921,9 +1948,9 @@ class VcfWriter(object):
         return
 
 
-#####################################
-##### Variant Aggregation Class #####
-#####################################
+#############################
+# Variant Aggregation Class #
+#############################
 
 class AggVars(mh.AbstractAggregationClass):
     """ Class to assist in database queries for per-site aggregation of
@@ -1967,11 +1994,10 @@ class AggVars(mh.AbstractAggregationClass):
                     for i in range(all_lps.shape[1] + 1)]))
             return het_lp
 
-
         all_lps = np.concatenate([ref_lps.reshape(1, -1), alts_lps], axis=0)
         genotype_lps, het_gts, gts = [], [], []
-        # order genotypes as described here under the GL genotype fields section
-        # http://samtools.github.io/hts-specs/VCFv4.1.pdf
+        # order genotypes as described here under the GL genotype fields
+        # section http://samtools.github.io/hts-specs/VCFv4.1.pdf
         for a2 in range(all_lps.shape[0]):
             for a1 in range(a2 + 1):
                 gts.append('{}/{}'.format(a1, a2))
@@ -2007,8 +2033,8 @@ class AggVars(mh.AbstractAggregationClass):
         alt_seqs = sorted(set(r_stats.alt_seq for r_stats in pr_var_stats))
         pr_alt_lps = defaultdict(dict)
         for r_stats in pr_var_stats:
-            if (valid_read_ids is not None and
-                r_stats.read_id not in valid_read_ids):
+            if valid_read_ids is not None and \
+               r_stats.read_id not in valid_read_ids:
                 continue
             pr_alt_lps[r_stats.read_id][r_stats.alt_seq] = r_stats.score
         if len(pr_alt_lps) == 0:
@@ -2021,7 +2047,8 @@ class AggVars(mh.AbstractAggregationClass):
                     alt_seq_lps[i].append(read_lps[alt_seq])
                 except KeyError:
                     raise mh.MegaError(
-                        'Alternative variant seqence must exist for all reads.')
+                        'Alternative variant seqence must exist for all ' +
+                        'reads.')
         alts_lps = np.stack(alt_seq_lps, axis=0)
         with np.errstate(all='ignore'):
             ref_lps = np.log1p(-np.exp(alts_lps).sum(axis=0))
@@ -2031,6 +2058,8 @@ class AggVars(mh.AbstractAggregationClass):
             chrom=r0_stats.chrm, pos=r0_stats.pos, ref=r0_stats.ref_seq,
             alts=alt_seqs, id=r0_stats.var_name)
         variant.add_tag('DP', '{}'.format(ref_lps.shape[0]))
+        if r0_stats.has_context_base:
+            variant.add_tag(HAS_CONTEXT_BASE_TAG)
         variant.add_sample_field('DP', '{}'.format(ref_lps.shape[0]))
 
         if self.write_vcf_log_probs:
@@ -2057,14 +2086,15 @@ class AggVars(mh.AbstractAggregationClass):
         return
 
 
-#########################################
-##### Whatshap Mapping Post-process #####
-#########################################
+#################################
+# Whatshap Mapping Post-process #
+#################################
 
 def get_whatshap_command(index_variant_fn, whatshap_sort_fn, phase_fn):
     return ('Run following command to obtain phased variants:\n\t\t' +
             'whatshap phase --indels --distrust-genotypes -o {} {} {}').format(
                 phase_fn, index_variant_fn, whatshap_sort_fn)
+
 
 def sort_variants(in_vcf_fn, out_vcf_fn):
     in_vcf_fp = pysam.VariantFile(in_vcf_fn)
@@ -2073,6 +2103,7 @@ def sort_variants(in_vcf_fn, out_vcf_fn):
         for rec in sorted(in_vcf_fp.fetch(), key=lambda r: (r.chrom, r.start)):
             out_vcf_fp.write(rec)
     return
+
 
 def index_variants(variant_fn):
     try:

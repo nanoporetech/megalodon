@@ -1,16 +1,26 @@
+import sys
 import queue
 from time import sleep
+from collections import namedtuple
 
 import numpy as np
 
 from ont_fast5_api import fast5_interface
-from taiyaki import (alphabet, fast5utils, mapping as tai_mapping,
-                     prepare_mapping_funcs, signal as tai_signal)
+from megalodon import megalodon_helper as mh, logging
+from taiyaki import (
+    alphabet, fast5utils, mapping as tai_mapping, prepare_mapping_funcs,
+    signal as tai_signal)
+
+
+LOGGER = logging.get_logger()
+SIG_MAP_RESULT = namedtuple('SIG_MAP_RESULT', (
+    'pass_filts', 'fast5_fn', 'dacs', 'scale_params', 'ref_seq', 'stride',
+    'read_id', 'r_to_q_poss', 'rl_cumsum', 'ref_pos', 'ref_out_info'))
 
 
 def get_remapping(
-        sig_fn, dacs, scale_params, ref_seq, stride, sig_map_alphabet, read_id,
-        r_to_q_poss, rl_cumsum, q_start_trim):
+        sig_fn, dacs, scale_params, ref_seq, stride, read_id, r_to_q_poss,
+        rl_cumsum, r_ref_pos, ref_out_info):
     read = fast5_interface.get_fast5_file(sig_fn, 'r').get_read(read_id)
     channel_info = dict(fast5utils.get_channel_info(read).items())
     rd_factor = channel_info['range'] / channel_info['digitisation']
@@ -30,18 +40,20 @@ def get_remapping(
     # skip last value since this is where the two seqs end
     for ref_pos, q_pos in enumerate(r_to_q_poss[:-1]):
         # if the query position maps to the end of the mapping skip it
-        if rl_cumsum[q_pos + q_start_trim] >= path.shape[0]: continue
-        path[rl_cumsum[q_pos + q_start_trim]] = ref_pos
+        if rl_cumsum[q_pos + r_ref_pos.q_trim_start] >= path.shape[0]:
+            continue
+        path[rl_cumsum[q_pos + r_ref_pos.q_trim_start]] = ref_pos
     remapping = tai_mapping.Mapping.from_remapping_path(
         sig, path, ref_seq, stride)
     try:
-        remapping.add_integer_reference(sig_map_alphabet)
-    except:
+        remapping.add_integer_reference(ref_out_info.alphabet)
+    except Exception:
         raise mh.MegaError('Invalid reference sequence encountered')
 
     return (remapping.get_read_dictionary(
         shift_from_pA, scale_from_pA, read_id),
             prepare_mapping_funcs.RemapResult.SUCCESS)
+
 
 def get_alphabet_info(model_info):
     flat_alphabet = model_info.output_alphabet[0]
@@ -51,10 +63,11 @@ def get_alphabet_info(model_info):
             can_base = base
         flat_alphabet += can_base
     mod_long_names = [] if len(model_info.mod_long_names) == 0 else \
-                     list(zip(*model_info.mod_long_names))[1]
+        list(zip(*model_info.mod_long_names))[1]
     return alphabet.AlphabetInfo(
         model_info.output_alphabet, flat_alphabet,
         mod_long_names, do_reorder=True)
+
 
 def write_signal_mappings(sig_map_q, sig_map_conn, sig_map_fn, alphabet_info):
     def iter_mappings():
@@ -71,9 +84,6 @@ def write_signal_mappings(sig_map_q, sig_map_conn, sig_map_fn, alphabet_info):
         while not sig_map_q.empty():
             read_mapping = sig_map_q.get(block=False)
             yield read_mapping
-
-        return
-
 
     prepare_mapping_funcs.generate_output_from_results(
         iter_mappings(), sig_map_fn, alphabet_info, verbose=False)

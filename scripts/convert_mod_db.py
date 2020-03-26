@@ -4,12 +4,14 @@ import argparse
 from tqdm import tqdm
 from time import time
 
-from megalodon import logging, megalodon_helper as mh, mods
+from megalodon import mods
+
 
 DEBUG = False
 N_DEBUG = 50000000
 
 INSERT_BATCH_SIZE = 10000
+
 
 def get_parser():
     parser = argparse.ArgumentParser()
@@ -24,6 +26,7 @@ def get_parser():
 
     return parser
 
+
 def get_read_id(uuid, read_ids, new_db):
     try:
         read_id = read_ids[uuid]
@@ -33,9 +36,10 @@ def get_read_id(uuid, read_ids, new_db):
         read_ids[uuid] = read_id
     return read_id, read_ids
 
+
 def insert_data(new_db, insert_batch):
     new_db.cur.executemany('INSERT INTO data VALUES (?,?,?,?)', insert_batch)
-    return
+
 
 def fill_mods(old_cur, new_db):
     read_ids = {}
@@ -43,9 +47,10 @@ def fill_mods(old_cur, new_db):
     old_cur.execute('SELECT * FROM mods')
     insert_batch = []
     for i, (uuid, chrm, strand, pos, score, mod_base, motif, motif_pos,
-         raw_motif) in tqdm(enumerate(old_cur), total=n_recs, smoothing=0,
-                            dynamic_ncols=True):
-        if DEBUG and i > N_DEBUG: break
+            raw_motif) in tqdm(enumerate(old_cur), total=n_recs, smoothing=0,
+                               dynamic_ncols=True):
+        if DEBUG and i > N_DEBUG:
+            break
         read_id, read_ids = get_read_id(uuid, read_ids, new_db)
         pos_id = new_db.get_pos_id_or_insert(chrm, strand, pos)
         mod_base_id = new_db.get_mod_base_id_or_insert(
@@ -58,14 +63,13 @@ def fill_mods(old_cur, new_db):
     if len(insert_batch) >= 0:
         insert_data(new_db, insert_batch)
 
-    return
 
 def fill_refs(old_cur, new_db):
     old_cur.execute('SELECT DISTINCT chrm FROM mods')
     for ref_name, in old_cur:
         new_db.insert_chrm(ref_name)
     new_db.create_chrm_index()
-    return
+
 
 def main():
     args = get_parser().parse_args()
@@ -93,7 +97,6 @@ def main():
         sys.stderr.write('Took {} seconds.\n'.format(time() - t1))
     new_db.close()
 
-    return
 
 if __name__ == '__main__':
     main()

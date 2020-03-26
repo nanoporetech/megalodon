@@ -1,4 +1,4 @@
-import os
+import sys
 import queue
 from time import sleep
 from collections import namedtuple
@@ -12,6 +12,7 @@ from megalodon import megalodon_helper as mh, logging
 
 MAP_POS = namedtuple('MAP_POS', (
     'chrm', 'strand', 'start', 'end', 'q_trim_start', 'q_trim_end'))
+LOGGER = logging.get_logger()
 
 
 # mappy aligner with extra attrs
@@ -28,6 +29,7 @@ class alignerPlus(mappy.Aligner):
         self.ref_names_and_lens = (ref_names, ref_lens)
 
         return
+
 
 def align_read(q_seq, aligner, map_thr_buf, read_id=None):
     try:
@@ -47,6 +49,7 @@ def align_read(q_seq, aligner, map_thr_buf, read_id=None):
         read_id, q_seq, r_algn.ctg, r_algn.strand, r_algn.r_st,
         r_algn.q_st, r_algn.q_en, r_algn.cigar)
 
+
 def _map_read_worker(aligner, map_conn, mo_q):
     # get mappy aligner thread buffer
     map_thr_buf = mappy.ThreadBuffer()
@@ -54,7 +57,7 @@ def _map_read_worker(aligner, map_conn, mo_q):
     while True:
         try:
             q_seq, read_id = map_conn.recv()
-        except:
+        except Exception:
             # exit gracefully
             return
         if q_seq is None:
@@ -67,6 +70,7 @@ def _map_read_worker(aligner, map_conn, mo_q):
             mo_q.put((map_res[0], full_res))
 
     return
+
 
 def parse_cigar(r_cigar, strand, ref_len):
     # get each base calls genomic position
@@ -96,6 +100,7 @@ def parse_cigar(r_cigar, strand, ref_len):
 
     return r_to_q_poss
 
+
 def map_read(q_seq, read_id, caller_conn, signal_reversed=False):
     """Map read (query) sequence and return:
     1) reference sequence (endcoded as int labels)
@@ -123,36 +128,45 @@ def map_read(q_seq, read_id, caller_conn, signal_reversed=False):
 
     return r_ref_seq, r_to_q_poss, r_pos, r_cigar
 
+
 def compute_pct_identity(cigar):
     nalign, nmatch = 0, 0
     for op_len, op in cigar:
-        if op not in (4, 5): nalign += op_len
-        if op in (0, 7): nmatch += op_len
+        if op not in (4, 5):
+            nalign += op_len
+        if op in (0, 7):
+            nmatch += op_len
     return 100 * nmatch / float(nalign)
 
-def read_passes_filters(pr_ref_filts, read_len, q_st, q_en, cigar):
-    if pr_ref_filts.min_len is not None and read_len < pr_ref_filts.min_len:
+
+def read_passes_filters(ref_out_info, read_len, q_st, q_en, cigar):
+    if ref_out_info.min_len is not None and read_len < ref_out_info.min_len:
         return False
-    if pr_ref_filts.max_len is not None and read_len > pr_ref_filts.max_len:
+    if ref_out_info.max_len is not None and read_len > ref_out_info.max_len:
         return False
-    if (pr_ref_filts.pct_cov is not None and
-        100 * (q_en - q_st) / read_len < pr_ref_filts.pct_cov):
+    if ref_out_info.pct_cov is not None and \
+       100 * (q_en - q_st) / read_len < ref_out_info.pct_cov:
         return False
-    if (pr_ref_filts.pct_idnt is not None and
-        compute_pct_identity(cigar) < pr_ref_filts.pct_idnt):
+    if ref_out_info.pct_idnt is not None and \
+       compute_pct_identity(cigar) < ref_out_info.pct_idnt:
         return False
     return True
 
+
 def open_alignment_out_file(out_dir, map_fmt, ref_names_and_lens, ref_fn):
     map_fn = mh.get_megalodon_fn(out_dir, mh.MAP_NAME) + '.' + map_fmt
-    if map_fmt == 'bam': w_mode = 'wb'
-    elif map_fmt == 'cram': w_mode = 'wc'
-    elif map_fmt == 'sam': w_mode = 'w'
+    if map_fmt == 'bam':
+        w_mode = 'wb'
+    elif map_fmt == 'cram':
+        w_mode = 'wc'
+    elif map_fmt == 'sam':
+        w_mode = 'w'
     else:
         raise mh.MegaError('Invalid mapping output format')
     return pysam.AlignmentFile(
         map_fn, w_mode, reference_names=ref_names_and_lens[0],
         reference_lengths=ref_names_and_lens[1], reference_filename=ref_fn)
+
 
 def test_open_alignment_out_file(out_dir, map_fmt, ref_names_and_lens, ref_fn):
     try:
@@ -160,14 +174,15 @@ def test_open_alignment_out_file(out_dir, map_fmt, ref_names_and_lens, ref_fn):
             out_dir, map_fmt, ref_names_and_lens, ref_fn)
     except ValueError:
         raise mh.MegaError(
-            'Failed to open alignment file for writing. Check that reference ' +
-            'file is compressed with bgzip for CRAM output.')
+            'Failed to open alignment file for writing. Check that ' +
+            'reference file is compressed with bgzip for CRAM output.')
     map_fp.close()
     return
 
+
 def _get_map_queue(
         mo_q, map_conn, out_dir, ref_names_and_lens, map_fmt, ref_fn,
-        do_output_pr_refs, pr_ref_filts):
+        do_output_pr_refs, ref_out_info):
     def write_alignment(
             read_id, q_seq, chrm, strand, r_st, q_st, q_en, cigar):
         bc_len = len(q_seq)
@@ -183,16 +198,20 @@ def _get_map_queue(
         a.template_length = q_en - q_st
         map_fp.write(a)
 
-        nalign, nmatch, ndel, nins = [0,] * 4
+        nalign, nmatch, ndel, nins = [0, ] * 4
         for op_len, op in cigar:
-            if op not in (4, 5): nalign += op_len
-            if op in (0, 7): nmatch += op_len
-            elif op in (2, 3): ndel += op_len
-            elif op == 1: nins += op_len
+            if op not in (4, 5):
+                nalign += op_len
+            if op in (0, 7):
+                nmatch += op_len
+            elif op in (2, 3):
+                ndel += op_len
+            elif op == 1:
+                nins += op_len
         # compute alignment stats
-        summ_fp.write('{}\t{:.2f}\t{}\t{}\t{}\t{}\t{:.2f}\n'.format(
+        summ_fp.write('{}\t{:.2f}\t{}\t{}\t{}\t{}\t{:.2f}\t{}\n'.format(
             read_id, 100 * nmatch / float(nalign), nalign, nmatch, ndel, nins,
-            (q_en - q_st) * 100 / float(bc_len)))
+            (q_en - q_st) * 100 / float(bc_len), chrm))
         summ_fp.flush()
 
         return
@@ -207,14 +226,13 @@ def _get_map_queue(
                   cigar) = mo_q.get(block=False)
         write_alignment(read_id, q_seq, chrm, strand, r_st, q_st, q_en, cigar)
         if do_output_pr_refs and read_passes_filters(
-                pr_ref_filts, len(q_seq), q_st, q_en, cigar):
+                ref_out_info, len(q_seq), q_st, q_en, cigar):
             write_pr_ref(read_id, ref_seq)
         return
 
-
     summ_fp = open(mh.get_megalodon_fn(out_dir, mh.MAP_SUMM_NAME), 'w')
     summ_fp.write('read_id\tpct_identity\tnum_align\tnum_match\t' +
-                  'num_del\tnum_ins\tread_pct_coverage\n')
+                  'num_del\tnum_ins\tread_pct_coverage\tchrom\n')
 
     map_fp = open_alignment_out_file(
         out_dir, map_fmt, ref_names_and_lens, ref_fn)
@@ -243,9 +261,9 @@ def _get_map_queue(
     return
 
 
-############################
-##### Samtools wrapper #####
-############################
+####################
+# Samtools wrapper #
+####################
 
 def sort_and_index_mapping(map_fn, out_fn, ref_fn=None, do_index=False):
     sort_args = ['-O', 'BAM', '-o', out_fn, map_fn]
@@ -257,8 +275,7 @@ def sort_and_index_mapping(map_fn, out_fn, ref_fn=None, do_index=False):
             sleep(1)
             pysam.index(out_fn)
     except pysam.utils.SamtoolsError:
-        logger = logging.get_logger()
-        logger.warning('Sorting and/or indexing mapping failed.')
+        LOGGER.warning('Sorting and/or indexing mapping failed.')
 
     return
 

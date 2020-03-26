@@ -8,9 +8,10 @@ This page describes the details of how megalodon processes the raw nanopore sign
 Base Calling
 ------------
 
-Basecalling is performed as in taiyaki and guppy.
-Raw nanopore signal is normalized (using median and MAD scaling), chunked, processed with a recurrent neural network and decoded using the forward-backward algorithm followed by Viterbi decoding.
-These steps are described in the taiyaki documentation.
+Basecalling is performed exactly as in guppy.
+Raw nanopore signal is normalized, chunked, processed with a recurrent neural network and decoded using the forward-backward algorithm followed by Viterbi decoding.
+Currently megalodon is only compatible with flip-flop basecalling networks (excluding RLE and k-mer based networks)
+See `guppy documentation on the community page (login required) <https://community.nanoporetech.com/protocols/Guppy-protocol>`_ for more details.
 
 -------------------
 Reference Anchoring

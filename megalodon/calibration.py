@@ -8,7 +8,7 @@ from megalodon import megalodon_helper as mh
 
 DEFAULT_SMOOTH_BW = 0.8
 DEFAULT_SMOOTH_MAX = 200
-DEFAULT_SMOOTH_NVALS = 1001
+DEFAULT_SMOOTH_NVALS = 5001
 DEFAULT_MIN_DENSITY = 5e-6
 
 VAR_CALIB_TYPE = 'snp_type_indel_len'
@@ -21,43 +21,47 @@ INS_CALIB_TMPLT = 'ins_{}_calibration'
 INS_LLR_RNG_TMPLT = 'ins_{}_llr_range'
 
 
-##################################
-##### Calibration Estimation #####
-##################################
+##########################
+# Calibration Estimation #
+##########################
 
-def determine_min_dens_edge(
-        sm_ref, sm_alt, num_calib_vals, min_dens_val, smooth_ls):
+def determine_min_dens_edge(sm_ref, sm_alt, min_dens_val, smooth_ls):
     """ Compute positions where the density values are too small to produce
-    robust calibration estimates and return range with valid density values
+    robust calibration estimates and return range with valid density values.
+
+    Assumes input densities are smooth and monotonic decreasing from a
+    single peak.
     """
+    ref_peak = np.argmax(sm_ref)
+    alt_peak = np.argmax(sm_alt)
     lower_invalid_dens_pos = 0
-    ref_before = np.where(sm_ref[:num_calib_vals // 2] < min_dens_val)[0]
+    ref_before = np.where(sm_ref[:ref_peak] < min_dens_val)[0]
     if len(ref_before) > 0:
         lower_invalid_dens_pos = max(ref_before[-1], lower_invalid_dens_pos)
-    alt_before = np.where(sm_alt[:num_calib_vals // 2] < min_dens_val)[0]
+    alt_before = np.where(sm_alt[:alt_peak] < min_dens_val)[0]
     if len(alt_before) > 0:
         lower_invalid_dens_pos = max(alt_before[-1], lower_invalid_dens_pos)
 
     upper_invalid_dens_pos = 1
-    ref_after = np.where(sm_ref[num_calib_vals // 2:] < min_dens_val)[0]
+    ref_after = np.where(sm_ref[ref_peak:] < min_dens_val)[0]
     if len(ref_after) > 0:
-        upper_invalid_dens_pos = max((num_calib_vals // 2) - ref_after[0] + 1,
-                                     upper_invalid_dens_pos)
-    alt_after = np.where(sm_alt[num_calib_vals // 2:] < min_dens_val)[0]
+        upper_invalid_dens_pos = max(
+            sm_ref.shape[0] - ref_peak - ref_after[0] + 1,
+            upper_invalid_dens_pos)
+    alt_after = np.where(sm_alt[alt_peak:] < min_dens_val)[0]
     if len(alt_after) > 0:
-        upper_invalid_dens_pos = max((num_calib_vals // 2) - alt_after[0] + 1,
-                                     upper_invalid_dens_pos)
+        upper_invalid_dens_pos = max(
+            sm_alt.shape[0] - alt_peak - alt_after[0] + 1,
+            upper_invalid_dens_pos)
 
     return (np.around(smooth_ls[lower_invalid_dens_pos]).astype(int),
             np.around(smooth_ls[-upper_invalid_dens_pos]).astype(int))
-
 
 
 def compute_smooth_mono_density(llrs, num_calib_vals, smooth_bw, smooth_ls):
     def guassian(x):
         return (np.exp(-x ** 2 / (2 * smooth_bw ** 2)) /
                 (smooth_bw * np.sqrt(2 * np.pi)))
-
 
     smooth_vals = np.zeros(num_calib_vals)
     for llr in tqdm(llrs, smoothing=0, dynamic_ncols=True):
@@ -96,9 +100,12 @@ def compute_calibration(
     # find a valid clipping location according to min_dens_val
     # then recompute smooth values
     new_input_llr_range = determine_min_dens_edge(
-        sm_ref, sm_alt, num_calib_vals, min_dens_val, smooth_ls)
-    if (new_input_llr_range[0] != -max_input_llr or
-        new_input_llr_range[1] != max_input_llr):
+        sm_ref, sm_alt, min_dens_val, smooth_ls)
+    if new_input_llr_range[1] - new_input_llr_range[0] <= 0:
+        raise mh.MegaError('Ground truth smoothed monotonic densities do ' +
+                           'not overlap. Consider lowering min_dens_val.')
+    if new_input_llr_range[0] != -max_input_llr or \
+       new_input_llr_range[1] != max_input_llr:
         sys.stderr.write(
             '\tSetting new input llr range for more robust calibration ' +
             '({}, {})\n'.format(*new_input_llr_range))
@@ -110,7 +117,6 @@ def compute_calibration(
         sys.stderr.write('\tComputing new alternative emperical density.\n')
         sm_alt, s_alt = compute_smooth_mono_density(
             alt_llrs, num_calib_vals, smooth_bw, smooth_ls)
-
 
     prob_alt = sm_alt / (sm_ref + sm_alt)
     # compute probability mid-point
@@ -144,10 +150,10 @@ def compute_mirrored_calibration(
     # find a valid clipping location according to min_dens_val
     # then recompute smooth values
     new_input_llr_range = determine_min_dens_edge(
-        sm_ref, sm_ref[::-1], num_calib_vals, min_dens_val, smooth_ls)
+        sm_ref, sm_ref[::-1], min_dens_val, smooth_ls)
     assert new_input_llr_range[0] == -new_input_llr_range[1]
-    if (new_input_llr_range[0] != -max_input_llr or
-        new_input_llr_range[1] != max_input_llr):
+    if new_input_llr_range[0] != -max_input_llr or \
+       new_input_llr_range[1] != max_input_llr:
         sys.stderr.write(
             '\tSetting new input llr range for more robust calibration ' +
             '({}, {})\n'.format(*new_input_llr_range))
@@ -156,7 +162,6 @@ def compute_mirrored_calibration(
         sys.stderr.write('\tComputing new reference emperical density.\n')
         sm_ref, s_ref = compute_smooth_mono_density(
             ref_llrs, num_calib_vals, smooth_bw, smooth_ls)
-
 
     prob_alt = sm_ref[::-1] / (sm_ref + sm_ref[::-1])
     # compute probability mid-point (llr=0 for mirrored)
@@ -175,9 +180,9 @@ def compute_mirrored_calibration(
     return np.log((1 - mono_prob) / mono_prob), new_input_llr_range, plot_data
 
 
-#####################
-##### LLR Stats #####
-#####################
+#############
+# LLR Stats #
+#############
 
 def compute_log_probs(alt_llrs):
     """ Compute log probabilities from a set of log likelihood ratios all
@@ -191,9 +196,9 @@ def compute_log_probs(alt_llrs):
     return ref_lp - alt_llrs
 
 
-###############################
-##### Calibration Readers #####
-###############################
+#######################
+# Calibration Readers #
+#######################
 
 class VarCalibrator(object):
     def _load_calibration(self):
@@ -269,7 +274,7 @@ class VarCalibrator(object):
         seq_len_diff = len(read_ref_seq) - len(read_alt_seq)
         if seq_len_diff == 0:
             ref_seq, alt_seq = simplify_var_seq(read_ref_seq, read_alt_seq)
-            # default to a "generic" SNP type that is the total of all SNP types
+            # default to a "generic" SNP type (total of all SNP types)
             try:
                 calib_table = self.snp_calib_tables[(ref_seq, alt_seq)]
                 input_vals = self.snp_input_values[(ref_seq, alt_seq)]
@@ -289,13 +294,14 @@ class VarCalibrator(object):
 
         idx = np.searchsorted(input_vals, llr, side='left')
         # full closest search would be:
-        #if idx > 0 and (idx == self.num_calib_vals or
+        # if idx > 0 and (idx == self.num_calib_vals or
         #                np.abs(llr - input_vals[idx - 1]) <
         #                np.abs(llr - input_vals[idx])):
         # but for performance just adjust last index
         if idx == self.num_calib_vals:
             idx -= 1
         return calib_table[idx]
+
 
 class ModCalibrator(object):
     def _load_calibration(self):
@@ -311,7 +317,8 @@ class ModCalibrator(object):
             input_vals = np.linspace(
                 mod_llr_range[0], mod_llr_range[1],
                 self.num_calib_vals, endpoint=True)
-            mod_calib_table = calib_data[mod_base + '_calibration_table'].copy()
+            mod_calib_table = calib_data[
+                mod_base + '_calibration_table'].copy()
             self.mod_base_calibs[mod_base] = (input_vals, mod_calib_table)
 
         return
@@ -330,7 +337,7 @@ class ModCalibrator(object):
         input_vals, calib_table = self.mod_base_calibs[mod_base]
         idx = np.searchsorted(input_vals, llr, side='left')
         # full closest search would be:
-        #if idx > 0 and (idx == self.num_calib_vals or
+        # if idx > 0 and (idx == self.num_calib_vals or
         #                np.abs(llr - input_vals[idx - 1]) <
         #                np.abs(llr - input_vals[idx])):
         # but for performance just adjust last index

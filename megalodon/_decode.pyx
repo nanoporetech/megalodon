@@ -1,7 +1,8 @@
 # cython: language_level=3
 # cython: boundscheck=False
 # cython: wraparound=False
-## cython: profile=True
+
+# # cython: profile=True
 
 import cython
 from libc.stdlib cimport calloc, free
@@ -20,9 +21,9 @@ ALPHABET = 'ACGT'
 LARGE_VAL = 1e30
 
 
-##############################
-###### Helper functions ######
-##############################
+####################
+# Helper functions #
+####################
 
 """
 The overhead from (even inline) helper function calls mean they are
@@ -82,9 +83,9 @@ cdef inline void get_stay_step(
     return
 
 
-################################
-###### Decoding functions ######
-################################
+######################
+# Decoding functions #
+######################
 
 cdef inline void decode_forward_step(
         float * curr_logprob, size_t nbase,
@@ -316,9 +317,9 @@ cdef void flipflop_trans_post(
     return
 
 
-##########################################
-###### Standard flip-flop functions ######
-##########################################
+################################
+# Standard flip-flop functions #
+################################
 
 def crf_flipflop_trans_post(np.ndarray[np.float32_t, ndim=2, mode="c"] logprob,
                             log=True):
@@ -352,9 +353,9 @@ def crf_flipflop_viterbi(np.ndarray[np.float32_t, ndim=2, mode="c"] tpost,
     return score
 
 
-##############################
-###### Sequence scoring ######
-##############################
+####################
+# Sequence scoring #
+####################
 
 cdef float score_best_path(
         np.ndarray[np.float32_t, ndim=2] tpost, np.ndarray[np.uintp_t] seq,
@@ -365,7 +366,7 @@ cdef float score_best_path(
 
     cdef size_t * stay_indices = <size_t *> calloc(nseq, sizeof(size_t))
     cdef size_t * step_indices = <size_t *> calloc(nseq - 1, sizeof(size_t))
-    #get_stay_step(seq, nseq, nbase, stay_indices, step_indices)
+    # get_stay_step(seq, nseq, nbase, stay_indices, step_indices)
     cdef size_t * flop_mask_states = <size_t *> calloc(nseq, sizeof(size_t))
     stay_indices[0] = (seq[0] * (nbase + nbase) + seq[0]
                        if seq[0] < nbase else
@@ -450,7 +451,7 @@ cdef float score_all_paths(
 
     cdef size_t * stay_indices = <size_t *> calloc(nseq, sizeof(size_t));
     cdef size_t * step_indices = <size_t *> calloc(nseq - 1, sizeof(size_t));
-    #get_stay_step(seq, nseq, nbase, stay_indices, step_indices)
+    # get_stay_step(seq, nseq, nbase, stay_indices, step_indices)
     cdef size_t * flop_mask_states = <size_t *> calloc(nseq, sizeof(size_t))
     stay_indices[0] = (seq[0] * (nbase + nbase) + seq[0]
                        if seq[0] < nbase else
@@ -535,9 +536,9 @@ def score_seq(
     return score_best_path(tpost, seq, tpost_start, tpost_end, nseq, nbase)
 
 
-##################################
-###### Mod Sequence scoring ######
-##################################
+########################
+# Mod Sequence scoring #
+########################
 
 cdef float score_best_path_mod(
         np.ndarray[np.float32_t, ndim=2] tpost, np.ndarray[np.uintp_t] seq,
@@ -735,9 +736,9 @@ def score_mod_seq(
                                tpost_start, tpost_end, nseq, nstate)
 
 
-##########################################################
-###### Categorical modification flip-flop functions ######
-##########################################################
+################################################
+# Categorical modification flip-flop functions #
+################################################
 
 @cython.wraparound(True)
 def rle(x, tol=0):

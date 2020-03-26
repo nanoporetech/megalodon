@@ -2,23 +2,25 @@
 Advanced Megalodon Arguments
 ****************************
 
----------------
-Model Arguments
----------------
+----------------------
+Guppy Backend Argument
+----------------------
 
-- ``--chunk-size``
+- ``--do-not-use-guppy-server``
 
-  - Size of individual chunks to run as input to neural network.
-  - Smaller size will result in faster basecalling, but may reduce accuracy.
-- ``--chunk-overlap``
+  - Use alternative basecalling backend (either FAST5 --post_out or taiyaki.
+- ``--guppy-params``
 
-  - Overlap between adjacent chunks fed to baescalling neural network.
-  - Smaller size will result in faster basecalling, but may reduce accuracy.
-- ``--max-concurrent-chunks``
+  - Extra guppy server parameters.
+  - Main purpose for optimal performance based on compute environment.
+  - Quote parameters to avoid them being parsed by megalodon.
+- ``--guppy-timeout``
 
-  - Maximum number of concurrent chunks to basecall at once.
-  - Allows a global cap on GPU memory usage.
-  - Changes to this parameter do not effect resulting basecalls.
+  - Timeout to wait for guppy server to call a single read in seconds.
+  - Default: ``5.0``
+- ``--list-supported-guppy-configs``
+
+  - List guppy configs with sequence variant and (if applicable) modified base support.
 
 ----------------
 Output Arguments
@@ -26,7 +28,7 @@ Output Arguments
 
 - ``--basecalls-format``
 
-  - Currently only FASTA format is supported, but the option is provided for potential future capacity for alternative formats.
+  - Select either ``fastq`` (default) or ``fasta`` format for basecalls output (if requested).
 - ``--num-reads``
 
   - Number of reads to process. Intended for test runs on a subset.
@@ -59,17 +61,25 @@ Sequence Variant Arguments
 
   - Compute the forward algorithm all paths score.
   - Default: Viterbi best-path score.
-- ``--variant-calibration-filename``
+- ``--variants-are-atomized``
 
-  - File containing emperical calibration for sequence variant scores.
-  - As created by megalodon/scripts/calibrate_variant_llr_scores.py.
-  - Default: Load default calibration file.
+  - Input variants have been atomized (with ``scripts/atomize_variants.py``).
+  - This saves compute time, but has unpredictable behavior if variants are not atomized.
 - ``--variant-context-bases``
 
   - Context bases for single base SNP and indel calling. Default: [15, 30]
 - ``--variant-locations-on-disk``
 
   - Force sequence variant locations to be stored only within on disk database table. This option will reduce the RAM memory requirement, but may drastically slow processing. Default: Store locations in memory and on disk.
+- ``--write-variants-text``
+
+  - Output per-read variants in text format.
+
+    - Output includes columns: ``read_id``, ``chrm``, ``strand``, ``pos``, ``ref_log_prob``, ``alt_log_prob``, ``var_ref_seq``, ``var_alt_seq``, ``var_id``
+    - Log probabilities are calibrated to match observed log-likelihood ratios from ground truth samples.
+
+      - Reference log probabilities are included to make processing mutliple alternative allele sites easier to process.
+    - Position is 0-based
 - ``--write-vcf-log-probs``
 
   - Write per-read alt log probabilities out in non-standard VCF field.
@@ -88,26 +98,21 @@ Modified Base Arguments
   - Use raw modified base scores from the network.
   - This option should be set when calibrating a new model.
   - Default: Calibrate scores as described in ``--mod-calibration-filename``
-- ``--mod-all-paths``
-
-  - Compute forwards algorithm all paths score for modified base calls.
-  - Default: Viterbi best-path score.
 - ``--mod-aggregate-method``
 
   - Modified base aggregation method.
   - Choices: expectation_maximization (default), binary_threshold
 
+- ``--mod-all-paths``
+
+  - Compute forwards algorithm all paths score for modified base calls.
+  - Default: Viterbi best-path score.
 - ``--mod-binary-threshold``
 
   - Hard threshold for modified base aggregation (probability of modified/canonical base).
 
     - Sites where no canonical or modified base acheives this level of confidence will be ignored in aggregation.
   - Default: 0.75
-- ``--mod-calibration-filename``
-
-  - File containing emperical calibration for modified base scores.
-  - As created by megalodon/scripts/calibrate_mod_llr_scores.py.
-  - Default: Load default calibration file.
 - ``--mod-context-bases``
 
   - Context bases for modified base calling.
@@ -140,53 +145,75 @@ Modified Base Arguments
     - For sites with multiple modified bases, per-read calls for each modification type are separated by a comma as specified by the ``A`` genotype field type.
 
       - The order is consistent within each modification type so that per-read probabilities across all modification types can be reconstructed.
+- ``--write-mods-text``
 
-----------------
-Reference Output
-----------------
+  - Output per-read modified bases in text format.
 
-This output category is intended for use in generating reference sequences for taiyaki basecall model training.
+    - Output includes columns: ``read_id``, ``chrm``, ``strand``, ``pos``, ``mod_log_probs``, ``can_log_prob``, ``mod_bases``, ``motif``
+    - Log probabilities are calibrated to match observed log-likelihood ratios from ground truth samples.
 
-- ``--output-per-read-references``
+      - Canonical log probabilities are included to make processing mutliple modification sites easier to process.
 
-  - Flag to trigger this output type (similar to adding an option to ``--outputs``)
-- ``--refs-include-mods``
+        - Note that the included model does not model such sites, but megalodon is capable of handling these sites (e.g. testing for 5mC and 5hmC simultaneously is supported given a basecalling model).
+    - ``motif`` includes the searched motif (via ``--mod-motif``) as well as the relative modified base position within that motif (e.g. ``CG:0`` for provided ``--mod-motif Z CG 0``).
+    - Position is 0-based
 
-  - Include modified base calls in per-read reference output.
-- ``--refs-include-variants``
+-------------------------
+Taiyaki Backend Arguments
+-------------------------
+
+- ``--chunk-size``
+
+  - Size of individual chunks to run as input to neural network.
+  - Smaller size will result in faster basecalling, but may reduce accuracy.
+- ``--chunk-overlap``
+
+  - Overlap between adjacent chunks fed to baescalling neural network.
+  - Smaller size will result in faster basecalling, but may reduce accuracy.
+- ``--max-concurrent-chunks``
+
+  - Maximum number of concurrent chunks to basecall at once.
+  - Allows a global cap on GPU memory usage.
+  - Changes to this parameter do not effect resulting basecalls.
+- ``--taiyaki-model-filename``
+
+  - `taiyaki <https://github.com/nanoporetech/taiyaki>`_ basecalling model checkpoint file
+  - In order to identify modified bases a model trained to identify those modifications must be provided.
+
+    - Train a new modified base model using taiyaki.
+
+  - Guppy JSON-format models can be converted to taiyaki checkpoints/models with the ``taiyaki/bin/json_to_checkpoint.py`` script for use with megalodon.
+
+-------------------------------
+Reference/Signal Mapping Output
+-------------------------------
+
+This output category is intended for use in generating reference sequences or signal mapping files for taiyaki basecall model training.
+
+- ``--ref-include-mods``
+
+  - Include modified base calls in ``per_read_refs`` or ``signal_mappings`` outputs.
+- ``--ref-include-variants``
 
   - Include sequence variant calls in per-read reference output.
-- ``--refs-percent-identity-threshold``
-
-  - Only include reads with higher percent identity in per-read reference output.
-- ``--refs-percent-coverage-threshold``
-
-  -  Only include reads with higher read alignment coverage in per-read reference output.
-- ``--refs-length-range``
+- ``--ref-length-range``
 
   - Only include reads with specified read length in per-read reference output.
+- ``--ref-percent-identity-threshold``
 
----------------------
-Signal Mapping Output
----------------------
+  - Only include reads with higher percent identity in per-read reference output.
+- ``--ref-percent-coverage-threshold``
 
-This output category produces a mapped signal file, the direct input to train a new basecalling model (via ``taiyaki``).
+  -  Only include reads with higher read alignment coverage in per-read reference output.
+- ``--ref-mods-all-motifs``
 
-- ``--output-signal-mappings``
+  - Annotate all ``--mod-motif`` occurences as modified.
+  - Requires that `--ref-include-mods`` is set.
+- ``--ref-mod-threshold``
 
-  - Output signal mapped file (see taiyaki).
-- ``--signal-map-include-mods``
-
-  - Include modified base calls in signal mapping output.
-- ``--signal-map-percent-identity-threshold``
-
-  - Only include reads with higher percent identity in signal mapping output.
-- ``--signal-map-percent-coverage-threshold``
-
-  - Only include reads with higher read alignment coverage in signal mapping output.
-- ``--signal-map-length-range``
-
-  - Only include reads with specified read length in signal mapping output.
+  - Threshold (in ``log(can_prob/mod_prob)`` space) used to annotate a modified bases in ``signal_mappings`` or ``per_read_refs`` outputs.
+  - See ``scripts/compute_mod_thresh_score.py`` for help computing this threshold.
+  - Requires that `--ref-include-mods`` is set.
 
 -----------------------
 Miscellaneous Arguments
@@ -212,3 +239,7 @@ Miscellaneous Arguments
 - ``--suppress-progress``
 
   - Suppress progress bar output.
+- ``--suppress-queues-status``
+
+  - Suppress dynamic status of output queues.
+  - These queues are helpful for diagnosing I/O issues.

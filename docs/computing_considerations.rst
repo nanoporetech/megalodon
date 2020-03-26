@@ -20,11 +20,9 @@ Once read enumeration is complete the progress bar will update to include the kn
 Base Calling
 ------------
 
-Base calling consists of running the neural network and then decoding this output.
-The neural network is currently run using the taiyaki backend.
-This backend allows either CPU or GPU computing.
-When GPUs are provided (via the ``--devices`` argument) only the neural network processing is completed on the GPU.
-All other steps (including forward-backward algorithm and viterbi decoding) are computed on the CPU only.
+Basecalling is performed by the pyguppy backend.
+Basecalling consists of running the neural network and then decoding this output.
+See `guppy documentation on the community page (login required) <https://community.nanoporetech.com/protocols/Guppy-protocol>`_ for more details.
 
 -----------------
 Reference Mapping
@@ -42,7 +40,13 @@ Variant and Modified Base Calling
 
 Sequence variant and modified base calling is computed within the per-read processing workers using CPU resources.
 Generally, this portion of processing will comsume a minority of the compute resources.
-Proposing many variants (e.g. all possible 3+ base indels) may show a bottle neck at this portion of processing.
+Proposing many variants (e.g. all possible 2+ base indels) or modified bases in all contexts may show a bottle neck at this portion of processing.
 Internal testing shows that proposal of all possible single base substitutions shows minimal processing at this portion of per-read processing.
-If compute resources are not being utilized to the full extent the most likely reason is the database output.
-Ensure that the megalodon output directory is stored on disk with fast I/O performance in order to make full use of compute resources.
+
+---------------
+Writing to Disk
+---------------
+
+As of version 2.0, the status of output queues is displayed by default.
+If any of these status bars indicate a full queue, megalodon will stall waiting on that process to write data to disk.
+Moving the  ``--output-directory`` to a location with faster disk I/O performance should imporove performance.

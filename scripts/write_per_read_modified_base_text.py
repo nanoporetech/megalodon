@@ -2,6 +2,7 @@ import argparse
 from collections import defaultdict
 
 import numpy as np
+from tqdm import tqdm
 
 from megalodon import mods, megalodon_helper as mh
 
@@ -18,6 +19,7 @@ def get_parser():
 
     return parser
 
+
 def main():
     args = get_parser().parse_args()
 
@@ -27,7 +29,9 @@ def main():
         mh.get_megalodon_fn(args.megalodon_results_dir, mh.PR_MOD_TXT_NAME)
         if args.out_filename is None else args.out_filename, 'w')
     mods_txt_fp.write('\t'.join(mods_db.text_field_names) + '\n')
-    for pos_id, pos_chrm, strand, pos in mods_db.iter_pos():
+    for pos_id, pos_chrm, strand, pos in tqdm(
+            mods_db.iter_pos(), total=mods_db.get_num_uniq_mod_pos(),
+            smoothing=0):
         pr_mod_stats = mods_db.get_pos_stats(
             (pos_id, pos_chrm, strand, pos), return_uuids=True)
         mod_type_stats = defaultdict(dict)
@@ -50,6 +54,7 @@ def main():
         mods_txt_fp.write(mod_out_text)
 
     return
+
 
 if __name__ == '__main__':
     main()

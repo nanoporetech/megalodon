@@ -2,6 +2,7 @@ import argparse
 from collections import defaultdict
 
 import numpy as np
+from tqdm import tqdm
 
 from megalodon import variants, megalodon_helper as mh
 
@@ -19,6 +20,7 @@ def get_parser():
 
     return parser
 
+
 def main():
     args = get_parser().parse_args()
 
@@ -29,7 +31,10 @@ def main():
         mh.get_megalodon_fn(args.megalodon_results_dir, mh.PR_VAR_TXT_NAME)
         if args.out_filename is None else args.out_filename, 'w')
     vars_txt_fp.write('\t'.join(vars_db.text_field_names) + '\n')
-    for loc_id, loc_chrm, pos, ref_seq, var_name in vars_db.iter_locs():
+    for (loc_id, loc_chrm, pos, ref_seq, var_name,
+         has_context_base) in tqdm(
+             vars_db.iter_locs(), total=vars_db.get_num_uniq_var_loc(),
+             smoothing=0):
         pr_var_stats = vars_db.get_loc_stats(
             (loc_id, loc_chrm, pos, ref_seq, var_name))
         alt_type_stats = defaultdict(dict)
@@ -51,6 +56,7 @@ def main():
         vars_txt_fp.write(var_out_text)
 
     return
+
 
 if __name__ == '__main__':
     main()

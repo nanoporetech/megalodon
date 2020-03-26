@@ -29,7 +29,8 @@ STATS_TMPLT = STATS_FMT_STR * (N_INT_STATS + 1) + \
 def get_parser():
     parser = argparse.ArgumentParser(
         description="""
-        Given ground truth variants ground_truth.vcf and per_read_snp_calls.db from completed validation run:
+        Given ground truth variants ground_truth.vcf and per_read_snp_calls.db
+        from completed validation run:
         Example command line het testing:
 
         snp_h_fact=0.85
@@ -37,7 +38,6 @@ def get_parser():
         mkdir -p het_factor.$snp_h_fact.$indel_h_fact
         cp per_read_snp_calls.db het_factor.$snp_h_fact.$indel_h_fact/
         python megalodon/scripts/run_aggregation.py
-            --taiyaki-model-filename megalodon/megalodon/model_data/R941.min.high_acc.5mC_6mA_bio_cntxt/model.checkpoint
             --output-directory het_factor.$snp_h_fact.$indel_h_fact/
             --outputs snps --heterozygous-factor $snp_h_fact $indel_h_fact
             --processes 8 --write-vcf-log-prob --reference reference.fa
@@ -69,7 +69,8 @@ def main():
     gt_calls = defaultdict(dict)
     for variant in pysam.VariantFile(args.ground_truth_variants).fetch():
         # skip mutli-allelic sites
-        if variant.alts is None or len(variant.alts) > 1: continue
+        if variant.alts is None or len(variant.alts) > 1:
+            continue
         if len(variant.ref) == len(variant.alts[0]):
             gt_calls[SNP_TXT][(variant.contig, variant.pos, variant.ref,
                                variant.alts[0])] = conv_call_str(
@@ -85,7 +86,8 @@ def main():
     mega_calls = defaultdict(dict)
     for variant in pysam.VariantFile(args.megalodon_variants).fetch():
         # skip mutli-allelic sites
-        if len(variant.alts) > 1: continue
+        if len(variant.alts) > 1:
+            continue
         if len(variant.ref) == len(variant.alts[0]):
             mega_calls[SNP_TXT][(variant.contig, variant.pos, variant.ref,
                                  variant.alts[0])] = conv_call_str(
@@ -125,7 +127,7 @@ def main():
 
         # print output
         sys.stdout.write(var_type + '\n')
-        sys.stdout.write(HEADER_TMPLT.format('Truth\Calls', *STAT_NAMES))
+        sys.stdout.write(HEADER_TMPLT.format('Truth\tCalls', *STAT_NAMES))
         for truth, (f1, prec, recall) in zip(
                 (HOM_REF_TXT, HET_TXT, HOM_ALT_TXT),
                 vt_stats):
@@ -139,6 +141,7 @@ def main():
         sys.stdout.write('\n')
 
     return
+
 
 if __name__ == '__main__':
     main()

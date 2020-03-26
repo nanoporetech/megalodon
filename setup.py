@@ -1,11 +1,7 @@
-import imp
 import os
 import re
-import subprocess
 import sys
-import time
 
-from glob import glob
 from setuptools import setup, find_packages
 from setuptools.extension import Extension
 
@@ -13,7 +9,8 @@ from setuptools.extension import Extension
 __pkg_name__ = 'megalodon'
 
 # Get the version number from _version.py, and exe_path
-verstrline = open(os.path.join('megalodon', '_version.py'), 'r').readlines()[-1]
+verstrline = open(
+    os.path.join('megalodon', '_version.py'), 'r').readlines()[-1]
 vsre = r"^MEGALODON_VERSION = ['\"]([^'\"]*)['\"]"
 mo = re.search(vsre, verstrline)
 if mo:
@@ -32,6 +29,7 @@ install_requires = [
     "pysam >= 0.15",
     "ont_fast5_api >= 1.1",
     "tqdm",
+    "pyguppyclient"
 ]
 
 
@@ -90,7 +88,7 @@ setup(
 
     packages=find_packages(exclude=[
         "*.test", "*.test.*", "test.*", "test", "bin"]),
-    package_data={__pkg_name__: ['model_data/*/*',]},
+    package_data={__pkg_name__: ['model_data/*/*', ]},
     exclude_package_data={'': ['*.hdf', '*.c', '*.h']},
     ext_modules=extensions,
     install_requires=install_requires,
