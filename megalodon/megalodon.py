@@ -91,7 +91,8 @@ def process_read(
      mods_scores) = model_info.basecall_read(
          sig_info, return_post_w_mods=mods_q is not None,
          return_mod_scores=mods_info.do_output_mods,
-         update_sig_info=sig_map_q is not None)
+         update_sig_info=sig_map_q is not None,
+         signal_reversed=signal_reversed)
     if bc_q is not None:
         if signal_reversed:
             if mods_scores is not None:
