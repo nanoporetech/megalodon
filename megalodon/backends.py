@@ -34,11 +34,10 @@ COMPAT_GUPPY_MODEL_TYPES = set(('flipflop',))
 GUPPY_HOST = 'localhost'
 DEFAULT_GUPPY_SERVER_PATH = './ont-guppy/bin/guppy_basecall_server'
 DEFAULT_GUPPY_CFG = 'dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg'
-DEFAULT_GUPPY_PORT = 5555
 DEFAULT_GUPPY_TIMEOUT = 5.0
 PYGUPPY_PER_TRY_TIMEOUT = 0.05
 GUPPY_LOG_BASE = 'guppy_log'
-GUPPY_SERVER_STARTED_TXT = 'Starting server on port:'
+GUPPY_PORT_PAT = re.compile('Starting server on port:\W+(\d+)')
 
 # maximum time (in seconds) to wait before assigning device
 # over different processes. Actual time choosen randomly
@@ -99,6 +98,8 @@ def parse_backend_params(args, num_fast5_startup_reads=5):
             'do_not_use_guppy_server')) or args.do_not_use_guppy_server:
         pyguppy_params = PYGUPPY_PARAMS(False)
     else:
+        if args.guppy_server_port is None:
+            args.guppy_server_port = 'auto'
         pyguppy_params = PYGUPPY_PARAMS(
             available=True, config=args.guppy_config,
             bin_path=args.guppy_server_path, port=args.guppy_server_port,
@@ -308,10 +309,14 @@ class ModelInfo(object):
 
     def _load_pyguppy(self, init_sig_len=1000):
         def start_guppy_server():
-            def is_server_init():
+            def get_server_port():
                 next_line = guppy_out_read_fp.readline()
-                return next_line is not None and next_line.startswith(
-                    GUPPY_SERVER_STARTED_TXT)
+                if next_line is None:
+                    return None
+                try:
+                    return int(GUPPY_PORT_PAT.search(next_line).groups()[0])
+                except AttributeError:
+                    return None
 
             # set guppy logs output locations
             self.guppy_log = os.path.join(
@@ -339,13 +344,18 @@ class ModelInfo(object):
                 server_args, shell=False,
                 stdout=self.guppy_out_fp, stderr=self.guppy_err_fp)
             # wait until server is successfully started or fails
-            while not is_server_init():
+            while True:
+                used_port = get_server_port()
+                if used_port is not None:
+                    break
                 if self.guppy_server_proc.poll() is not None:
                     raise mh.MegaError(
                         'Guppy server initialization failed. See guppy logs ' +
                         'in --output-directory for more details.')
                 sleep(0.01)
             guppy_out_read_fp.close()
+            self.params = self.params._replace(
+                pyguppy=self.params.pyguppy._replace(port=used_port))
 
         def set_pyguppy_model_attributes():
             init_client = self.pyguppy_GuppyBasecallerClient(
