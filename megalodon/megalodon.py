@@ -402,13 +402,13 @@ def prep_errors_bar(
     else:
         bar = tqdm(total=tot_reads, smoothing=0, initial=curr_num_reads,
                    unit=' read(s)', dynamic_ncols=True, position=0,
-                   desc='Read Processing')
+                   desc='Read Processing', mininterval=1.0)
         if start_time is not None:
             bar.start_t = start_time
         if num_qs > 0:
             q_bars = OrderedDict((q_name, tqdm(
                 desc=q_name, total=mh._MAX_QUEUE_SIZE, smoothing=0,
-                dynamic_ncols=True, position=q_num + 1,
+                dynamic_ncols=True, position=q_num + 1, mininterval=1.0,
                 bar_format='output queue capacity {desc: <20}: ' +
                 '{percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}'))
                                  for q_num, q_name in enumerate(valid_q_names))
