@@ -193,7 +193,7 @@ def _get_bc_queue(
     write_fastq = bc_fmt == 'fastq'
     # TODO convert this to writing un-aligned sam with htseq recommended format
     if do_output_mods:
-        mods_fp = h5py.File(mh.get_megalodon_fn(out_dir, mh.BC_MODS_NAME))
+        mods_fp = h5py.File(mh.get_megalodon_fn(out_dir, mh.BC_MODS_NAME), 'w')
         mods_fp.create_group('Reads')
         mods_fp.create_dataset(
             'mod_long_names', data=np.array(mod_long_names, dtype='S'),
