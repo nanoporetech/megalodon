@@ -22,7 +22,9 @@ def compute_val_metrics(
         mod_cov, mod_mod_cov, mod_test_sites,
         ctrl_cov, ctrl_mod_cov, ctrl_test_sites,
         out_fp, pdf_fp, balance_classes, ignore_strand, valid_pos_fn=None):
+    samp = 'sample'
     if valid_pos_fn is not None:
+        samp = os.path.basename(valid_pos_fn)
         valid_pos = mh.parse_beds([valid_pos_fn, ], ignore_strand=ignore_strand)
         mod_test_sites = dict((ctg, valid_pos[ctg].intersection(ctg_sites))
                               for ctg, ctg_sites in mod_test_sites.items()
@@ -47,6 +49,10 @@ def compute_val_metrics(
     pct_meths = np.concatenate([mod_pct_meths, ctrl_pct_meths])
     is_mod = np.repeat(
         (1, 0), (mod_pct_meths.shape[0], ctrl_pct_meths.shape[0]))
+    if is_mod.shape[0] == 0:
+        sys.stderr.write('Skipping "{}". No vaild sites available.\n'.format(
+            samp))
+        return
 
     precision, recall, thresh = precision_recall_curve(is_mod, pct_meths)
     prec_recall_sum = precision + recall
@@ -61,7 +67,6 @@ def compute_val_metrics(
     fpr, tpr, _ = roc_curve(is_mod, pct_meths)
     roc_auc = auc(fpr, tpr)
 
-    samp = 'sample' if valid_pos_fn is None else os.path.basename(valid_pos_fn)
     out_fp.write((
         'Modified base metrics for {}:\t{:.6f} (at {:.4f} )\t' +
         '{:.6f}\t{:.6f}\t{}\t{}\n').format(
