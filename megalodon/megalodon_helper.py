@@ -1,11 +1,13 @@
+
 import os
 import sys
 import shutil
 import pkg_resources
+from tqdm import tqdm
 import multiprocessing as mp
 from abc import ABC, abstractmethod
-from collections import namedtuple, OrderedDict
 from multiprocessing.queues import Queue as mpQueue
+from collections import defaultdict, namedtuple, OrderedDict
 
 import numpy as np
 
@@ -389,6 +391,85 @@ def med_mad(data, factor=None, axis=None, keepdims=False):
         dmed = dmed.squeeze(axis)
         dmad = dmad.squeeze(axis)
     return dmed, dmad
+
+
+#####################
+# File-type Parsers #
+#####################
+
+def parse_beds(bed_fns, ignore_strand=False, show_prog_bar=True):
+    """ Parse bed files.
+
+    Arguments:
+        bed_fns: Iterable containing bed paths
+        ignore_strand: Set strand values to None
+
+    Returns:
+        Dictionary with keys (chromosome, strand) and values with set of
+        0-based coordiantes.
+    """
+    sites = defaultdict(set)
+    for bed_fn in bed_fns:
+        with open(bed_fn) as bed_fp:
+            bed_iter = (tqdm(bed_fp, desc=bed_fn, smoothing=0)
+                        if show_prog_bar else bed_fp)
+            for line in bed_iter:
+                chrm, start, _, _, _, strand = line.split()[:6]
+                start = int(start)
+                if ignore_strand:
+                    store_strand = None
+                else:
+                    # convert to 1/-1 strand storage (matching mappy)
+                    store_strand = 1 if strand == '+' else -1
+                sites[(chrm, store_strand)].add(start)
+
+    # convert to standard dict
+    sites = dict(sites)
+
+    return sites
+
+
+def parse_bed_methyls(bed_fns, strand_offset=None, show_prog_bar=True):
+    """ Parse bedmethyl files and return two dictionaries containing
+    total and methylated coverage. Both dictionaries have top level keys
+    (chromosome, strand) and second level keys with 0-based position.
+
+    Arguments:
+        bed_fns: Iterable containing bed methyl paths
+        strand_offset: Set to aggregate negative strand along with positive
+            strand values. Positive indicates negative strand sites have higher
+            coordinate values.
+    """
+    cov = defaultdict(lambda: defaultdict(int))
+    meth_cov = defaultdict(lambda: defaultdict(int))
+    for bed_fn in bed_fns:
+        with open(bed_fn) as bed_fp:
+            bed_iter = (tqdm(bed_fp, desc=bed_fn, smoothing=0)
+                        if show_prog_bar else bed_fp)
+            for line in bed_iter:
+                (chrm, start, _, _, _, strand, _, _, _, num_reads,
+                 pct_meth) = line.split()
+                start = int(start)
+                # convert to 1/-1 strand storage (matching mappy)
+                store_strand = 1 if strand == '+' else -1
+                if strand_offset is not None:
+                    # store both strand counts under None
+                    store_strand = None
+                    # apply offset to reverse strand positions
+                    if strand == '-':
+                        start -= strand_offset
+                num_reads = int(num_reads)
+                if num_reads <= 0:
+                    continue
+                meth_reads = int((float(pct_meth) / 100.0) * num_reads)
+                cov[(chrm, store_strand)][start] += num_reads
+                meth_cov[(chrm, store_strand)][start] += meth_reads
+
+    # convert to standard dicts
+    cov = dict((k, dict(v)) for k, v in cov.items())
+    meth_cov = dict((k, dict(v)) for k, v in meth_cov.items())
+
+    return cov, meth_cov
 
 
 if __name__ == '__main__':

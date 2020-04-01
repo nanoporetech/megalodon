@@ -327,7 +327,7 @@ def get_parser():
         '--out-filename',
         help='Output filename for text summary. Default: stdout')
     parser.add_argument(
-        '--allow_unbalance-classes', action='store_true',
+        '--allow-unbalance-classes', action='store_true',
         help='Allow unbalanced classes in modified base metric computation. ' +
         'Default: Balance size of modified and canonical classes for each ' +
         'comparison made.')
