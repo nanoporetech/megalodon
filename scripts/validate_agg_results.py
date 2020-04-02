@@ -153,8 +153,16 @@ def main():
 
     mod_cov, mod_mod_cov = mh.parse_bed_methyls(
         args.modified_bed_methyl_files, strand_offset=args.strand_offset)
+    mod_all_cov = np.array([cov for ctg_cov in mod_cov.values()
+                            for cov in ctg_cov.values()])
     ctrl_cov, ctrl_mod_cov = mh.parse_bed_methyls(
         args.control_bed_methyl_files, strand_offset=args.strand_offset)
+    ctrl_all_cov = np.array([cov for ctg_cov in ctrl_cov.values()
+                            for cov in ctg_cov.values()])
+    sys.stderr.write('Mod coverage median: {:.2f}   mean: {:.2f}\n'.format(
+        np.median(mod_all_cov), np.mean(mod_all_cov)))
+    sys.stderr.write('Control coverage median: {:.2f}   mean: {:.2f}\n'.format(
+        np.median(ctrl_all_cov), np.mean(ctrl_all_cov)))
     mod_test_sites = {}
     for ctg in mod_cov:
         mod_test_sites[ctg] = set(pos for pos, cov in mod_cov[ctg].items()
