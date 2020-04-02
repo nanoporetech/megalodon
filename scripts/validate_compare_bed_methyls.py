@@ -9,8 +9,10 @@ from matplotlib.backends.backend_pdf import PdfPages
 from megalodon import megalodon_helper as mh
 
 
-HEATMAP_BINS = 25
-
+HEATMAP_BINS = 50
+HEATMAP_TICKS = ['{:.0f}'.format(x) if i % 8 == 0 else ''
+                 for i, x in enumerate(np.linspace(0, 100, HEATMAP_BINS // 2))]
+CMAP = plt.cm.RdPu
 
 def get_parser():
     parser = argparse.ArgumentParser()
@@ -72,10 +74,11 @@ def main():
     # compute methylation percentages
     samp1_meth_pct, samp2_meth_pct = [], []
     for ctg in set(samp1_cov).intersection(samp2_cov):
-        if valid_pos is not None and ctg not in valid_pos:
-            continue
-        valid_ctg_pos = valid_pos[ctg]
-        for pos in set(samp1_cov[ctg]).intersection(samp1_cov[ctg]):
+        if valid_pos is not None:
+            if ctg not in valid_pos:
+                continue
+            valid_ctg_pos = valid_pos[ctg]
+        for pos in set(samp1_cov[ctg]).intersection(samp2_cov[ctg]):
             if valid_pos is not None and pos not in valid_ctg_pos:
                 continue
             samp1_pos_cov = samp1_cov[ctg][pos]
@@ -89,24 +92,34 @@ def main():
     samp1_meth_pct = np.array(samp1_meth_pct)
     samp2_meth_pct = np.array(samp2_meth_pct)
     out_fp.write('{} sites detected\n'.format(samp1_meth_pct.shape[0]))
-    corrcoef = np.corrcoef(samp1_meth_pct, samp2_meth_pct)
+    corrcoef = np.corrcoef(samp1_meth_pct, samp2_meth_pct)[0, 1]
     out_fp.write('Correlation coefficient: {:.4f}\n'.format(corrcoef))
     out_fp.write('R^2: {:.4f}\n'.format(corrcoef**2))
 
     hist_data = np.histogram2d(
         samp1_meth_pct, samp2_meth_pct, bins=HEATMAP_BINS,
-        range=[[0, 100], [0, 100]])
+        range=[[0, 100], [0, 100]])[0][::-1]
+    with np.errstate(divide='ignore'):
+        log_hist_data = np.log10(hist_data)
+
     plt.figure(figsize=(8, 7))
-    sns.heatmap(hist_data, cmap='YlGnBu', square=True)
-    plt.xlabel('Sample 1 Percent Methylated')
-    plt.ylabel('Sample 2 Percent Methylated')
-    pdf_fp.savefig(bbox_inches='tight')
-    plt.close()
-    plt.figure(figsize=(8, 7))
-    sns.heatmap(np.log10(hist_data), cmap='YlGnBu', square=True)
+    hm = sns.heatmap(
+        log_hist_data, vmin=max(log_hist_data.min(), 1),
+        vmax=log_hist_data.max(), cmap=CMAP, square=True)
+    hm.set_yticklabels(HEATMAP_TICKS[::-1])
+    hm.set_xticklabels(HEATMAP_TICKS)
     plt.xlabel('Sample 1 Percent Methylated')
     plt.ylabel('Sample 2 Percent Methylated')
     plt.title('Log10 Counts')
+    pdf_fp.savefig(bbox_inches='tight')
+    plt.close()
+
+    plt.figure(figsize=(8, 7))
+    hm = sns.heatmap(hist_data, cmap=CMAP, square=True, robust=True)
+    hm.set_yticklabels(HEATMAP_TICKS[::-1])
+    hm.set_xticklabels(HEATMAP_TICKS)
+    plt.xlabel('Sample 1 Percent Methylated')
+    plt.ylabel('Sample 2 Percent Methylated')
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
 
