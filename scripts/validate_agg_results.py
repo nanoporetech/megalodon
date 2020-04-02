@@ -25,7 +25,8 @@ def compute_val_metrics(
     samp = 'sample'
     if valid_pos_fn is not None:
         samp = os.path.basename(valid_pos_fn)
-        valid_pos = mh.parse_beds([valid_pos_fn, ], ignore_strand=ignore_strand)
+        valid_pos = mh.parse_beds(
+            [valid_pos_fn, ], ignore_strand=ignore_strand)
         mod_test_sites = dict((ctg, valid_pos[ctg].intersection(ctg_sites))
                               for ctg, ctg_sites in mod_test_sites.items()
                               if ctg in valid_pos)
@@ -36,9 +37,10 @@ def compute_val_metrics(
     mod_pct_meths = np.array([100 * mod_mod_cov[ctg][pos] / mod_cov[ctg][pos]
                               for ctg, ctg_poss in mod_test_sites.items()
                               for pos in ctg_poss])
-    ctrl_pct_meths = np.array([100 * ctrl_mod_cov[ctg][pos] / ctrl_cov[ctg][pos]
-                               for ctg, ctg_poss in ctrl_test_sites.items()
-                               for pos in ctg_poss])
+    ctrl_pct_meths = np.array(
+        [100 * ctrl_mod_cov[ctg][pos] / ctrl_cov[ctg][pos]
+         for ctg, ctg_poss in ctrl_test_sites.items()
+         for pos in ctg_poss])
     if balance_classes:
         if mod_pct_meths.shape[0] > ctrl_pct_meths.shape[0]:
             mod_pct_meths = np.random.choice(
@@ -112,10 +114,11 @@ def compute_val_metrics(
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--modified-bed-methyl-files', nargs='+',
+        '--modified-bed-methyl-files', nargs='+', required=True,
         help='Bed methyl files from modified sample(s).')
+    # TODO add option to provide ground truth file within a sample
     parser.add_argument(
-        '--control-bed-methyl-files', nargs='+',
+        '--control-bed-methyl-files', nargs='+', required=True,
         help='Bed methyl files from control sample(s).')
     parser.add_argument(
         '--valid-positions', action='append',
