@@ -368,7 +368,7 @@ class ModelInfo(object):
                 init_read = init_client.basecall(
                     ReadData(np.zeros(init_sig_len, dtype=np.int16), 'a'),
                     state=True, trace=True)
-            except (Again, TimeoutError):
+            except (TimeoutError, self.zmqAgainError):
                 raise mh.MegaError(
                     'Failed to run test read with guppy. See guppy logs in ' +
                     '--output-directory.')
@@ -395,6 +395,7 @@ class ModelInfo(object):
         from zmq.error import Again
         from pyguppyclient.decode import ReadData
         from pyguppyclient.client import GuppyBasecallerClient
+        self.zmqAgainError = Again
         self.pyguppy_ReadData = ReadData
         self.pyguppy_GuppyBasecallerClient = GuppyBasecallerClient
 
@@ -539,7 +540,7 @@ class ModelInfo(object):
             called_read = self.client.basecall(
                 self.pyguppy_ReadData(sig_info.dacs, sig_info.read_id),
                 state=True, trace=True)
-        except TimeoutError:
+        except (TimeoutError, self.zmqAgainError):
             raise mh.MegaError(
                 'Pyguppy server timeout. See --guppy-timeout option')
 
