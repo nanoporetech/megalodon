@@ -1,7 +1,7 @@
 import os
 import sys
 import argparse
-from collectiosn import defaultdict, namedtuple
+from collections import defaultdict, namedtuple
 
 import numpy as np
 import seaborn as sns
@@ -17,7 +17,7 @@ MOD_BANDWIDTH = 1.0
 MOD_GRIDSIZE = 1000
 
 STRAND_CONV = {'+': 1, '-': -1, '.': None}
-IS_MOD_VALS = set('true', 't', 'on', 'yes', 'y', '1')
+IS_MOD_VALS = set(('true', 't', 'on', 'yes', 'y', '1'))
 
 MOD_SAMPLE = namedtuple('MOD_SAMPLE', ('cov', 'mod_cov', 'test_sites'))
 
@@ -48,7 +48,7 @@ def parse_ground_truth_data(gt_csvs):
         gt_data = defaultdict(list)
         with open(gt_csv) as gt_fp:
             for line in gt_fp:
-                chrm, strand, pos, is_mod = line.split(',')
+                chrm, strand, pos, is_mod = line.strip().split(',')
                 gt_data[(chrm, convert_strand(strand))].append((
                     int(pos), is_mod.lower() in IS_MOD_VALS))
         all_gt_data[gt_csv] = dict(gt_data)
@@ -222,14 +222,14 @@ def main():
         args.coverage_threshold, 'Mod')
     ctrl_samp = all_gt_data = None
     if args.control_bed_methyl_files is not None:
-        if args.ground_truth_csv is not None:
+        if args.ground_truth_csvs is not None:
             sys.stderr.write(
                 '****** WARNING ******\n\tCannot process both control data ' +
                 'and ground truth data.\n\tIgnoring ground truth CSV.\n')
             ctrl_samp = parse_mod_sample(
                 args.control_bed_methyl_files, args.strand_offset,
                 args.coverage_threshold, 'Control')
-    elif args.ground_truth_csv is not None:
+    elif args.ground_truth_csvs is not None:
         if args.valid_positions is not None:
             sys.stderr.write(
                 '****** WARNING ******\n\tCannot process both ground truth ' +

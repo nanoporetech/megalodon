@@ -44,10 +44,10 @@ def main():
                 pct_mod = 100 * samp_mod_cov[(chrom, strand)][pos] / cov
                 if pct_mod <= args.pct_mod_thresholds[0]:
                     gt_fp.write(','.join(map(str, (
-                        chrom, STRAND_CONV[strand], pos, 'False'))))
+                        chrom, STRAND_CONV[strand], pos, 'False'))) + '\n')
                 elif pct_mod >= args.pct_mod_thresholds[1]:
                     gt_fp.write(','.join(map(str, (
-                        chrom, STRAND_CONV[strand], pos, 'True'))))
+                        chrom, STRAND_CONV[strand], pos, 'True'))) + '\n')
 
 
 if __name__ == '__main__':
