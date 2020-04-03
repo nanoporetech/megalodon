@@ -119,7 +119,8 @@ def main():
         '{:.0f}'.format(tl) for tl in 10**hm_cbar.get_ticks()])
     plt.xlabel('{} Percent Modified'.format(args.sample_names[0]))
     plt.ylabel('{} Percent Modified'.format(args.sample_names[1]))
-    plt.title('Log10 Counts')
+    plt.title('Log10 Counts  N = {}  r = {:.4f}'.format(
+        samp1_meth_pct.shape[0], corrcoef))
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
 
@@ -128,7 +129,8 @@ def main():
                 xticklabels=HEATMAP_TICKS, yticklabels=HEATMAP_TICKS[::-1])
     plt.xlabel('{} Percent Methylated'.format(args.sample_names[0]))
     plt.ylabel('{} Percent Methylated'.format(args.sample_names[1]))
-    plt.title('Raw Counts')
+    plt.title('Raw Counts  N = {}  r = {:.4f}'.format(
+        samp1_meth_pct.shape[0], corrcoef))
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
 
