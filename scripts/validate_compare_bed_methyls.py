@@ -12,8 +12,9 @@ from megalodon import megalodon_helper as mh
 HEATMAP_BINS = 50
 HEATMAP_TICKS = [None, ] * HEATMAP_BINS
 for mod_pct in (0, 25, 50, 75, 100):
-    HEATMAP_TICKS[int((HEATMAP_BINS - 1)  * mod_pct / 100)] = str(mod_pct)
+    HEATMAP_TICKS[int((HEATMAP_BINS - 1) * mod_pct / 100)] = str(mod_pct)
 CMAP = plt.cm.inferno_r
+
 
 def get_parser():
     parser = argparse.ArgumentParser()

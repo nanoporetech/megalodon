@@ -1,6 +1,7 @@
 import os
 import sys
 import argparse
+from collectiosn import defaultdict, namedtuple
 
 import numpy as np
 import seaborn as sns
@@ -12,51 +13,111 @@ from sklearn.metrics import (
 from megalodon import megalodon_helper as mh
 
 
-VERBOSE = False
-
 MOD_BANDWIDTH = 1.0
 MOD_GRIDSIZE = 1000
 
+STRAND_CONV = {'+': 1, '-': -1, '.': None}
+IS_MOD_VALS = set('true', 't', 'on', 'yes', 'y', '1')
+
+MOD_SAMPLE = namedtuple('MOD_SAMPLE', ('cov', 'mod_cov', 'test_sites'))
+
+
+def parse_mod_sample(bm_files, strand_offset, cov_thresh, samp_name):
+    cov, mod_cov = mh.parse_bed_methyls(
+        bm_files, strand_offset=strand_offset)
+    all_cov = np.array([cov for ctg_cov in cov.values()
+                        for cov in ctg_cov.values()])
+    sys.stderr.write('{} coverage median: {:.2f}   mean: {:.2f}\n'.format(
+        samp_name, np.median(all_cov), np.mean(all_cov)))
+    test_sites = {}
+    for ctg in mod_cov:
+        test_sites[ctg] = set(pos for pos, cov in cov[ctg].items()
+                              if cov >= cov_thresh)
+    return MOD_SAMPLE(cov, mod_cov, test_sites)
+
+
+def parse_ground_truth_data(gt_csvs):
+    def convert_strand(strand_str):
+        try:
+            return STRAND_CONV[strand_str]
+        except KeyError:
+            return None
+
+    all_gt_data = {}
+    for gt_csv in gt_csvs:
+        gt_data = defaultdict(list)
+        with open(gt_csv) as gt_fp:
+            for line in gt_fp:
+                chrm, strand, pos, is_mod = line.split(',')
+                gt_data[(chrm, convert_strand(strand))].append((
+                    int(pos), is_mod.lower() in IS_MOD_VALS))
+        all_gt_data[gt_csv] = dict(gt_data)
+
+    return all_gt_data
+
 
 def compute_val_metrics(
-        mod_cov, mod_mod_cov, mod_test_sites,
-        ctrl_cov, ctrl_mod_cov, ctrl_test_sites,
-        out_fp, pdf_fp, balance_classes, ignore_strand, valid_pos_fn=None):
-    samp = 'sample'
-    if valid_pos_fn is not None:
-        samp = os.path.basename(valid_pos_fn)
-        valid_pos = mh.parse_beds(
-            [valid_pos_fn, ], ignore_strand=ignore_strand)
-        mod_test_sites = dict((ctg, valid_pos[ctg].intersection(ctg_sites))
-                              for ctg, ctg_sites in mod_test_sites.items()
-                              if ctg in valid_pos)
-        ctrl_test_sites = dict((ctg, valid_pos[ctg].intersection(ctg_sites))
-                               for ctg, ctg_sites in ctrl_test_sites.items()
-                               if ctg in valid_pos)
+        mod_samp, ctrl_samp, gt_data, out_fp, pdf_fp, balance_classes,
+        ignore_strand, samp_name='sample', valid_pos_fn=None):
+    # extract ground truth either from mod and control samples or ground truth
+    # data
+    if gt_data is None:
+        if valid_pos_fn is not None:
+            valid_pos = mh.parse_beds(
+                [valid_pos_fn, ], ignore_strand=ignore_strand)
+            mod_samp = mod_samp._replace(test_sites=dict(
+                (ctg, valid_pos[ctg].intersection(ctg_sites))
+                for ctg, ctg_sites in mod_samp.test_sites.items()
+                if ctg in valid_pos))
+            ctrl_samp = ctrl_samp._replace(test_sites=dict(
+                (ctg, valid_pos[ctg].intersection(ctg_sites))
+                for ctg, ctg_sites in ctrl_samp.test_sites.items()
+                if ctg in valid_pos))
+        mod_pct_mod = np.array([
+            100 * mod_samp.mod_cov[ctg][pos] / mod_samp.cov[ctg][pos]
+            for ctg, ctg_poss in mod_samp.test_sites.items()
+            for pos in ctg_poss])
+        ctrl_pct_mod = np.array(
+            [100 * ctrl_samp.mod_cov[ctg][pos] / ctrl_samp.cov[ctg][pos]
+             for ctg, ctg_poss in ctrl_samp.test_sites.items()
+             for pos in ctg_poss])
+    else:
+        mod_pct_mod, ctrl_pct_mod = [], []
+        for ctg, pos_is_mod in gt_data.items():
+            try:
+                ctg_cov = mod_samp.cov[ctg]
+                ctg_mod_cov = mod_samp.mod_cov[ctg]
+            except KeyError:
+                continue
+            for pos, is_mod in pos_is_mod:
+                try:
+                    pos_cov = ctg_cov[pos]
+                    pos_mod_cov = ctg_mod_cov[pos]
+                except KeyError:
+                    continue
+                if is_mod:
+                    mod_pct_mod.append(100 * pos_mod_cov / pos_cov)
+                else:
+                    ctrl_pct_mod.append(100 * pos_mod_cov / pos_cov)
+        mod_pct_mod = np.array(mod_pct_mod)
+        ctrl_pct_mod = np.array(ctrl_pct_mod)
 
-    mod_pct_meths = np.array([100 * mod_mod_cov[ctg][pos] / mod_cov[ctg][pos]
-                              for ctg, ctg_poss in mod_test_sites.items()
-                              for pos in ctg_poss])
-    ctrl_pct_meths = np.array(
-        [100 * ctrl_mod_cov[ctg][pos] / ctrl_cov[ctg][pos]
-         for ctg, ctg_poss in ctrl_test_sites.items()
-         for pos in ctg_poss])
     if balance_classes:
-        if mod_pct_meths.shape[0] > ctrl_pct_meths.shape[0]:
-            mod_pct_meths = np.random.choice(
-                mod_pct_meths, ctrl_pct_meths.shape[0], replace=False)
-        elif mod_pct_meths.shape[0] < ctrl_pct_meths.shape[0]:
-            ctrl_pct_meths = np.random.choice(
-                ctrl_pct_meths, mod_pct_meths.shape[0], replace=False)
-    pct_meths = np.concatenate([mod_pct_meths, ctrl_pct_meths])
-    is_mod = np.repeat(
-        (1, 0), (mod_pct_meths.shape[0], ctrl_pct_meths.shape[0]))
-    if is_mod.shape[0] == 0:
+        if mod_pct_mod.shape[0] > ctrl_pct_mod.shape[0]:
+            mod_pct_mod = np.random.choice(
+                mod_pct_mod, ctrl_pct_mod.shape[0], replace=False)
+        elif mod_pct_mod.shape[0] < ctrl_pct_mod.shape[0]:
+            ctrl_pct_mod = np.random.choice(
+                ctrl_pct_mod, mod_pct_mod.shape[0], replace=False)
+    all_pct_mod = np.concatenate([mod_pct_mod, ctrl_pct_mod])
+    if all_pct_mod.shape[0] == 0:
         sys.stderr.write('Skipping "{}". No vaild sites available.\n'.format(
-            samp))
+            samp_name))
         return
+    is_mod = np.repeat(
+        (1, 0), (mod_pct_mod.shape[0], ctrl_pct_mod.shape[0]))
 
-    precision, recall, thresh = precision_recall_curve(is_mod, pct_meths)
+    precision, recall, thresh = precision_recall_curve(is_mod, all_pct_mod)
     prec_recall_sum = precision + recall
     valid_idx = np.where(prec_recall_sum > 0)
     all_f1 = (2 * precision[valid_idx] * recall[valid_idx] /
@@ -64,28 +125,27 @@ def compute_val_metrics(
     optim_f1_idx = np.argmax(all_f1)
     optim_f1 = all_f1[optim_f1_idx]
     optim_thresh = thresh[optim_f1_idx]
-    avg_prcn = average_precision_score(is_mod, pct_meths)
+    avg_prcn = average_precision_score(is_mod, all_pct_mod)
 
-    fpr, tpr, _ = roc_curve(is_mod, pct_meths)
+    fpr, tpr, _ = roc_curve(is_mod, all_pct_mod)
     roc_auc = auc(fpr, tpr)
 
     out_fp.write((
         'Modified base metrics for {}:\t{:.6f} (at {:.4f} )\t' +
         '{:.6f}\t{:.6f}\t{}\t{}\n').format(
-            samp, optim_f1, optim_thresh, avg_prcn, roc_auc,
-            mod_pct_meths.shape[0], ctrl_pct_meths.shape[0]))
+            samp_name, optim_f1, optim_thresh, avg_prcn, roc_auc,
+            mod_pct_mod.shape[0], ctrl_pct_mod.shape[0]))
 
-    if VERBOSE:
-        sys.stderr.write('Plotting {}\n'.format(samp))
+    sys.stderr.write('Plotting {}\n'.format(samp_name))
     plt.figure(figsize=(11, 7))
-    sns.kdeplot(mod_pct_meths, shade=True, bw=MOD_BANDWIDTH,
+    sns.kdeplot(mod_pct_mod, shade=True, bw=MOD_BANDWIDTH,
                 gridsize=MOD_GRIDSIZE, label='Yes')
-    sns.kdeplot(ctrl_pct_meths, shade=True, bw=MOD_BANDWIDTH,
+    sns.kdeplot(ctrl_pct_mod, shade=True, bw=MOD_BANDWIDTH,
                 gridsize=MOD_GRIDSIZE, label='No')
     plt.legend(prop={'size': 16}, title='Is Modified?')
-    plt.xlabel('Percent Methylated')
+    plt.xlabel('Percent Modified')
     plt.ylabel('Density')
-    plt.title(samp)
+    plt.title(samp_name)
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
 
@@ -96,7 +156,7 @@ def compute_val_metrics(
     plt.xlabel('Recall')
     plt.ylabel('Precision')
     plt.title(('{}   Precision-Recall curve: AP={:0.2f}').format(
-        samp, avg_prcn))
+        samp_name, avg_prcn))
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
 
@@ -106,7 +166,7 @@ def compute_val_metrics(
     plt.ylim([-0.05, 1.05])
     plt.xlabel('False Positive Rate')
     plt.ylabel('True Positive Rate')
-    plt.title(('{}   ROC curve: auc={:0.2f}').format(samp, roc_auc))
+    plt.title(('{}   ROC curve: auc={:0.2f}').format(samp_name, roc_auc))
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
 
@@ -116,9 +176,12 @@ def get_parser():
     parser.add_argument(
         '--modified-bed-methyl-files', nargs='+', required=True,
         help='Bed methyl files from modified sample(s).')
-    # TODO add option to provide ground truth file within a sample
     parser.add_argument(
-        '--control-bed-methyl-files', nargs='+', required=True,
+        '--ground-truth-csvs', nargs='+',
+        help='Ground truth csvs with (chrm, strand, pos, is_mod) values. ' +
+        'To collapse to forward strand coordinates, strand should be ".".')
+    parser.add_argument(
+        '--control-bed-methyl-files', nargs='+',
         help='Bed methyl files from control sample(s).')
     parser.add_argument(
         '--valid-positions', action='append',
@@ -154,40 +217,48 @@ def main():
     out_fp = (sys.stdout if args.out_filename is None else
               open(args.out_filename, 'w'))
 
-    mod_cov, mod_mod_cov = mh.parse_bed_methyls(
-        args.modified_bed_methyl_files, strand_offset=args.strand_offset)
-    mod_all_cov = np.array([cov for ctg_cov in mod_cov.values()
-                            for cov in ctg_cov.values()])
-    ctrl_cov, ctrl_mod_cov = mh.parse_bed_methyls(
-        args.control_bed_methyl_files, strand_offset=args.strand_offset)
-    ctrl_all_cov = np.array([cov for ctg_cov in ctrl_cov.values()
-                            for cov in ctg_cov.values()])
-    sys.stderr.write('Mod coverage median: {:.2f}   mean: {:.2f}\n'.format(
-        np.median(mod_all_cov), np.mean(mod_all_cov)))
-    sys.stderr.write('Control coverage median: {:.2f}   mean: {:.2f}\n'.format(
-        np.median(ctrl_all_cov), np.mean(ctrl_all_cov)))
-    mod_test_sites = {}
-    for ctg in mod_cov:
-        mod_test_sites[ctg] = set(pos for pos, cov in mod_cov[ctg].items()
-                                  if cov >= args.coverage_threshold)
-    ctrl_test_sites = {}
-    for ctg in ctrl_cov:
-        ctrl_test_sites[ctg] = set(pos for pos, cov in ctrl_cov[ctg].items()
-                                   if cov >= args.coverage_threshold)
-
-    if args.valid_positions is None:
-        compute_val_metrics(
-            mod_cov, mod_mod_cov, mod_test_sites,
-            ctrl_cov, ctrl_mod_cov, ctrl_test_sites,
-            out_fp, pdf_fp, not args.allow_unbalance_classes,
-            args.strand_offset is not None)
+    mod_samp = parse_mod_sample(
+        args.modified_bed_methyl_files, args.strand_offset,
+        args.coverage_threshold, 'Mod')
+    ctrl_samp = all_gt_data = None
+    if args.control_bed_methyl_files is not None:
+        if args.ground_truth_csv is not None:
+            sys.stderr.write(
+                '****** WARNING ******\n\tCannot process both control data ' +
+                'and ground truth data.\n\tIgnoring ground truth CSV.\n')
+            ctrl_samp = parse_mod_sample(
+                args.control_bed_methyl_files, args.strand_offset,
+                args.coverage_threshold, 'Control')
+    elif args.ground_truth_csv is not None:
+        if args.valid_positions is not None:
+            sys.stderr.write(
+                '****** WARNING ******\n\tCannot process both ground truth ' +
+                'data and valid sites.\n\tIgnoring valid sites.\n')
+            args.valid_positions = None
+        all_gt_data = parse_ground_truth_data(args.ground_truth_csvs)
     else:
-        for fn in args.valid_positions:
+        sys.stderr.write(
+            '****** ERROR ******\n\tMust provide either --ground-truth-csvs ' +
+            'or --control-bed-methyl-files.\n')
+        sys.exit(1)
+
+    if args.valid_positions is not None:
+        for vp_fn in args.valid_positions:
             compute_val_metrics(
-                mod_cov, mod_mod_cov, mod_test_sites,
-                ctrl_cov, ctrl_mod_cov, ctrl_test_sites,
+                mod_samp, ctrl_samp, None, out_fp, pdf_fp,
+                not args.allow_unbalance_classes,
+                args.strand_offset is not None,
+                os.path.basename(vp_fn), vp_fn)
+    elif all_gt_data is not None:
+        for gt_fn, gt_data in all_gt_data.items():
+            compute_val_metrics(
+                mod_samp, ctrl_samp, gt_data,
                 out_fp, pdf_fp, not args.allow_unbalance_classes,
-                args.strand_offset is not None, fn)
+                args.strand_offset is not None, os.path.basename(gt_fn))
+    else:
+        compute_val_metrics(
+            mod_samp, ctrl_samp, None, out_fp, pdf_fp,
+            not args.allow_unbalance_classes, args.strand_offset is not None)
 
     pdf_fp.close()
     if out_fp is not sys.stdout:
