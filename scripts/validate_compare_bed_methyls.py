@@ -10,18 +10,22 @@ from megalodon import megalodon_helper as mh
 
 
 HEATMAP_BINS = 50
-HEATMAP_TICKS = ['{:.0f}'.format(x) if i % 8 == 0 else ''
-                 for i, x in enumerate(np.linspace(0, 100, HEATMAP_BINS // 2))]
-CMAP = plt.cm.RdPu
+HEATMAP_TICKS = [None, ] * HEATMAP_BINS
+for mod_pct in (0, 25, 50, 75, 100):
+    HEATMAP_TICKS[int((HEATMAP_BINS - 1)  * mod_pct / 100)] = str(mod_pct)
+CMAP = plt.cm.inferno_r
 
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--sample1-bed-methyl-files', nargs='+',
+        '--sample1-bed-methyl-files', nargs='+', required=True,
         help='Bed methyl files from first set of sample(s).')
     parser.add_argument(
-        '--sample2-bed-methyl-files', nargs='+',
+        '--sample2-bed-methyl-files', nargs='+', required=True,
         help='Bed methyl files from second set of sample(s).')
+    parser.add_argument(
+        '--sample-names', nargs=2, default=['Sample 1', 'Sample 2'],
+        help='Name for provided samples. Default: %(default)s')
     parser.add_argument(
         '--valid-positions', action='append',
         help='BED file containing positions to be considered. Multiple ' +
@@ -60,10 +64,12 @@ def main():
         args.sample2_bed_methyl_files, strand_offset=args.strand_offset)
     samp2_all_cov = np.array([cov for ctg_cov in samp2_cov.values()
                               for cov in ctg_cov.values()])
-    out_fp.write('Sample 1 coverage median: {:.2f}   mean: {:.2f}\n'.format(
-        np.median(samp1_all_cov), np.mean(samp1_all_cov)))
-    out_fp.write('Sample 2 coverage median: {:.2f}   mean: {:.2f}\n'.format(
-        np.median(samp2_all_cov), np.mean(samp2_all_cov)))
+    out_fp.write('{} coverage median: {:.2f}   mean: {:.2f}\n'.format(
+        args.sample_names[0], np.median(samp1_all_cov),
+        np.mean(samp1_all_cov)))
+    out_fp.write('{} coverage median: {:.2f}   mean: {:.2f}\n'.format(
+        args.sample_names[1], np.median(samp2_all_cov),
+        np.mean(samp2_all_cov)))
 
     # parse valid positions
     valid_pos = None
@@ -97,29 +103,32 @@ def main():
     out_fp.write('R^2: {:.4f}\n'.format(corrcoef**2))
 
     hist_data = np.histogram2d(
-        samp1_meth_pct, samp2_meth_pct, bins=HEATMAP_BINS,
+        samp2_meth_pct, samp1_meth_pct, bins=HEATMAP_BINS,
         range=[[0, 100], [0, 100]])[0][::-1]
     with np.errstate(divide='ignore'):
         log_hist_data = np.log10(hist_data)
 
-    plt.figure(figsize=(8, 7))
+    plt.figure(figsize=(6, 5))
     hm = sns.heatmap(
         log_hist_data, vmin=max(log_hist_data.min(), 1),
-        vmax=log_hist_data.max(), cmap=CMAP, square=True)
-    hm.set_yticklabels(HEATMAP_TICKS[::-1])
-    hm.set_xticklabels(HEATMAP_TICKS)
-    plt.xlabel('Sample 1 Percent Methylated')
-    plt.ylabel('Sample 2 Percent Methylated')
+        vmax=log_hist_data.max(), cmap=CMAP, square=True,
+        xticklabels=HEATMAP_TICKS, yticklabels=HEATMAP_TICKS[::-1])
+    hm_cbar = hm.collections[0].colorbar
+    hm_cbar.set_ticks(hm_cbar.get_ticks())
+    hm_cbar.set_ticklabels([
+        '{:.0f}'.format(tl) for tl in 10**hm_cbar.get_ticks()])
+    plt.xlabel('{} Percent Modified'.format(args.sample_names[0]))
+    plt.ylabel('{} Percent Modified'.format(args.sample_names[1]))
     plt.title('Log10 Counts')
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
 
-    plt.figure(figsize=(8, 7))
-    hm = sns.heatmap(hist_data, cmap=CMAP, square=True, robust=True)
-    hm.set_yticklabels(HEATMAP_TICKS[::-1])
-    hm.set_xticklabels(HEATMAP_TICKS)
-    plt.xlabel('Sample 1 Percent Methylated')
-    plt.ylabel('Sample 2 Percent Methylated')
+    plt.figure(figsize=(6, 5))
+    sns.heatmap(hist_data, cmap=CMAP, square=True, robust=True,
+                xticklabels=HEATMAP_TICKS, yticklabels=HEATMAP_TICKS[::-1])
+    plt.xlabel('{} Percent Methylated'.format(args.sample_names[0]))
+    plt.ylabel('{} Percent Methylated'.format(args.sample_names[1]))
+    plt.title('Raw Counts')
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
 
