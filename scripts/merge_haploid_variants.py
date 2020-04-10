@@ -3,6 +3,7 @@ import argparse
 
 import pysam
 import numpy as np
+from tqdm import tqdm
 
 from megalodon import variants, megalodon_helper as mh
 
@@ -147,7 +148,8 @@ def write_var(curr_v0_rec, curr_v1_rec, curr_v2_rec, out_vars, contig):
     return
 
 
-def iter_contig_vars(vars0_contig_iter, vars1_contig_iter, vars2_contig_iter):
+def iter_contig_vars(
+        vars0_contig_iter, vars1_contig_iter, vars2_contig_iter, contig):
     """ Iterate variants from source and both haplotypes.
     """
     def next_or_none(vars_iter):
@@ -162,6 +164,9 @@ def iter_contig_vars(vars0_contig_iter, vars1_contig_iter, vars2_contig_iter):
         return var.pos, var.ref, var.alts
 
     def init_curr_vars(next_rec):
+        # Multiple variants may occur at the same position. To ensure these
+        # variants are grouped correctly no matter the sorted order based on
+        # alleles, record all variants at each position before returning
         return dict([(get_uniq_pos(next_rec), next_rec)]) \
             if next_rec is not None else {(-1, ): None}
 
@@ -171,13 +176,15 @@ def iter_contig_vars(vars0_contig_iter, vars1_contig_iter, vars2_contig_iter):
         curr_pos = list(curr_recs.keys())[0][0]
         if v0_vars is not None:
             v0_pos = list(v0_vars.keys())[0][0]
+            # source variant not found in haplotype VCF
             if v0_pos < curr_pos:
                 return curr_recs, next_rec
             # check that haplotype variants occur in source VCF
-            while curr_pos < v0_pos:
+            while next_rec is not None and curr_pos < v0_pos:
                 sys.stderr.write(
                     'WARNING: Variant found in haplotype file which is ' +
-                    'missing from source file.\n')
+                    'missing from source file: {}:{}.\n'.format(
+                        contig, curr_pos))
                 curr_recs = init_curr_vars(next_rec)
                 next_rec = next_or_none(vars_iter)
                 curr_pos = list(curr_recs.keys())[0][0]
@@ -186,34 +193,32 @@ def iter_contig_vars(vars0_contig_iter, vars1_contig_iter, vars2_contig_iter):
             next_rec = next_or_none(vars_iter)
         return curr_recs, next_rec
 
-    # initialize first contig variants
-    first_v0_rec = next_or_none(vars0_contig_iter)
-    # Multiple variants may occur at the same position. To ensure these
-    # variants are grouped correctly no matter the sorted order based on
-    # alleles, record all variants at each position before returning
-    curr_v0_recs = dict([(get_uniq_pos(first_v0_rec), first_v0_rec), ])
+    # initialize next contig variants
     next_v0_rec = next_or_none(vars0_contig_iter)
-
-    first_v1_rec = next_or_none(vars1_contig_iter)
-    first_v2_rec = next_or_none(vars2_contig_iter)
+    if next_v0_rec is None:
+        return
+    next_v1_rec = next_or_none(vars1_contig_iter)
+    next_v2_rec = next_or_none(vars2_contig_iter)
     # One of the files has no variants on this contig
-    if first_v1_rec is None or first_v2_rec is None:
+    if next_v1_rec is None or next_v2_rec is None:
         while next_v0_rec is not None:
-            for pos in curr_v0_recs:
-                yield curr_v0_recs[pos], None, None
+            curr_v0_recs = init_curr_vars(next_v0_rec)
+            next_v0_rec = next_or_none(vars0_contig_iter)
             curr_v0_recs, next_v0_rec = get_pos_vars(
                 curr_v0_recs, next_v0_rec, vars0_contig_iter)
+            for pos in curr_v0_recs:
+                yield curr_v0_recs[pos], None, None
         for pos in curr_v0_recs:
             yield curr_v0_recs[pos], None, None
         return
 
-    # initialize haplotype current and next variants
-    curr_v1_recs = init_curr_vars(first_v1_rec)
-    curr_v2_recs = init_curr_vars(first_v2_rec)
-    next_v1_rec = next_or_none(vars1_contig_iter)
-    next_v2_rec = next_or_none(vars2_contig_iter)
-
     while next_v0_rec is not None:
+        curr_v0_recs = init_curr_vars(next_v0_rec)
+        curr_v1_recs = init_curr_vars(next_v1_rec)
+        curr_v2_recs = init_curr_vars(next_v2_rec)
+        next_v0_rec = next_or_none(vars0_contig_iter)
+        next_v1_rec = next_or_none(vars1_contig_iter)
+        next_v2_rec = next_or_none(vars2_contig_iter)
         # get all variants at the current source VCF position
         curr_v0_recs, next_v0_rec = get_pos_vars(
             curr_v0_recs, next_v0_rec, vars0_contig_iter)
@@ -229,9 +234,6 @@ def iter_contig_vars(vars0_contig_iter, vars1_contig_iter, vars2_contig_iter):
             except KeyError:
                 v1_pos_var = v2_pos_var = None
             yield curr_v0_recs[pos], v1_pos_var, v2_pos_var
-        curr_v0_recs = init_curr_vars(next_v0_rec)
-        curr_v1_recs = init_curr_vars(next_v1_rec)
-        curr_v2_recs = init_curr_vars(next_v2_rec)
 
     for pos in curr_v0_recs:
         try:
@@ -253,7 +255,7 @@ def get_contig_iter(vars_idx, contig):
 def main():
     args = get_parser().parse_args()
 
-    sys.stderr.write('Openning VCF files.')
+    sys.stderr.write('Opening VCF files.\n')
     vars0_idx = pysam.VariantFile(args.diploid_called_variants)
     vars1_idx = pysam.VariantFile(args.haplotype1_variants)
     vars2_idx = pysam.VariantFile(args.haplotype2_variants)
@@ -266,15 +268,19 @@ def main():
         raise mh.MegaError(
             'Variant files must be indexed. Use bgzip and tabix.')
 
-    sys.stderr.write('Processing variants.')
+    sys.stderr.write('Processing variants.\n')
     out_vars = open(args.out_vcf, 'w')
     out_vars.write(HEADER.format('\n'.join((CONTIG_HEADER_LINE.format(
         ctg.name, ctg.length) for ctg in vars0_idx.header.contigs.values()))))
-    for contig in contigs0:
-        for curr_v0_rec, curr_v1_rec, curr_v2_rec in iter_contig_vars(
-                get_contig_iter(vars0_idx, contig),
-                get_contig_iter(vars1_idx, contig),
-                get_contig_iter(vars2_idx, contig)):
+    for contig in tqdm(
+            contigs0, smoothing=0, unit=' contigs', dynamic_ncols=True,
+            desc='Variant Processing'):
+        for curr_v0_rec, curr_v1_rec, curr_v2_rec in tqdm(
+                iter_contig_vars(get_contig_iter(vars0_idx, contig),
+                                 get_contig_iter(vars1_idx, contig),
+                                 get_contig_iter(vars2_idx, contig), contig),
+                smoothing=0, unit=' variants', dynamic_ncols=True, leave=False,
+                desc='Contig Variants'):
             write_var(curr_v0_rec, curr_v1_rec, curr_v2_rec, out_vars, contig)
 
     out_vars.close()
