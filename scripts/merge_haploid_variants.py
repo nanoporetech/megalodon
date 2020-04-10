@@ -1,3 +1,4 @@
+import sys
 import argparse
 
 import pysam
@@ -93,6 +94,20 @@ def compute_diploid_stats(gl1, gl2):
     return gt, gq, gl, pl, qual
 
 
+def get_most_likely_homo(var, pls):
+    alleles = [var.ref, ] + list(var.alts)
+    gt_i = 0
+    min_homo_pl = pls[0]
+    min_homo_pl_gt = '{0}|{0}'.format(alleles[0])
+    for a2 in range(len(alleles)):
+        for a1 in range(a2 + 1):
+            if a1 == a2 and pls[gt_i] < min_homo_pl:
+                min_homo_pl = pls[gt_i]
+                min_homo_pl_gt = '{0}|{0}'.format(alleles[a1])
+            gt_i += 1
+    return min_homo_pl_gt
+
+
 def write_var(curr_v0_rec, curr_v1_rec, curr_v2_rec, out_vars, contig):
     s0_attrs = next(iter(curr_v0_rec.samples.values()))
     gt0, gq0, gl0, pl0, dp = (
@@ -103,7 +118,7 @@ def write_var(curr_v0_rec, curr_v1_rec, curr_v2_rec, out_vars, contig):
     if are_same_var(curr_v0_rec, curr_v1_rec, curr_v2_rec):
         s1_attrs = next(iter(curr_v1_rec.samples.values()))
         s2_attrs = next(iter(curr_v2_rec.samples.values()))
-        # don't let haploid calls change a homozygous call
+        # don't let homozygous calls change a heterozygous call
         # TODO explore settings where this restriction could
         # be relaxed
         if len(set(gt0)) == 1:
@@ -114,11 +129,10 @@ def write_var(curr_v0_rec, curr_v1_rec, curr_v2_rec, out_vars, contig):
             gt, gq, gl, pl, qual = compute_diploid_stats(
                 s1_attrs['GL'], s2_attrs['GL'])
     else:
-        # write un-phased variant back out.
-        # TODO convert genotype to most likely homozygous call since whatshap
+        # convert genotype to most likely homozygous call. since whatshap
         # could not phase this site, it is likely not heterozygous
         qual = parse_qual(curr_v0_rec.qual)
-        gt = '{}|{}'.format(*gt0)
+        gt = get_most_likely_homo(curr_v0_rec, pl0)
         gq, gl, pl = gq0, gl0, pl0
 
     if rid is None:
@@ -134,7 +148,11 @@ def write_var(curr_v0_rec, curr_v1_rec, curr_v2_rec, out_vars, contig):
 
 
 def iter_contig_vars(vars0_contig_iter, vars1_contig_iter, vars2_contig_iter):
+    """ Iterate variants from source and both haplotypes.
+    """
     def next_or_none(vars_iter):
+        """ Extract next variant or return None if iterator is exhausted
+        """
         try:
             return next(vars_iter)
         except StopIteration:
@@ -143,87 +161,120 @@ def iter_contig_vars(vars0_contig_iter, vars1_contig_iter, vars2_contig_iter):
     def get_uniq_pos(var):
         return var.pos, var.ref, var.alts
 
+    def init_curr_vars(next_rec):
+        return dict([(get_uniq_pos(next_rec), next_rec)]) \
+            if next_rec is not None else {(-1, ): None}
+
     def get_pos_vars(curr_recs, next_rec, vars_iter, v0_vars=None):
-        if v0_vars is not None and \
-           list(v0_vars.keys())[0][0] < list(curr_recs.keys())[0][0]:
-            return curr_recs, next_rec
-        while (next_rec is not None and
-               next_rec.pos == list(curr_recs.keys())[0][0]):
+        """ Extract all variants with the same position from variant iterator
+        """
+        curr_pos = list(curr_recs.keys())[0][0]
+        if v0_vars is not None:
+            v0_pos = list(v0_vars.keys())[0][0]
+            if v0_pos < curr_pos:
+                return curr_recs, next_rec
+            # check that haplotype variants occur in source VCF
+            while curr_pos < v0_pos:
+                sys.stderr.write(
+                    'WARNING: Variant found in haplotype file which is ' +
+                    'missing from source file.\n')
+                curr_recs = init_curr_vars(next_rec)
+                next_rec = next_or_none(vars_iter)
+                curr_pos = list(curr_recs.keys())[0][0]
+        while next_rec is not None and next_rec.pos == curr_pos:
             curr_recs[get_uniq_pos(next_rec)] = next_rec
             next_rec = next_or_none(vars_iter)
         return curr_recs, next_rec
 
+    # initialize first contig variants
     first_v0_rec = next_or_none(vars0_contig_iter)
+    # Multiple variants may occur at the same position. To ensure these
+    # variants are grouped correctly no matter the sorted order based on
+    # alleles, record all variants at each position before returning
+    curr_v0_recs = dict([(get_uniq_pos(first_v0_rec), first_v0_rec), ])
+    next_v0_rec = next_or_none(vars0_contig_iter)
+
     first_v1_rec = next_or_none(vars1_contig_iter)
     first_v2_rec = next_or_none(vars2_contig_iter)
-    if any(rec is None for rec in (first_v0_rec, first_v1_rec, first_v2_rec)):
+    # One of the files has no variants on this contig
+    if first_v1_rec is None or first_v2_rec is None:
+        while next_v0_rec is not None:
+            for pos in curr_v0_recs:
+                yield curr_v0_recs[pos], None, None
+            curr_v0_recs, next_v0_rec = get_pos_vars(
+                curr_v0_recs, next_v0_rec, vars0_contig_iter)
+        for pos in curr_v0_recs:
+            yield curr_v0_recs[pos], None, None
         return
-    curr_v0_recs = dict([(get_uniq_pos(first_v0_rec), first_v0_rec)])
-    curr_v1_recs = dict([(get_uniq_pos(first_v1_rec), first_v1_rec)])
-    curr_v2_recs = dict([(get_uniq_pos(first_v2_rec), first_v2_rec)])
-    next_v0_rec = next_or_none(vars0_contig_iter)
+
+    # initialize haplotype current and next variants
+    curr_v1_recs = init_curr_vars(first_v1_rec)
+    curr_v2_recs = init_curr_vars(first_v2_rec)
     next_v1_rec = next_or_none(vars1_contig_iter)
     next_v2_rec = next_or_none(vars2_contig_iter)
 
-    while any(next_rec is not None for next_rec in (
-            next_v0_rec, next_v1_rec, next_v2_rec)):
+    while next_v0_rec is not None:
+        # get all variants at the current source VCF position
         curr_v0_recs, next_v0_rec = get_pos_vars(
             curr_v0_recs, next_v0_rec, vars0_contig_iter)
         curr_v1_recs, next_v1_rec = get_pos_vars(
             curr_v1_recs, next_v1_rec, vars1_contig_iter, curr_v0_recs)
         curr_v2_recs, next_v2_rec = get_pos_vars(
             curr_v2_recs, next_v2_rec, vars2_contig_iter, curr_v0_recs)
-        for pos in set(curr_v0_recs).union(curr_v1_recs).union(curr_v2_recs):
-            if pos not in curr_v0_recs:
-                continue
-            yield (curr_v0_recs[pos],
-                   curr_v1_recs[pos] if pos in curr_v1_recs else None,
-                   curr_v2_recs[pos] if pos in curr_v2_recs else None)
-        curr_v0_recs = (
-            dict([(get_uniq_pos(next_v0_rec), next_v0_rec)])
-            if next_v0_rec is not None else {(-1, ): None})
-        curr_v1_recs = (
-            dict([(get_uniq_pos(next_v1_rec), next_v1_rec)])
-            if next_v1_rec is not None else {(-1, ): None})
-        curr_v2_recs = (
-            dict([(get_uniq_pos(next_v2_rec), next_v2_rec)])
-            if next_v2_rec is not None else {(-1, ): None})
+        for pos in curr_v0_recs:
+            try:
+                # variant may not be in the haplotype files
+                v1_pos_var = curr_v1_recs[pos]
+                v2_pos_var = curr_v2_recs[pos]
+            except KeyError:
+                v1_pos_var = v2_pos_var = None
+            yield curr_v0_recs[pos], v1_pos_var, v2_pos_var
+        curr_v0_recs = init_curr_vars(next_v0_rec)
+        curr_v1_recs = init_curr_vars(next_v1_rec)
+        curr_v2_recs = init_curr_vars(next_v2_rec)
 
-    for pos in set(curr_v0_recs).union(curr_v1_recs).union(curr_v2_recs):
-        if pos not in curr_v0_recs:
-            continue
-        yield (curr_v0_recs[pos],
-               curr_v1_recs[pos] if pos in curr_v1_recs else None,
-               curr_v2_recs[pos] if pos in curr_v2_recs else None)
+    for pos in curr_v0_recs:
+        try:
+            # variant may not be in the haplotype files
+            v1_pos_var = curr_v1_recs[pos]
+            v2_pos_var = curr_v2_recs[pos]
+        except KeyError:
+            v1_pos_var = v2_pos_var = None
+        yield curr_v0_recs[pos], v1_pos_var, v2_pos_var
+
+
+def get_contig_iter(vars_idx, contig):
+    try:
+        return iter(vars_idx.fetch(contig))
+    except ValueError:
+        return iter([])
 
 
 def main():
     args = get_parser().parse_args()
 
+    sys.stderr.write('Openning VCF files.')
     vars0_idx = pysam.VariantFile(args.diploid_called_variants)
     vars1_idx = pysam.VariantFile(args.haplotype1_variants)
     vars2_idx = pysam.VariantFile(args.haplotype2_variants)
     try:
         contigs0 = list(vars0_idx.header.contigs.keys())
-        vars0_idx.fetch(next(iter(contigs0)), 0, 0)
-        contigs1 = list(vars1_idx.header.contigs.keys())
-        vars1_idx.fetch(next(iter(contigs1)), 0, 0)
-        contigs2 = list(vars2_idx.header.contigs.keys())
-        vars2_idx.fetch(next(iter(contigs2)), 0, 0)
+        vars0_idx.fetch(contigs0[0])
+        vars1_idx.fetch(next(iter(vars1_idx.header.contigs.keys())))
+        vars2_idx.fetch(next(iter(vars2_idx.header.contigs.keys())))
     except ValueError:
         raise mh.MegaError(
-            'Variants file must be indexed. Use bgzip and tabix.')
+            'Variant files must be indexed. Use bgzip and tabix.')
 
+    sys.stderr.write('Processing variants.')
     out_vars = open(args.out_vcf, 'w')
     out_vars.write(HEADER.format('\n'.join((CONTIG_HEADER_LINE.format(
         ctg.name, ctg.length) for ctg in vars0_idx.header.contigs.values()))))
-    for contig in set(contigs0).intersection(contigs1).intersection(contigs2):
+    for contig in contigs0:
         for curr_v0_rec, curr_v1_rec, curr_v2_rec in iter_contig_vars(
-                iter(vars0_idx.fetch(contig)),
-                iter(vars1_idx.fetch(contig)),
-                iter(vars2_idx.fetch(contig))):
-            if curr_v0_rec is None:
-                continue
+                get_contig_iter(vars0_idx, contig),
+                get_contig_iter(vars1_idx, contig),
+                get_contig_iter(vars2_idx, contig)):
             write_var(curr_v0_rec, curr_v1_rec, curr_v2_rec, out_vars, contig)
 
     out_vars.close()
