@@ -41,6 +41,12 @@ def get_parser():
     parser.add_argument(
         '--out-vcf', default='merged_haploid_variants.vcf',
         help='Output name for VCF. Default: %(default)s')
+    parser.add_argument(
+        '--force-invalid-variant-processing', action='store_true',
+        help='Force processing of mismatching varints. This script is ' +
+        'intended only to process variant files produced from the same set ' +
+        'of megalodon per-read variant calls. Behavior when processing ' +
+        'mismatched variants is not defined.')
 
     return parser
 
@@ -148,7 +154,8 @@ def write_var(curr_s_rec, curr_h1_rec, curr_h2_rec, out_vars, contig):
 
 
 def iter_contig_vars(
-        source_var_iter, h1_var_iter, h2_var_iter, contig, bar):
+        source_var_iter, h1_var_iter, h2_var_iter, contig, bar,
+        force_invalid_vars):
     """ Iterate variants from source and both haplotypes.
     """
     def next_or_none(var_iter):
@@ -180,6 +187,16 @@ def iter_contig_vars(
                 return curr_recs, next_rec
             # check that haplotype variants occur in source VCF
             while next_rec is not None and curr_pos < s_pos:
+                if not force_invalid_vars:
+                    bar.close()
+                    sys.stderr.write((
+                        'ERROR: Variant found in haplotype file which is ' +
+                        'missing from source file: {}:{}.\nSet ' +
+                        '--force-invalid-variant-processing to force ' +
+                        'processing. Results when invalid variants are ' +
+                        'encountered is not defined.').format(
+                            contig, curr_pos))
+                    sys.exit(1)
                 bar.write(
                     'WARNING: Variant found in haplotype file which is ' +
                     'missing from source file: {}:{}.'.format(
@@ -288,8 +305,9 @@ def main():
 
     sys.stderr.write('Processing variants.\n')
     out_vars = open(args.out_vcf, 'w')
-    out_vars.write(HEADER.format('\n'.join((CONTIG_HEADER_LINE.format(
-        ctg.name, ctg.length) for ctg in source_vars.header.contigs.values()))))
+    out_vars.write(HEADER.format('\n'.join(
+        (CONTIG_HEADER_LINE.format(ctg.name, ctg.length)
+         for ctg in source_vars.header.contigs.values()))))
     bar = tqdm(total=len(contigs0), smoothing=0, unit=' contigs',
                dynamic_ncols=True, desc='Variant Processing', mininterval=0)
     for contig in contigs0:
@@ -297,7 +315,8 @@ def main():
                 iter_contig_vars(get_contig_iter(source_vars, contig),
                                  get_contig_iter(h1_vars, contig),
                                  get_contig_iter(h2_vars, contig),
-                                 contig, bar),
+                                 contig, bar,
+                                 args.force_invalid_variant_processing),
                 smoothing=0, unit=' variants', dynamic_ncols=True, leave=False,
                 desc='{} Variants'.format(contig)):
             write_var(curr_s_rec, curr_h1_rec, curr_h2_rec, out_vars, contig)
