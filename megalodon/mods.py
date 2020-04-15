@@ -23,6 +23,11 @@ AGG_INFO = namedtuple('AGG_INFO', ('method', 'binary_threshold'))
 DEFAULT_BINARY_THRESH = 0.75
 DEFAULT_AGG_INFO = AGG_INFO(BIN_THRESH_NAME, None)
 
+# slots in ground truth mods numpy arrays for calibration
+GT_ALL_MOD_BASE_STR = 'all_mod_bases'
+GT_MOD_LLR_STR = '{}_mod_llrs'
+GT_CAN_LLR_STR = '{}_can_llrs'
+
 FIXED_VCF_MI = [
     'INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
     'INFO=<ID=SN,Number=1,Type=String,Description="Strand">',
@@ -418,7 +423,45 @@ class ModsDb(object):
 
     def create_data_covering_index(self):
         self.cur.execute('CREATE INDEX data_cov_idx ON data(' +
-                         'score_pos, score_mod, score_read, score)')
+                         'score_pos, score_read, score_mod, score)')
+        return
+
+    def iter_pos_scores_from_covering_index(self, return_pos=False):
+        """ Iterate log likelihood ratios (log(P_can / P_mod)) by position.
+        Return dictionary with mod base single letter keys pointing to list of
+        log likelihood ratios.
+
+        Note this function iterates over the index created by
+        create_data_covering_index, so should be very fast.
+
+        If return_pos is set to True, position data will be returned in format
+        (chrm, strand, pos); else database position id will be returned
+        """
+        def extract_pos_llrs(pos_lps):
+            mod_llrs = defaultdict(list)
+            for read_pos_lps in pos_lps.values():
+                mt_lps = np.array([lp for _, lp in read_pos_lps])
+                with np.errstate(divide='ignore'):
+                    can_lp = np.log1p(-np.exp(mt_lps).sum())
+                for mod_id, lp in read_pos_lps:
+                    mod_llrs[mod_id].append(can_lp - lp)
+            return dict(mod_llrs)
+
+        # set function to transform pos_id
+        extract_pos = self.get_pos if return_pos else lambda x: x
+        self.cur.execute(
+            'SELECT score_pos, score_mod, score_read, score FROM data ' +
+            'ORDER_BY score_pos')
+        # initialize variables with first value
+        prev_pos, mod_id, read_id, lp = self.cur.fetchone()
+        pos_lps = defaultdict(list)
+        for curr_pos, mod_id, read_id, lp in self.cur:
+            if curr_pos != prev_pos:
+                yield extract_pos_llrs(pos_lps), extract_pos(prev_pos)
+                pos_lps = defaultdict(list)
+            pos_lps[read_id].append((self.get_mod_base_data(mod_id)[0], lp))
+            prev_pos = curr_pos
+        yield extract_pos_llrs(pos_lps), extract_pos(prev_pos)
         return
 
     # reader functions
@@ -456,6 +499,19 @@ class ModsDb(object):
             raise mh.MegaError(
                 'Old megalodon database scheme detected. Please re-run ' +
                 'megalodon processing or downgrade megalodon installation.')
+
+    def get_pos(self, pos_id):
+        try:
+            if self.pos_idx_in_mem:
+                chrm_id, strand, pos = self.pos_read_idx[pos_id]
+                chrm = self.get_chrm(chrm_id)
+            else:
+                chrm_id, strand, pos = self.cur.execute(
+                    'SELECT chrm_id, strand, pos FROM  WHERE pos_id=?',
+                    (pos_id,)).fetchone()[0]
+        except (TypeError, KeyError):
+            raise mh.MegaError('Position not found in database.')
+        return chrm, strand, pos
 
     def get_mod_base_data(self, mod_id):
         try:

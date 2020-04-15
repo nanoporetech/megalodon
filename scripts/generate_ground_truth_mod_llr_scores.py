@@ -1,75 +1,80 @@
 import sys
 import argparse
 import numpy as np
-import pandas as pd
+from collections import defaultdict
 
-from megalodon import megalodon_helper as mh
+from megalodon import megalodon_helper as mh, mods
 
 
 VERBOSE = False
 
 
-def output_mods_data(mod_dat, ctrl_dat, gt_dat, mod_chrm_sw, out_fn):
+def output_mods_data(all_mod_llrs, all_can_llrs, out_fn):
     if VERBOSE:
         sys.stderr.write('Merging modified base data\n')
-    # merge data with known mod sites
-    if ctrl_dat is not None:
-        mod_dat['is_mod'] = np.full(mod_dat.shape[0], True)
-        ctrl_dat['is_mod'] = np.full(ctrl_dat.shape[0], False)
-        m_dat = mod_dat.append(ctrl_dat)
-    elif gt_dat is not None:
-        m_dat = pd.merge(mod_dat, gt_dat, on=['chrm', 'pos'], sort=False)
-    else:
-        m_dat = mod_dat
-        m_dat['is_mod'] = np.array([
-            chrm.startswith(mod_chrm_sw) for chrm in m_dat['chrm']])
-
-    m_dat['llr'] = m_dat['can_log_prob'] - m_dat['mod_log_prob']
-    with open(out_fn, 'w') as fp:
-        for _, pos_dat in m_dat.iterrows():
-            fp.write('{}\t{}\t{}\n'.format(
-                pos_dat.is_mod, pos_dat.llr, pos_dat.mod_base))
-
-
-def parse_mod_data(args):
-    if VERBOSE:
-        sys.stderr.write('Reading megalodon data\n')
-    try:
-        mod_dat = pd.read_csv(
-            mh.get_megalodon_fn(args.megalodon_results_dir,
-                                mh.PR_MOD_TXT_NAME), sep='\t')
-    except FileNotFoundError:
+    all_mod_bases = list(set(all_mod_llrs.keys()).intersection(
+        all_can_llrs.keys()))
+    if len(set(all_mod_llrs.keys()).difference(all_mod_bases)) > 0:
         sys.stderr.write(
-            'ERROR: Must provide a valid Megalodon result directory.')
-        sys.exit(1)
+            'WARNING: Modified base(s) found in modified dataset which were ' +
+            'not found in canonical dataset: {}'.format(','.join(
+                set(all_mod_llrs.keys()).difference(all_mod_bases))))
+    if len(set(all_can_llrs.keys()).difference(all_mod_bases)) > 0:
+        sys.stderr.write(
+            'WARNING: Modified base(s) found in modified dataset which were ' +
+            'not found in canonical dataset: {}'.format(','.join(
+                set(all_mod_llrs.keys()).difference(all_mod_bases))))
+    mod_base_stats = {mods.GT_ALL_MOD_BASE_STR: all_mod_bases}
+    for mod_base in all_mod_bases:
+        mod_base_stats[mods.GT_MOD_LLR_STR.format(
+            mod_base)] = all_mod_llrs[mod_base]
+        mod_base_stats[mods.GT_CAN_LLR_STR.format(
+            mod_base)] = all_can_llrs[mod_base]
+    np.savez(out_fn, **mod_base_stats)
 
-    return mod_dat
+
+def get_samp_stats(mods_db_fn):
+    all_llrs = defaultdict(list)
+    mods_db = mods.ModsDb(mods_db_fn)
+    for mods_pos_llrs, pos in mods_db.iter_pos_scores_from_covering_index():
+        for mod_base, mod_pos_llrs in mods_pos_llrs.items():
+            all_llrs[mod_base].append(mod_pos_llrs)
+    all_llrs = dict((mod_base, np.concatenate(mod_llrs))
+                    for mod_base, mod_llrs in all_llrs.items())
+    return all_llrs
 
 
-def parse_control_mods(args):
-    ctrl_dat = gt_dat = mod_chrm_sw = None
-    if args.control_megalodon_results_dir is not None:
-        if VERBOSE:
-            sys.stderr.write('Reading control mods data\n')
-        try:
-            ctrl_dat = pd.read_csv(
-                mh.get_megalodon_fn(args.control_megalodon_results_dir,
-                                    mh.PR_MOD_TXT_NAME), sep='\t')
-        except FileNotFoundError:
-            ctrl_dat = None
-    elif args.ground_truth_data is not None:
-        if VERBOSE:
-            sys.stderr.write('Reading ground truth data\n')
-        gt_dat = pd.read_csv(
-            args.ground_truth_data, header=None,
-            names=['chrm', 'pos', 'is_mod'])
-    elif args.mod_chrms_startswith is not None:
-        mod_chrm_sw = args.mod_chrms_startswith
-    else:
-        sys.stderr.write('ERROR: Must provide a control data type.\n')
-        sys.exit(1)
+def get_samp_stats_w_ground_truth(mods_db_fn, gt_mod_pos, gt_can_pos):
+    all_mod_llrs = defaultdict(list)
+    all_can_llrs = defaultdict(list)
+    mods_db = mods.ModsDb(mods_db_fn)
+    for mods_pos_llrs, (
+            chrm, _, pos) in mods_db.iter_pos_scores_from_covering_index(
+                return_pos=True):
+        if (chrm, pos) in gt_mod_pos:
+            for mod_base, mod_pos_llrs in mods_pos_llrs.items():
+                all_mod_llrs[mod_base].append(mod_pos_llrs)
+        elif (chrm, pos) in gt_can_pos:
+            for mod_base, mod_pos_llrs in mods_pos_llrs.items():
+                all_can_llrs[mod_base].append(mod_pos_llrs)
+    all_mod_llrs = dict((mod_base, np.concatenate(mod_llrs))
+                        for mod_base, mod_llrs in all_mod_llrs.items())
+    all_can_llrs = dict((mod_base, np.concatenate(mod_llrs))
+                        for mod_base, mod_llrs in all_can_llrs.items())
+    return all_mod_llrs, all_can_llrs
 
-    return ctrl_dat, gt_dat, mod_chrm_sw
+
+def parse_ground_truth_data(gt_data_fn):
+    gt_mod_pos = set()
+    gt_can_pos = set()
+    with open(gt_data_fn) as fp:
+        for line in fp:
+            chrm, pos, is_mod = line.strip().split(',')
+            if bool(is_mod):
+                gt_mod_pos.add((chrm, int(pos)))
+            else:
+                gt_can_pos.add((chrm, int(pos)))
+    return gt_mod_pos, gt_can_pos
 
 
 parser = argparse.ArgumentParser()
@@ -84,11 +89,7 @@ parser.add_argument(
     '--ground-truth-data',
     help='Ground truth csv with (chrm, pos, is_mod) values.')
 parser.add_argument(
-    '--mod-chrms-startswith',
-    help='String prefix for all mapped chromosomes with ground ' +
-    'truth modifications. All other sites will be assumed unmodified.')
-parser.add_argument(
-    '--out-filename', default='mod_calibration_statistics.txt',
+    '--out-filename', default='mod_calibration_statistics.npz',
     help='Output filename for text summary. Default: %(default)s')
 parser.add_argument(
     '--quiet', action='store_true',
@@ -100,9 +101,18 @@ def main():
     global VERBOSE
     VERBOSE = not args.quiet
 
-    mod_dat = parse_mod_data(args)
-    ctrl_dat, gt_dat, mod_chrm_sw = parse_control_mods(args)
-    output_mods_data(mod_dat, ctrl_dat, gt_dat, mod_chrm_sw, args.out_filename)
+    db_fn = mh.get_megalodon_fn(args.megalodon_results_dir,
+                                mh.PR_MOD_TXT_NAME)
+    if args.ground_truth_data is not None:
+        gt_mod_pos, gt_can_pos = parse_ground_truth_data(
+            args.ground_truth_data)
+        all_mod_llrs, all_can_llrs = get_samp_stats_w_ground_truth(
+            db_fn, gt_mod_pos, gt_can_pos)
+    else:
+        all_mod_llrs = get_samp_stats(db_fn)
+        all_can_llrs = get_samp_stats(mh.get_megalodon_fn(
+            args.control_megalodon_results_dir, mh.PR_MOD_TXT_NAME))
+    output_mods_data(all_mod_llrs, all_can_llrs, args.out_filename)
 
 
 if __name__ == '__main__':
