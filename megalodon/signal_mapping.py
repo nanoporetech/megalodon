@@ -24,17 +24,13 @@ def get_remapping(
     read = fast5_interface.get_fast5_file(sig_fn, 'r').get_read(read_id)
     channel_info = dict(fast5utils.get_channel_info(read).items())
     rd_factor = channel_info['range'] / channel_info['digitisation']
-    shift_from_pA = (scale_params[0] + channel_info['offset']) * rd_factor
-    scale_from_pA = scale_params[1] * rd_factor
-    read_attrs = dict(fast5utils.get_read_attributes(read).items())
-
-    # prepare taiyaki signal object
-    sig = tai_signal.Signal(dacs=dacs)
-    sig.channel_info = channel_info
-    sig.read_attributes = read_attrs
-    sig.offset = channel_info['offset']
-    sig.range = channel_info['range']
-    sig.digitisation = channel_info['digitisation']
+    read_params = {
+        'trim_start': 0, 'trim_end': 0,
+        'shift': (scale_params[0] + channel_info['offset']) * rd_factor,
+        'scale': scale_params[1] * rd_factor}
+    sig = tai_signal.Signal(
+        dacs=dacs, channel_info=channel_info, read_id=read_id,
+        read_params=read_params)
 
     path = np.full((dacs.shape[0] // stride) + 1, -1)
     # skip last value since this is where the two seqs end
@@ -43,15 +39,16 @@ def get_remapping(
         if rl_cumsum[q_pos + r_ref_pos.q_trim_start] >= path.shape[0]:
             continue
         path[rl_cumsum[q_pos + r_ref_pos.q_trim_start]] = ref_pos
-    remapping = tai_mapping.Mapping.from_remapping_path(
-        sig, path, ref_seq, stride)
+
     try:
-        remapping.add_integer_reference(ref_out_info.alphabet)
+        int_ref = tai_mapping.SignalMapping.get_integer_reference(
+            ref_seq, ref_out_info.alphabet)
     except Exception:
         raise mh.MegaError('Invalid reference sequence encountered')
+    sig_mapping = tai_mapping.SignalMapping.from_remapping_path(
+        path, int_ref, stride, sig)
 
-    return (remapping.get_read_dictionary(
-        shift_from_pA, scale_from_pA, read_id),
+    return (sig_mapping.get_read_dictionary(),
             prepare_mapping_funcs.RemapResult.SUCCESS)
 
 
