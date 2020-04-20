@@ -884,6 +884,10 @@ class SelectiveRawFormatter(argparse.HelpFormatter):
 
 
 def get_parser():
+    if '--list-supported-guppy-configs' in sys.argv:
+        sys.stderr.write(mh.get_supported_configs_message())
+        sys.exit()
+
     # hide more complex arguments for standard help output
     show_hidden_args = '--help-long' in sys.argv
 
@@ -1193,10 +1197,6 @@ def get_parser():
 
 def _main():
     args = get_parser().parse_args()
-    if args.list_supported_guppy_configs:
-        print('\n' + mh.get_supported_configs_message())
-        sys.exit()
-
     try:
         mh.mkdir(args.output_directory, args.overwrite)
     except mh.MegaError as e:
