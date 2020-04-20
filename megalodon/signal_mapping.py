@@ -8,7 +8,7 @@ import numpy as np
 from ont_fast5_api import fast5_interface
 from megalodon import megalodon_helper as mh, logging
 from taiyaki import (
-    alphabet, fast5utils, mapping as tai_mapping, prepare_mapping_funcs,
+    alphabet, fast5utils, signal_mapping as tai_mapping, prepare_mapping_funcs,
     signal as tai_signal)
 
 
