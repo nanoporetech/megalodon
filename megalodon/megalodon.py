@@ -7,6 +7,7 @@ import threading
 import traceback
 from time import sleep
 import multiprocessing as mp
+from itertools import product
 from collections import defaultdict, OrderedDict
 
 import numpy as np
@@ -595,7 +596,9 @@ def process_all_reads(
                 pr_refs_fn, ref_out_info, mods_info.pos_index_in_memory,
                 mods_info.mod_long_names))
     if mh.SIG_MAP_NAME in outputs:
-        alphabet_info = signal_mapping.get_alphabet_info(model_info)
+        alphabet_info = signal_mapping.get_alphabet_info(
+            ref_out_info.alphabet, ref_out_info.collapse_alphabet,
+            ref_out_info.mod_long_names)
         sig_map_fn = mh.get_megalodon_fn(out_dir, mh.SIG_MAP_NAME)
         getter_qs[mh.SIG_MAP_NAME] = mh.create_getter_q(
             signal_mapping.write_signal_mappings,
@@ -707,11 +710,21 @@ def parse_aligner_args(args):
 
 def parse_var_args(args, model_info, aligner):
     if args.ref_include_variants and mh.PR_VAR_NAME not in args.outputs:
+        LOGGER.warning('--ref-include-variants set, so adding ' +
+                       '"per_read_vars" to --outputs.')
         args.outputs.append(mh.PR_VAR_NAME)
     if mh.WHATSHAP_MAP_NAME in args.outputs and \
-       mh.VAR_NAME not in args.outputs:
-        args.outputs.append(mh.VAR_NAME)
+       mh.PR_VAR_NAME not in args.outputs:
+        LOGGER.warning((
+            'Adding "{}" to --outputs since "{}" was requested. For full ' +
+            'phased variant pipeline add "{}" or run aggregation after run ' +
+            'is complete.').format(mh.PR_VAR_NAME, mh.WHATSHAP_MAP_NAME,
+                                   mh.VAR_NAME))
+        args.outputs.append(mh.PR_VAR_NAME)
     if mh.VAR_NAME in args.outputs and mh.PR_VAR_NAME not in args.outputs:
+        LOGGER.warning((
+            'Adding "{}" to --outputs since "{}" was requested.').format(
+                mh.PR_VAR_NAME, mh.VAR_NAME))
         args.outputs.append(mh.PR_VAR_NAME)
     if mh.PR_VAR_NAME in args.outputs and args.variant_filename is None:
         LOGGER.error(
@@ -751,9 +764,18 @@ def parse_var_args(args, model_info, aligner):
 
 
 def parse_mod_args(args, model_info):
+    if args.ref_include_mods and args.ref_mods_all_motifs is not None:
+        LOGGER.warning(
+            '--ref-include-mods and --ref-mods-all-motifs are not ' +
+            'compatible. Ignoring --ref-include-mods')
+        args.ref_include_mods = False
     if args.ref_include_mods and mh.PR_MOD_NAME not in args.outputs:
+        LOGGER.warning('--ref-include-mods set, so adding ' +
+                       '"per_read_mods" to --outputs.')
         args.outputs.append(mh.PR_MOD_NAME)
     if mh.PR_MOD_NAME not in args.outputs and mh.MOD_NAME in args.outputs:
+        LOGGER.warning('"mods" output requested, so "per_read_mods" will ' +
+                       'be added to outputs.')
         args.outputs.append(mh.PR_MOD_NAME)
     if mh.PR_MOD_NAME in args.outputs and not model_info.is_cat_mod:
         LOGGER.error((
@@ -769,6 +791,7 @@ def parse_mod_args(args, model_info):
         LOGGER.warning(('--mod-motif provided, but {} not requested. ' +
                         'Ignoring --mod-motif.').format(mh.PR_MOD_NAME))
         args.mod_motif = None
+
     mod_calib_fn = (mh.get_mod_calibration_fn(
         model_info.params.pyguppy.config, args.mod_calibration_filename,
         args.disable_mod_calibration)
@@ -787,6 +810,49 @@ def parse_mod_args(args, model_info):
     return args, mods_info
 
 
+def parse_ref_mods_all_motifs(ref_mod_motifs_raw, sm_alphabet_info):
+    sm_alphabet = sm_alphabet_info.alphabet
+    sm_coll_alphabet = sm_alphabet_info.collapse_alphabet
+    sm_mlns = sm_alphabet_info.mod_long_names
+    ref_mod_motifs_init = []
+    for mod_base, mln, motif, rel_pos in ref_mod_motifs_raw:
+        rel_pos = int(rel_pos)
+        ref_base = motif[rel_pos]
+        if mod_base not in sm_alphabet:
+            # add mod base to alphabet
+            sm_alphabet += mod_base
+            sm_coll_alphabet += ref_base
+            sm_mlns.append(mln)
+        else:
+            # check that mod base matches current model
+            base_idx = sm_alphabet.index(mod_base)
+            if sm_coll_alphabet[base_idx] != ref_base:
+                raise mh.MegaError((
+                    'Canonical base ({}) specified by --ref-mods-all-motifs ' +
+                    'does not match model alphabet base ({}).').format(
+                        ref_base, sm_coll_alphabet[base_idx]))
+            mod_idx = sm_alphabet_info.mod_bases.index(mod_base)
+            if sm_mlns[mod_idx] != mln:
+                raise mh.MegaError((
+                    'Modified base long name ({}) specified by ' +
+                    '--ref-mods-all-motifs does not match model alphabet ' +
+                    'long name ({}).').format(
+                        mln, sm_mlns[mod_idx]))
+        ref_mod_motifs_init.append((mod_base, mln, motif, rel_pos))
+    new_sm_alphabet_info = signal_mapping.get_alphabet_info(
+        sm_alphabet, sm_coll_alphabet, sm_mlns)
+    ref_mod_motifs_w_ints = []
+    for mod_base, mln, motif, rel_pos in ref_mod_motifs_init:
+        int_mod_base = new_sm_alphabet_info.alphabet.index(mod_base)
+        # iterate over all real sequences for the canonical motif
+        for motif_bases in product(*(mh.SINGLE_LETTER_CODE[b] for b in motif)):
+            int_motif = np.array([new_sm_alphabet_info.alphabet.index(base)
+                                  for base in motif_bases])
+            ref_mod_motifs_w_ints.append(
+                (mod_base, int_mod_base, mln, int_motif, rel_pos))
+    return ref_mod_motifs_w_ints, new_sm_alphabet_info
+
+
 def parse_ref_out_args(args, model_info):
     output_pr_refs = output_sig_maps = False
     if mh.SIG_MAP_NAME in args.outputs or mh.PR_REF_NAME in args.outputs:
@@ -795,77 +861,91 @@ def parse_ref_out_args(args, model_info):
                          'per-read references (remove one of ' +
                          '--refs-include-variants or --refs-include-mods).')
             sys.exit(1)
-        if args.ref_include_mods and mh.PR_MOD_NAME not in args.outputs:
-            args.outputs.append(mh.PR_MOD_NAME)
-            LOGGER.warning('--ref-include-mods set, so adding ' +
-                           '"per_read_mods" to --outputs.')
-        if args.ref_mods_all_motifs and not args.ref_include_mods:
+        if args.ref_include_mods and args.ref_mods_all_motifs is not None:
             LOGGER.warning(
-                '--ref-mods-all-motifs but not --ref-include-mods set. ' +
-                'Ignoring --ref-mods-all-motifs.')
+                '--ref-include-mods and --ref-mods-all-motifs are not ' +
+                'compatible. Ignoring --ref-include-mods')
+            args.ref_include_mods = False
         if args.ref_mod_threshold and not args.ref_include_mods:
             LOGGER.warning(
                 '--ref-mod-threshold but not --ref-include-mods set. ' +
                 'Ignoring --ref-mod-threshold.')
 
+    sm_alphabet_info = None
     if mh.SIG_MAP_NAME in args.outputs:
         output_sig_maps = True
+        # import here so that taiyaki is not required unless outputting
+        # signal mappings
         from megalodon import signal_mapping
         global signal_mapping
-        sig_map_alphabet_info = signal_mapping.get_alphabet_info(model_info)
-        sig_map_alphabet = sig_map_alphabet_info.alphabet
+        sm_alphabet_info = signal_mapping.get_alphabet_info_from_model(
+            model_info)
+        if args.ref_include_mods and mh.PR_MOD_NAME not in args.outputs:
+            LOGGER.warning(('--ref-include-mods set, so adding ' +
+                            '"{}" to --outputs.').format(mh.PR_MOD_NAME))
+            args.outputs.append(mh.PR_MOD_NAME)
 
     if mh.PR_REF_NAME in args.outputs:
         output_pr_refs = True
         if args.ref_include_variants and mh.PR_VAR_NAME not in args.outputs:
-            args.outputs.append(mh.PR_VAR_NAME)
             LOGGER.warning('--refs-include-variants set, so adding ' +
                            'per_read_variants to --outputs.')
+            args.outputs.append(mh.PR_VAR_NAME)
     else:
         if args.ref_include_variants:
             LOGGER.warning(
                 '{0} set but {1} not requested. Ignoring {0}.'.format(
                     '--ref-include-variants', mh.PR_REF_NAME))
+            args.ref_include_variants = None
 
     if mh.SIG_MAP_NAME not in args.outputs and \
        mh.PR_REF_NAME not in args.outputs:
-        sig_map_alphabet = None
-        for arg_flag, arg_str in (
+        for arg_val, arg_str in (
                 (args.ref_mods_all_motifs, '--ref-mods-all-motifs'),
-                (args.ref_include_mods, '--ref-include-mods'),
                 (args.ref_length_range, '--ref-length-range'),
                 (args.ref_mod_threshold, '--ref-mod-thresh'),
                 (args.ref_percent_identity_threshold,
                  '--ref-percent-identity-threshold'),
                 (args.ref_percent_coverage_threshold,
                  '--ref-percent-coverage-threshold')):
+            if arg_val is not None:
+                LOGGER.warning((
+                    '{0} set but neither {1} nor {2} requested. Ignoring ' +
+                    '{0}.').format(arg_str, mh.SIG_MAP_NAME, mh.PR_REF_NAME))
+                arg_val = None
+        for arg_flag, arg_str in (
+                (args.ref_include_mods, '--ref-include-mods'), ):
             if arg_flag:
                 LOGGER.warning((
                     '{0} set but neither {1} nor {2} requested. Ignoring ' +
                     '{0}.').format(arg_str, mh.SIG_MAP_NAME, mh.PR_REF_NAME))
+                arg_flag = False
 
     min_len, max_len = (args.ref_length_range
                         if args.ref_length_range is not None else
                         (None, None))
-    # set mod_thresh to infinity if all sites are to be labeled as
-    # modified (--ref-mods-all-motifs)
-    mod_thresh = 0.0
-    if args.ref_mods_all_motifs:
-        mod_thresh = np.inf
-        if args.ref_mod_threshold is not None:
-            LOGGER.warning(
-                '--ref-mods-all-motifs and --ref-mod-threshold ' +
-                'both set. Ignoring --ref-mod-threshold.')
-    elif args.ref_mod_threshold is not None:
-        mod_thresh = args.ref_mod_threshold
+    do_annotate_mods = args.ref_include_mods
+    ref_mods_all_motifs = None
+    if args.ref_mods_all_motifs is not None:
+        ref_mods_all_motifs, sm_alphabet_info = parse_ref_mods_all_motifs(
+            args.ref_mods_all_motifs, sm_alphabet_info)
+    mod_thresh = (0.0 if args.ref_mod_threshold is None else
+                  args.ref_mod_threshold)
 
+    sm_alphabet = sm_coll_alphabet = sm_mlns = None
+    if sm_alphabet_info is not None:
+        sm_alphabet = sm_alphabet_info.alphabet
+        sm_coll_alphabet = sm_alphabet_info.collapse_alphabet
+        sm_mlns = sm_alphabet_info.mod_long_names
     ref_out_info = mh.REF_OUT_INFO(
         pct_idnt=args.ref_percent_identity_threshold,
         pct_cov=args.ref_percent_coverage_threshold,
-        min_len=min_len, max_len=max_len, alphabet=sig_map_alphabet,
-        annotate_mods=args.ref_include_mods,
+        min_len=min_len, max_len=max_len, alphabet=sm_alphabet,
+        collapse_alphabet=sm_coll_alphabet, mod_long_names=sm_mlns,
+        annotate_mods=do_annotate_mods,
         annotate_vars=args.ref_include_variants, mod_thresh=mod_thresh,
-        output_pr_refs=output_pr_refs, output_sig_maps=output_sig_maps)
+        output_sig_maps=output_sig_maps, output_pr_refs=output_pr_refs,
+        ref_mods_all_motifs=ref_mods_all_motifs)
 
     return args, ref_out_info
 
@@ -1140,8 +1220,15 @@ def get_parser():
         help=hidden_help('Only include reads with higher read alignment ' +
                          'coverage in signal_mappings/per_read_refs output.'))
     sigmap_grp.add_argument(
-        '--ref-mods-all-motifs', action='store_true',
-        help=hidden_help('Annotate all --mod-motif occurences as modified.'))
+        '--ref-mods-all-motifs', nargs=4, action='append',
+        metavar=('MOD', 'MOD_LONG_NAME', 'MOTIF', 'REL_POS'),
+        help=hidden_help('Annotate all motifs as modified (e.g. bacterial ' +
+                         'methylase). This will ignore modified base calls ' +
+                         'made and --mod-motif. Multiple mods and motifs ' +
+                         'can be provided. Arguments should be structured ' +
+                         'as --ref-mods-all-motifs [single letter modified ' +
+                         'base code] [modified base long name] ' +
+                         '[canonical motif] [mod position relative to motif]'))
     sigmap_grp.add_argument(
         '--ref-mod-threshold', type=float,
         help=hidden_help('Threshold (log(can_prob/mod_prob)) used to ' +
