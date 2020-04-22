@@ -36,17 +36,18 @@ def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         'megalodon_results_dir',
-        help='Output directory from megalodon with mappings and per_read_mods ' +
-        'in outputs. Must have --write-mods-text set for mods validation.')
+        help='Output directory from Megalodon with mappings and ' +
+        'per_read_mods in outputs.')
     parser.add_argument(
         '--control-megalodon-results-dir',
         help='Megalodon output directory with modified base control sample.')
     parser.add_argument(
         '--ground-truth-data',
-        help='Ground truth csv with (chrm, pos, is_mod) values.')
+        help='Ground truth csv with (chrm, strand, pos, is_mod) values.')
     parser.add_argument(
         '--strand-specific-sites', action='store_true',
-        help='Sites in --ground-truth-data are strand-specific')
+        help='Sites in --ground-truth-data are strand-specific. If not ' +
+        'set, strand is ignored.')
     parser.add_argument(
         '--out-filename', default='mod_calibration_statistics.npz',
         help='Output filename for text summary. Default: %(default)s')
@@ -96,7 +97,6 @@ def main():
             sys.stderr.write(
                 'Reading ground truth modified base statistics from ' +
                 'canonical sample database\n')
-            sys.stderr.write('Reading ground truth \n')
         all_can_llrs = mods.extract_all_stats(mh.get_megalodon_fn(
             args.control_megalodon_results_dir, mh.PR_MOD_NAME))
     if VERBOSE:
