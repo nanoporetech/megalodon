@@ -1,4 +1,3 @@
-import sys
 import argparse
 
 from megalodon import megalodon_helper as mh

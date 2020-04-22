@@ -597,6 +597,62 @@ class ModsDb(object):
         return
 
 
+##################
+# Mod DB Helpers #
+##################
+
+def extract_all_stats(mods_db_fn):
+    """ Extract all log-likelihood ratios (log(P_can / P_mod)) from a mods
+    database.
+
+    Returns:
+        Dictionary with mod base single letter code keys and numpy array of
+        log likelihood ratio values.
+    """
+    all_llrs = defaultdict(list)
+    mods_db = ModsDb(mods_db_fn)
+    for _, mods_pos_llrs in mods_db.iter_pos_scores():
+        for mod_base, mod_pos_llrs in mods_pos_llrs.items():
+            all_llrs[mod_base].append(mod_pos_llrs)
+    all_llrs = dict((mod_base, np.concatenate(mod_llrs))
+                    for mod_base, mod_llrs in all_llrs.items())
+    return all_llrs
+
+
+def extract_stats_at_valid_sites(
+        mods_db_fn, valid_sites_sets, includes_strand=True):
+    """ Extract all log-likelihood ratios (log(P_can / P_mod)) from a mods
+    database at set of valid sites.
+
+    Args:
+        mods_db_fn: Modified base database filename
+        valid_sites_sets: List of sets containing valid positions. Either
+            (chrm, pos) or (chrm, strand, pos); strand should be +/-1
+        includes_strand: Boolean value indicating whether positions include
+            strand.
+
+    Returns:
+        List of dictionaries with single letter modified base code keys and
+        numpy array of log likelihood ratio values. The list matches the order
+        of the valid_sites_sets argument.
+    """
+    all_stats = [defaultdict(list) for _ in valid_sites_sets]
+    # load database with positions in memory to avoid disk reads
+    mods_db = ModsDb(mods_db_fn, pos_index_in_memory=True)
+    for (chrm, strand, pos), mods_pos_llrs in mods_db.iter_pos_scores(
+                return_pos=True):
+        site_key = (chrm, strand, pos) if includes_strand else (chrm, pos)
+        for sites_i, valid_sites in enumerate(valid_sites_sets):
+            if site_key in valid_sites:
+                for mod_base, mod_pos_llrs in mods_pos_llrs.items():
+                    all_stats[sites_i][mod_base].append(mod_pos_llrs)
+    r_all_stats = [
+        dict((mod_base, np.concatenate(mod_llrs))
+             for mod_base, mod_llrs in stats_i.items())
+        for stats_i in all_stats]
+    return r_all_stats
+
+
 ########################
 # Reference Mod Markup #
 ########################

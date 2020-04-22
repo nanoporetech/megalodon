@@ -1,14 +1,11 @@
 import sys
 import argparse
 import numpy as np
-from collections import defaultdict
 
 from megalodon import megalodon_helper as mh, mods
 
 
 VERBOSE = False
-TRUE_TEXT_VALUES = set(('y', 'yes', 't', 'true', 'on', '1'))
-FALSE_TEXT_VALUES = set(('n', 'no', 'f', 'false', 'off', '0'))
 
 
 def output_mods_data(all_mod_llrs, all_can_llrs, out_fn):
@@ -33,63 +30,6 @@ def output_mods_data(all_mod_llrs, all_can_llrs, out_fn):
         mod_base_stats[mods.GT_CAN_LLR_STR.format(
             mod_base)] = all_can_llrs[mod_base]
     np.savez(out_fn, **mod_base_stats)
-
-
-def get_samp_stats(mods_db_fn):
-    all_llrs = defaultdict(list)
-    mods_db = mods.ModsDb(mods_db_fn)
-    for pos, mods_pos_llrs in mods_db.iter_pos_scores():
-        for mod_base, mod_pos_llrs in mods_pos_llrs.items():
-            print(mod_bases)
-            all_llrs[mod_base].append(mod_pos_llrs)
-    all_llrs = dict((mod_base, np.concatenate(mod_llrs))
-                    for mod_base, mod_llrs in all_llrs.items())
-    return all_llrs
-
-
-def get_samp_stats_w_ground_truth(mods_db_fn, gt_mod_pos, gt_can_pos):
-    all_mod_llrs = defaultdict(list)
-    all_can_llrs = defaultdict(list)
-    mods_db = mods.ModsDb(mods_db_fn, pos_index_in_memory=False)
-    for (chrm, _, pos), mods_pos_llrs in mods_db.iter_pos_scores(
-                return_pos=True):
-        if (chrm, pos) in gt_mod_pos:
-            for mod_base, mod_pos_llrs in mods_pos_llrs.items():
-                all_mod_llrs[mod_base].append(mod_pos_llrs)
-        elif (chrm, pos) in gt_can_pos:
-            for mod_base, mod_pos_llrs in mods_pos_llrs.items():
-                all_can_llrs[mod_base].append(mod_pos_llrs)
-    all_mod_llrs = dict((mod_base, np.concatenate(mod_llrs))
-                        for mod_base, mod_llrs in all_mod_llrs.items())
-    all_can_llrs = dict((mod_base, np.concatenate(mod_llrs))
-                        for mod_base, mod_llrs in all_can_llrs.items())
-    return all_mod_llrs, all_can_llrs
-
-
-def text_to_bool(val):
-    lower_val = val.lower()
-    if lower_val in TRUE_TEXT_VALUES:
-        return True
-    elif lower_val in FALSE_TEXT_VALUES:
-        return False
-    raise mh.MegaError('Invalid boolean string encountered: "{}".'.format(val))
-
-
-def parse_ground_truth_data(gt_data_fn):
-    gt_mod_pos = set()
-    gt_can_pos = set()
-    with open(gt_data_fn) as fp:
-        for line in fp:
-            chrm, pos, is_mod = line.strip().split(',')
-            if text_to_bool(is_mod):
-                gt_mod_pos.add((chrm, int(pos)))
-            else:
-                gt_can_pos.add((chrm, int(pos)))
-    if VERBOSE:
-        sys.stderr.write((
-            'Loaded ground truth data with {} modified sites and {} ' +
-            'canonical sites.\n').format(len(gt_mod_pos) , len(gt_can_pos)))
-    return gt_mod_pos, gt_can_pos
 
 
 parser = argparse.ArgumentParser()
@@ -121,19 +61,22 @@ def main():
     if args.ground_truth_data is not None:
         if VERBOSE:
             sys.stderr.write('Parsing ground truth data\n')
-        gt_mod_pos, gt_can_pos = parse_ground_truth_data(
+        gt_mod_pos, gt_can_pos = mh.parse_ground_truth_file(
             args.ground_truth_data)
         if VERBOSE:
+            sys.stderr.write((
+                'Loaded ground truth data with {} modified sites and {} ' +
+                'canonical sites.\n').format(len(gt_mod_pos), len(gt_can_pos)))
             sys.stderr.write('Reading sample data\n')
-        all_mod_llrs, all_can_llrs = get_samp_stats_w_ground_truth(
-            db_fn, gt_mod_pos, gt_can_pos)
+        all_mod_llrs, all_can_llrs = mods.extract_stats_at_valid_sites(
+            db_fn, [gt_mod_pos, gt_can_pos])
     else:
         if VERBOSE:
             sys.stderr.write('Reading ground truth modified sample\n')
-        all_mod_llrs = get_samp_stats(db_fn)
+        all_mod_llrs = mods.extract_all_stats(db_fn)
         if VERBOSE:
             sys.stderr.write('Reading ground truth canonical sample\n')
-        all_can_llrs = get_samp_stats(mh.get_megalodon_fn(
+        all_can_llrs = mods.extract_all_stats(mh.get_megalodon_fn(
             args.control_megalodon_results_dir, mh.PR_MOD_NAME))
     if VERBOSE:
         mod_summary = [

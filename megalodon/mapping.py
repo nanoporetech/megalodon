@@ -12,6 +12,17 @@ from megalodon import megalodon_helper as mh, logging
 
 MAP_POS = namedtuple('MAP_POS', (
     'chrm', 'strand', 'start', 'end', 'q_trim_start', 'q_trim_end'))
+MAP_SUMM = namedtuple('MAP_SUMM', (
+    'read_id', 'pct_identity', 'num_align', 'num_match',
+    'num_del', 'num_ins', 'read_pct_coverage', 'chrom', 'strand',
+    'start', 'end'))
+# Defaults for backwards compatibility when reading
+MAP_SUMM.__new__.__defaults__ = (None, None, None, None, None)
+MAP_SUMM_TMPLT = (
+    '{0.read_id}\t{0.pct_identity:.2f}\t{0.num_align}\t{0.num_match}\t' +
+    '{0.num_del}\t{0.num_ins}\t{0.read_pct_coverage:.2f}\t{0.chrom}\t' +
+    '{0.strand}\t{0.start}\t{0.end}\n')
+
 LOGGER = logging.get_logger()
 
 
@@ -203,9 +214,13 @@ def _get_map_queue(
             elif op == 1:
                 nins += op_len
         # compute alignment stats
-        summ_fp.write('{}\t{:.2f}\t{}\t{}\t{}\t{}\t{:.2f}\t{}\n'.format(
-            read_id, 100 * nmatch / float(nalign), nalign, nmatch, ndel, nins,
-            (q_en - q_st) * 100 / float(bc_len), chrm))
+        r_map_summ = MAP_SUMM(
+            read_id=read_id, pct_identity=100 * nmatch / float(nalign),
+            num_align=nalign, num_match=nmatch, num_del=ndel, num_ins=nins,
+            read_pct_coverage=(q_en - q_st) * 100 / float(bc_len), chrom=chrm,
+            strand=mh.int_strand_to_str(strand), start=r_st,
+            end=r_st + nalign - nins)
+        summ_fp.write(MAP_SUMM_TMPLT.format(r_map_summ))
         summ_fp.flush()
 
         return
@@ -225,8 +240,7 @@ def _get_map_queue(
         return
 
     summ_fp = open(mh.get_megalodon_fn(out_dir, mh.MAP_SUMM_NAME), 'w')
-    summ_fp.write('read_id\tpct_identity\tnum_align\tnum_match\t' +
-                  'num_del\tnum_ins\tread_pct_coverage\tchrom\n')
+    summ_fp.write('\t'.join(MAP_SUMM._fields) + '\n')
 
     map_fp = open_alignment_out_file(
         out_dir, map_fmt, ref_names_and_lens, ref_fn)
@@ -272,6 +286,16 @@ def sort_and_index_mapping(map_fn, out_fn, ref_fn=None, do_index=False):
         LOGGER.warning('Sorting and/or indexing mapping failed.')
 
     return
+
+
+##########################
+# Mapping summary parser #
+##########################
+
+def parse_map_summary_file(map_summ_fn):
+    with open(map_summ_fn) as map_summ_fp:
+        map_summ = [MAP_SUMM(*line.split()) for line in map_summ_fp]
+    return map_summ
 
 
 if __name__ == '__main__':
