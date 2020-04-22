@@ -41,13 +41,13 @@ def compute_mod_sites_stats(
             vs_ctrl_data = np.random.choice(
                 vs_ctrl_data, vs_mods_data.shape[0], replace=False)
 
-    is_mod = np.repeat([1, 0], [vs_mods_data.shape[0], vs_ctrl_data.shape[0]])
+    is_can = np.repeat([0, 1], [vs_mods_data.shape[0], vs_ctrl_data.shape[0]])
     all_data = np.concatenate([vs_mods_data, vs_ctrl_data])
     if VERBOSE:
         sys.stderr.write(
             'Computing PR/ROC for {} at {}\n'.format(mod_base, vs_label))
     # compute roc and presicion recall
-    precision, recall, thresh = precision_recall_curve(is_mod, all_data)
+    precision, recall, thresh = precision_recall_curve(is_can, all_data)
     prec_recall_sum = precision + recall
     valid_idx = np.where(prec_recall_sum > 0)
     all_f1 = (2 * precision[valid_idx] * recall[valid_idx] /
@@ -55,9 +55,9 @@ def compute_mod_sites_stats(
     optim_f1_idx = np.argmax(all_f1)
     optim_f1 = all_f1[optim_f1_idx]
     optim_thresh = thresh[optim_f1_idx]
-    avg_prcn = average_precision_score(is_mod, all_data)
+    avg_prcn = average_precision_score(is_can, all_data)
 
-    fpr, tpr, _ = roc_curve(is_mod, all_data)
+    fpr, tpr, _ = roc_curve(is_can, all_data)
     roc_auc = auc(fpr, tpr)
 
     out_fp.write((
@@ -73,10 +73,10 @@ def compute_mod_sites_stats(
                 gridsize=MOD_GRIDSIZE, label='Yes')
     sns.kdeplot(vs_ctrl_data, shade=True, bw=MOD_BANDWIDTH,
                 gridsize=MOD_GRIDSIZE, label='No')
-    plt.legend(prop={'size': 16}, title='Is Modified?')
-    plt.xlabel('Log Likelihood Ratio\nLess Modified <--> More Modified')
+    plt.legend(prop={'size': 16}, title='Is Modified')
+    plt.xlabel('Log Likelihood Ratio\nMore Modified <--> Less Modified')
     plt.ylabel('Density')
-    plt.title('Modified Base: {}\tSites: {}'.format(mod_base, vs_label))
+    plt.title('Modified Base: {}  Sites: {}'.format(mod_base, vs_label))
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
 
@@ -86,7 +86,7 @@ def compute_mod_sites_stats(
     plt.xlim([-0.05, 1.05])
     plt.xlabel('Recall')
     plt.ylabel('Precision')
-    plt.title(('Modified Base: {}\tSites: {}\tPrecision-Recall ' +
+    plt.title(('Modified Base: {}  Sites: {}  Precision-Recall ' +
                'curve: AP={:0.2f}').format(mod_base, vs_label, avg_prcn))
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
@@ -97,8 +97,8 @@ def compute_mod_sites_stats(
     plt.ylim([-0.05, 1.05])
     plt.xlabel('False Positive Rate')
     plt.ylabel('True Positive Rate')
-    plt.title(('Modified Base: {}\tSites: {}\tROC curve: ' +
-               'auc={:0.2f}').format(mod_base, vs_label, roc_auc))
+    plt.title(('Modified Base: {}  Sites: {}  ROC curve: ' +
+               'AUC={:0.2f}').format(mod_base, vs_label, roc_auc))
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
 
@@ -175,11 +175,10 @@ def report_acc_metrics(res_dir, out_fp):
     try:
         bc_data = mapping.parse_map_summary_file(mh.get_megalodon_fn(
             res_dir, mh.MAP_SUMM_NAME))
-        bc_acc = np.array([r_data['pct_identity'] for r_data in bc_data])
+        bc_acc = np.array([r_data.pct_identity for r_data in bc_data])
         parsim_acc = np.array([
-            100 * (r_data['num_match'] - r_data['num_ins']) /
-            (r_data['num_align'] - r_data['num_ins'])
-            for r_data in bc_data])
+            100 * (r_data.num_match - r_data.num_ins) /
+            (r_data.num_align - r_data.num_ins) for r_data in bc_data])
         mean_bc_acc = np.mean(bc_acc)
         med_bc_acc = np.median(bc_acc)
         # crude mode by rounding to 1 decimal
@@ -199,9 +198,8 @@ def report_acc_metrics(res_dir, out_fp):
     return bc_acc, parsim_acc
 
 
-def parse_mod_data(res_dir, out_fp, valid_sites=None, ctrl_sites=None):
-    if VERBOSE:
-        sys.stderr.write('Reading megalodon data\n')
+def parse_mod_data(
+        res_dir, out_fp, valid_sites, include_strand, ctrl_sites=None):
     mod_acc, parsim_acc = report_acc_metrics(res_dir, out_fp)
 
     ctrl_data = None
@@ -209,12 +207,13 @@ def parse_mod_data(res_dir, out_fp, valid_sites=None, ctrl_sites=None):
     try:
         if ctrl_sites is not None:
             all_site_stats = mods.extract_stats_at_valid_sites(
-                mods_db_fn, valid_sites + ctrl_sites, includes_strand=True)
+                mods_db_fn, valid_sites + ctrl_sites,
+                include_strand=include_strand)
             mods_data = all_site_stats[:len(valid_sites)]
             ctrl_data = all_site_stats[len(valid_sites):]
-        if valid_sites is not None:
+        elif valid_sites is not None:
             mods_data = mods.extract_stats_at_valid_sites(
-                mods_db_fn, valid_sites, includes_strand=True)
+                mods_db_fn, valid_sites, include_strand=include_strand)
         else:
             mods_data = [mods.extract_all_stats(mods_db_fn), ]
     except FileNotFoundError:
@@ -223,7 +222,7 @@ def parse_mod_data(res_dir, out_fp, valid_sites=None, ctrl_sites=None):
     return mod_acc, parsim_acc, mods_data, ctrl_data
 
 
-def parse_valid_sites(valid_sites_fns, gt_data_fn):
+def parse_valid_sites(valid_sites_fns, gt_data_fn, include_strand):
     if valid_sites_fns is None and gt_data_fn is None:
         return None, None, None
 
@@ -231,7 +230,8 @@ def parse_valid_sites(valid_sites_fns, gt_data_fn):
     if gt_data_fn is not None:
         if VERBOSE:
             sys.stderr.write('Reading ground truth file\n')
-        gt_mod_pos, gt_ctrl_pos = mh.parse_ground_truth_file(gt_data_fn)
+        gt_mod_pos, gt_ctrl_pos = mh.parse_ground_truth_file(
+            gt_data_fn, include_strand=include_strand)
         if valid_sites_fns is None:
             # if ground truth provided, but not valid sites return parsed
             # ground truth sites.
@@ -280,11 +280,15 @@ def get_parser():
         'Could be a PCR or IVT sample.')
     parser.add_argument(
         '--ground-truth-data',
-        help='Ground truth csv with (chrm, pos, is_mod) values.')
+        help='Ground truth csv with (chrm, strand, pos, is_mod) values.')
     parser.add_argument(
         '--valid-sites', nargs=2, action='append',
         help='Name and BED file containing sites over which to restrict ' +
         'modified base results. Multiple sets of valid sites may be provided.')
+    parser.add_argument(
+        '--strand-specific-sites', action='store_true',
+        help='Sites in --ground-truth-data and/or --valid-sites are ' +
+        'strand-specific')
     parser.add_argument(
         '--out-pdf', default='megalodon_validation.pdf',
         help='Output pdf filename. Default: %(default)s')
@@ -311,19 +315,25 @@ def main():
     out_fp = (sys.stdout if args.out_filename is None else
               open(args.out_filename, 'w'))
     valid_sites, vs_labels, ctrl_sites = parse_valid_sites(
-        args.valid_sites, args.ground_truth_data)
+        args.valid_sites, args.ground_truth_data, args.strand_specific_sites)
 
     out_fp.write('Mapping metrics: Median Alignment Accuracy :: ' +
                  'Mean Alignment Accuracy :: Mode Alignment Accuracy :: ' +
                  'Num. of Mapped Reads\n')
+    if VERBOSE:
+        sys.stderr.write('Reading Megalodon data results\n')
     mod_acc, mod_parsim_acc, mods_data, ctrl_data = parse_mod_data(
-        args.megalodon_results_dir, out_fp, valid_sites, ctrl_sites)
+        args.megalodon_results_dir, out_fp, valid_sites,
+        args.strand_specific_sites, ctrl_sites)
     ctrl_acc = ctrl_parsim_acc = None
     # if control is not specified via ground truth file, and control results
     # dir was provided parse control data
     if ctrl_data is None and args.control_megalodon_results_dir is not None:
-        ctrl_data, ctrl_acc, ctrl_parsim_acc = parse_mod_data(
-            args.control_megalodon_results_dir, out_fp, valid_sites)
+        if VERBOSE:
+            sys.stderr.write('Reading Megalodon control data results\n')
+        ctrl_acc, ctrl_parsim_acc, ctrl_data, _ = parse_mod_data(
+            args.control_megalodon_results_dir, out_fp, valid_sites,
+            args.strand_specific_sites)
 
     if mod_acc is not None:
         plot_acc(pdf_fp, mod_acc, mod_parsim_acc, ctrl_acc, ctrl_parsim_acc)

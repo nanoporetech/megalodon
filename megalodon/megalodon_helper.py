@@ -399,6 +399,28 @@ def med_mad(data, factor=None, axis=None, keepdims=False):
 # File-type Parsers #
 #####################
 
+def str_strand_to_int(strand_str):
+    """ Convert string stand representation to integer +/-1 as used in
+    minimap2/mappy
+    """
+    if strand_str == '+':
+        return 1
+    elif strand_str == '-':
+        return -1
+    return None
+
+
+def int_strand_to_str(strand_str):
+    """ Convert string stand representation to integer +/-1 as used in
+    minimap2/mappy
+    """
+    if strand_str == 1:
+        return '+'
+    elif strand_str == -1:
+        return '-'
+    return '.'
+
+
 def parse_beds(bed_fns, ignore_strand=False, show_prog_bar=True):
     """ Parse bed files.
 
@@ -418,11 +440,8 @@ def parse_beds(bed_fns, ignore_strand=False, show_prog_bar=True):
             for line in bed_iter:
                 chrm, start, _, _, _, strand = line.split()[:6]
                 start = int(start)
-                if ignore_strand:
-                    store_strand = None
-                else:
-                    # convert to 1/-1 strand storage (matching mappy)
-                    store_strand = 1 if strand == '+' else -1
+                store_strand = None if ignore_strand else \
+                    int_strand_to_str(strand)
                 sites[(chrm, store_strand)].add(start)
 
     # convert to standard dict
@@ -453,7 +472,7 @@ def parse_bed_methyls(bed_fns, strand_offset=None, show_prog_bar=True):
                  pct_meth) = line.split()
                 start = int(start)
                 # convert to 1/-1 strand storage (matching mappy)
-                store_strand = 1 if strand == '+' else -1
+                store_strand = int_strand_to_str(strand)
                 if strand_offset is not None:
                     # store both strand counts under None
                     store_strand = None
@@ -483,28 +502,6 @@ def text_to_bool(val):
     elif lower_val in FALSE_TEXT_VALUES:
         return False
     raise MegaError('Invalid boolean string encountered: "{}".'.format(val))
-
-
-def str_strand_to_int(strand_str):
-    """ Convert string stand representation to integer +/-1 as used in
-    minimap2/mappy
-    """
-    if strand_str == '+':
-        return 1
-    elif strand_str == '-':
-        return -1
-    return None
-
-
-def int_strand_to_str(strand_str):
-    """ Convert string stand representation to integer +/-1 as used in
-    minimap2/mappy
-    """
-    if strand_str == 1:
-        return '+'
-    elif strand_str == -1:
-        return '-'
-    return '.'
 
 
 def parse_ground_truth_file(gt_data_fn, include_strand=True):

@@ -32,29 +32,42 @@ def output_mods_data(all_mod_llrs, all_can_llrs, out_fn):
     np.savez(out_fn, **mod_base_stats)
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    'megalodon_results_dir',
-    help='Output directory from megalodon with mappings and per_read_mods ' +
-    'in outputs. Must have --write-mods-text set for mods validation.')
-parser.add_argument(
-    '--control-megalodon-results-dir',
-    help='Megalodon output directory with modified base control sample.')
-parser.add_argument(
-    '--ground-truth-data',
-    help='Ground truth csv with (chrm, pos, is_mod) values.')
-parser.add_argument(
-    '--out-filename', default='mod_calibration_statistics.npz',
-    help='Output filename for text summary. Default: %(default)s')
-parser.add_argument(
-    '--quiet', action='store_true',
-    help='Suppress progress information.')
+def get_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        'megalodon_results_dir',
+        help='Output directory from megalodon with mappings and per_read_mods ' +
+        'in outputs. Must have --write-mods-text set for mods validation.')
+    parser.add_argument(
+        '--control-megalodon-results-dir',
+        help='Megalodon output directory with modified base control sample.')
+    parser.add_argument(
+        '--ground-truth-data',
+        help='Ground truth csv with (chrm, pos, is_mod) values.')
+    parser.add_argument(
+        '--strand-specific-sites', action='store_true',
+        help='Sites in --ground-truth-data are strand-specific')
+    parser.add_argument(
+        '--out-filename', default='mod_calibration_statistics.npz',
+        help='Output filename for text summary. Default: %(default)s')
+    parser.add_argument(
+        '--quiet', action='store_true',
+        help='Suppress progress information.')
+
+    return parser
 
 
 def main():
-    args = parser.parse_args()
+    args = get_parser().parse_args()
     global VERBOSE
     VERBOSE = not args.quiet
+
+    if args.ground_truth_data is None and \
+       args.control_megalodon_results_dir is None:
+        sys.stderr.write(
+            '***** ERROR ***** Must provide either ' +
+            '--control-megalodon-results-dir or --ground-truth-data')
+        sys.exit()
 
     db_fn = mh.get_megalodon_fn(args.megalodon_results_dir,
                                 mh.PR_MOD_NAME)
@@ -62,20 +75,28 @@ def main():
         if VERBOSE:
             sys.stderr.write('Parsing ground truth data\n')
         gt_mod_pos, gt_can_pos = mh.parse_ground_truth_file(
-            args.ground_truth_data)
+            args.ground_truth_data, include_strand=args.strand_specific_sites)
         if VERBOSE:
             sys.stderr.write((
                 'Loaded ground truth data with {} modified sites and {} ' +
                 'canonical sites.\n').format(len(gt_mod_pos), len(gt_can_pos)))
-            sys.stderr.write('Reading sample data\n')
+            sys.stderr.write(
+                'Reading ground truth modified base statistics from ' +
+                'database\n')
         all_mod_llrs, all_can_llrs = mods.extract_stats_at_valid_sites(
-            db_fn, [gt_mod_pos, gt_can_pos])
+            db_fn, [gt_mod_pos, gt_can_pos],
+            include_strand=args.strand_specific_sites)
     else:
         if VERBOSE:
-            sys.stderr.write('Reading ground truth modified sample\n')
+            sys.stderr.write(
+                'Reading ground truth modified base statistics from ' +
+                'database\n')
         all_mod_llrs = mods.extract_all_stats(db_fn)
         if VERBOSE:
-            sys.stderr.write('Reading ground truth canonical sample\n')
+            sys.stderr.write(
+                'Reading ground truth modified base statistics from ' +
+                'canonical sample database\n')
+            sys.stderr.write('Reading ground truth \n')
         all_can_llrs = mods.extract_all_stats(mh.get_megalodon_fn(
             args.control_megalodon_results_dir, mh.PR_MOD_NAME))
     if VERBOSE:

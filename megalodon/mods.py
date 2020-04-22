@@ -620,7 +620,7 @@ def extract_all_stats(mods_db_fn):
 
 
 def extract_stats_at_valid_sites(
-        mods_db_fn, valid_sites_sets, includes_strand=True):
+        mods_db_fn, valid_sites_sets, include_strand=True):
     """ Extract all log-likelihood ratios (log(P_can / P_mod)) from a mods
     database at set of valid sites.
 
@@ -628,7 +628,7 @@ def extract_stats_at_valid_sites(
         mods_db_fn: Modified base database filename
         valid_sites_sets: List of sets containing valid positions. Either
             (chrm, pos) or (chrm, strand, pos); strand should be +/-1
-        includes_strand: Boolean value indicating whether positions include
+        include_strand: Boolean value indicating whether positions include
             strand.
 
     Returns:
@@ -641,7 +641,7 @@ def extract_stats_at_valid_sites(
     mods_db = ModsDb(mods_db_fn, pos_index_in_memory=True)
     for (chrm, strand, pos), mods_pos_llrs in mods_db.iter_pos_scores(
                 return_pos=True):
-        site_key = (chrm, strand, pos) if includes_strand else (chrm, pos)
+        site_key = (chrm, strand, pos) if include_strand else (chrm, pos)
         for sites_i, valid_sites in enumerate(valid_sites_sets):
             if site_key in valid_sites:
                 for mod_base, mod_pos_llrs in mods_pos_llrs.items():
@@ -1536,7 +1536,7 @@ class AggMods(mh.AbstractAggregationClass):
             mod_props, valid_cov = self.est_em_prop(mod_type_stats)
 
         r0_stats = pr_mod_stats[0]
-        strand = '+' if r0_stats.strand == 1 else '-'
+        strand = mh.int_strand_to_str(r0_stats.strand)
         mod_site = ModSite(
             chrom=r0_stats.chrm, pos=r0_stats.pos, strand=strand,
             ref_seq=r0_stats.motif, ref_mod_pos=r0_stats.motif_pos,

@@ -3,9 +3,6 @@ import argparse
 from megalodon import megalodon_helper as mh
 
 
-STRAND_CONV = {1: '+', -1: '-', None: '.'}
-
-
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -43,10 +40,20 @@ def main():
                 pct_mod = 100 * samp_mod_cov[(chrom, strand)][pos] / cov
                 if pct_mod <= args.pct_mod_thresholds[0]:
                     gt_fp.write(','.join(map(str, (
-                        chrom, STRAND_CONV[strand], pos, 'False'))) + '\n')
+                        chrom, mh.int_strand_to_str(strand), pos,
+                        'False'))) + '\n')
+                    if args.strand_offset is not None:
+                        gt_fp.write(','.join(map(str, (
+                            chrom, mh.int_strand_to_str(strand),
+                            pos + args.strand_offset, 'False'))) + '\n')
                 elif pct_mod >= args.pct_mod_thresholds[1]:
                     gt_fp.write(','.join(map(str, (
-                        chrom, STRAND_CONV[strand], pos, 'True'))) + '\n')
+                        chrom, mh.int_strand_to_str(strand), pos,
+                        'True'))) + '\n')
+                    if args.strand_offset is not None:
+                        gt_fp.write(','.join(map(str, (
+                            chrom, mh.int_strand_to_str(strand),
+                            pos + args.strand_offset, 'True'))) + '\n')
 
 
 if __name__ == '__main__':

@@ -22,6 +22,7 @@ MAP_SUMM_TMPLT = (
     '{0.read_id}\t{0.pct_identity:.2f}\t{0.num_align}\t{0.num_match}\t' +
     '{0.num_del}\t{0.num_ins}\t{0.read_pct_coverage:.2f}\t{0.chrom}\t' +
     '{0.strand}\t{0.start}\t{0.end}\n')
+MAP_SUMM_TYPES = [str, float, int, int, int, int, float, str, str, int, int]
 
 LOGGER = logging.get_logger()
 
@@ -293,8 +294,13 @@ def sort_and_index_mapping(map_fn, out_fn, ref_fn=None, do_index=False):
 ##########################
 
 def parse_map_summary_file(map_summ_fn):
+    def parse_line(line):
+        return MAP_SUMM(*(None if v is None else t(v)
+                          for t, v in zip(MAP_SUMM_TYPES, line.split())))
+
     with open(map_summ_fn) as map_summ_fp:
-        map_summ = [MAP_SUMM(*line.split()) for line in map_summ_fp]
+        header = map_summ_fp.readline().split()
+        map_summ = [parse_line(line) for line in map_summ_fp]
     return map_summ
 
 
