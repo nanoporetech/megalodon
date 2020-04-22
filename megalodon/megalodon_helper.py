@@ -44,6 +44,11 @@ SEQ_TO_INT_ARR[0] = 0
 SEQ_TO_INT_ARR[2] = 1
 SEQ_TO_INT_ARR[6] = 2
 SEQ_TO_INT_ARR[19] = 3
+SINGLE_LETTER_CODE = {
+    'A': 'A', 'C': 'C', 'G': 'G', 'T': 'T', 'B': 'CGT', 'D': 'AGT', 'H': 'ACT',
+    'K': 'GT', 'M': 'AC', 'N': 'ACGT', 'R': 'AG', 'S': 'CG', 'V': 'ACG',
+    'W': 'AT', 'Y': 'CT'}
+
 
 _MAX_QUEUE_SIZE = 10000
 
@@ -129,9 +134,8 @@ GETTER_PROC = namedtuple('getter_proc', ('queue', 'proc', 'conn'))
 
 REF_OUT_INFO = namedtuple('ref_out_info', (
     'pct_idnt', 'pct_cov', 'min_len', 'max_len', 'alphabet',
-    'collapse_alphabet', 'annotate_mods', 'annotate_vars', 'mod_thresh',
-    'output_sig_maps', 'output_pr_refs'))
-REF_OUT_INFO.__new__.__defaults__ = (None, None, None, None, False, False)
+    'collapse_alphabet', 'mod_long_names', 'annotate_mods', 'annotate_vars',
+    'mod_thresh', 'output_sig_maps', 'output_pr_refs', 'ref_mods_all_motifs'))
 
 # directory names define model preset string
 # currently only one model trained
@@ -195,6 +199,12 @@ def int_to_seq(np_seq, alphabet=ALPHABET):
     if np_seq.max() >= len(alphabet):
         raise MegaError('Invalid character in sequence')
     return ''.join(alphabet[b] for b in np_seq)
+
+
+def rolling_window(a, size):
+    shape = a.shape[:-1] + (a.shape[-1] - size + 1, size)
+    strides = a.strides + (a. strides[-1],)
+    return np.lib.stride_tricks.as_strided(a, shape=shape, strides=strides)
 
 
 #######################
@@ -288,7 +298,7 @@ def get_supported_configs_message():
         'megalodon', MODEL_DATA_DIR_NAME)))
     if len(configs) == 0:
         return ('No guppy config calibration files found. Check that ' +
-                'megalodon installation is valid.')
+                'megalodon installation is valid.\n')
     out_msg = ('Megalodon support for guppy configs (basecalling and ' +
                'mapping supported for flip-flop configs):\n' +
                'Variant Support    Modbase Support    Config\n')

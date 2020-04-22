@@ -796,17 +796,19 @@ def call_read_mods(
         # import locally so that import of mods module does not require
         # taiyaki install (required for signal_mapping module)
         from megalodon import signal_mapping
-        r_mod_seq = annotate_mods(
-            r_ref_pos.start, sig_map_res.ref_seq, r_mod_scores,
-            r_ref_pos.strand, sig_map_res.ref_out_info.mod_thresh)
-        invalid_chars = set(r_mod_seq).difference(
-            sig_map_res.ref_out_info.alphabet)
-        if len(invalid_chars) > 0:
-            raise mh.MegaError(
-                'Inavlid charcters found in mapped signal sequence: ' +
-                '({})'.format(''.join(invalid_chars)))
-        # replace reference sequence with mod annotated sequence
-        sig_map_res = sig_map_res._replace(ref_seq=r_mod_seq)
+        if sig_map_res.ref_out_info.annotate_mods:
+            r_mod_seq = annotate_mods(
+                r_ref_pos.start, sig_map_res.ref_seq, r_mod_scores,
+                r_ref_pos.strand, sig_map_res.ref_out_info.mod_thresh)
+            invalid_chars = set(r_mod_seq).difference(
+                sig_map_res.ref_out_info.alphabet)
+            if len(invalid_chars) > 0:
+                raise mh.MegaError(
+                    'Inavlid charcters found in mapped signal sequence: ' +
+                    '({})'.format(''.join(invalid_chars)))
+            # replace reference sequence with mod annotated sequence
+            sig_map_res = sig_map_res._replace(ref_seq=r_mod_seq)
+
         mod_sig_map_q.put(signal_mapping.get_remapping(*sig_map_res[1:]))
 
     return r_mod_scores
@@ -946,15 +948,9 @@ if _PROFILE_MODS_QUEUE:
 ############
 
 class ModInfo(object):
-    single_letter_code = {
-        'A': 'A', 'C': 'C', 'G': 'G', 'T': 'T', 'B': 'CGT',
-        'D': 'AGT', 'H': 'ACT', 'K': 'GT', 'M': 'AC',
-        'N': 'ACGT', 'R': 'AG', 'S': 'CG', 'V': 'ACG',
-        'W': 'AT', 'Y': 'CT'}
-
     def distinct_bases(self, b1, b2):
-        return len(set(self.single_letter_code[b1]).intersection(
-            self.single_letter_code[b2])) == 0
+        return len(set(mh.SINGLE_LETTER_CODE[b1]).intersection(
+            mh.SINGLE_LETTER_CODE[b2])) == 0
 
     def distinct_motifs(self):
         if len(self.all_mod_motifs) in (0, 1):
@@ -996,7 +992,7 @@ class ModInfo(object):
                     'collapsed alphabet value ({}).').format(
                         pos, raw_motif[pos], can_base)
                 motif = re.compile(''.join(
-                    '[{}]'.format(self.single_letter_code[letter])
+                    '[{}]'.format(mh.SINGLE_LETTER_CODE[letter])
                     for letter in raw_motif))
                 self.all_mod_motifs.append((motif, pos, mod_bases, raw_motif))
 
