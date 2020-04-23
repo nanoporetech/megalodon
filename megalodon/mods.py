@@ -23,6 +23,11 @@ AGG_INFO = namedtuple('AGG_INFO', ('method', 'binary_threshold'))
 DEFAULT_BINARY_THRESH = 0.75
 DEFAULT_AGG_INFO = AGG_INFO(BIN_THRESH_NAME, None)
 
+# slots in ground truth mods numpy arrays for calibration
+GT_ALL_MOD_BASE_STR = 'all_mod_bases'
+GT_MOD_LLR_STR = '{}_mod_llrs'
+GT_CAN_LLR_STR = '{}_can_llrs'
+
 FIXED_VCF_MI = [
     'INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
     'INFO=<ID=SN,Number=1,Type=String,Description="Strand">',
@@ -418,7 +423,49 @@ class ModsDb(object):
 
     def create_data_covering_index(self):
         self.cur.execute('CREATE INDEX data_cov_idx ON data(' +
-                         'score_pos, score_mod, score_read, score)')
+                         'score_pos, score_read, score_mod, score)')
+        return
+
+    def iter_pos_scores(self, return_pos=False):
+        """ Iterate log likelihood ratios (log(P_can / P_mod)) by position.
+        Yield tuples of position (either id or converted genomic coordiante)
+        and dictionary with mod base single letter keys pointing to list of
+        log likelihood ratios.
+
+        Note this function iterates over the index created by
+        create_data_covering_index, so should be very fast.
+
+        If return_pos is set to True, position data will be returned in format
+        (chrm, strand, pos); else database position id will be returned
+        """
+        def extract_pos_llrs(pos_lps):
+            mod_llrs = defaultdict(list)
+            for read_pos_lps in pos_lps.values():
+                mt_lps = np.array([lp for _, lp in read_pos_lps])
+                with np.errstate(divide='ignore'):
+                    can_lp = np.log1p(-np.exp(mt_lps).sum())
+                for mod_id, lp in read_pos_lps:
+                    mod_llrs[mod_id].append(can_lp - lp)
+            return dict(mod_llrs)
+
+        # TODO check for covering index
+        # set function to transform pos_id
+        extract_pos = self.get_pos if return_pos else lambda x: x
+        # use local cursor since extracting pos or mod might use class cursor
+        local_cursor = self.db.cursor()
+        local_cursor.execute(
+            'SELECT score_pos, score_mod, score_read, score FROM data ' +
+            'ORDER BY score_pos')
+        # initialize variables with first value
+        prev_pos, mod_id, read_id, lp = local_cursor.fetchone()
+        pos_lps = defaultdict(list)
+        for curr_pos, mod_id, read_id, lp in local_cursor:
+            if curr_pos != prev_pos:
+                yield extract_pos(prev_pos), extract_pos_llrs(pos_lps)
+                pos_lps = defaultdict(list)
+            pos_lps[read_id].append((self.get_mod_base_data(mod_id)[0], lp))
+            prev_pos = curr_pos
+        yield extract_pos(prev_pos), extract_pos_llrs(pos_lps)
         return
 
     # reader functions
@@ -456,6 +503,19 @@ class ModsDb(object):
             raise mh.MegaError(
                 'Old megalodon database scheme detected. Please re-run ' +
                 'megalodon processing or downgrade megalodon installation.')
+
+    def get_pos(self, pos_id):
+        try:
+            if self.pos_idx_in_mem:
+                chrm_id, strand, pos = self.pos_read_idx[pos_id]
+            else:
+                chrm_id, strand, pos = self.cur.execute(
+                    'SELECT pos_chrm, strand, pos FROM pos WHERE pos_id=?',
+                    (pos_id,)).fetchone()
+            chrm = self.get_chrm(chrm_id)
+        except (TypeError, KeyError):
+            raise mh.MegaError('Position not found in database.')
+        return chrm, strand, pos
 
     def get_mod_base_data(self, mod_id):
         try:
@@ -535,6 +595,62 @@ class ModsDb(object):
         self.db.commit()
         self.db.close()
         return
+
+
+##################
+# Mod DB Helpers #
+##################
+
+def extract_all_stats(mods_db_fn):
+    """ Extract all log-likelihood ratios (log(P_can / P_mod)) from a mods
+    database.
+
+    Returns:
+        Dictionary with mod base single letter code keys and numpy array of
+        log likelihood ratio values.
+    """
+    all_llrs = defaultdict(list)
+    mods_db = ModsDb(mods_db_fn)
+    for _, mods_pos_llrs in mods_db.iter_pos_scores():
+        for mod_base, mod_pos_llrs in mods_pos_llrs.items():
+            all_llrs[mod_base].append(mod_pos_llrs)
+    all_llrs = dict((mod_base, np.concatenate(mod_llrs))
+                    for mod_base, mod_llrs in all_llrs.items())
+    return all_llrs
+
+
+def extract_stats_at_valid_sites(
+        mods_db_fn, valid_sites_sets, include_strand=True):
+    """ Extract all log-likelihood ratios (log(P_can / P_mod)) from a mods
+    database at set of valid sites.
+
+    Args:
+        mods_db_fn: Modified base database filename
+        valid_sites_sets: List of sets containing valid positions. Either
+            (chrm, pos) or (chrm, strand, pos); strand should be +/-1
+        include_strand: Boolean value indicating whether positions include
+            strand.
+
+    Returns:
+        List of dictionaries with single letter modified base code keys and
+        numpy array of log likelihood ratio values. The list matches the order
+        of the valid_sites_sets argument.
+    """
+    all_stats = [defaultdict(list) for _ in valid_sites_sets]
+    # load database with positions in memory to avoid disk reads
+    mods_db = ModsDb(mods_db_fn, pos_index_in_memory=True)
+    for (chrm, strand, pos), mods_pos_llrs in mods_db.iter_pos_scores(
+                return_pos=True):
+        site_key = (chrm, strand, pos) if include_strand else (chrm, pos)
+        for sites_i, valid_sites in enumerate(valid_sites_sets):
+            if site_key in valid_sites:
+                for mod_base, mod_pos_llrs in mods_pos_llrs.items():
+                    all_stats[sites_i][mod_base].append(mod_pos_llrs)
+    r_all_stats = [
+        dict((mod_base, np.concatenate(mod_llrs))
+             for mod_base, mod_llrs in stats_i.items())
+        for stats_i in all_stats]
+    return r_all_stats
 
 
 ########################
@@ -680,17 +796,19 @@ def call_read_mods(
         # import locally so that import of mods module does not require
         # taiyaki install (required for signal_mapping module)
         from megalodon import signal_mapping
-        r_mod_seq = annotate_mods(
-            r_ref_pos.start, sig_map_res.ref_seq, r_mod_scores,
-            r_ref_pos.strand, sig_map_res.ref_out_info.mod_thresh)
-        invalid_chars = set(r_mod_seq).difference(
-            sig_map_res.ref_out_info.alphabet)
-        if len(invalid_chars) > 0:
-            raise mh.MegaError(
-                'Inavlid charcters found in mapped signal sequence: ' +
-                '({})'.format(''.join(invalid_chars)))
-        # replace reference sequence with mod annotated sequence
-        sig_map_res = sig_map_res._replace(ref_seq=r_mod_seq)
+        if sig_map_res.ref_out_info.annotate_mods:
+            r_mod_seq = annotate_mods(
+                r_ref_pos.start, sig_map_res.ref_seq, r_mod_scores,
+                r_ref_pos.strand, sig_map_res.ref_out_info.mod_thresh)
+            invalid_chars = set(r_mod_seq).difference(
+                sig_map_res.ref_out_info.alphabet)
+            if len(invalid_chars) > 0:
+                raise mh.MegaError(
+                    'Inavlid charcters found in mapped signal sequence: ' +
+                    '({})'.format(''.join(invalid_chars)))
+            # replace reference sequence with mod annotated sequence
+            sig_map_res = sig_map_res._replace(ref_seq=r_mod_seq)
+
         mod_sig_map_q.put(signal_mapping.get_remapping(*sig_map_res[1:]))
 
     return r_mod_scores
@@ -830,15 +948,9 @@ if _PROFILE_MODS_QUEUE:
 ############
 
 class ModInfo(object):
-    single_letter_code = {
-        'A': 'A', 'C': 'C', 'G': 'G', 'T': 'T', 'B': 'CGT',
-        'D': 'AGT', 'H': 'ACT', 'K': 'GT', 'M': 'AC',
-        'N': 'ACGT', 'R': 'AG', 'S': 'CG', 'V': 'ACG',
-        'W': 'AT', 'Y': 'CT'}
-
     def distinct_bases(self, b1, b2):
-        return len(set(self.single_letter_code[b1]).intersection(
-            self.single_letter_code[b2])) == 0
+        return len(set(mh.SINGLE_LETTER_CODE[b1]).intersection(
+            mh.SINGLE_LETTER_CODE[b2])) == 0
 
     def distinct_motifs(self):
         if len(self.all_mod_motifs) in (0, 1):
@@ -880,7 +992,7 @@ class ModInfo(object):
                     'collapsed alphabet value ({}).').format(
                         pos, raw_motif[pos], can_base)
                 motif = re.compile(''.join(
-                    '[{}]'.format(self.single_letter_code[letter])
+                    '[{}]'.format(mh.SINGLE_LETTER_CODE[letter])
                     for letter in raw_motif))
                 self.all_mod_motifs.append((motif, pos, mod_bases, raw_motif))
 
@@ -1420,7 +1532,7 @@ class AggMods(mh.AbstractAggregationClass):
             mod_props, valid_cov = self.est_em_prop(mod_type_stats)
 
         r0_stats = pr_mod_stats[0]
-        strand = '+' if r0_stats.strand == 1 else '-'
+        strand = mh.int_strand_to_str(r0_stats.strand)
         mod_site = ModSite(
             chrom=r0_stats.chrm, pos=r0_stats.pos, strand=strand,
             ref_seq=r0_stats.motif, ref_mod_pos=r0_stats.motif_pos,

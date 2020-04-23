@@ -7,7 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
-from megalodon import calibration
+from megalodon import calibration, mods
 
 
 PROB_COLORS = ("#bcbddc", "#807dba", "#6a51a3")
@@ -56,17 +56,13 @@ def plot_calib(
 
 
 def extract_llrs(llr_fn):
-    mod_base_llrs = defaultdict(lambda: ([], []))
-    with open(llr_fn) as llr_fp:
-        for line in llr_fp:
-            is_mod, llr, mod_base = line.split()
-            llr = float(llr)
-            if np.isnan(llr):
-                continue
-            if is_mod == 'True':
-                mod_base_llrs[mod_base][0].append(llr)
-            else:
-                mod_base_llrs[mod_base][1].append(llr)
+    llrs_data = np.load(llr_fn)
+    mod_bases = llrs_data[mods.GT_ALL_MOD_BASE_STR]
+    mod_base_llrs = {}
+    for mod_base in mod_bases:
+        mod_base_llrs[mod_base] = (
+            llrs_data[mods.GT_MOD_LLR_STR.format(mod_base)],
+            llrs_data[mods.GT_CAN_LLR_STR.format(mod_base)])
 
     return mod_base_llrs
 
@@ -93,7 +89,7 @@ def prep_out(out_fn, overwrite):
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--ground-truth-llrs', default='mod_calibration_statistics.txt',
+        '--ground-truth-llrs', default='mod_calibration_statistics.npz',
         help='Ground truth log-likelihood ratio statistics (produced by ' +
         'generate_ground_truth_mod_llr_scores.py). Default: %(default)s')
     parser.add_argument(
@@ -148,7 +144,7 @@ def main():
         sys.stderr.write(
             'Computing {} modified base calibration.\n'.format(mod_base))
         mod_calib, mod_llr_range, plot_data = calibration.compute_calibration(
-            np.array(can_llrs), np.array(mod_llrs), args.max_input_llr,
+            can_llrs, mod_llrs, args.max_input_llr,
             args.num_calibration_values, args.smooth_bandwidth,
             args.min_density, pdf_fp is not None)
         save_kwargs[mod_base + '_llr_range'] = mod_llr_range
