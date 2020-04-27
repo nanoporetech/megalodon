@@ -22,7 +22,9 @@ MAP_SUMM_TMPLT = (
     '{0.read_id}\t{0.pct_identity:.2f}\t{0.num_align}\t{0.num_match}\t' +
     '{0.num_del}\t{0.num_ins}\t{0.read_pct_coverage:.2f}\t{0.chrom}\t' +
     '{0.strand}\t{0.start}\t{0.end}\n')
-MAP_SUMM_TYPES = [str, float, int, int, int, int, float, str, str, int, int]
+MAP_SUMM_TYPES = dict(zip(
+    MAP_SUMM._fields,
+    (str, float, int, int, int, int, float, str, str, int, int)))
 
 LOGGER = logging.get_logger()
 
@@ -85,8 +87,9 @@ def _map_read_worker(aligner, map_conn, mo_q):
 
 
 def parse_cigar(r_cigar, strand, ref_len):
+    fill_invalid = -1
     # get each base calls genomic position
-    r_to_q_poss = np.empty(ref_len + 1, dtype=np.int32)
+    r_to_q_poss = np.full(ref_len + 1, fill_invalid, dtype=np.int32)
     # process cigar ops in read direction
     curr_r_pos, curr_q_pos = 0, 0
     cigar_ops = r_cigar if strand == 1 else r_cigar[::-1]
@@ -109,6 +112,10 @@ def parse_cigar(r_cigar, strand, ref_len):
             # padding (shouldn't happen in mappy)
             pass
     r_to_q_poss[curr_r_pos] = curr_q_pos
+    if r_to_q_poss[-1] == fill_invalid:
+        raise mh.MegaError((
+            'Invalid cigar string encountered. Reference length: {}  Cigar ' +
+            'implied reference length: {}').format(ref_len, curr_r_pos))
 
     return r_to_q_poss
 
@@ -127,7 +134,11 @@ def map_read(q_seq, read_id, caller_conn):
         raise mh.MegaError('No alignment')
     chrm, strand, r_st, r_en, q_st, q_en, r_cigar = r_algn
 
-    r_to_q_poss = parse_cigar(r_cigar, strand, r_en - r_st)
+    try:
+        r_to_q_poss = parse_cigar(r_cigar, strand, r_en - r_st)
+    except mh.MegaError as e:
+        LOGGER.debug('Read {} ::: '.format(read_id) + str(e))
+        raise mh.MegaError('Invalid cigar string encountered.')
     r_pos = MAP_POS(
         chrm=chrm, strand=strand, start=r_st, end=r_en,
         q_trim_start=q_st, q_trim_end=q_en)
@@ -295,8 +306,8 @@ def sort_and_index_mapping(map_fn, out_fn, ref_fn=None, do_index=False):
 
 def parse_map_summary_file(map_summ_fn):
     def parse_line(line):
-        return MAP_SUMM(*(None if v is None else t(v)
-                          for t, v in zip(MAP_SUMM_TYPES, line.split())))
+        return MAP_SUMM(*(None if v is None else MAP_SUMM_TYPES[fn](v)
+                          for fn, v in zip(header, line.split())))
 
     with open(map_summ_fn) as map_summ_fp:
         header = map_summ_fp.readline().split()
