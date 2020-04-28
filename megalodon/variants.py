@@ -862,11 +862,6 @@ def score_all_single_insertions(
 # Per-read Variant Output #
 ###########################
 
-def log_prob_to_phred(log_prob):
-    with np.errstate(divide='ignore'):
-        return -10 * np.log10(1 - np.exp(log_prob))
-
-
 def simplify_var_seq(ref_seq, alt_seq):
     trim_before = trim_after = 0
     while (len(ref_seq) > 0 and len(alt_seq) > 0 and
@@ -950,7 +945,7 @@ def annotate_variants(r_start, ref_seq, r_var_calls, strand):
                 ref_seq[prev_pos:var_pos - r_start + len(var_ref_seq)])
             var_quals.extend(
                 ([VAR_MAP_MAX_QUAL] * prev_len) +
-                ([min(log_prob_to_phred(ref_lp), VAR_MAP_MAX_QUAL)] *
+                ([min(mh.log_prob_to_phred(ref_lp), VAR_MAP_MAX_QUAL)] *
                  len(var_ref_seq)))
             curr_match += prev_len + len(var_ref_seq)
         else:
@@ -961,7 +956,7 @@ def annotate_variants(r_start, ref_seq, r_var_calls, strand):
             var_seqs.append(ref_seq[prev_pos:var_pos - r_start] + read_alt_seq)
             var_quals.extend(
                 ([VAR_MAP_MAX_QUAL] * prev_len) +
-                ([min(log_prob_to_phred(max(alt_lps)), VAR_MAP_MAX_QUAL)] *
+                ([min(mh.log_prob_to_phred(max(alt_lps)), VAR_MAP_MAX_QUAL)] *
                  len(alt_seq)))
 
             # add cigar information for variant
@@ -990,12 +985,11 @@ def annotate_variants(r_start, ref_seq, r_var_calls, strand):
         var_seq = var_seq[::-1]
     len_remain = len(ref_seq) - prev_pos
     var_quals.extend([VAR_MAP_MAX_QUAL] * len_remain)
-    if strand == -1:
-        var_quals = var_quals[::-1]
-    var_quals = list(map(int, var_quals))
     var_cigar.append((7, len_remain + curr_match))
     if strand == -1:
+        var_quals = var_quals[::-1]
         var_cigar = var_cigar[::-1]
+    var_quals = list(map(int, var_quals))
 
     return var_seq, var_quals, var_cigar
 
@@ -1024,8 +1018,6 @@ def _get_variants_queue(
         a.query_qualities = array('B', var_quals)
         a.cigartuples = var_cigar
         var_map_fp.write(a)
-
-        return
 
     def store_var_call(
             r_var_calls, read_id, chrm, strand, r_start, ref_seq, read_len,
@@ -1064,10 +1056,10 @@ def _get_variants_queue(
                 r_start, ref_seq, r_var_calls, strand)
             if pr_refs_fn is not None:
                 pr_refs_fp.write('>{}\n{}\n'.format(read_id, var_seq))
-            if var_map_fn is not None:
-                write_var_alignment(
-                    read_id, var_seq, var_quals, chrm, strand, r_start,
-                    var_cigar)
+        if var_map_fn is not None:
+            write_var_alignment(
+                read_id, var_seq, var_quals, chrm, strand, r_start,
+                var_cigar)
 
         return been_warned
 

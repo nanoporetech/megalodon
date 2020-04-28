@@ -1,10 +1,12 @@
 import os
 import re
 import sys
+import pysam
 import queue
 import sqlite3
 import datetime
 from time import sleep
+from array import array
 from operator import itemgetter
 from itertools import chain, repeat
 from collections import defaultdict, namedtuple, OrderedDict
@@ -41,6 +43,10 @@ FORMAT_LOG_PROB_MI = (
     'FORMAT=<ID=LOG_PROBS,Number=A,Type=String,' +
     'Description="Per-read log10 likelihoods for modified ' +
     'bases (semi-colon separated)">')
+
+SAMPLE_NAME = 'SAMPLE'
+MOD_MAP_RG_ID = '1'
+MOD_MAP_MAX_QUAL = 40
 
 OUT_BUFFER_LIMIT = 10000
 
@@ -663,7 +669,7 @@ def annotate_mods(r_start, ref_seq, r_mod_scores, strand, mod_thresh=0.0):
     Note: Reference sequence is in read orientation and mod calls are in
     genome coordiates.
     """
-    mod_seqs = []
+    mod_seqs, mod_quals = [], []
     prev_pos = 0
     if strand == -1:
         ref_seq = ref_seq[::-1]
@@ -676,13 +682,19 @@ def annotate_mods(r_start, ref_seq, r_mod_scores, strand, mod_thresh=0.0):
         most_prob_mod = np.argmax(mod_lps)
         mod_seqs.append(ref_seq[prev_pos:mod_pos - r_start] +
                         mod_bases[most_prob_mod])
+        mod_quals.append([MOD_MAP_MAX_QUAL, ] * (mod_pos - r_start - prev_pos))
+        mod_quals.append([min(mh.log_prob_to_phred(mod_lps[most_prob_mod]),
+                              MOD_MAP_MAX_QUAL)])
         prev_pos = mod_pos - r_start + 1
     mod_seqs.append(ref_seq[prev_pos:])
     mod_seq = ''.join(mod_seqs)
+    mod_quals.append([MOD_MAP_MAX_QUAL] * len(ref_seq[prev_pos:]))
+    mod_quals = list(map(int, (mq for sec_mqs in mod_quals for mq in sec_mqs)))
     if strand == -1:
         mod_seq = mod_seq[::-1]
+        mod_quals = mod_quals[::-1]
 
-    return mod_seq
+    return mod_seq, mod_quals
 
 
 ########################
@@ -819,9 +831,29 @@ def call_read_mods(
 #######################
 
 def _get_mods_queue(
-        mods_q, mods_conn, mods_db_fn, db_safety, ref_names_and_lens,
-        mods_txt_fn, pr_refs_fn, ref_out_info, pos_index_in_memory,
+        mods_q, mods_conn, mods_db_fn, db_safety, ref_names_and_lens, ref_fn,
+        mods_txt_fn, pr_refs_fn, ref_out_info, mod_map_fn, pos_index_in_memory,
         mod_long_names):
+    def write_mod_alignment(
+            read_id, mod_seq, mod_quals, chrm, strand, r_st):
+        a = pysam.AlignedSegment()
+        a.query_name = read_id
+        a.flag = 0 if strand == 1 else 16
+        a.reference_id = mod_map_fp.get_tid(chrm)
+        a.reference_start = r_st
+        a.template_length = len(mod_seq)
+        a.mapping_quality = MOD_MAP_MAX_QUAL
+        a.set_tags([('RG', MOD_MAP_RG_ID)])
+
+        # convert to reference based sequence
+        if strand == -1:
+            mod_seq = mh.revcomp(mod_seq)
+            mod_quals = mod_quals[::-1]
+        a.query_sequence = mod_seq
+        a.query_qualities = array('B', mod_quals)
+        a.cigartuples = [(0, len(mod_seq)), ]
+        mod_map_fp.write(a)
+
     def store_mod_call(
             r_mod_scores,  read_id, chrm, strand, r_start, ref_seq,
             read_len, q_st, q_en, cigar, been_warned):
@@ -850,13 +882,18 @@ def _get_mods_queue(
                         can_lp, mod_base, '{}:{}'.format(raw_motif, rel_pos))
                     for mod_lp, mod_base in zip(mod_lps, mod_bases))) + '\n'
             mods_txt_fp.write(mod_out_text)
-        if pr_refs_fn is not None:
-            if not mapping.read_passes_filters(
-                    ref_out_info, read_len, q_st, q_en, cigar):
-                return
-
-            pr_refs_fp.write('>{}\n{}\n'.format(read_id, annotate_mods(
-                r_start, ref_seq, r_mod_scores, strand)))
+        do_output_pr_ref = (
+            pr_refs_fn is not None and
+            mapping.read_passes_filters(
+                ref_out_info, read_len, q_st, q_en, cigar))
+        if mod_map_fn is not None or do_output_pr_ref:
+            mod_seq, mod_quals = annotate_mods(
+                r_start, ref_seq, r_mod_scores, strand)
+        if do_output_pr_ref:
+            pr_refs_fp.write('>{}\n{}\n'.format(read_id, mod_seq))
+        if mod_map_fn is not None:
+            write_mod_alignment(
+                read_id, mod_seq, mod_quals, chrm, strand, r_start)
 
         return been_warned
 
@@ -886,6 +923,25 @@ def _get_mods_queue(
 
     if pr_refs_fn is not None:
         pr_refs_fp = open(pr_refs_fn, 'w')
+
+    if mod_map_fn is not None:
+        _, map_fmt = os.path.splitext(mod_map_fn)
+        if map_fmt == '.bam':
+            w_mode = 'wb'
+        elif map_fmt == '.cram':
+            w_mode = 'wc'
+        elif map_fmt == '.sam':
+            w_mode = 'w'
+        else:
+            raise mh.MegaError('Invalid mapping output format')
+        header = {
+            'HD': {'VN': '1.4'},
+            'SQ': [{'LN': ref_len, 'SN': ref_name}
+                   for ref_name, ref_len in sorted(zip(*ref_names_and_lens))],
+            'RG': [{'ID': MOD_MAP_RG_ID, 'SM': SAMPLE_NAME}, ]}
+        mod_map_fp = pysam.AlignmentFile(
+            mod_map_fn, w_mode, header=header, reference_filename=ref_fn)
+
     LOGGER.debug('mod_getter: init complete')
 
     while True:

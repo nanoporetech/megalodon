@@ -296,40 +296,57 @@ if _DO_PROFILE:
 # Post Per-read Processing #
 ############################
 
-def post_process_var_map(out_dir, map_fmt, ref_fn):
-    var_map_bn = mh.get_megalodon_fn(out_dir, mh.VAR_MAP_NAME)
-    var_map_fn = var_map_bn + '.' + map_fmt
-    var_sort_fn = var_map_bn + '.sorted.bam'
-    var_map_p = mp.Process(
-        target=mapping.sort_and_index_mapping,
-        args=(var_map_fn, var_sort_fn, ref_fn), daemon=True)
-    var_map_p.start()
-    sleep(0.001)
-
-    return var_sort_fn, var_map_p
-
-
-def post_process_mapping(out_dir, map_fmt, ref_fn):
-    map_bn = mh.get_megalodon_fn(out_dir, mh.MAP_NAME)
+def post_process_mapping(map_bn, map_fmt, ref_fn):
     map_fn = map_bn + '.' + map_fmt
     map_sort_fn = map_bn + '.sorted.bam'
     map_p = mp.Process(
         target=mapping.sort_and_index_mapping,
-        args=(map_fn, map_sort_fn, ref_fn), daemon=True)
+        args=(map_fn, map_sort_fn, ref_fn, True), daemon=True)
     map_p.start()
     sleep(0.001)
 
-    return map_p
+    return map_p, map_sort_fn
 
 
-def post_process_aggregate(
-        mods_info, outputs, out_dir, num_ps, write_vcf_lp,
-        het_factors, vars_data, write_mod_lp, supp_prog):
-    aggregate.aggregate_stats(
-        outputs, out_dir, num_ps, write_vcf_lp, het_factors,
-        vars_data.call_mode, mods_info.agg_info,
-        write_mod_lp, mods_info.mod_output_fmts, supp_prog)
-    return
+def start_sort_mapping_procs(outputs, out_dir, map_out_fmt, ref_fn):
+    map_p = mod_map_p = var_map_p = var_sort_fn = None
+    if mh.MAP_NAME in outputs:
+        LOGGER.info('Spawning process to sort mappings')
+        map_p, _ = post_process_mapping(
+            mh.get_megalodon_fn(out_dir, mh.MAP_NAME), map_out_fmt, ref_fn)
+    if mh.MOD_MAP_NAME in outputs:
+        LOGGER.info('Spawning process to sort modified base mappings')
+        mod_map_p, _ = post_process_mapping(
+            mh.get_megalodon_fn(out_dir, mh.MOD_MAP_NAME), map_out_fmt, ref_fn)
+    if mh.VAR_MAP_NAME in outputs:
+        LOGGER.info('Spawning process to sort variant mappings')
+        var_map_p, var_sort_fn = post_process_mapping(
+            mh.get_megalodon_fn(out_dir, mh.VAR_MAP_NAME), map_out_fmt, ref_fn)
+    return map_p, mod_map_p, var_map_p, var_sort_fn
+
+
+def get_map_procs(
+        map_p, mod_map_p, var_map_p, var_sort_fn, index_variant_fn,
+        variant_fn):
+    if var_map_p is not None:
+        if var_map_p.is_alive():
+            LOGGER.info('Waiting for variant mappings sort')
+            while var_map_p.is_alive():
+                sleep(0.001)
+        if index_variant_fn is not None and var_sort_fn is not None:
+            LOGGER.info(variants.get_whatshap_command(
+                index_variant_fn, var_sort_fn,
+                mh.add_fn_suffix(variant_fn, 'phased')))
+    if mod_map_p is not None:
+        if mod_map_p.is_alive():
+            LOGGER.info('Waiting for modified base mappings sort')
+            while mod_map_p.is_alive():
+                sleep(0.001)
+    if map_p is not None:
+        if map_p.is_alive():
+            LOGGER.info('Waiting for mappings sort')
+            while map_p.is_alive():
+                sleep(0.001)
 
 
 ##########################
@@ -586,14 +603,17 @@ def process_all_reads(
     if mh.PR_MOD_NAME in outputs:
         pr_refs_fn = mh.get_megalodon_fn(out_dir, mh.PR_REF_NAME) if (
             mh.PR_REF_NAME in outputs and ref_out_info.annotate_mods) else None
+        mod_map_fn = (
+            mh.get_megalodon_fn(out_dir, mh.MOD_MAP_NAME) + '.' +
+            aligner.out_fmt) if mh.MOD_MAP_NAME in outputs else None
         mods_txt_fn = (mh.get_megalodon_fn(out_dir, mh.PR_MOD_TXT_NAME)
                        if mods_info.write_mods_txt else None)
         getter_qs[mh.PR_MOD_NAME] = mh.create_getter_q(
             mods._get_mods_queue, (
                 mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME), db_safety,
-                aligner.ref_names_and_lens, mods_txt_fn,
-                pr_refs_fn, ref_out_info, mods_info.pos_index_in_memory,
-                mods_info.mod_long_names))
+                aligner.ref_names_and_lens, aligner.ref_fn, mods_txt_fn,
+                pr_refs_fn, ref_out_info, mod_map_fn,
+                mods_info.pos_index_in_memory, mods_info.mod_long_names))
     if mh.SIG_MAP_NAME in outputs:
         alphabet_info = signal_mapping.get_alphabet_info(
             ref_out_info.alphabet, ref_out_info.collapse_alphabet,
@@ -768,6 +788,12 @@ def parse_mod_args(args, model_info):
             '--ref-include-mods and --ref-mods-all-motifs are not ' +
             'compatible. Ignoring --ref-include-mods')
         args.ref_include_mods = False
+    if mh.MOD_MAP_NAME in args.outputs and \
+       mh.PR_MOD_NAME not in args.outputs:
+        LOGGER.warning((
+            'Adding "{}" to --outputs since "{}" was requested.').format(
+                mh.PR_MOD_NAME, mh.MOD_MAP_NAME))
+        args.outputs.append(mh.PR_MOD_NAME)
     if args.ref_include_mods and mh.PR_MOD_NAME not in args.outputs:
         LOGGER.warning('--ref-include-mods set, so adding ' +
                        '"per_read_mods" to --outputs.')
@@ -1316,22 +1342,18 @@ def _main():
         map_out_fmt = aligner.out_fmt
         del aligner
 
-    if mh.MAP_NAME in args.outputs:
-        LOGGER.info('Spawning process to sort mappings')
-        map_p = post_process_mapping(
-            args.output_directory, map_out_fmt, ref_fn)
-
-    if mh.VAR_MAP_NAME in args.outputs:
-        LOGGER.info('Spawning process to sort variant mappings')
-        var_sort_fn, var_map_p = post_process_var_map(
-            args.output_directory, map_out_fmt, ref_fn)
+    # start mapping processes before other post-per-read tasks
+    map_p, mod_map_p, var_map_p, var_sort_fn = start_sort_mapping_procs(
+        args.outputs, args.output_directory, map_out_fmt, ref_fn)
 
     if mh.VAR_NAME in args.outputs or mh.MOD_NAME in args.outputs:
-        post_process_aggregate(
-            mods_info, args.outputs, args.output_directory, args.processes,
-            args.write_vcf_log_probs, args.heterozygous_factors, vars_data,
-            args.write_mod_log_probs, args.suppress_progress)
+        aggregate.aggregate_stats(
+            args.outputs, args.output_directory, args.processes,
+            args.write_vcf_log_probs, args.heterozygous_factors,
+            vars_data.call_mode, mods_info.agg_info, args.write_mod_log_probs,
+            mods_info.mod_output_fmts, args.suppress_progress)
 
+    variant_fn = index_variant_fn = None
     if mh.VAR_NAME in args.outputs:
         LOGGER.info('Sorting output variant file')
         variant_fn = mh.get_megalodon_fn(args.output_directory, mh.VAR_NAME)
@@ -1340,22 +1362,8 @@ def _main():
         LOGGER.info('Indexing output variant file')
         index_variant_fn = variants.index_variants(sort_variant_fn)
 
-    if mh.VAR_MAP_NAME in args.outputs:
-        if var_map_p.is_alive():
-            LOGGER.info('Waiting for variant mappings sort')
-            while var_map_p.is_alive():
-                sleep(0.001)
-        LOGGER.info(variants.get_whatshap_command(
-            index_variant_fn, var_sort_fn,
-            mh.add_fn_suffix(variant_fn, 'phased')))
-
-    if mh.MAP_NAME in args.outputs:
-        if map_p.is_alive():
-            LOGGER.info('Waiting for mappings sort')
-            while map_p.is_alive():
-                sleep(0.001)
-
-    return
+    get_map_procs(
+        map_p, mod_map_p, var_map_p, var_sort_fn, index_variant_fn, variant_fn)
 
 
 if __name__ == '__main__':

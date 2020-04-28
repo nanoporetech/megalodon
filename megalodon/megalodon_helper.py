@@ -79,6 +79,7 @@ VAR_MAP_NAME = 'variant_mappings'
 VAR_NAME = 'variants'
 PR_MOD_NAME = 'per_read_mods'
 PR_MOD_TXT_NAME = 'per_read_mods_text'
+MOD_MAP_NAME = 'mod_mappings'
 MOD_NAME = 'mods'
 SIG_MAP_NAME = 'signal_mappings'
 PR_REF_NAME = 'per_read_refs'
@@ -93,6 +94,7 @@ OUTPUT_FNS = {
     VAR_MAP_NAME: 'variant_mappings',
     PR_MOD_NAME: 'per_read_modified_base_calls.db',
     PR_MOD_TXT_NAME: 'per_read_modified_base_calls.txt',
+    MOD_MAP_NAME: 'mod_mappings',
     MOD_NAME: 'modified_bases',
     SIG_MAP_NAME: 'signal_mappings.hdf5',
     PR_REF_NAME: 'per_read_references.fasta'
@@ -108,6 +110,7 @@ OUTPUT_DESCS = OrderedDict([
     (VAR_MAP_NAME, 'Per-read mappings annotated with variant calls'),
     (PR_MOD_NAME, 'Per-read, per-site modified base scores database'),
     (MOD_NAME, 'Sample-level aggregated modified base calls (modVCF)'),
+    (MOD_MAP_NAME, 'Per-read mappings annotated with modified base calls'),
     (SIG_MAP_NAME, 'Signal mappings for taiyaki model training (HDF5)'),
     (PR_REF_NAME, 'Per-read reference sequence for model training (FASTA)')
 ])
@@ -127,8 +130,9 @@ MOD_OUTPUT_EXTNS = {
     MOD_WIG_NAME: 'wig'
 }
 
-ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, SIG_MAP_NAME, PR_VAR_NAME,
-                     VAR_NAME, VAR_MAP_NAME, PR_MOD_NAME, MOD_NAME))
+ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, SIG_MAP_NAME,
+                     PR_VAR_NAME, VAR_NAME, VAR_MAP_NAME,
+                     PR_MOD_NAME, MOD_NAME, MOD_MAP_NAME))
 GETTER_PROC = namedtuple('getter_proc', ('queue', 'proc', 'conn'))
 
 REF_OUT_INFO = namedtuple('ref_out_info', (
@@ -240,6 +244,11 @@ def mkdir(out_dir, overwrite):
     os.mkdir(out_dir)
 
     return
+
+
+def log_prob_to_phred(log_prob):
+    with np.errstate(divide='ignore'):
+        return -10 * np.log10(1 - np.exp(log_prob))
 
 
 ############################
