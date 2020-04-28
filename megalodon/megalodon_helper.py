@@ -75,7 +75,7 @@ MAP_SUMM_NAME = 'mappings_summary'
 MAP_OUT_FMTS = ('bam', 'cram', 'sam')
 PR_VAR_NAME = 'per_read_variants'
 PR_VAR_TXT_NAME = 'per_read_variants_text'
-WHATSHAP_MAP_NAME = 'whatshap_mappings'
+VAR_MAP_NAME = 'variant_mappings'
 VAR_NAME = 'variants'
 PR_MOD_NAME = 'per_read_mods'
 PR_MOD_TXT_NAME = 'per_read_mods_text'
@@ -90,7 +90,7 @@ OUTPUT_FNS = {
     PR_VAR_NAME: 'per_read_variant_calls.db',
     PR_VAR_TXT_NAME: 'per_read_variant_calls.txt',
     VAR_NAME: 'variants.vcf',
-    WHATSHAP_MAP_NAME: 'whatshap_mappings',
+    VAR_MAP_NAME: 'variant_mappings',
     PR_MOD_NAME: 'per_read_modified_base_calls.db',
     PR_MOD_TXT_NAME: 'per_read_modified_base_calls.txt',
     MOD_NAME: 'modified_bases',
@@ -105,8 +105,7 @@ OUTPUT_DESCS = OrderedDict([
     (MAP_NAME, 'Mapped reads (BAM/CRAM/SAM)'),
     (PR_VAR_NAME, 'Per-read, per-site sequence variant scores database'),
     (VAR_NAME, 'Sample-level aggregated sequence variant calls (VCF)'),
-    (WHATSHAP_MAP_NAME,
-     'Sequence variant annotated mappings for use with whatshap'),
+    (VAR_MAP_NAME, 'Per-read mappings annotated with variant calls'),
     (PR_MOD_NAME, 'Per-read, per-site modified base scores database'),
     (MOD_NAME, 'Sample-level aggregated modified base calls (modVCF)'),
     (SIG_MAP_NAME, 'Signal mappings for taiyaki model training (HDF5)'),
@@ -129,7 +128,7 @@ MOD_OUTPUT_EXTNS = {
 }
 
 ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, SIG_MAP_NAME, PR_VAR_NAME,
-                     VAR_NAME, WHATSHAP_MAP_NAME, PR_MOD_NAME, MOD_NAME))
+                     VAR_NAME, VAR_MAP_NAME, PR_MOD_NAME, MOD_NAME))
 GETTER_PROC = namedtuple('getter_proc', ('queue', 'proc', 'conn'))
 
 REF_OUT_INFO = namedtuple('ref_out_info', (

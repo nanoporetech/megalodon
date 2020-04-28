@@ -27,9 +27,9 @@ Mapping
 Mapped reads can be output in SAM, BAM or CRAM formats.
 Basecalls will be output into the ``mappings.sam``, ``mappings.bam``, or ``mappings.cram`` file within the ``--output-directory``.
 
-~~~~~~~~~~~~~~~~
-Whatshap Mapping
-~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~
+Variant Mapping
+~~~~~~~~~~~~~~~
 
 In addition to standard mapping files, megalodon includes a special mapping-style output with specific relevence to the variant calling pipeline.
 This format can be output as a SAM, BAM or CRAM file as with standard mapping format.

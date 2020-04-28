@@ -296,17 +296,17 @@ if _DO_PROFILE:
 # Post Per-read Processing #
 ############################
 
-def post_process_whatshap(out_dir, map_fmt, ref_fn):
-    whatshap_map_bn = mh.get_megalodon_fn(out_dir, mh.WHATSHAP_MAP_NAME)
-    whatshap_map_fn = whatshap_map_bn + '.' + map_fmt
-    whatshap_sort_fn = whatshap_map_bn + '.sorted.bam'
-    whatshap_p = mp.Process(
+def post_process_var_map(out_dir, map_fmt, ref_fn):
+    var_map_bn = mh.get_megalodon_fn(out_dir, mh.VAR_MAP_NAME)
+    var_map_fn = var_map_bn + '.' + map_fmt
+    var_sort_fn = var_map_bn + '.sorted.bam'
+    var_map_p = mp.Process(
         target=mapping.sort_and_index_mapping,
-        args=(whatshap_map_fn, whatshap_sort_fn, ref_fn), daemon=True)
-    whatshap_p.start()
+        args=(var_map_fn, var_sort_fn, ref_fn), daemon=True)
+    var_map_p.start()
     sleep(0.001)
 
-    return whatshap_sort_fn, whatshap_p
+    return var_sort_fn, var_map_p
 
 
 def post_process_mapping(out_dir, map_fmt, ref_fn):
@@ -572,16 +572,16 @@ def process_all_reads(
     if mh.PR_VAR_NAME in outputs:
         pr_refs_fn = mh.get_megalodon_fn(out_dir, mh.PR_REF_NAME) if (
             mh.PR_REF_NAME in outputs and ref_out_info.annotate_vars) else None
-        whatshap_map_fn = (
-            mh.get_megalodon_fn(out_dir, mh.WHATSHAP_MAP_NAME) + '.' +
-            aligner.out_fmt) if mh.WHATSHAP_MAP_NAME in outputs else None
+        var_map_fn = (
+            mh.get_megalodon_fn(out_dir, mh.VAR_MAP_NAME) + '.' +
+            aligner.out_fmt) if mh.VAR_MAP_NAME in outputs else None
         vars_txt_fn = (mh.get_megalodon_fn(out_dir, mh.PR_VAR_TXT_NAME)
                        if vars_data.write_vars_txt else None)
         getter_qs[mh.PR_VAR_NAME] = mh.create_getter_q(
             variants._get_variants_queue, (
                 mh.get_megalodon_fn(out_dir, mh.PR_VAR_NAME),
                 vars_txt_fn, db_safety, pr_refs_fn, ref_out_info,
-                whatshap_map_fn, aligner.ref_names_and_lens, aligner.ref_fn,
+                var_map_fn, aligner.ref_names_and_lens, aligner.ref_fn,
                 vars_data.loc_index_in_memory))
     if mh.PR_MOD_NAME in outputs:
         pr_refs_fn = mh.get_megalodon_fn(out_dir, mh.PR_REF_NAME) if (
@@ -712,12 +712,12 @@ def parse_var_args(args, model_info, aligner):
         LOGGER.warning('--ref-include-variants set, so adding ' +
                        '"per_read_vars" to --outputs.')
         args.outputs.append(mh.PR_VAR_NAME)
-    if mh.WHATSHAP_MAP_NAME in args.outputs and \
+    if mh.VAR_MAP_NAME in args.outputs and \
        mh.PR_VAR_NAME not in args.outputs:
         LOGGER.warning((
             'Adding "{}" to --outputs since "{}" was requested. For full ' +
             'phased variant pipeline add "{}" or run aggregation after run ' +
-            'is complete.').format(mh.PR_VAR_NAME, mh.WHATSHAP_MAP_NAME,
+            'is complete.').format(mh.PR_VAR_NAME, mh.VAR_MAP_NAME,
                                    mh.VAR_NAME))
         args.outputs.append(mh.PR_VAR_NAME)
     if mh.VAR_NAME in args.outputs and mh.PR_VAR_NAME not in args.outputs:
@@ -1321,9 +1321,9 @@ def _main():
         map_p = post_process_mapping(
             args.output_directory, map_out_fmt, ref_fn)
 
-    if mh.WHATSHAP_MAP_NAME in args.outputs:
-        LOGGER.info('Spawning process to sort whatshap mappings')
-        whatshap_sort_fn, whatshap_p = post_process_whatshap(
+    if mh.VAR_MAP_NAME in args.outputs:
+        LOGGER.info('Spawning process to sort variant mappings')
+        var_sort_fn, var_map_p = post_process_var_map(
             args.output_directory, map_out_fmt, ref_fn)
 
     if mh.VAR_NAME in args.outputs or mh.MOD_NAME in args.outputs:
@@ -1340,13 +1340,13 @@ def _main():
         LOGGER.info('Indexing output variant file')
         index_variant_fn = variants.index_variants(sort_variant_fn)
 
-    if mh.WHATSHAP_MAP_NAME in args.outputs:
-        if whatshap_p.is_alive():
-            LOGGER.info('Waiting for whatshap mappings sort')
-            while whatshap_p.is_alive():
+    if mh.VAR_MAP_NAME in args.outputs:
+        if var_map_p.is_alive():
+            LOGGER.info('Waiting for variant mappings sort')
+            while var_map_p.is_alive():
                 sleep(0.001)
         LOGGER.info(variants.get_whatshap_command(
-            index_variant_fn, whatshap_sort_fn,
+            index_variant_fn, var_sort_fn,
             mh.add_fn_suffix(variant_fn, 'phased')))
 
     if mh.MAP_NAME in args.outputs:

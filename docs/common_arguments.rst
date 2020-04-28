@@ -39,10 +39,10 @@ Output Arguments
 - ``--outputs``
 
   - Specify desired outputs.
-  - Options are ``basecalls``, ``mod_basecalls``, ``mappings``, ``whatshap_mappings``, ``per_read_variants``, ``per_read_mods``, ``variants``, and ``mods``.
+  - Options are ``basecalls``, ``mod_basecalls``, ``mappings``, ``variant_mappings``, ``per_read_variants``, ``per_read_mods``, ``variants``, and ``mods``.
 
     - ``mod_basecalls`` are currently output in an HDF5 file with a data set corresponding to each read (accessed via the ``read_id``).
-    - ``whatshap_mappings`` are intended only for obtaining highly accurate phased variant genotypes.
+    - ``variant_mappings`` are intended only for obtaining highly accurate phased variant genotypes.
 
       - These mappings contain reference sequence at all positions except for per-read called variants. The base quality scores encode the likelihood for that reference anchored variant for use in the whathap phasing algorithm.
       - This file is useful for visualizing per-read variant calls as well as potential variant phasing.
