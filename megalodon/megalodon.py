@@ -453,7 +453,7 @@ def _get_fail_queue(
                 try:
                     bar.set_postfix({
                         'ksamp/s': (sig_called / 1000) /
-                        bar.format_dict['elapsed']})
+                        bar.format_dict['elapsed']}, refresh=False)
                 except AttributeError:
                     # sometimes get no format_dict error
                     # so don't include ksample/s if so
@@ -461,7 +461,6 @@ def _get_fail_queue(
                 if q_bars is not None:
                     for q_name, q_bar in q_bars.items():
                         q_bar.n = getter_qs[q_name].queue.qsize()
-                        q_bar.refresh()
                 if read_called:
                     bar.update(1)
                 if num_update_errors > 0:

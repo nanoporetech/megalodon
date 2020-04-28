@@ -37,7 +37,9 @@ DEFAULT_GUPPY_CFG = 'dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg'
 DEFAULT_GUPPY_TIMEOUT = 5.0
 PYGUPPY_PER_TRY_TIMEOUT = 0.05
 GUPPY_LOG_BASE = 'guppy_log'
-GUPPY_PORT_PAT = re.compile('Starting server on port:\W+(\d+)')
+GUPPY_PORT_PAT = re.compile(r'Starting server on port:\W+(\d+)')
+PYGUPPY_SHIFT_NAME = 'median'
+PYGUPPY_SCALE_NAME = 'med_abs_dev'
 
 # maximum time (in seconds) to wait before assigning device
 # over different processes. Actual time choosen randomly
@@ -567,13 +569,23 @@ class ModelInfo(object):
         else:
             can_post = called_read.state
 
+        # check validity of pyguppy results
+        if len(called_read.seq) != len(called_read.qual) or \
+           len(called_read.seq) != rl_cumsum.shape[0] - 1:
+            LOGGER.debug((
+                'Invalid results recieved from pyguppy backend: ' +
+                '{}\t{}\t').format(len(called_read.seq), len(called_read.qual),
+                                   rl_cumsum.shape[0]))
+            raise mh.MegaError(
+                'Invalid results recieved from pyguppy backend.')
+
         if update_sig_info:
             # add scale_params and trimmed dacs to sig_info
             trimmed_dacs = sig_info.dacs[called_read.trimmed_samples:]
             # guppy does not apply the med norm factor
             scale_params = (
-                called_read.scaling['median'],
-                called_read.scaling['med_abs_dev'] * mh.MED_NORM_FACTOR)
+                called_read.scaling[PYGUPPY_SHIFT_NAME],
+                called_read.scaling[PYGUPPY_SCALE_NAME] * mh.MED_NORM_FACTOR)
             sig_info = sig_info._replace(
                 raw_len=trimmed_dacs.shape[0], dacs=trimmed_dacs,
                 raw_signal=((trimmed_dacs - scale_params[0]) /
