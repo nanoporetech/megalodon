@@ -249,9 +249,11 @@ def mkdir(out_dir, overwrite):
     return
 
 
-def log_prob_to_phred(log_prob):
-    with np.errstate(divide='ignore'):
-        return -10 * np.log10(1 - np.exp(log_prob))
+def log_prob_to_phred(log_prob, ignore_np_divide=True):
+    if ignore_np_divide:
+        with np.errstate(divide='ignore'):
+            return -10 * np.log10(1 - np.exp(log_prob))
+    return -10 * np.log10(1 - np.exp(log_prob))
 
 
 ############################

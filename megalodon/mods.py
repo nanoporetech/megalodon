@@ -696,8 +696,7 @@ def annotate_mods(
     for mod_pos, mod_lps, mod_bases, _, _, _ in sorted(r_mod_scores):
         if mod_base is not None and mod_base not in mod_bases:
             continue
-        with np.errstate(divide='ignore'):
-            can_lp = np.log1p(-np.exp(mod_lps).sum())
+        can_lp = np.log1p(-np.exp(mod_lps).sum())
         # called canonical
         if can_lp - mod_lps.max() > mod_thresh:
             base_lp = can_lp
@@ -712,7 +711,7 @@ def annotate_mods(
         mod_seqs.append(ref_seq[prev_pos:mod_pos - r_start] + base)
         mod_quals.extend(
             [MOD_MAP_MAX_QUAL, ] * (mod_pos - r_start - prev_pos) +
-            [min(mh.log_prob_to_phred(base_lp), MOD_MAP_MAX_QUAL)])
+            [min(mh.log_prob_to_phred(base_lp, False), MOD_MAP_MAX_QUAL)])
         prev_pos = mod_pos - r_start + 1
     mod_seqs.append(ref_seq[prev_pos:])
     mod_seq = ''.join(mod_seqs)
@@ -841,9 +840,12 @@ def call_read_mods(
         # taiyaki install (required for signal_mapping module)
         from megalodon import signal_mapping
         if sig_map_res.ref_out_info.annotate_mods:
-            r_mod_seq = annotate_mods(
-                r_ref_pos.start, sig_map_res.ref_seq, r_mod_scores,
-                r_ref_pos.strand, mods_info.mod_thresh)
+            # ignore divide around full annotate_mods call to avoid overhead
+            # on many calls to errstate
+            with np.errstate(divide='ignore'):
+                r_mod_seq, _ = annotate_mods(
+                    r_ref_pos.start, sig_map_res.ref_seq, r_mod_scores,
+                    r_ref_pos.strand, mods_info.mod_thresh)
             invalid_chars = set(r_mod_seq).difference(
                 sig_map_res.ref_out_info.alphabet)
             if len(invalid_chars) > 0:
@@ -919,17 +921,23 @@ def _get_mods_queue(
             mapping.read_passes_filters(
                 ref_out_info, read_len, q_st, q_en, cigar))
         if do_output_pr_ref:
-            mod_seq, mod_quals = annotate_mods(
-                r_start, ref_seq, r_mod_scores, strand, mods_info.mod_thresh)
-            pr_refs_fp.write('>{}\n{}\n'.format(read_id, mod_seq))
-        if mod_map_fns is not None:
-            for mod_base, _ in mods_info.mod_long_names:
+            # ignore divide around full annotate_mods call to avoid overhead
+            # on many calls to errstate
+            with np.errstate(divide='ignore'):
                 mod_seq, mod_quals = annotate_mods(
                     r_start, ref_seq, r_mod_scores, strand,
-                    mods_info.mod_thresh, mod_base, mods_info.map_base_conv)
-                write_mod_alignment(
-                    read_id, mod_seq, mod_quals, chrm, strand, r_start,
-                    mod_base)
+                    mods_info.mod_thresh)
+            pr_refs_fp.write('>{}\n{}\n'.format(read_id, mod_seq))
+        if mod_map_fns is not None:
+            with np.errstate(divide='ignore'):
+                for mod_base, _ in mods_info.mod_long_names:
+                    mod_seq, mod_quals = annotate_mods(
+                        r_start, ref_seq, r_mod_scores, strand,
+                        mods_info.mod_thresh, mod_base,
+                        mods_info.map_base_conv)
+                    write_mod_alignment(
+                        read_id, mod_seq, mod_quals, chrm, strand, r_start,
+                        mod_base)
 
         return been_warned
 
