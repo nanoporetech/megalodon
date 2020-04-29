@@ -1013,14 +1013,15 @@ def _get_mods_queue(
         mods_txt_fp.close()
     if pr_refs_fn is not None:
         pr_refs_fp.close()
+    if mod_map_fns is not None:
+        for mod_map_fp in mod_map_fps.values():
+            mod_map_fp.close()
     if mods_db.pos_idx_in_mem:
         mods_db.create_pos_index()
     if mods_db.mod_idx_in_mem:
         mods_db.create_mod_index()
     mods_db.create_data_covering_index()
     mods_db.close()
-
-    return
 
 
 if _PROFILE_MODS_QUEUE:

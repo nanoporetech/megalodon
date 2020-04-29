@@ -30,7 +30,8 @@ _UNEXPECTED_ERROR_CODE = 'Unexpected error'
 _UNEXPECTED_ERROR_FN = 'unexpected_megalodon_errors.{}.err'
 _MAX_NUM_UNEXP_ERRORS = 50
 DO_INTERPOLATE_SIG_POS = False
-
+# update error text when 10% more errors are found
+ERR_UPDATE_PROP = 0.1
 LOGGER = logging.get_logger()
 
 
@@ -421,13 +422,13 @@ def prep_errors_bar(
     else:
         bar = tqdm(total=tot_reads, smoothing=0, initial=curr_num_reads,
                    unit=' read(s)', dynamic_ncols=True, position=0,
-                   desc='Read Processing', mininterval=1.0)
+                   desc='Read Processing', mininterval=0.5)
         if start_time is not None:
             bar.start_t = start_time
         if num_qs > 0:
             q_bars = OrderedDict((q_name, tqdm(
                 desc=q_name, total=mh._MAX_QUEUE_SIZE, smoothing=0,
-                dynamic_ncols=True, position=q_num + 1, mininterval=1.0,
+                dynamic_ncols=True, position=q_num + 1, mininterval=0.5,
                 bar_format='output queue capacity {desc: <20}: ' +
                 '{percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}'))
                                  for q_num, q_name in enumerate(valid_q_names))
@@ -453,7 +454,8 @@ def prep_errors_bar(
 def _get_fail_queue(
         failed_reads_q, f_conn, getter_num_reads_conn, num_update_errors,
         suppress_progress, do_show_qs, getter_qs):
-    def update_prog(reads_called, sig_called, unexp_err_fp, read_called=True):
+    def update_prog(reads_called, sig_called, unexp_err_fp, last_err_write,
+                    read_called=True):
         if is_err:
             failed_reads[err_type].append(fast5_fn)
             if err_type == _UNEXPECTED_ERROR_CODE:
@@ -479,19 +481,26 @@ def _get_fail_queue(
                 if q_bars is not None:
                     for q_name, q_bar in q_bars.items():
                         q_bar.n = getter_qs[q_name].queue.qsize()
+                        # trigger display refresh
+                        q_bar.update(0)
                 if read_called:
-                    bar.update(1)
+                    bar.update()
                 if num_update_errors > 0:
-                    bar.write(prog_prefix + format_fail_summ(
-                        bar_header,
-                        [(len(fns), err) for err, fns in failed_reads.items()],
-                        reads_called, num_update_errors), file=sys.stderr)
-            reads_called += 1
+                    err_types = [
+                        (len(fns), err) for err, fns in failed_reads.items()]
+                    num_errs = sum((x[0] for x in err_types))
+                    if num_errs > 0 and (
+                            last_err_write == 0 or
+                            num_errs / last_err_write > 1 + ERR_UPDATE_PROP):
+                        last_err_write = num_errs
+                        bar.write(prog_prefix + format_fail_summ(
+                            bar_header, err_types, reads_called,
+                            num_update_errors), file=sys.stderr)
 
-        return reads_called, unexp_err_fp
+        return unexp_err_fp, last_err_write
 
     LOGGER.info('Processing reads.')
-    reads_called, sig_called = 0, 0
+    reads_called = sig_called = last_err_write = 0
     unexp_err_fp = None
     failed_reads = defaultdict(list)
     bar, q_bars, prog_prefix, bar_header = prep_errors_bar(
@@ -502,8 +511,9 @@ def _get_fail_queue(
                 (is_err, do_update_prog, err_type, fast5_fn,
                  err_tb, n_sig) = failed_reads_q.get(block=False)
                 sig_called += n_sig
-                reads_called, unexp_err_fp = update_prog(
-                    reads_called, sig_called, unexp_err_fp)
+                reads_called += 1
+                unexp_err_fp, last_err_write = update_prog(
+                    reads_called, sig_called, unexp_err_fp, last_err_write)
             except queue.Empty:
                 # get total number of reads once all reads are enumerated
                 if bar is not None and bar.total is None:
@@ -522,8 +532,8 @@ def _get_fail_queue(
         if q_bars is not None:
             while any(getter_qs[q_name].queue.qsize() > 0
                       for q_name in q_bars.keys()):
-                reads_called, unexp_err_fp = update_prog(
-                    reads_called, 0, unexp_err_fp, False)
+                unexp_err_fp, last_err_write = update_prog(
+                    reads_called, 0, unexp_err_fp, last_err_write, False)
         bar.close()
         if q_bars is not None:
             for q_bar in q_bars.values():
