@@ -1056,10 +1056,10 @@ def _get_variants_queue(
                 r_start, ref_seq, r_var_calls, strand)
             if pr_refs_fn is not None:
                 pr_refs_fp.write('>{}\n{}\n'.format(read_id, var_seq))
-        if var_map_fn is not None:
-            write_var_alignment(
-                read_id, var_seq, var_quals, chrm, strand, r_start,
-                var_cigar)
+            if var_map_fn is not None:
+                write_var_alignment(
+                    read_id, var_seq, var_quals, chrm, strand, r_start,
+                    var_cigar)
 
         return been_warned
 
@@ -1079,14 +1079,10 @@ def _get_variants_queue(
         pr_refs_fp = open(pr_refs_fn, 'w')
 
     if var_map_fn is not None:
-        _, map_fmt = os.path.splitext(var_map_fn)
-        if map_fmt == '.bam':
-            w_mode = 'wb'
-        elif map_fmt == '.cram':
-            w_mode = 'wc'
-        elif map_fmt == '.sam':
-            w_mode = 'w'
-        else:
+        try:
+            w_mode = mh.MAP_OUT_WRITE_MODES[
+                os.path.splitext(var_map_fn)[1][1:]]
+        except KeyError:
             raise mh.MegaError('Invalid mapping output format')
         header = {
             'HD': {'VN': '1.4'},

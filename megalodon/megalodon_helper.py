@@ -49,7 +49,6 @@ SINGLE_LETTER_CODE = {
     'K': 'GT', 'M': 'AC', 'N': 'ACGT', 'R': 'AG', 'S': 'CG', 'V': 'ACG',
     'W': 'AT', 'Y': 'CT'}
 
-
 _MAX_QUEUE_SIZE = 10000
 
 # allow 64GB for memory mapped sqlite file access
@@ -72,7 +71,11 @@ BC_OUT_FMTS = ('fastq', 'fasta')
 BC_MODS_NAME = 'mod_basecalls'
 MAP_NAME = 'mappings'
 MAP_SUMM_NAME = 'mappings_summary'
-MAP_OUT_FMTS = ('bam', 'cram', 'sam')
+MAP_OUT_BAM = 'bam'
+MAP_OUT_CRAM = 'cram'
+MAP_OUT_SAM = 'sam'
+MAP_OUT_FMTS = (MAP_OUT_BAM, MAP_OUT_CRAM, MAP_OUT_SAM)
+MAP_OUT_WRITE_MODES = {MAP_OUT_BAM: 'wb', MAP_OUT_CRAM: 'wc', MAP_OUT_SAM: 'w'}
 PR_VAR_NAME = 'per_read_variants'
 PR_VAR_TXT_NAME = 'per_read_variants_text'
 VAR_MAP_NAME = 'variant_mappings'
@@ -138,7 +141,7 @@ GETTER_PROC = namedtuple('getter_proc', ('queue', 'proc', 'conn'))
 REF_OUT_INFO = namedtuple('ref_out_info', (
     'pct_idnt', 'pct_cov', 'min_len', 'max_len', 'alphabet',
     'collapse_alphabet', 'mod_long_names', 'annotate_mods', 'annotate_vars',
-    'mod_thresh', 'output_sig_maps', 'output_pr_refs', 'ref_mods_all_motifs'))
+    'output_sig_maps', 'output_pr_refs', 'ref_mods_all_motifs'))
 
 # directory names define model preset string
 # currently only one model trained

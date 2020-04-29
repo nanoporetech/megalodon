@@ -663,8 +663,28 @@ def extract_stats_at_valid_sites(
 # Reference Mod Markup #
 ########################
 
-def annotate_mods(r_start, ref_seq, r_mod_scores, strand, mod_thresh=0.0):
+def annotate_mods(
+        r_start, ref_seq, r_mod_scores, strand, mod_thresh=0.0, mod_base=None,
+        mod_map_base_conv=None):
     """ Annotate reference sequence with called modified bases.
+
+    Args:
+        r_start (int): Reference start position for this read.
+        ref_seq (str): Read-centric reference sequence corresponding to
+            this read.
+        r_mod_scores (list): Per-reference position modified base calls, as
+            returned from megalodon.mods.call_read_mods.
+        strand (int): 1 for forward strand -1 for reverse strand
+        mod_thresh (float): Threshold to call a modified base. Log likelihood
+            ratio; log(P_can / P_mod). Default: 0.0
+        mod_base (str): Restrict calls to single mod base. Should be single
+            letter mod base code.
+        mod_map_base_conv (dict): Map to translate called canonical or mod
+            bases.
+
+    Returns:
+        String modified base sequence and list of associated PHRED quality
+        scores.
 
     Note: Reference sequence is in read orientation and mod calls are in
     genome coordiates.
@@ -674,22 +694,30 @@ def annotate_mods(r_start, ref_seq, r_mod_scores, strand, mod_thresh=0.0):
     if strand == -1:
         ref_seq = ref_seq[::-1]
     for mod_pos, mod_lps, mod_bases, _, _, _ in sorted(r_mod_scores):
+        if mod_base is not None and mod_base not in mod_bases:
+            continue
         with np.errstate(divide='ignore'):
             can_lp = np.log1p(-np.exp(mod_lps).sum())
         # called canonical
         if can_lp - mod_lps.max() > mod_thresh:
-            continue
-        most_prob_mod = np.argmax(mod_lps)
-        mod_seqs.append(ref_seq[prev_pos:mod_pos - r_start] +
-                        mod_bases[most_prob_mod])
-        mod_quals.append([MOD_MAP_MAX_QUAL, ] * (mod_pos - r_start - prev_pos))
-        mod_quals.append([min(mh.log_prob_to_phred(mod_lps[most_prob_mod]),
-                              MOD_MAP_MAX_QUAL)])
+            base_lp = can_lp
+            base = ref_seq[mod_pos - r_start]
+        else:
+            most_prob_mod = np.argmax(mod_lps)
+            base_lp = mod_lps[most_prob_mod]
+            base = mod_bases[most_prob_mod]
+        if mod_map_base_conv is not None:
+            # convert base for bisulfite-like output
+            base = base.translate(mod_map_base_conv)
+        mod_seqs.append(ref_seq[prev_pos:mod_pos - r_start] + base)
+        mod_quals.extend(
+            [MOD_MAP_MAX_QUAL, ] * (mod_pos - r_start - prev_pos) +
+            [min(mh.log_prob_to_phred(base_lp), MOD_MAP_MAX_QUAL)])
         prev_pos = mod_pos - r_start + 1
     mod_seqs.append(ref_seq[prev_pos:])
     mod_seq = ''.join(mod_seqs)
-    mod_quals.append([MOD_MAP_MAX_QUAL] * len(ref_seq[prev_pos:]))
-    mod_quals = list(map(int, (mq for sec_mqs in mod_quals for mq in sec_mqs)))
+    mod_quals.extend([MOD_MAP_MAX_QUAL] * len(ref_seq[prev_pos:]))
+    mod_quals = list(map(int, mod_quals))
     if strand == -1:
         mod_seq = mod_seq[::-1]
         mod_quals = mod_quals[::-1]
@@ -704,18 +732,22 @@ def annotate_mods(r_start, ref_seq, r_mod_scores, strand, mod_thresh=0.0):
 def score_mod_seq(
         tpost, seq, mod_cats, can_mods_offsets,
         tpost_start=0, tpost_end=None, all_paths=False):
-    """Score a section of log transition posteriors against a proposed sequence
+    """ Score a section of log transition posteriors against a proposed sequence
     using a global mapping.
-    :param tpost: `ndarray` containing log transition posteriors to be scored
-    :param seq: `ndarray` containing integers encoding proposed sequence
-    :param mod_cats: `ndarray` containing integers encoding proposed modified
-        base labels
-    :param can_mods_offsets: `ndarray` containing integers encoding proposed
-        modified base labels
-    :param tpost_start: start position within post (Default: 0)
-    :param tpost_end: end position within post (Default: full posterior)
-    :param all_paths: boolean to produce the forwards all paths score
-        (default Viterbi best path)
+
+    Args:
+        tpost `ndarray`: Log transition posteriors to be scored
+        seq: `ndarray`: Integer encoded proposed sequence
+        mod_cats `ndarray`: Integer encoded proposed modified base labels
+        can_mods_offsets: `ndarray`: Offset into modbase transition for each
+            canonical base
+        tpost_start (int): Start position within post (Default: 0)
+        tpost_end (int): end position within post (Default: full posterior)
+        all_paths (bool): Produce the forwards all paths score
+            (default: Viterbi best path)
+
+    Returns:
+        Float score representing probability of proposed sequence
     """
     seq = seq.astype(np.uintp)
     if tpost_end is None:
@@ -811,7 +843,7 @@ def call_read_mods(
         if sig_map_res.ref_out_info.annotate_mods:
             r_mod_seq = annotate_mods(
                 r_ref_pos.start, sig_map_res.ref_seq, r_mod_scores,
-                r_ref_pos.strand, sig_map_res.ref_out_info.mod_thresh)
+                r_ref_pos.strand, mods_info.mod_thresh)
             invalid_chars = set(r_mod_seq).difference(
                 sig_map_res.ref_out_info.alphabet)
             if len(invalid_chars) > 0:
@@ -832,14 +864,14 @@ def call_read_mods(
 
 def _get_mods_queue(
         mods_q, mods_conn, mods_db_fn, db_safety, ref_names_and_lens, ref_fn,
-        mods_txt_fn, pr_refs_fn, ref_out_info, mod_map_fn, pos_index_in_memory,
-        mod_long_names):
+        mods_txt_fn, pr_refs_fn, ref_out_info, mod_map_fns, map_fmt,
+        mods_info):
     def write_mod_alignment(
-            read_id, mod_seq, mod_quals, chrm, strand, r_st):
+            read_id, mod_seq, mod_quals, chrm, strand, r_st, mod_base):
         a = pysam.AlignedSegment()
         a.query_name = read_id
         a.flag = 0 if strand == 1 else 16
-        a.reference_id = mod_map_fp.get_tid(chrm)
+        a.reference_id = mod_map_fps[mod_base].get_tid(chrm)
         a.reference_start = r_st
         a.template_length = len(mod_seq)
         a.mapping_quality = MOD_MAP_MAX_QUAL
@@ -852,7 +884,7 @@ def _get_mods_queue(
         a.query_sequence = mod_seq
         a.query_qualities = array('B', mod_quals)
         a.cigartuples = [(0, len(mod_seq)), ]
-        mod_map_fp.write(a)
+        mod_map_fps[mod_base].write(a)
 
     def store_mod_call(
             r_mod_scores,  read_id, chrm, strand, r_start, ref_seq,
@@ -886,14 +918,18 @@ def _get_mods_queue(
             pr_refs_fn is not None and
             mapping.read_passes_filters(
                 ref_out_info, read_len, q_st, q_en, cigar))
-        if mod_map_fn is not None or do_output_pr_ref:
-            mod_seq, mod_quals = annotate_mods(
-                r_start, ref_seq, r_mod_scores, strand)
         if do_output_pr_ref:
+            mod_seq, mod_quals = annotate_mods(
+                r_start, ref_seq, r_mod_scores, strand, mods_info.mod_thresh)
             pr_refs_fp.write('>{}\n{}\n'.format(read_id, mod_seq))
-        if mod_map_fn is not None:
-            write_mod_alignment(
-                read_id, mod_seq, mod_quals, chrm, strand, r_start)
+        if mod_map_fns is not None:
+            for mod_base, _ in mods_info.mod_long_names:
+                mod_seq, mod_quals = annotate_mods(
+                    r_start, ref_seq, r_mod_scores, strand,
+                    mods_info.mod_thresh, mod_base, mods_info.map_base_conv)
+                write_mod_alignment(
+                    read_id, mod_seq, mod_quals, chrm, strand, r_start,
+                    mod_base)
 
         return been_warned
 
@@ -906,9 +942,9 @@ def _get_mods_queue(
     been_warned = False
 
     mods_db = ModsDb(mods_db_fn, db_safety=db_safety, read_only=False,
-                     pos_index_in_memory=pos_index_in_memory)
+                     pos_index_in_memory=mods_info.pos_index_in_memory)
     mods_db.insert_chrms(ref_names_and_lens)
-    mods_db.insert_mod_long_names(mod_long_names)
+    mods_db.insert_mod_long_names(mods_info.mod_long_names)
     mods_db.create_chrm_index()
     LOGGER.debug(('mod_getter: in_mem_indices: chrm: {} pos: {} mods: {} ' +
                   'uuid: {}').format(
@@ -924,23 +960,21 @@ def _get_mods_queue(
     if pr_refs_fn is not None:
         pr_refs_fp = open(pr_refs_fn, 'w')
 
-    if mod_map_fn is not None:
-        _, map_fmt = os.path.splitext(mod_map_fn)
-        if map_fmt == '.bam':
-            w_mode = 'wb'
-        elif map_fmt == '.cram':
-            w_mode = 'wc'
-        elif map_fmt == '.sam':
-            w_mode = 'w'
-        else:
+    if mod_map_fns is not None:
+        try:
+            w_mode = mh.MAP_OUT_WRITE_MODES[map_fmt]
+        except KeyError:
             raise mh.MegaError('Invalid mapping output format')
         header = {
             'HD': {'VN': '1.4'},
             'SQ': [{'LN': ref_len, 'SN': ref_name}
                    for ref_name, ref_len in sorted(zip(*ref_names_and_lens))],
             'RG': [{'ID': MOD_MAP_RG_ID, 'SM': SAMPLE_NAME}, ]}
-        mod_map_fp = pysam.AlignmentFile(
-            mod_map_fn, w_mode, header=header, reference_filename=ref_fn)
+        mod_map_fps = dict((
+            (mod_base, pysam.AlignmentFile(
+                mod_map_fn + map_fmt, w_mode, header=header,
+                reference_filename=ref_fn))
+            for mod_base, mod_map_fn in mod_map_fns))
 
     LOGGER.debug('mod_getter: init complete')
 
@@ -1023,6 +1057,15 @@ class ModInfo(object):
                     return False
         return True
 
+    def _parse_map_base_conv(self):
+        if self.map_base_conv_raw is None:
+            self.map_base_conv = None
+        else:
+            # create conversion dicationary for translate function
+            from_bases = [ord(fb) for fb, tb in self.map_base_conv_raw]
+            to_bases = [ord(tb) for fb, tb in self.map_base_conv_raw]
+            self.map_base_conv = dict(zip(from_bases, to_bases))
+
     def _parse_mod_motifs(self, all_mod_motifs_raw):
         # note only works for mod_refactor models currently
         self.all_mod_motifs = []
@@ -1057,15 +1100,13 @@ class ModInfo(object):
                     'One provided motif can be found within another motif. ' +
                     'Only distinct sets of motifs are accepted')
 
-        return
-
     def __init__(
             self, model_info, all_mod_motifs_raw=None, mod_all_paths=False,
             write_mods_txt=None, mod_context_bases=None,
             do_output_mods=False, mods_calib_fn=None,
             mod_output_fmts=[mh.MOD_BEDMETHYL_NAME],
             edge_buffer=mh.DEFAULT_EDGE_BUFFER, pos_index_in_memory=True,
-            agg_info=DEFAULT_AGG_INFO):
+            agg_info=DEFAULT_AGG_INFO, mod_thresh=0.0, map_base_conv=None):
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other alphabet info
         # don't want to pass all of these parameters around individually though
@@ -1078,8 +1119,10 @@ class ModInfo(object):
         self.calib_table = calibration.ModCalibrator(mods_calib_fn)
         self.mod_output_fmts = mod_output_fmts
         self.edge_buffer = edge_buffer
-        self.agg_info = agg_info
         self.pos_index_in_memory = pos_index_in_memory
+        self.agg_info = agg_info
+        self.mod_thresh = mod_thresh
+        self.map_base_conv_raw = map_base_conv
 
         self.alphabet = model_info.can_alphabet
         self.ncan_base = len(self.alphabet)
@@ -1121,8 +1164,7 @@ class ModInfo(object):
 
         # parse mod motifs or use "swap" base if no motif provided
         self._parse_mod_motifs(all_mod_motifs_raw)
-
-        return
+        self._parse_map_base_conv()
 
     def calibrate_llr(self, score, mod_base):
         return self.calib_table.calibrate_llr(score, mod_base)

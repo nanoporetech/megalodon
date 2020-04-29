@@ -308,25 +308,26 @@ def post_process_mapping(map_bn, map_fmt, ref_fn):
     return map_p, map_sort_fn
 
 
-def start_sort_mapping_procs(outputs, out_dir, map_out_fmt, ref_fn):
-    map_p = mod_map_p = var_map_p = var_sort_fn = None
+def start_sort_mapping_procs(outputs, out_dir, map_out_fmt, ref_fn, mlns):
+    map_p = mod_map_ps = var_map_p = var_sort_fn = None
     if mh.MAP_NAME in outputs:
         LOGGER.info('Spawning process to sort mappings')
         map_p, _ = post_process_mapping(
             mh.get_megalodon_fn(out_dir, mh.MAP_NAME), map_out_fmt, ref_fn)
     if mh.MOD_MAP_NAME in outputs:
         LOGGER.info('Spawning process to sort modified base mappings')
-        mod_map_p, _ = post_process_mapping(
-            mh.get_megalodon_fn(out_dir, mh.MOD_MAP_NAME), map_out_fmt, ref_fn)
+        mod_map_ps = [post_process_mapping(
+            '{}.{}'.format(mh.get_megalodon_fn(out_dir, mh.MOD_MAP_NAME), mln),
+            map_out_fmt, ref_fn)[0] for _, mln in mlns]
     if mh.VAR_MAP_NAME in outputs:
         LOGGER.info('Spawning process to sort variant mappings')
         var_map_p, var_sort_fn = post_process_mapping(
             mh.get_megalodon_fn(out_dir, mh.VAR_MAP_NAME), map_out_fmt, ref_fn)
-    return map_p, mod_map_p, var_map_p, var_sort_fn
+    return map_p, mod_map_ps, var_map_p, var_sort_fn
 
 
 def get_map_procs(
-        map_p, mod_map_p, var_map_p, var_sort_fn, index_variant_fn,
+        map_p, mod_map_ps, var_map_p, var_sort_fn, index_variant_fn,
         variant_fn):
     if var_map_p is not None:
         if var_map_p.is_alive():
@@ -337,10 +338,10 @@ def get_map_procs(
             LOGGER.info(variants.get_whatshap_command(
                 index_variant_fn, var_sort_fn,
                 mh.add_fn_suffix(variant_fn, 'phased')))
-    if mod_map_p is not None:
-        if mod_map_p.is_alive():
+    if mod_map_ps is not None:
+        if any(mod_map_p.is_alive() for mod_map_p in mod_map_ps):
             LOGGER.info('Waiting for modified base mappings sort')
-            while mod_map_p.is_alive():
+            while any(mod_map_p.is_alive() for mod_map_p in mod_map_ps):
                 sleep(0.001)
     if map_p is not None:
         if map_p.is_alive():
@@ -603,17 +604,18 @@ def process_all_reads(
     if mh.PR_MOD_NAME in outputs:
         pr_refs_fn = mh.get_megalodon_fn(out_dir, mh.PR_REF_NAME) if (
             mh.PR_REF_NAME in outputs and ref_out_info.annotate_mods) else None
-        mod_map_fn = (
-            mh.get_megalodon_fn(out_dir, mh.MOD_MAP_NAME) + '.' +
-            aligner.out_fmt) if mh.MOD_MAP_NAME in outputs else None
+        mod_map_fns = ((mod_base, '{}.{}.'.format(
+            mh.get_megalodon_fn(out_dir, mh.MOD_MAP_NAME), mln,
+            )) for mod_base, mln in mods_info.mod_long_names) \
+            if mh.MOD_MAP_NAME in outputs else None
         mods_txt_fn = (mh.get_megalodon_fn(out_dir, mh.PR_MOD_TXT_NAME)
                        if mods_info.write_mods_txt else None)
         getter_qs[mh.PR_MOD_NAME] = mh.create_getter_q(
             mods._get_mods_queue, (
                 mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME), db_safety,
                 aligner.ref_names_and_lens, aligner.ref_fn, mods_txt_fn,
-                pr_refs_fn, ref_out_info, mod_map_fn,
-                mods_info.pos_index_in_memory, mods_info.mod_long_names))
+                pr_refs_fn, ref_out_info, mod_map_fns, aligner.out_fmt,
+                mods_info))
     if mh.SIG_MAP_NAME in outputs:
         alphabet_info = signal_mapping.get_alphabet_info(
             ref_out_info.alphabet, ref_out_info.collapse_alphabet,
@@ -831,7 +833,8 @@ def parse_mod_args(args, model_info):
         args.write_mods_text, args.mod_context_bases,
         mh.BC_MODS_NAME in args.outputs, mod_calib_fn,
         args.mod_output_formats, args.edge_buffer,
-        not args.mod_positions_on_disk, agg_info)
+        not args.mod_positions_on_disk, agg_info, args.ref_mod_threshold,
+        args.mod_map_base_conv)
     return args, mods_info
 
 
@@ -891,10 +894,6 @@ def parse_ref_out_args(args, model_info):
                 '--ref-include-mods and --ref-mods-all-motifs are not ' +
                 'compatible. Ignoring --ref-include-mods')
             args.ref_include_mods = False
-        if args.ref_mod_threshold and not args.ref_include_mods:
-            LOGGER.warning(
-                '--ref-mod-threshold but not --ref-include-mods set. ' +
-                'Ignoring --ref-mod-threshold.')
 
     sm_alphabet_info = None
     if mh.SIG_MAP_NAME in args.outputs:
@@ -928,7 +927,6 @@ def parse_ref_out_args(args, model_info):
         for arg_val, arg_str in (
                 (args.ref_mods_all_motifs, '--ref-mods-all-motifs'),
                 (args.ref_length_range, '--ref-length-range'),
-                (args.ref_mod_threshold, '--ref-mod-thresh'),
                 (args.ref_percent_identity_threshold,
                  '--ref-percent-identity-threshold'),
                 (args.ref_percent_coverage_threshold,
@@ -954,8 +952,6 @@ def parse_ref_out_args(args, model_info):
     if args.ref_mods_all_motifs is not None:
         ref_mods_all_motifs, sm_alphabet_info = parse_ref_mods_all_motifs(
             args.ref_mods_all_motifs, sm_alphabet_info)
-    mod_thresh = (0.0 if args.ref_mod_threshold is None else
-                  args.ref_mod_threshold)
 
     sm_alphabet = sm_coll_alphabet = sm_mlns = None
     if sm_alphabet_info is not None:
@@ -968,7 +964,7 @@ def parse_ref_out_args(args, model_info):
         min_len=min_len, max_len=max_len, alphabet=sm_alphabet,
         collapse_alphabet=sm_coll_alphabet, mod_long_names=sm_mlns,
         annotate_mods=do_annotate_mods,
-        annotate_vars=args.ref_include_variants, mod_thresh=mod_thresh,
+        annotate_vars=args.ref_include_variants,
         output_sig_maps=output_sig_maps, output_pr_refs=output_pr_refs,
         ref_mods_all_motifs=ref_mods_all_motifs)
 
@@ -1255,11 +1251,21 @@ def get_parser():
                          'base code] [modified base long name] ' +
                          '[canonical motif] [mod position relative to motif]'))
     sigmap_grp.add_argument(
-        '--ref-mod-threshold', type=float,
+        '--ref-mod-threshold', type=float, default=0.0,
         help=hidden_help('Threshold (log(can_prob/mod_prob)) used to ' +
                          'annotate a modified bases in signal_mappings/' +
                          'per_read_refs output. See ' +
-                         'scripts/compute_mod_thresh_score.py'))
+                         'scripts/compute_mod_thresh_score.py. ' +
+                         'Default: %(default)f'))
+
+    modmap_grp = parser.add_argument_group('Mod Mapping Arguments')
+    # TODO add official output type once finalized in hts-specs #418
+    modmap_grp.add_argument(
+        '--mod-map-base-conv', action='append', nargs=2,
+        metavar=('FROM_BASE', 'TO_BASE'),
+        help=hidden_help('For mod_mappings output, convert called bases. ' +
+                         'For example, to mimic bisulfite output use: ' +
+                         '"--mod-map-base-conv C T --mod-map-base-conv Z C"'))
 
     misc_grp = parser.add_argument_group('Miscellaneous Arguments')
     misc_grp.add_argument(
@@ -1343,8 +1349,9 @@ def _main():
         del aligner
 
     # start mapping processes before other post-per-read tasks
-    map_p, mod_map_p, var_map_p, var_sort_fn = start_sort_mapping_procs(
-        args.outputs, args.output_directory, map_out_fmt, ref_fn)
+    map_p, mod_map_ps, var_map_p, var_sort_fn = start_sort_mapping_procs(
+        args.outputs, args.output_directory, map_out_fmt, ref_fn,
+        mods_info.mod_long_names)
 
     if mh.VAR_NAME in args.outputs or mh.MOD_NAME in args.outputs:
         aggregate.aggregate_stats(
@@ -1363,7 +1370,8 @@ def _main():
         index_variant_fn = variants.index_variants(sort_variant_fn)
 
     get_map_procs(
-        map_p, mod_map_p, var_map_p, var_sort_fn, index_variant_fn, variant_fn)
+        map_p, mod_map_ps, var_map_p, var_sort_fn, index_variant_fn,
+        variant_fn)
 
 
 if __name__ == '__main__':
