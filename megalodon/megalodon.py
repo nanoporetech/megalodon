@@ -1009,10 +1009,10 @@ def get_parser():
     pyg_grp.add_argument(
         '--guppy-server-path', default=backends.DEFAULT_GUPPY_SERVER_PATH,
         help='Path to guppy server executable. Default: %(default)s')
+
     pyg_grp.add_argument(
         '--guppy-server-port', type=int,
-        help='Guppy server port. Default: Guppy auto')
-
+        help=hidden_help('Guppy server port. Default: Guppy auto'))
     pyg_grp.add_argument(
         '--do-not-use-guppy-server', action='store_true',
         help=hidden_help('Use alternative basecalling backend (either ' +
@@ -1303,8 +1303,8 @@ def get_parser():
                          'within the fast5 directory. Default: search ' +
                          'recursively'))
     misc_grp.add_argument(
-        '--suppress-progress', action='store_true',
-        help=hidden_help('Suppress progress bar output.'))
+        '--suppress-progress-bars', action='store_true',
+        help=hidden_help('Suppress progress bars output.'))
     misc_grp.add_argument(
         '--suppress-queues-status', action='store_true',
         help=hidden_help('Suppress dynamic status of output queues. Helpful ' +
@@ -1339,9 +1339,9 @@ def _main():
             args.fast5s_dir, not args.not_recursive, args.num_reads,
             args.read_ids_filename, model_info, args.outputs,
             args.output_directory, args.basecalls_format, aligner, vars_data,
-            args.processes, args.verbose_read_progress, args.suppress_progress,
-            mods_info, args.database_safety, ref_out_info,
-            not args.suppress_queues_status)
+            args.processes, args.verbose_read_progress,
+            args.suppress_progress_bars, mods_info, args.database_safety,
+            ref_out_info, not args.suppress_queues_status)
 
     if aligner is not None:
         ref_fn = aligner.ref_fn
@@ -1358,7 +1358,7 @@ def _main():
             args.outputs, args.output_directory, args.processes,
             args.write_vcf_log_probs, args.heterozygous_factors,
             vars_data.call_mode, mods_info.agg_info, args.write_mod_log_probs,
-            mods_info.mod_output_fmts, args.suppress_progress)
+            mods_info.mod_output_fmts, args.suppress_progress_bars)
 
     variant_fn = index_variant_fn = None
     if mh.VAR_NAME in args.outputs:
