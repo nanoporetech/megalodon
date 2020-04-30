@@ -27,16 +27,46 @@ Mapping
 Mapped reads can be output in SAM, BAM or CRAM formats.
 Basecalls will be output into the ``mappings.sam``, ``mappings.bam``, or ``mappings.cram`` file within the ``--output-directory``.
 
-~~~~~~~~~~~~~~~~
-Whatshap Mapping
-~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~
+Variant Mapping
+~~~~~~~~~~~~~~~
 
 In addition to standard mapping files, megalodon includes a special mapping-style output with specific relevence to the variant calling pipeline.
-This format can be output as a SAM, BAM or CRAM file as with standard mapping format.
+This format can be output as a SAM, BAM or CRAM file as with standard mapping format (as specified by the ``--mappings-format`` argument).
 The mapped reads in this output represent only the information about proposed variants contained within each read.
-Each read is first replaced with the reference bases, with only positions with proposed variants replaced with variants calls.
+Each read includes the mapped reference bases with only the called variants annotated.
 The score for each call is encoded in the base quality scores for each read.
+Bases without a proposed variant will contain a quality score of ``40``.
+Note that storage of insertion probabilities is not supported by the SAM/BAM format, so these score are lost in this format.
 This output is useful for 1) producing more accuracte variant phasing and read haplotagging via whatshap and 2) visualizing per-read variant calls in a genome browser.
+
+~~~~~~~~~~~~~~~~~~~~~
+Modified Base Mapping
+~~~~~~~~~~~~~~~~~~~~~
+
+This option will output a file for each modified base represented in the basecalling model.
+This format can be output as a SAM, BAM or CRAM file as with standard mapping format (as specified by the ``--mappings-format`` argument).
+The mapped reads in this output represent only the information about modified bases contained within each read.
+Each read includes the mapped reference bases with only the called modified bases annotated.
+The quality score for each called base (whether called as modified or canonical) represent the probability of a modified status and not the canonical base probability (as specified by the SAM format).
+Bases without a proposed modified base will contain a quality score of ``40``.
+
+In addition, the ``--mod-map-base-conv`` is provided to modulate the bases output by this format.
+This is option useful since the BAM format does support modified bases and will convert all alternative bases to ``N``s for storage in BAM/CRAM format.
+For example, to mimic bisulfite output use: ``--mod-map-base-conv C T --mod-map-base-conv Z C``
+This can then be visualized by a genome browser as with standard bisulfite data.
+
+----
+
+.. figure::  _images/mod_mapping_viz.png
+   :align: center
+   :width: 600
+
+   Genome browser visualization. Megalodon mod_mappings output.
+
+----
+
+Note modified base formats recently specified by hts-specs (``MM`` and ``ML`` tags) are in planning to be included in a future release.
 
 -----------------------
 Per-read Modified Bases
