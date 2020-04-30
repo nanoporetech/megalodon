@@ -2,12 +2,12 @@
 Megalodon Model Training
 ************************
 
-This page describes how to use megalodon to prepare training data and train a new basecalling model using taiyaki.
+This page describes how to use Megalodon to prepare training data and train a new basecalling model using Taiyaki.
 
 .. note::
 
-   Preparation of training data via megalodon requires a basecalling model that can produce valid reference mappings.
-   If reference valid mappings cannot be produced for a set of reads, model training will not proceed successfully.
+   Preparation of training data via Megalodon requires a basecalling model that can produce valid reference mappings.
+   If valid reference mappings using ``minimap2`` cannot be produced for a set of reads, model training will not proceed successfully.
 
 ----------------
 Data Preparation
@@ -16,7 +16,7 @@ Data Preparation
 Data preparation involves adding the ``--outputs signal_mappings`` argument to a megalodon call.
 This will produce a ``signal_mappings.hdf5`` file in the specified megalodon output directory.
 For each read producing a valid reference mapping, this file contains a mapping between the raw signal and the mapped reference bases.
-This file can then be directly passed to the taiyaki ``train_flipflop.py`` command for model training.
+This file can then be directly passed to the Taiyaki ``train_flipflop.py`` command for model training.
 
 ::
 
@@ -102,10 +102,11 @@ Random sequence variants are proposed and scored in order to create distribution
 In order to create a sequence variant calbration file, run ``megalodon/scripts/generate_ground_truth_variant_llr_scores.py`` followed by ``megalodon/scripts/calibrate_variant_llr_scores.py``.
 The optional ``--out-pdf`` provides visualization of the likelihood ratio score correction.
 
-For modified bases a ground truth containing known modified reference sites as well as known canonical base sites is required.
+# TODO: move modbase training to a new docs page
+For modified bases, a ground truth containing known modified reference sites as well as known canonical base sites is required.
 Similarly to sequence variant calibration, a modified base calibration file is created by running ``megalodon/scripts/generate_ground_truth_mod_llr_scores.py`` followed by ``megalodon/scripts/calibrate_mod_llr_scores.py``.
 It is recommended that modified base calibration sites be specified by passing a CSV flie containing the known modified and canonical sites.
-Modified base ground truths can also be specified by passing a control sample as well as specifying a prefix for all modified base reference mappings.
+Modified base ground truths can also be specified by passing a control sample.
+When a control sample is specified all sites in the first sample are assumed to be modified.
 
-Currently the per-read text output is required to compute calibration files.
-In the future, calibration files will be able to be computed from the database files to avoid I/O issues surrounding text file output.
+Calibration files are computed from the database files, so there is no need to output per-read text files for calibration.
