@@ -2,10 +2,11 @@ import os
 import sys
 import shutil
 import pkg_resources
+from tqdm import tqdm
 import multiprocessing as mp
 from abc import ABC, abstractmethod
-from collections import namedtuple, OrderedDict
 from multiprocessing.queues import Queue as mpQueue
+from collections import defaultdict, namedtuple, OrderedDict
 
 import numpy as np
 
@@ -43,6 +44,10 @@ SEQ_TO_INT_ARR[0] = 0
 SEQ_TO_INT_ARR[2] = 1
 SEQ_TO_INT_ARR[6] = 2
 SEQ_TO_INT_ARR[19] = 3
+SINGLE_LETTER_CODE = {
+    'A': 'A', 'C': 'C', 'G': 'G', 'T': 'T', 'B': 'CGT', 'D': 'AGT', 'H': 'ACT',
+    'K': 'GT', 'M': 'AC', 'N': 'ACGT', 'R': 'AG', 'S': 'CG', 'V': 'ACG',
+    'W': 'AT', 'Y': 'CT'}
 
 _MAX_QUEUE_SIZE = 10000
 
@@ -66,13 +71,18 @@ BC_OUT_FMTS = ('fastq', 'fasta')
 BC_MODS_NAME = 'mod_basecalls'
 MAP_NAME = 'mappings'
 MAP_SUMM_NAME = 'mappings_summary'
-MAP_OUT_FMTS = ('bam', 'cram', 'sam')
+MAP_OUT_BAM = 'bam'
+MAP_OUT_CRAM = 'cram'
+MAP_OUT_SAM = 'sam'
+MAP_OUT_FMTS = (MAP_OUT_BAM, MAP_OUT_CRAM, MAP_OUT_SAM)
+MAP_OUT_WRITE_MODES = {MAP_OUT_BAM: 'wb', MAP_OUT_CRAM: 'wc', MAP_OUT_SAM: 'w'}
 PR_VAR_NAME = 'per_read_variants'
 PR_VAR_TXT_NAME = 'per_read_variants_text'
-WHATSHAP_MAP_NAME = 'whatshap_mappings'
+VAR_MAP_NAME = 'variant_mappings'
 VAR_NAME = 'variants'
 PR_MOD_NAME = 'per_read_mods'
 PR_MOD_TXT_NAME = 'per_read_mods_text'
+MOD_MAP_NAME = 'mod_mappings'
 MOD_NAME = 'mods'
 SIG_MAP_NAME = 'signal_mappings'
 PR_REF_NAME = 'per_read_refs'
@@ -84,9 +94,10 @@ OUTPUT_FNS = {
     PR_VAR_NAME: 'per_read_variant_calls.db',
     PR_VAR_TXT_NAME: 'per_read_variant_calls.txt',
     VAR_NAME: 'variants.vcf',
-    WHATSHAP_MAP_NAME: 'whatshap_mappings',
+    VAR_MAP_NAME: 'variant_mappings',
     PR_MOD_NAME: 'per_read_modified_base_calls.db',
     PR_MOD_TXT_NAME: 'per_read_modified_base_calls.txt',
+    MOD_MAP_NAME: 'mod_mappings',
     MOD_NAME: 'modified_bases',
     SIG_MAP_NAME: 'signal_mappings.hdf5',
     PR_REF_NAME: 'per_read_references.fasta'
@@ -99,10 +110,10 @@ OUTPUT_DESCS = OrderedDict([
     (MAP_NAME, 'Mapped reads (BAM/CRAM/SAM)'),
     (PR_VAR_NAME, 'Per-read, per-site sequence variant scores database'),
     (VAR_NAME, 'Sample-level aggregated sequence variant calls (VCF)'),
-    (WHATSHAP_MAP_NAME,
-     'Sequence variant annotated mappings for use with whatshap'),
+    (VAR_MAP_NAME, 'Per-read mappings annotated with variant calls'),
     (PR_MOD_NAME, 'Per-read, per-site modified base scores database'),
     (MOD_NAME, 'Sample-level aggregated modified base calls (modVCF)'),
+    (MOD_MAP_NAME, 'Per-read mappings annotated with modified base calls'),
     (SIG_MAP_NAME, 'Signal mappings for taiyaki model training (HDF5)'),
     (PR_REF_NAME, 'Per-read reference sequence for model training (FASTA)')
 ])
@@ -122,21 +133,24 @@ MOD_OUTPUT_EXTNS = {
     MOD_WIG_NAME: 'wig'
 }
 
-ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, SIG_MAP_NAME, PR_VAR_NAME,
-                     VAR_NAME, WHATSHAP_MAP_NAME, PR_MOD_NAME, MOD_NAME))
+ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, SIG_MAP_NAME,
+                     PR_VAR_NAME, VAR_NAME, VAR_MAP_NAME,
+                     PR_MOD_NAME, MOD_NAME, MOD_MAP_NAME))
 GETTER_PROC = namedtuple('getter_proc', ('queue', 'proc', 'conn'))
 
 REF_OUT_INFO = namedtuple('ref_out_info', (
     'pct_idnt', 'pct_cov', 'min_len', 'max_len', 'alphabet',
-    'collapse_alphabet', 'annotate_mods', 'annotate_vars', 'mod_thresh',
-    'output_sig_maps', 'output_pr_refs'))
-REF_OUT_INFO.__new__.__defaults__ = (None, None, None, None, False, False)
+    'collapse_alphabet', 'mod_long_names', 'annotate_mods', 'annotate_vars',
+    'output_sig_maps', 'output_pr_refs', 'ref_mods_all_motifs'))
 
 # directory names define model preset string
 # currently only one model trained
 MODEL_DATA_DIR_NAME = 'model_data'
 VAR_CALIBRATION_FN = 'megalodon_variant_calibration.npz'
 MOD_CALIBRATION_FN = 'megalodon_mod_calibration.npz'
+
+TRUE_TEXT_VALUES = set(('y', 'yes', 't', 'true', 'on', '1'))
+FALSE_TEXT_VALUES = set(('n', 'no', 'f', 'false', 'off', '0'))
 
 
 class MegaError(Exception):
@@ -193,6 +207,12 @@ def int_to_seq(np_seq, alphabet=ALPHABET):
     return ''.join(alphabet[b] for b in np_seq)
 
 
+def rolling_window(a, size):
+    shape = a.shape[:-1] + (a.shape[-1] - size + 1, size)
+    strides = a.strides + (a. strides[-1],)
+    return np.lib.stride_tricks.as_strided(a, shape=shape, strides=strides)
+
+
 #######################
 # Filename Extraction #
 #######################
@@ -227,6 +247,13 @@ def mkdir(out_dir, overwrite):
     os.mkdir(out_dir)
 
     return
+
+
+def log_prob_to_phred(log_prob, ignore_np_divide=True):
+    if ignore_np_divide:
+        with np.errstate(divide='ignore'):
+            return -10 * np.log10(1 - np.exp(log_prob))
+    return -10 * np.log10(1 - np.exp(log_prob))
 
 
 ############################
@@ -284,7 +311,7 @@ def get_supported_configs_message():
         'megalodon', MODEL_DATA_DIR_NAME)))
     if len(configs) == 0:
         return ('No guppy config calibration files found. Check that ' +
-                'megalodon installation is valid.')
+                'megalodon installation is valid.\n')
     out_msg = ('Megalodon support for guppy configs (basecalling and ' +
                'mapping supported for flip-flop configs):\n' +
                'Variant Support    Modbase Support    Config\n')
@@ -389,6 +416,144 @@ def med_mad(data, factor=None, axis=None, keepdims=False):
         dmed = dmed.squeeze(axis)
         dmad = dmad.squeeze(axis)
     return dmed, dmad
+
+
+#####################
+# File-type Parsers #
+#####################
+
+def str_strand_to_int(strand_str):
+    """ Convert string stand representation to integer +/-1 as used in
+    minimap2/mappy
+    """
+    if strand_str == '+':
+        return 1
+    elif strand_str == '-':
+        return -1
+    return None
+
+
+def int_strand_to_str(strand_str):
+    """ Convert string stand representation to integer +/-1 as used in
+    minimap2/mappy
+    """
+    if strand_str == 1:
+        return '+'
+    elif strand_str == -1:
+        return '-'
+    return '.'
+
+
+def parse_beds(bed_fns, ignore_strand=False, show_prog_bar=True):
+    """ Parse bed files.
+
+    Arguments:
+        bed_fns: Iterable containing bed paths
+        ignore_strand: Set strand values to None
+
+    Returns:
+        Dictionary with keys (chromosome, strand) and values with set of
+        0-based coordiantes.
+    """
+    sites = defaultdict(set)
+    for bed_fn in bed_fns:
+        with open(bed_fn) as bed_fp:
+            bed_iter = (tqdm(bed_fp, desc=bed_fn, smoothing=0)
+                        if show_prog_bar else bed_fp)
+            for line in bed_iter:
+                chrm, start, _, _, _, strand = line.split()[:6]
+                start = int(start)
+                store_strand = None if ignore_strand else \
+                    int_strand_to_str(strand)
+                sites[(chrm, store_strand)].add(start)
+
+    # convert to standard dict
+    sites = dict(sites)
+
+    return sites
+
+
+def parse_bed_methyls(bed_fns, strand_offset=None, show_prog_bar=True):
+    """ Parse bedmethyl files and return two dictionaries containing
+    total and methylated coverage. Both dictionaries have top level keys
+    (chromosome, strand) and second level keys with 0-based position.
+
+    Arguments:
+        bed_fns: Iterable containing bed methyl paths
+        strand_offset: Set to aggregate negative strand along with positive
+            strand values. Positive indicates negative strand sites have higher
+            coordinate values.
+    """
+    cov = defaultdict(lambda: defaultdict(int))
+    meth_cov = defaultdict(lambda: defaultdict(int))
+    for bed_fn in bed_fns:
+        with open(bed_fn) as bed_fp:
+            bed_iter = (tqdm(bed_fp, desc=bed_fn, smoothing=0)
+                        if show_prog_bar else bed_fp)
+            for line in bed_iter:
+                (chrm, start, _, _, _, strand, _, _, _, num_reads,
+                 pct_meth) = line.split()
+                start = int(start)
+                # convert to 1/-1 strand storage (matching mappy)
+                store_strand = int_strand_to_str(strand)
+                if strand_offset is not None:
+                    # store both strand counts under None
+                    store_strand = None
+                    # apply offset to reverse strand positions
+                    if strand == '-':
+                        start -= strand_offset
+                num_reads = int(num_reads)
+                if num_reads <= 0:
+                    continue
+                meth_reads = int((float(pct_meth) / 100.0) * num_reads)
+                cov[(chrm, store_strand)][start] += num_reads
+                meth_cov[(chrm, store_strand)][start] += meth_reads
+
+    # convert to standard dicts
+    cov = dict((k, dict(v)) for k, v in cov.items())
+    meth_cov = dict((k, dict(v)) for k, v in meth_cov.items())
+
+    return cov, meth_cov
+
+
+def text_to_bool(val):
+    """ Convert text value to boolean.
+    """
+    lower_val = str(val).lower()
+    if lower_val in TRUE_TEXT_VALUES:
+        return True
+    elif lower_val in FALSE_TEXT_VALUES:
+        return False
+    raise MegaError('Invalid boolean string encountered: "{}".'.format(val))
+
+
+def parse_ground_truth_file(gt_data_fn, include_strand=True):
+    """ Parse a ground truth data file. CSV with chrm, pos, is_mod values.
+    As generated by create_mod_ground_truth.py.
+
+    Args:
+        gt_data_fn (str): Filename to be read and parsed.
+        include_strand (boolean): Include strand values in parsed position
+            values.
+
+    Returns:
+        Two sets of position values. First set is ground truth `True` sites and
+        second are `False` sites. Values are (chrm, strand, pos) if
+        include_strand is True, else values are (chrm, pos). Strand is encoded
+        as +/-1 to match minimap2/mappy strands.
+    """
+    gt_mod_pos = set()
+    gt_can_pos = set()
+    with open(gt_data_fn) as fp:
+        for line in fp:
+            chrm, strand, pos, is_mod = line.strip().split(',')
+            pos_key = (chrm, str_strand_to_int(strand), int(pos)) \
+                if include_strand else (chrm, int(pos))
+            if text_to_bool(is_mod):
+                gt_mod_pos.add(pos_key)
+            else:
+                gt_can_pos.add(pos_key)
+    return gt_mod_pos, gt_can_pos
 
 
 if __name__ == '__main__':
