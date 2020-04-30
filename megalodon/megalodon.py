@@ -1005,9 +1005,6 @@ def get_parser():
         help='Path to guppy server executable. Default: %(default)s')
 
     pyg_grp.add_argument(
-        '--guppy-server-port', type=int,
-        help=hidden_help('Guppy server port. Default: Guppy auto'))
-    pyg_grp.add_argument(
         '--do-not-use-guppy-server', action='store_true',
         help=hidden_help('Use alternative basecalling backend (either ' +
                          'FAST5 --post_out or taiyaki.'))
@@ -1017,6 +1014,9 @@ def get_parser():
                          'optimal performance based on compute environment. ' +
                          'Quote parameters to avoid them being parsed by ' +
                          'megalodon.'))
+    pyg_grp.add_argument(
+        '--guppy-server-port', type=int,
+        help=hidden_help('Guppy server port. Default: Guppy auto'))
     pyg_grp.add_argument(
         '--guppy-timeout', type=float, default=backends.DEFAULT_GUPPY_TIMEOUT,
         help=hidden_help('Timeout to wait for guppy server to call a single ' +

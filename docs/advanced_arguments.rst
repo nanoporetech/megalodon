@@ -14,6 +14,10 @@ Guppy Backend Argument
   - Extra guppy server parameters.
   - Main purpose for optimal performance based on compute environment.
   - Quote parameters to avoid them being parsed by megalodon.
+- ``--guppy-server-port``
+
+  - Guppy server port.
+  - Default: ``auto``
 - ``--guppy-timeout``
 
   - Timeout to wait for guppy server to call a single read in seconds.
@@ -28,7 +32,7 @@ Output Arguments
 
 - ``--basecalls-format``
 
-  - Select either ``fastq`` (default) or ``fasta`` format for basecalls output (if requested).
+  - Select either ``fastq`` (default) or ``fasta`` format for basecalls output.
 - ``--num-reads``
 
   - Number of reads to process. Intended for test runs on a subset.
@@ -154,7 +158,7 @@ Modified Base Arguments
 
       - Canonical log probabilities are included to make processing mutliple modification sites easier to process.
 
-        - Note that the included model does not model such sites, but megalodon is capable of handling these sites (e.g. testing for 5mC and 5hmC simultaneously is supported given a basecalling model).
+        - Megalodon is capable of handling multiple modified bases per site with appropriate model (e.g. testing for 5mC and 5hmC simultaneously is supported given a basecalling model).
     - ``motif`` includes the searched motif (via ``--mod-motif``) as well as the relative modified base position within that motif (e.g. ``CG:0`` for provided ``--mod-motif Z CG 0``).
     - Position is 0-based
 
@@ -214,6 +218,18 @@ This output category is intended for use in generating reference sequences or si
   - Threshold (in ``log(can_prob/mod_prob)`` space) used to annotate a modified bases in ``signal_mappings`` or ``per_read_refs`` outputs.
   - See ``scripts/compute_mod_thresh_score.py`` for help computing this threshold.
   - Requires that `--ref-include-mods`` is set.
+
+---------------------
+Mod Mapping Arguments
+---------------------
+
+- ``--mod-map-base-conv``
+
+  - For ``mod_mappings`` output, convert called bases.
+
+    - For example, to mimic bisulfite output use: ``--mod-map-base-conv C T --mod-map-base-conv Z C``
+    - This is option useful since the BAM format does support modified bases and will convert all alternative bases to ``N``s for storage in BAM/CRAM format.
+  - Note additional formats may be supported in the future once finalized in hts-specs.
 
 -----------------------
 Miscellaneous Arguments
