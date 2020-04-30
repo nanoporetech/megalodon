@@ -18,6 +18,19 @@ SIG_MAP_RESULT = namedtuple('SIG_MAP_RESULT', (
     'read_id', 'r_to_q_poss', 'rl_cumsum', 'ref_pos', 'ref_out_info'))
 
 
+def set_all_motif_mods(int_ref, ref_mods_all_motifs, collapse_alphabet):
+    ref_mod_pos, ref_mods = [], []
+    for mod_base, int_mod_base, mln, int_motif, rel_pos in ref_mods_all_motifs:
+        can_base = collapse_alphabet[int_motif[rel_pos]]
+        for pos in np.where(np.all(mh.rolling_window(
+                int_ref, int_motif.shape[0]) == int_motif, axis=1))[0]:
+            ref_mod_pos.append(pos + rel_pos)
+            ref_mods.append(int_mod_base)
+    if len(ref_mod_pos) > 0:
+        int_ref[ref_mod_pos] = ref_mods
+    return int_ref
+
+
 def get_remapping(
         sig_fn, dacs, scale_params, ref_seq, stride, read_id, r_to_q_poss,
         rl_cumsum, r_ref_pos, ref_out_info):
@@ -50,12 +63,21 @@ def get_remapping(
     except Exception:
         raise mh.MegaError('Invalid reference sequence encountered')
 
+    # annotate and/or apply mod diffs
+    if ref_out_info.ref_mods_all_motifs is not None:
+        # annotate all mod base motif positions with alts
+        int_ref = set_all_motif_mods(
+            remapping.integer_reference, ref_out_info.ref_mods_all_motifs,
+            ref_out_info.collapse_alphabet)
+        # set new Reference with mods annotated
+        remapping.integer_reference = int_ref
+
     return (remapping.get_read_dictionary(
         shift_from_pA, scale_from_pA, read_id),
             prepare_mapping_funcs.RemapResult.SUCCESS)
 
 
-def get_alphabet_info(model_info):
+def get_alphabet_info_from_model(model_info):
     flat_alphabet = model_info.output_alphabet[0]
     can_base = model_info.output_alphabet[0]
     for base in model_info.output_alphabet[1:]:
@@ -67,6 +89,11 @@ def get_alphabet_info(model_info):
     return alphabet.AlphabetInfo(
         model_info.output_alphabet, flat_alphabet,
         mod_long_names, do_reorder=True)
+
+
+def get_alphabet_info(output_alphabet, collapse_alphabet, mod_long_names):
+    return alphabet.AlphabetInfo(
+        output_alphabet, collapse_alphabet, mod_long_names, do_reorder=True)
 
 
 def write_signal_mappings(sig_map_q, sig_map_conn, sig_map_fn, alphabet_info):

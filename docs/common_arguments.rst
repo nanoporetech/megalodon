@@ -26,12 +26,6 @@ Guppy Backend Argument
   - Path to guppy server executable.
   - Default: ``./ont-guppy/bin/guppy_basecall_server``
 
-- ``--guppy-server-port``
-
-  - Guppy server port.
-  - Useful when running multiple instances of ``guppy_basecall_server`` or ``megalodon`` on the same machine.
-  - Default: ``5555``
-
 ----------------
 Output Arguments
 ----------------
@@ -39,13 +33,20 @@ Output Arguments
 - ``--outputs``
 
   - Specify desired outputs.
-  - Options are ``basecalls``, ``mod_basecalls``, ``mappings``, ``whatshap_mappings``, ``per_read_variants``, ``per_read_mods``, ``variants``, and ``mods``.
+  - Options are ``basecalls``, ``mod_basecalls``, ``mappings``, ``variant_mappings``, ``mod_mappings``, ``per_read_variants``, ``per_read_mods``, ``variants``, and ``mods``.
 
     - ``mod_basecalls`` are currently output in an HDF5 file with a data set corresponding to each read (accessed via the ``read_id``).
-    - ``whatshap_mappings`` are intended only for obtaining highly accurate phased variant genotypes.
+
+      - This format is likely to change in the future.
+    - ``variant_mappings`` are intended only for obtaining highly accurate phased variant genotypes.
 
       - These mappings contain reference sequence at all positions except for per-read called variants. The base quality scores encode the likelihood for that reference anchored variant for use in the whathap phasing algorithm.
       - This file is useful for visualizing per-read variant calls as well as potential variant phasing.
+    - ``mod_mappings`` provide refernce-anchored per-read modified base calls.
+
+      - These mappings contain the mappedreference sequence annotated with modified base calls at all instances of ``--mod-motif``s.
+      - This file is useful for visualizing per-read modified base calls (e.g. IGV bisulfite mode for CpG calls).
+      - This file may also allow a port to standard bisulfite pipelines that are capable of processing long-reads.
   - Default output is basecalls only.
 - ``--output-directory``
 

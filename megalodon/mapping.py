@@ -12,6 +12,20 @@ from megalodon import megalodon_helper as mh, logging
 
 MAP_POS = namedtuple('MAP_POS', (
     'chrm', 'strand', 'start', 'end', 'q_trim_start', 'q_trim_end'))
+MAP_SUMM = namedtuple('MAP_SUMM', (
+    'read_id', 'pct_identity', 'num_align', 'num_match',
+    'num_del', 'num_ins', 'read_pct_coverage', 'chrom', 'strand',
+    'start', 'end'))
+# Defaults for backwards compatibility when reading
+MAP_SUMM.__new__.__defaults__ = (None, None, None, None, None)
+MAP_SUMM_TMPLT = (
+    '{0.read_id}\t{0.pct_identity:.2f}\t{0.num_align}\t{0.num_match}\t' +
+    '{0.num_del}\t{0.num_ins}\t{0.read_pct_coverage:.2f}\t{0.chrom}\t' +
+    '{0.strand}\t{0.start}\t{0.end}\n')
+MAP_SUMM_TYPES = dict(zip(
+    MAP_SUMM._fields,
+    (str, float, int, int, int, int, float, str, str, int, int)))
+
 LOGGER = logging.get_logger()
 
 
@@ -73,8 +87,9 @@ def _map_read_worker(aligner, map_conn, mo_q):
 
 
 def parse_cigar(r_cigar, strand, ref_len):
+    fill_invalid = -1
     # get each base calls genomic position
-    r_to_q_poss = np.empty(ref_len + 1, dtype=np.int32)
+    r_to_q_poss = np.full(ref_len + 1, fill_invalid, dtype=np.int32)
     # process cigar ops in read direction
     curr_r_pos, curr_q_pos = 0, 0
     cigar_ops = r_cigar if strand == 1 else r_cigar[::-1]
@@ -97,6 +112,10 @@ def parse_cigar(r_cigar, strand, ref_len):
             # padding (shouldn't happen in mappy)
             pass
     r_to_q_poss[curr_r_pos] = curr_q_pos
+    if r_to_q_poss[-1] == fill_invalid:
+        raise mh.MegaError((
+            'Invalid cigar string encountered. Reference length: {}  Cigar ' +
+            'implied reference length: {}').format(ref_len, curr_r_pos))
 
     return r_to_q_poss
 
@@ -115,7 +134,11 @@ def map_read(q_seq, read_id, caller_conn):
         raise mh.MegaError('No alignment')
     chrm, strand, r_st, r_en, q_st, q_en, r_cigar = r_algn
 
-    r_to_q_poss = parse_cigar(r_cigar, strand, r_en - r_st)
+    try:
+        r_to_q_poss = parse_cigar(r_cigar, strand, r_en - r_st)
+    except mh.MegaError as e:
+        LOGGER.debug('Read {} ::: '.format(read_id) + str(e))
+        raise mh.MegaError('Invalid cigar string encountered.')
     r_pos = MAP_POS(
         chrm=chrm, strand=strand, start=r_st, end=r_en,
         q_trim_start=q_st, q_trim_end=q_en)
@@ -203,9 +226,13 @@ def _get_map_queue(
             elif op == 1:
                 nins += op_len
         # compute alignment stats
-        summ_fp.write('{}\t{:.2f}\t{}\t{}\t{}\t{}\t{:.2f}\t{}\n'.format(
-            read_id, 100 * nmatch / float(nalign), nalign, nmatch, ndel, nins,
-            (q_en - q_st) * 100 / float(bc_len), chrm))
+        r_map_summ = MAP_SUMM(
+            read_id=read_id, pct_identity=100 * nmatch / float(nalign),
+            num_align=nalign, num_match=nmatch, num_del=ndel, num_ins=nins,
+            read_pct_coverage=(q_en - q_st) * 100 / float(bc_len), chrom=chrm,
+            strand=mh.int_strand_to_str(strand), start=r_st,
+            end=r_st + nalign - nins)
+        summ_fp.write(MAP_SUMM_TMPLT.format(r_map_summ))
         summ_fp.flush()
 
         return
@@ -225,8 +252,7 @@ def _get_map_queue(
         return
 
     summ_fp = open(mh.get_megalodon_fn(out_dir, mh.MAP_SUMM_NAME), 'w')
-    summ_fp.write('read_id\tpct_identity\tnum_align\tnum_match\t' +
-                  'num_del\tnum_ins\tread_pct_coverage\tchrom\n')
+    summ_fp.write('\t'.join(MAP_SUMM._fields) + '\n')
 
     map_fp = open_alignment_out_file(
         out_dir, map_fmt, ref_names_and_lens, ref_fn)
@@ -264,14 +290,30 @@ def sort_and_index_mapping(map_fn, out_fn, ref_fn=None, do_index=False):
     if ref_fn is not None:
         sort_args.extend(('--reference', ref_fn))
     try:
+        sleep(0.1)
         pysam.sort(*sort_args)
         if do_index:
-            sleep(1)
-            pysam.index(out_fn)
+            sleep(0.1)
+            pysam.index(out_fn, catch_stdout=False, catch_stderr=False)
     except pysam.utils.SamtoolsError:
         LOGGER.warning('Sorting and/or indexing mapping failed.')
 
     return
+
+
+##########################
+# Mapping summary parser #
+##########################
+
+def parse_map_summary_file(map_summ_fn):
+    def parse_line(line):
+        return MAP_SUMM(*(None if v is None else MAP_SUMM_TYPES[fn](v)
+                          for fn, v in zip(header, line.split())))
+
+    with open(map_summ_fn) as map_summ_fp:
+        header = map_summ_fp.readline().split()
+        map_summ = [parse_line(line) for line in map_summ_fp]
+    return map_summ
 
 
 if __name__ == '__main__':

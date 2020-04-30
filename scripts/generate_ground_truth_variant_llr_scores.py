@@ -389,8 +389,8 @@ def get_parser():
         '--guppy-server-path', default=backends.DEFAULT_GUPPY_SERVER_PATH,
         help='Path to guppy server executable. Default: %(default)s')
     pyg_grp.add_argument(
-        '--guppy-server-port', type=int, default=backends.DEFAULT_GUPPY_PORT,
-        help='Guppy server port. Default: %(default)d')
+        '--guppy-server-port', type=int,
+        help='Guppy server port. Default: Guppy auto')
     pyg_grp.add_argument(
         '--guppy-params',
         help='Extra guppy server parameters. Main purpose for optimal ' +

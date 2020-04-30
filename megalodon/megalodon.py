@@ -7,6 +7,7 @@ import threading
 import traceback
 from time import sleep
 import multiprocessing as mp
+from itertools import product
 from collections import defaultdict, OrderedDict
 
 import numpy as np
@@ -29,7 +30,8 @@ _UNEXPECTED_ERROR_CODE = 'Unexpected error'
 _UNEXPECTED_ERROR_FN = 'unexpected_megalodon_errors.{}.err'
 _MAX_NUM_UNEXP_ERRORS = 50
 DO_INTERPOLATE_SIG_POS = False
-
+# update error text when 10% more errors are found
+ERR_UPDATE_PROP = 0.1
 LOGGER = logging.get_logger()
 
 
@@ -50,7 +52,6 @@ def handle_errors(func, args, r_vals, out_q, fast5_fn, failed_reads_q):
         failed_reads_q.put((
             True, False, _UNEXPECTED_ERROR_CODE, fast5_fn,
             traceback.format_exc(), 0))
-    return
 
 
 def interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum):
@@ -161,8 +162,6 @@ def process_read(
             fast5_fn=sig_info.fast5_fn + ':::' + sig_info.read_id,
             failed_reads_q=failed_reads_q)
 
-    return
-
 
 ####################
 # Multi-processing #
@@ -187,13 +186,12 @@ def _get_bc_queue(
             except RuntimeError:
                 # same read_id encountered previously
                 pass
-        return
 
     bc_fp = open(mh.get_megalodon_fn(out_dir, mh.BC_NAME) + '.' + bc_fmt, 'w')
     write_fastq = bc_fmt == 'fastq'
     # TODO convert this to writing un-aligned sam with htseq recommended format
     if do_output_mods:
-        mods_fp = h5py.File(mh.get_megalodon_fn(out_dir, mh.BC_MODS_NAME))
+        mods_fp = h5py.File(mh.get_megalodon_fn(out_dir, mh.BC_MODS_NAME), 'w')
         mods_fp.create_group('Reads')
         mods_fp.create_dataset(
             'mod_long_names', data=np.array(mod_long_names, dtype='S'),
@@ -217,8 +215,6 @@ def _get_bc_queue(
     if do_output_mods:
         mods_fp.close()
 
-    return
-
 
 def _process_reads_worker(
         read_file_q, bc_q, vars_q, failed_reads_q, mods_q, caller_conn,
@@ -235,7 +231,6 @@ def _process_reads_worker(
         LOGGER.debug(('Read worker {} has failed process preparation.\n' +
                       'Full error traceback:\n{}').format(
                           mp.current_process(), traceback.format_exc()))
-        return
 
     while True:
         try:
@@ -278,8 +273,6 @@ def _process_reads_worker(
                 traceback.format_exc(), 0))
             LOGGER.debug('Unexpected error for read {}'.format(read_id))
 
-    return
-
 
 if _DO_PROFILE:
     _process_reads_wrapper = _process_reads_worker
@@ -288,47 +281,64 @@ if _DO_PROFILE:
         import cProfile
         cProfile.runctx('_process_reads_wrapper(*args)', globals(), locals(),
                         filename='read_processing.prof')
-        return
 
 
 ############################
 # Post Per-read Processing #
 ############################
 
-def post_process_whatshap(out_dir, map_fmt, ref_fn):
-    whatshap_map_bn = mh.get_megalodon_fn(out_dir, mh.WHATSHAP_MAP_NAME)
-    whatshap_map_fn = whatshap_map_bn + '.' + map_fmt
-    whatshap_sort_fn = whatshap_map_bn + '.sorted.bam'
-    whatshap_p = mp.Process(
-        target=mapping.sort_and_index_mapping,
-        args=(whatshap_map_fn, whatshap_sort_fn, ref_fn), daemon=True)
-    whatshap_p.start()
-    sleep(0.001)
-
-    return whatshap_sort_fn, whatshap_p
-
-
-def post_process_mapping(out_dir, map_fmt, ref_fn):
-    map_bn = mh.get_megalodon_fn(out_dir, mh.MAP_NAME)
+def post_process_mapping(map_bn, map_fmt, ref_fn):
     map_fn = map_bn + '.' + map_fmt
     map_sort_fn = map_bn + '.sorted.bam'
     map_p = mp.Process(
         target=mapping.sort_and_index_mapping,
-        args=(map_fn, map_sort_fn, ref_fn), daemon=True)
+        args=(map_fn, map_sort_fn, ref_fn, True), daemon=True)
     map_p.start()
     sleep(0.001)
 
-    return map_p
+    return map_p, map_sort_fn
 
 
-def post_process_aggregate(
-        mods_info, outputs, out_dir, num_ps, write_vcf_lp,
-        het_factors, vars_data, write_mod_lp, supp_prog):
-    aggregate.aggregate_stats(
-        outputs, out_dir, num_ps, write_vcf_lp, het_factors,
-        vars_data.call_mode, mods_info.agg_info,
-        write_mod_lp, mods_info.mod_output_fmts, supp_prog)
-    return
+def start_sort_mapping_procs(outputs, out_dir, map_out_fmt, ref_fn, mlns):
+    map_p = mod_map_ps = var_map_p = var_sort_fn = None
+    if mh.MAP_NAME in outputs:
+        LOGGER.info('Spawning process to sort mappings')
+        map_p, _ = post_process_mapping(
+            mh.get_megalodon_fn(out_dir, mh.MAP_NAME), map_out_fmt, ref_fn)
+    if mh.MOD_MAP_NAME in outputs:
+        LOGGER.info('Spawning process to sort modified base mappings')
+        mod_map_ps = [post_process_mapping(
+            '{}.{}'.format(mh.get_megalodon_fn(out_dir, mh.MOD_MAP_NAME), mln),
+            map_out_fmt, ref_fn)[0] for _, mln in mlns]
+    if mh.VAR_MAP_NAME in outputs:
+        LOGGER.info('Spawning process to sort variant mappings')
+        var_map_p, var_sort_fn = post_process_mapping(
+            mh.get_megalodon_fn(out_dir, mh.VAR_MAP_NAME), map_out_fmt, ref_fn)
+    return map_p, mod_map_ps, var_map_p, var_sort_fn
+
+
+def get_map_procs(
+        map_p, mod_map_ps, var_map_p, var_sort_fn, index_variant_fn,
+        variant_fn):
+    if var_map_p is not None:
+        if var_map_p.is_alive():
+            LOGGER.info('Waiting for variant mappings sort')
+            while var_map_p.is_alive():
+                sleep(0.001)
+        if index_variant_fn is not None and var_sort_fn is not None:
+            LOGGER.info(variants.get_whatshap_command(
+                index_variant_fn, var_sort_fn,
+                mh.add_fn_suffix(variant_fn, 'phased')))
+    if mod_map_ps is not None:
+        if any(mod_map_p.is_alive() for mod_map_p in mod_map_ps):
+            LOGGER.info('Waiting for modified base mappings sort')
+            while any(mod_map_p.is_alive() for mod_map_p in mod_map_ps):
+                sleep(0.001)
+    if map_p is not None:
+        if map_p.is_alive():
+            LOGGER.info('Waiting for mappings sort')
+            while map_p.is_alive():
+                sleep(0.001)
 
 
 ##########################
@@ -363,8 +373,6 @@ def _fill_files_queue(
     for _ in range(num_ps):
         read_file_q.put((None, None))
     num_reads_conn.send(len(used_read_ids))
-
-    return
 
 
 def format_fail_summ(header, fail_summ=[], reads_called=0, num_errs=None):
@@ -434,7 +442,8 @@ def prep_errors_bar(
 def _get_fail_queue(
         failed_reads_q, f_conn, getter_num_reads_conn, num_update_errors,
         suppress_progress, do_show_qs, getter_qs):
-    def update_prog(reads_called, sig_called, unexp_err_fp, read_called=True):
+    def update_prog(reads_called, sig_called, unexp_err_fp, last_err_write,
+                    read_called=True):
         if is_err:
             failed_reads[err_type].append(fast5_fn)
             if err_type == _UNEXPECTED_ERROR_CODE:
@@ -452,7 +461,7 @@ def _get_fail_queue(
                 try:
                     bar.set_postfix({
                         'ksamp/s': (sig_called / 1000) /
-                        bar.format_dict['elapsed']})
+                        bar.format_dict['elapsed']}, refresh=False)
                 except AttributeError:
                     # sometimes get no format_dict error
                     # so don't include ksample/s if so
@@ -460,20 +469,26 @@ def _get_fail_queue(
                 if q_bars is not None:
                     for q_name, q_bar in q_bars.items():
                         q_bar.n = getter_qs[q_name].queue.qsize()
-                        q_bar.refresh()
+                        # trigger display refresh
+                        q_bar.update(0)
                 if read_called:
-                    bar.update(1)
+                    bar.update()
                 if num_update_errors > 0:
-                    bar.write(prog_prefix + format_fail_summ(
-                        bar_header,
-                        [(len(fns), err) for err, fns in failed_reads.items()],
-                        reads_called, num_update_errors), file=sys.stderr)
-            reads_called += 1
+                    err_types = [
+                        (len(fns), err) for err, fns in failed_reads.items()]
+                    num_errs = sum((x[0] for x in err_types))
+                    if num_errs > 0 and (
+                            last_err_write == 0 or
+                            num_errs / last_err_write > 1 + ERR_UPDATE_PROP):
+                        last_err_write = num_errs
+                        bar.write(prog_prefix + format_fail_summ(
+                            bar_header, err_types, reads_called,
+                            num_update_errors), file=sys.stderr)
 
-        return reads_called, unexp_err_fp
+        return unexp_err_fp, last_err_write
 
     LOGGER.info('Processing reads.')
-    reads_called, sig_called = 0, 0
+    reads_called = sig_called = last_err_write = 0
     unexp_err_fp = None
     failed_reads = defaultdict(list)
     bar, q_bars, prog_prefix, bar_header = prep_errors_bar(
@@ -484,8 +499,9 @@ def _get_fail_queue(
                 (is_err, do_update_prog, err_type, fast5_fn,
                  err_tb, n_sig) = failed_reads_q.get(block=False)
                 sig_called += n_sig
-                reads_called, unexp_err_fp = update_prog(
-                    reads_called, sig_called, unexp_err_fp)
+                reads_called += 1
+                unexp_err_fp, last_err_write = update_prog(
+                    reads_called, sig_called, unexp_err_fp, last_err_write)
             except queue.Empty:
                 # get total number of reads once all reads are enumerated
                 if bar is not None and bar.total is None:
@@ -502,10 +518,10 @@ def _get_fail_queue(
             return
     if not suppress_progress:
         if q_bars is not None:
-            while any(getter_qs[q_name].queue.qsize() > 0
+            while any(not getter_qs[q_name].queue.empty()
                       for q_name in q_bars.keys()):
-                reads_called, unexp_err_fp = update_prog(
-                    reads_called, 0, unexp_err_fp, False)
+                unexp_err_fp, last_err_write = update_prog(
+                    reads_called, 0, unexp_err_fp, last_err_write, False)
         bar.close()
         if q_bars is not None:
             for q_bar in q_bars.values():
@@ -525,8 +541,6 @@ def _get_fail_queue(
         # TODO flag to output failed read names to file
     else:
         LOGGER.info('All reads processed successfully.')
-
-    return
 
 
 #######################
@@ -572,30 +586,37 @@ def process_all_reads(
     if mh.PR_VAR_NAME in outputs:
         pr_refs_fn = mh.get_megalodon_fn(out_dir, mh.PR_REF_NAME) if (
             mh.PR_REF_NAME in outputs and ref_out_info.annotate_vars) else None
-        whatshap_map_fn = (
-            mh.get_megalodon_fn(out_dir, mh.WHATSHAP_MAP_NAME) + '.' +
-            aligner.out_fmt) if mh.WHATSHAP_MAP_NAME in outputs else None
+        var_map_fn = (
+            mh.get_megalodon_fn(out_dir, mh.VAR_MAP_NAME) + '.' +
+            aligner.out_fmt) if mh.VAR_MAP_NAME in outputs else None
         vars_txt_fn = (mh.get_megalodon_fn(out_dir, mh.PR_VAR_TXT_NAME)
                        if vars_data.write_vars_txt else None)
         getter_qs[mh.PR_VAR_NAME] = mh.create_getter_q(
             variants._get_variants_queue, (
                 mh.get_megalodon_fn(out_dir, mh.PR_VAR_NAME),
                 vars_txt_fn, db_safety, pr_refs_fn, ref_out_info,
-                whatshap_map_fn, aligner.ref_names_and_lens, aligner.ref_fn,
+                var_map_fn, aligner.ref_names_and_lens, aligner.ref_fn,
                 vars_data.loc_index_in_memory))
     if mh.PR_MOD_NAME in outputs:
         pr_refs_fn = mh.get_megalodon_fn(out_dir, mh.PR_REF_NAME) if (
             mh.PR_REF_NAME in outputs and ref_out_info.annotate_mods) else None
+        mod_map_fns = None
+        if mh.MOD_MAP_NAME in outputs:
+            mod_map_fns = [(mod_base, '{}.{}.'.format(
+                mh.get_megalodon_fn(out_dir, mh.MOD_MAP_NAME), mln))
+                           for mod_base, mln in mods_info.mod_long_names]
         mods_txt_fn = (mh.get_megalodon_fn(out_dir, mh.PR_MOD_TXT_NAME)
                        if mods_info.write_mods_txt else None)
         getter_qs[mh.PR_MOD_NAME] = mh.create_getter_q(
             mods._get_mods_queue, (
                 mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME), db_safety,
-                aligner.ref_names_and_lens, mods_txt_fn,
-                pr_refs_fn, ref_out_info, mods_info.pos_index_in_memory,
-                mods_info.mod_long_names))
+                aligner.ref_names_and_lens, aligner.ref_fn, mods_txt_fn,
+                pr_refs_fn, ref_out_info, mod_map_fns, aligner.out_fmt,
+                mods_info))
     if mh.SIG_MAP_NAME in outputs:
-        alphabet_info = signal_mapping.get_alphabet_info(model_info)
+        alphabet_info = signal_mapping.get_alphabet_info(
+            ref_out_info.alphabet, ref_out_info.collapse_alphabet,
+            ref_out_info.mod_long_names)
         sig_map_fn = mh.get_megalodon_fn(out_dir, mh.SIG_MAP_NAME)
         getter_qs[mh.SIG_MAP_NAME] = mh.create_getter_q(
             signal_mapping.write_signal_mappings,
@@ -667,8 +688,6 @@ def process_all_reads(
         LOGGER.error('Exiting due to keyboard interrupt.')
         sys.exit(1)
 
-    return
-
 
 ####################
 # Input validation #
@@ -706,10 +725,22 @@ def parse_aligner_args(args):
 
 
 def parse_var_args(args, model_info, aligner):
-    if mh.WHATSHAP_MAP_NAME in args.outputs and \
-       mh.VAR_NAME not in args.outputs:
-        args.outputs.append(mh.VAR_NAME)
+    if args.ref_include_variants and mh.PR_VAR_NAME not in args.outputs:
+        LOGGER.warning('--ref-include-variants set, so adding ' +
+                       '"per_read_vars" to --outputs.')
+        args.outputs.append(mh.PR_VAR_NAME)
+    if mh.VAR_MAP_NAME in args.outputs and \
+       mh.PR_VAR_NAME not in args.outputs:
+        LOGGER.warning((
+            'Adding "{}" to --outputs since "{}" was requested. For full ' +
+            'phased variant pipeline add "{}" or run aggregation after run ' +
+            'is complete.').format(mh.PR_VAR_NAME, mh.VAR_MAP_NAME,
+                                   mh.VAR_NAME))
+        args.outputs.append(mh.PR_VAR_NAME)
     if mh.VAR_NAME in args.outputs and mh.PR_VAR_NAME not in args.outputs:
+        LOGGER.warning((
+            'Adding "{}" to --outputs since "{}" was requested.').format(
+                mh.PR_VAR_NAME, mh.VAR_NAME))
         args.outputs.append(mh.PR_VAR_NAME)
     if mh.PR_VAR_NAME in args.outputs and args.variant_filename is None:
         LOGGER.error(
@@ -749,7 +780,31 @@ def parse_var_args(args, model_info, aligner):
 
 
 def parse_mod_args(args, model_info):
+    if args.ref_include_mods and args.ref_mods_all_motifs is not None:
+        LOGGER.warning(
+            '--ref-include-mods and --ref-mods-all-motifs are not ' +
+            'compatible. Ignoring --ref-include-mods')
+        args.ref_include_mods = False
+    if args.ref_include_mods and not (mh.SIG_MAP_NAME in args.outputs or
+                                      mh.PR_REF_NAME in args.outputs):
+        LOGGER.warning((
+            '--ref-include-mods specified, but neither {} or {} specified ' +
+            'in outputs. Ignoring --ref-include-mods').format(
+                mh.SIG_MAP_NAME, mh.PR_REF_NAME))
+        args.ref_include_mods = False
+    if mh.MOD_MAP_NAME in args.outputs and \
+       mh.PR_MOD_NAME not in args.outputs:
+        LOGGER.warning((
+            'Adding "{}" to --outputs since "{}" was requested.').format(
+                mh.PR_MOD_NAME, mh.MOD_MAP_NAME))
+        args.outputs.append(mh.PR_MOD_NAME)
+    if args.ref_include_mods and mh.PR_MOD_NAME not in args.outputs:
+        LOGGER.warning('--ref-include-mods set, so adding ' +
+                       '"per_read_mods" to --outputs.')
+        args.outputs.append(mh.PR_MOD_NAME)
     if mh.PR_MOD_NAME not in args.outputs and mh.MOD_NAME in args.outputs:
+        LOGGER.warning('"mods" output requested, so "per_read_mods" will ' +
+                       'be added to outputs.')
         args.outputs.append(mh.PR_MOD_NAME)
     if mh.PR_MOD_NAME in args.outputs and not model_info.is_cat_mod:
         LOGGER.error((
@@ -765,6 +820,7 @@ def parse_mod_args(args, model_info):
         LOGGER.warning(('--mod-motif provided, but {} not requested. ' +
                         'Ignoring --mod-motif.').format(mh.PR_MOD_NAME))
         args.mod_motif = None
+
     mod_calib_fn = (mh.get_mod_calibration_fn(
         model_info.params.pyguppy.config, args.mod_calibration_filename,
         args.disable_mod_calibration)
@@ -775,12 +831,61 @@ def parse_mod_args(args, model_info):
         agg_info = mods.AGG_INFO(
             mods.BIN_THRESH_NAME, args.mod_binary_threshold)
     mods_info = mods.ModInfo(
-        model_info, args.mod_motif, args.mod_all_paths,
-        args.write_mods_text, args.mod_context_bases,
-        mh.BC_MODS_NAME in args.outputs, mod_calib_fn,
-        args.mod_output_formats, args.edge_buffer,
-        not args.mod_positions_on_disk, agg_info)
+        model_info=model_info, all_mod_motifs_raw=args.mod_motif,
+        mod_all_paths=args.mod_all_paths, write_mods_txt=args.write_mods_text,
+        mod_context_bases=args.mod_context_bases,
+        do_output_mods=mh.BC_MODS_NAME in args.outputs,
+        mods_calib_fn=mod_calib_fn, mod_output_fmts=args.mod_output_formats,
+        edge_buffer=args.edge_buffer,
+        pos_index_in_memory=not args.mod_positions_on_disk, agg_info=agg_info,
+        mod_thresh=args.ref_mod_threshold,
+        do_ann_all_mods=args.ref_include_mods,
+        do_ann_per_mod=mh.MOD_MAP_NAME in args.outputs,
+        map_base_conv=args.mod_map_base_conv)
     return args, mods_info
+
+
+def parse_ref_mods_all_motifs(ref_mod_motifs_raw, sm_alphabet_info):
+    sm_alphabet = sm_alphabet_info.alphabet
+    sm_coll_alphabet = sm_alphabet_info.collapse_alphabet
+    sm_mlns = sm_alphabet_info.mod_long_names
+    ref_mod_motifs_init = []
+    for mod_base, mln, motif, rel_pos in ref_mod_motifs_raw:
+        rel_pos = int(rel_pos)
+        ref_base = motif[rel_pos]
+        if mod_base not in sm_alphabet:
+            # add mod base to alphabet
+            sm_alphabet += mod_base
+            sm_coll_alphabet += ref_base
+            sm_mlns.append(mln)
+        else:
+            # check that mod base matches current model
+            base_idx = sm_alphabet.index(mod_base)
+            if sm_coll_alphabet[base_idx] != ref_base:
+                raise mh.MegaError((
+                    'Canonical base ({}) specified by --ref-mods-all-motifs ' +
+                    'does not match model alphabet base ({}).').format(
+                        ref_base, sm_coll_alphabet[base_idx]))
+            mod_idx = sm_alphabet_info.mod_bases.index(mod_base)
+            if sm_mlns[mod_idx] != mln:
+                raise mh.MegaError((
+                    'Modified base long name ({}) specified by ' +
+                    '--ref-mods-all-motifs does not match model alphabet ' +
+                    'long name ({}).').format(
+                        mln, sm_mlns[mod_idx]))
+        ref_mod_motifs_init.append((mod_base, mln, motif, rel_pos))
+    new_sm_alphabet_info = signal_mapping.get_alphabet_info(
+        sm_alphabet, sm_coll_alphabet, sm_mlns)
+    ref_mod_motifs_w_ints = []
+    for mod_base, mln, motif, rel_pos in ref_mod_motifs_init:
+        int_mod_base = new_sm_alphabet_info.alphabet.index(mod_base)
+        # iterate over all real sequences for the canonical motif
+        for motif_bases in product(*(mh.SINGLE_LETTER_CODE[b] for b in motif)):
+            int_motif = np.array([new_sm_alphabet_info.alphabet.index(base)
+                                  for base in motif_bases])
+            ref_mod_motifs_w_ints.append(
+                (mod_base, int_mod_base, mln, int_motif, rel_pos))
+    return ref_mod_motifs_w_ints, new_sm_alphabet_info
 
 
 def parse_ref_out_args(args, model_info):
@@ -791,77 +896,84 @@ def parse_ref_out_args(args, model_info):
                          'per-read references (remove one of ' +
                          '--refs-include-variants or --refs-include-mods).')
             sys.exit(1)
-        if args.ref_include_mods and mh.PR_MOD_NAME not in args.outputs:
-            args.outputs.append(mh.PR_MOD_NAME)
-            LOGGER.warning('--ref-include-mods set, so adding ' +
-                           '"per_read_mods" to --outputs.')
-        if args.ref_mods_all_motifs and not args.ref_include_mods:
+        if args.ref_include_mods and args.ref_mods_all_motifs is not None:
             LOGGER.warning(
-                '--ref-mods-all-motifs but not --ref-include-mods set. ' +
-                'Ignoring --ref-mods-all-motifs.')
-        if args.ref_mod_threshold and not args.ref_include_mods:
-            LOGGER.warning(
-                '--ref-mod-threshold but not --ref-include-mods set. ' +
-                'Ignoring --ref-mod-threshold.')
+                '--ref-include-mods and --ref-mods-all-motifs are not ' +
+                'compatible. Ignoring --ref-include-mods')
+            args.ref_include_mods = False
 
+    sm_alphabet_info = None
     if mh.SIG_MAP_NAME in args.outputs:
         output_sig_maps = True
+        # import here so that taiyaki is not required unless outputting
+        # signal mappings
         from megalodon import signal_mapping
         global signal_mapping
-        sig_map_alphabet_info = signal_mapping.get_alphabet_info(model_info)
-        sig_map_alphabet = sig_map_alphabet_info.alphabet
+        sm_alphabet_info = signal_mapping.get_alphabet_info_from_model(
+            model_info)
+        if args.ref_include_mods and mh.PR_MOD_NAME not in args.outputs:
+            LOGGER.warning(('--ref-include-mods set, so adding ' +
+                            '"{}" to --outputs.').format(mh.PR_MOD_NAME))
+            args.outputs.append(mh.PR_MOD_NAME)
 
     if mh.PR_REF_NAME in args.outputs:
         output_pr_refs = True
         if args.ref_include_variants and mh.PR_VAR_NAME not in args.outputs:
-            args.outputs.append(mh.PR_VAR_NAME)
             LOGGER.warning('--refs-include-variants set, so adding ' +
                            'per_read_variants to --outputs.')
+            args.outputs.append(mh.PR_VAR_NAME)
     else:
         if args.ref_include_variants:
             LOGGER.warning(
                 '{0} set but {1} not requested. Ignoring {0}.'.format(
                     '--ref-include-variants', mh.PR_REF_NAME))
+            args.ref_include_variants = None
 
     if mh.SIG_MAP_NAME not in args.outputs and \
        mh.PR_REF_NAME not in args.outputs:
-        sig_map_alphabet = None
-        for arg_flag, arg_str in (
+        for arg_val, arg_str in (
                 (args.ref_mods_all_motifs, '--ref-mods-all-motifs'),
-                (args.ref_include_mods, '--ref-include-mods'),
                 (args.ref_length_range, '--ref-length-range'),
-                (args.ref_mod_threshold, '--ref-mod-thresh'),
                 (args.ref_percent_identity_threshold,
                  '--ref-percent-identity-threshold'),
                 (args.ref_percent_coverage_threshold,
                  '--ref-percent-coverage-threshold')):
+            if arg_val is not None:
+                LOGGER.warning((
+                    '{0} set but neither {1} nor {2} requested. Ignoring ' +
+                    '{0}.').format(arg_str, mh.SIG_MAP_NAME, mh.PR_REF_NAME))
+                arg_val = None
+        for arg_flag, arg_str in (
+                (args.ref_include_mods, '--ref-include-mods'), ):
             if arg_flag:
                 LOGGER.warning((
                     '{0} set but neither {1} nor {2} requested. Ignoring ' +
                     '{0}.').format(arg_str, mh.SIG_MAP_NAME, mh.PR_REF_NAME))
+                arg_flag = False
 
     min_len, max_len = (args.ref_length_range
                         if args.ref_length_range is not None else
                         (None, None))
-    # set mod_thresh to infinity if all sites are to be labeled as
-    # modified (--ref-mods-all-motifs)
-    mod_thresh = 0.0
-    if args.ref_mods_all_motifs:
-        mod_thresh = np.inf
-        if args.ref_mod_threshold is not None:
-            LOGGER.warning(
-                '--ref-mods-all-motifs and --ref-mod-threshold ' +
-                'both set. Ignoring --ref-mod-threshold.')
-    elif args.ref_mod_threshold is not None:
-        mod_thresh = args.ref_mod_threshold
+    do_annotate_mods = args.ref_include_mods
+    ref_mods_all_motifs = None
+    if args.ref_mods_all_motifs is not None:
+        ref_mods_all_motifs, sm_alphabet_info = parse_ref_mods_all_motifs(
+            args.ref_mods_all_motifs, sm_alphabet_info)
 
+    sm_alphabet = sm_coll_alphabet = sm_mlns = None
+    if sm_alphabet_info is not None:
+        sm_alphabet = sm_alphabet_info.alphabet
+        sm_coll_alphabet = sm_alphabet_info.collapse_alphabet
+        sm_mlns = sm_alphabet_info.mod_long_names
     ref_out_info = mh.REF_OUT_INFO(
         pct_idnt=args.ref_percent_identity_threshold,
         pct_cov=args.ref_percent_coverage_threshold,
-        min_len=min_len, max_len=max_len, alphabet=sig_map_alphabet,
-        annotate_mods=args.ref_include_mods,
-        annotate_vars=args.ref_include_variants, mod_thresh=mod_thresh,
-        output_pr_refs=output_pr_refs, output_sig_maps=output_sig_maps)
+        min_len=min_len, max_len=max_len, alphabet=sm_alphabet,
+        collapse_alphabet=sm_coll_alphabet, mod_long_names=sm_mlns,
+        annotate_mods=do_annotate_mods,
+        annotate_vars=args.ref_include_variants,
+        output_sig_maps=output_sig_maps, output_pr_refs=output_pr_refs,
+        ref_mods_all_motifs=ref_mods_all_motifs)
 
     return args, ref_out_info
 
@@ -880,6 +992,10 @@ class SelectiveRawFormatter(argparse.HelpFormatter):
 
 
 def get_parser():
+    if '--list-supported-guppy-configs' in sys.argv:
+        sys.stderr.write(mh.get_supported_configs_message())
+        sys.exit()
+
     # hide more complex arguments for standard help output
     show_hidden_args = '--help-long' in sys.argv
 
@@ -900,9 +1016,6 @@ def get_parser():
     pyg_grp.add_argument(
         '--guppy-server-path', default=backends.DEFAULT_GUPPY_SERVER_PATH,
         help='Path to guppy server executable. Default: %(default)s')
-    pyg_grp.add_argument(
-        '--guppy-server-port', type=int, default=backends.DEFAULT_GUPPY_PORT,
-        help='Guppy server port. Default: %(default)d')
 
     pyg_grp.add_argument(
         '--do-not-use-guppy-server', action='store_true',
@@ -914,6 +1027,9 @@ def get_parser():
                          'optimal performance based on compute environment. ' +
                          'Quote parameters to avoid them being parsed by ' +
                          'megalodon.'))
+    pyg_grp.add_argument(
+        '--guppy-server-port', type=int,
+        help=hidden_help('Guppy server port. Default: Guppy auto'))
     pyg_grp.add_argument(
         '--guppy-timeout', type=float, default=backends.DEFAULT_GUPPY_TIMEOUT,
         help=hidden_help('Timeout to wait for guppy server to call a single ' +
@@ -1132,14 +1248,31 @@ def get_parser():
         help=hidden_help('Only include reads with higher read alignment ' +
                          'coverage in signal_mappings/per_read_refs output.'))
     sigmap_grp.add_argument(
-        '--ref-mods-all-motifs', action='store_true',
-        help=hidden_help('Annotate all --mod-motif occurences as modified.'))
+        '--ref-mods-all-motifs', nargs=4, action='append',
+        metavar=('MOD', 'MOD_LONG_NAME', 'MOTIF', 'REL_POS'),
+        help=hidden_help('Annotate all motifs as modified (e.g. bacterial ' +
+                         'methylase). This will ignore modified base calls ' +
+                         'made and --mod-motif. Multiple mods and motifs ' +
+                         'can be provided. Arguments should be structured ' +
+                         'as --ref-mods-all-motifs [single letter modified ' +
+                         'base code] [modified base long name] ' +
+                         '[canonical motif] [mod position relative to motif]'))
     sigmap_grp.add_argument(
-        '--ref-mod-threshold', type=float,
+        '--ref-mod-threshold', type=float, default=0.0,
         help=hidden_help('Threshold (log(can_prob/mod_prob)) used to ' +
                          'annotate a modified bases in signal_mappings/' +
                          'per_read_refs output. See ' +
-                         'scripts/compute_mod_thresh_score.py'))
+                         'scripts/compute_mod_thresh_score.py. ' +
+                         'Default: %(default)f'))
+
+    modmap_grp = parser.add_argument_group('Mod Mapping Arguments')
+    # TODO add official output type once finalized in hts-specs #418
+    modmap_grp.add_argument(
+        '--mod-map-base-conv', action='append', nargs=2,
+        metavar=('FROM_BASE', 'TO_BASE'),
+        help=hidden_help('For mod_mappings output, convert called bases. ' +
+                         'For example, to mimic bisulfite output use: ' +
+                         '"--mod-map-base-conv C T --mod-map-base-conv Z C"'))
 
     misc_grp = parser.add_argument_group('Miscellaneous Arguments')
     misc_grp.add_argument(
@@ -1177,8 +1310,8 @@ def get_parser():
                          'within the fast5 directory. Default: search ' +
                          'recursively'))
     misc_grp.add_argument(
-        '--suppress-progress', action='store_true',
-        help=hidden_help('Suppress progress bar output.'))
+        '--suppress-progress-bars', action='store_true',
+        help=hidden_help('Suppress progress bars output.'))
     misc_grp.add_argument(
         '--suppress-queues-status', action='store_true',
         help=hidden_help('Suppress dynamic status of output queues. Helpful ' +
@@ -1189,10 +1322,6 @@ def get_parser():
 
 def _main():
     args = get_parser().parse_args()
-    if args.list_supported_guppy_configs:
-        print('\n' + mh.get_supported_configs_message())
-        sys.exit()
-
     try:
         mh.mkdir(args.output_directory, args.overwrite)
     except mh.MegaError as e:
@@ -1217,31 +1346,28 @@ def _main():
             args.fast5s_dir, not args.not_recursive, args.num_reads,
             args.read_ids_filename, model_info, args.outputs,
             args.output_directory, args.basecalls_format, aligner, vars_data,
-            args.processes, args.verbose_read_progress, args.suppress_progress,
-            mods_info, args.database_safety, ref_out_info,
-            not args.suppress_queues_status)
+            args.processes, args.verbose_read_progress,
+            args.suppress_progress_bars, mods_info, args.database_safety,
+            ref_out_info, not args.suppress_queues_status)
 
     if aligner is not None:
         ref_fn = aligner.ref_fn
         map_out_fmt = aligner.out_fmt
         del aligner
 
-    if mh.MAP_NAME in args.outputs:
-        LOGGER.info('Spawning process to sort mappings')
-        map_p = post_process_mapping(
-            args.output_directory, map_out_fmt, ref_fn)
-
-    if mh.WHATSHAP_MAP_NAME in args.outputs:
-        LOGGER.info('Spawning process to sort whatshap mappings')
-        whatshap_sort_fn, whatshap_p = post_process_whatshap(
-            args.output_directory, map_out_fmt, ref_fn)
+    # start mapping processes before other post-per-read tasks
+    map_p, mod_map_ps, var_map_p, var_sort_fn = start_sort_mapping_procs(
+        args.outputs, args.output_directory, map_out_fmt, ref_fn,
+        mods_info.mod_long_names)
 
     if mh.VAR_NAME in args.outputs or mh.MOD_NAME in args.outputs:
-        post_process_aggregate(
-            mods_info, args.outputs, args.output_directory, args.processes,
-            args.write_vcf_log_probs, args.heterozygous_factors, vars_data,
-            args.write_mod_log_probs, args.suppress_progress)
+        aggregate.aggregate_stats(
+            args.outputs, args.output_directory, args.processes,
+            args.write_vcf_log_probs, args.heterozygous_factors,
+            vars_data.call_mode, mods_info.agg_info, args.write_mod_log_probs,
+            mods_info.mod_output_fmts, args.suppress_progress_bars)
 
+    variant_fn = index_variant_fn = None
     if mh.VAR_NAME in args.outputs:
         LOGGER.info('Sorting output variant file')
         variant_fn = mh.get_megalodon_fn(args.output_directory, mh.VAR_NAME)
@@ -1250,22 +1376,9 @@ def _main():
         LOGGER.info('Indexing output variant file')
         index_variant_fn = variants.index_variants(sort_variant_fn)
 
-    if mh.WHATSHAP_MAP_NAME in args.outputs:
-        if whatshap_p.is_alive():
-            LOGGER.info('Waiting for whatshap mappings sort')
-            while whatshap_p.is_alive():
-                sleep(0.001)
-        LOGGER.info(variants.get_whatshap_command(
-            index_variant_fn, whatshap_sort_fn,
-            mh.add_fn_suffix(variant_fn, 'phased')))
-
-    if mh.MAP_NAME in args.outputs:
-        if map_p.is_alive():
-            LOGGER.info('Waiting for mappings sort')
-            while map_p.is_alive():
-                sleep(0.001)
-
-    return
+    get_map_procs(
+        map_p, mod_map_ps, var_map_p, var_sort_fn, index_variant_fn,
+        variant_fn)
 
 
 if __name__ == '__main__':

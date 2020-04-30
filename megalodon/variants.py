@@ -32,8 +32,8 @@ HAPLIOD_MODE = 'haploid'
 
 SAMPLE_NAME = 'SAMPLE'
 # specified by sam format spec
-WHATSHAP_MAX_QUAL = 40
-WHATSHAP_RG_ID = '1'
+VAR_MAP_MAX_QUAL = 40
+VAR_MAP_RG_ID = '1'
 HAS_CONTEXT_BASE_TAG = 'CB'
 CONTEXT_BASE_MI_LINE = (
     '##INFO=<ID={},Number=0,Type=Flag,Description=' +
@@ -862,11 +862,6 @@ def score_all_single_insertions(
 # Per-read Variant Output #
 ###########################
 
-def log_prob_to_phred(log_prob):
-    with np.errstate(divide='ignore'):
-        return -10 * np.log10(1 - np.exp(log_prob))
-
-
 def simplify_var_seq(ref_seq, alt_seq):
     trim_before = trim_after = 0
     while (len(ref_seq) > 0 and len(alt_seq) > 0 and
@@ -949,8 +944,8 @@ def annotate_variants(r_start, ref_seq, r_var_calls, strand):
             var_seqs.append(
                 ref_seq[prev_pos:var_pos - r_start + len(var_ref_seq)])
             var_quals.extend(
-                ([WHATSHAP_MAX_QUAL] * prev_len) +
-                ([min(log_prob_to_phred(ref_lp), WHATSHAP_MAX_QUAL)] *
+                ([VAR_MAP_MAX_QUAL] * prev_len) +
+                ([min(mh.log_prob_to_phred(ref_lp), VAR_MAP_MAX_QUAL)] *
                  len(var_ref_seq)))
             curr_match += prev_len + len(var_ref_seq)
         else:
@@ -960,8 +955,8 @@ def annotate_variants(r_start, ref_seq, r_var_calls, strand):
             read_alt_seq = alt_seq if strand == 1 else mh.comp(alt_seq)
             var_seqs.append(ref_seq[prev_pos:var_pos - r_start] + read_alt_seq)
             var_quals.extend(
-                ([WHATSHAP_MAX_QUAL] * prev_len) +
-                ([min(log_prob_to_phred(max(alt_lps)), WHATSHAP_MAX_QUAL)] *
+                ([VAR_MAP_MAX_QUAL] * prev_len) +
+                ([min(mh.log_prob_to_phred(max(alt_lps)), VAR_MAP_MAX_QUAL)] *
                  len(alt_seq)))
 
             # add cigar information for variant
@@ -989,31 +984,30 @@ def annotate_variants(r_start, ref_seq, r_var_calls, strand):
     if strand == -1:
         var_seq = var_seq[::-1]
     len_remain = len(ref_seq) - prev_pos
-    var_quals.extend([WHATSHAP_MAX_QUAL] * len_remain)
-    if strand == -1:
-        var_quals = var_quals[::-1]
-    var_quals = list(map(int, var_quals))
+    var_quals.extend([VAR_MAP_MAX_QUAL] * len_remain)
     var_cigar.append((7, len_remain + curr_match))
     if strand == -1:
+        var_quals = var_quals[::-1]
         var_cigar = var_cigar[::-1]
+    var_quals = list(map(int, var_quals))
 
     return var_seq, var_quals, var_cigar
 
 
 def _get_variants_queue(
         vars_q, vars_conn, vars_db_fn, vars_txt_fn, db_safety, pr_refs_fn,
-        ref_out_info, whatshap_map_fn, ref_names_and_lens, ref_fn,
+        ref_out_info, var_map_fn, ref_names_and_lens, ref_fn,
         loc_index_in_memory):
-    def write_whatshap_alignment(
+    def write_var_alignment(
             read_id, var_seq, var_quals, chrm, strand, r_st, var_cigar):
         a = pysam.AlignedSegment()
         a.query_name = read_id
         a.flag = 0 if strand == 1 else 16
-        a.reference_id = whatshap_map_fp.get_tid(chrm)
+        a.reference_id = var_map_fp.get_tid(chrm)
         a.reference_start = r_st
         a.template_length = len(var_seq)
-        a.mapping_quality = WHATSHAP_MAX_QUAL
-        a.set_tags([('RG', WHATSHAP_RG_ID)])
+        a.mapping_quality = VAR_MAP_MAX_QUAL
+        a.set_tags([('RG', VAR_MAP_RG_ID)])
 
         # convert to reference based sequence
         if strand == -1:
@@ -1023,9 +1017,7 @@ def _get_variants_queue(
         a.query_sequence = var_seq
         a.query_qualities = array('B', var_quals)
         a.cigartuples = var_cigar
-        whatshap_map_fp.write(a)
-
-        return
+        var_map_fp.write(a)
 
     def store_var_call(
             r_var_calls, read_id, chrm, strand, r_start, ref_seq, read_len,
@@ -1064,8 +1056,8 @@ def _get_variants_queue(
                 r_start, ref_seq, r_var_calls, strand)
             if pr_refs_fn is not None:
                 pr_refs_fp.write('>{}\n{}\n'.format(read_id, var_seq))
-            if whatshap_map_fn is not None:
-                write_whatshap_alignment(
+            if var_map_fn is not None:
+                write_var_alignment(
                     read_id, var_seq, var_quals, chrm, strand, r_start,
                     var_cigar)
 
@@ -1086,25 +1078,21 @@ def _get_variants_queue(
     if pr_refs_fn is not None:
         pr_refs_fp = open(pr_refs_fn, 'w')
 
-    if whatshap_map_fn is not None:
-        _, map_fmt = os.path.splitext(whatshap_map_fn)
-        if map_fmt == '.bam':
-            w_mode = 'wb'
-        elif map_fmt == '.cram':
-            w_mode = 'wc'
-        elif map_fmt == '.sam':
-            w_mode = 'w'
-        else:
+    if var_map_fn is not None:
+        try:
+            w_mode = mh.MAP_OUT_WRITE_MODES[
+                os.path.splitext(var_map_fn)[1][1:]]
+        except KeyError:
             raise mh.MegaError('Invalid mapping output format')
         header = {
             'HD': {'VN': '1.4'},
             'SQ': [{'LN': ref_len, 'SN': ref_name}
                    for ref_name, ref_len in sorted(zip(*ref_names_and_lens))],
-            'RG': [{'ID': WHATSHAP_RG_ID, 'SM': SAMPLE_NAME}, ]}
-        whatshap_map_fp = pysam.AlignmentFile(
-            whatshap_map_fn, w_mode, header=header, reference_filename=ref_fn)
+            'RG': [{'ID': VAR_MAP_RG_ID, 'SM': SAMPLE_NAME}, ]}
+        var_map_fp = pysam.AlignmentFile(
+            var_map_fn, w_mode, header=header, reference_filename=ref_fn)
 
-    do_ann_vars = whatshap_map_fn is not None or pr_refs_fn is not None
+    do_ann_vars = var_map_fn is not None or pr_refs_fn is not None
 
     while True:
         try:
@@ -1129,8 +1117,8 @@ def _get_variants_queue(
         vars_txt_fp.close()
     if pr_refs_fn is not None:
         pr_refs_fp.close()
-    if whatshap_map_fn is not None:
-        whatshap_map_fp.close()
+    if var_map_fn is not None:
+        var_map_fp.close()
     vars_db.create_alt_index()
     if vars_db.loc_idx_in_mem:
         vars_db.create_loc_index()
@@ -2086,14 +2074,14 @@ class AggVars(mh.AbstractAggregationClass):
         return
 
 
-#################################
-# Whatshap Mapping Post-process #
-#################################
+########################
+# Mapping Post-process #
+########################
 
-def get_whatshap_command(index_variant_fn, whatshap_sort_fn, phase_fn):
+def get_whatshap_command(index_variant_fn, var_sort_fn, phase_fn):
     return ('Run following command to obtain phased variants:\n\t\t' +
             'whatshap phase --indels --distrust-genotypes -o {} {} {}').format(
-                phase_fn, index_variant_fn, whatshap_sort_fn)
+                phase_fn, index_variant_fn, var_sort_fn)
 
 
 def sort_variants(in_vcf_fn, out_vcf_fn):
