@@ -9,10 +9,6 @@ from matplotlib.backends.backend_pdf import PdfPages
 from megalodon import megalodon_helper as mh
 
 
-HEATMAP_BINS = 50
-HEATMAP_TICKS = [None, ] * HEATMAP_BINS
-for mod_pct in (0, 25, 50, 75, 100):
-    HEATMAP_TICKS[int((HEATMAP_BINS - 1) * mod_pct / 100)] = str(mod_pct)
 CMAP = plt.cm.inferno_r
 
 
@@ -35,6 +31,10 @@ def get_parser():
         '--coverage-threshold', type=int, default=1,
         help='Only include sites with sufficient coverage. ' +
         'Default: 1 (= All sites)')
+    parser.add_argument(
+        '--heatmap-num-bins', type=int, default=50,
+        help='Number of bins for heatmap plotting. ' +
+        'Default: %(default)d')
     parser.add_argument(
         '--strand-offset', type=int,
         help='Offset to combine stranded results. Positive value indicates ' +
@@ -103,8 +103,12 @@ def main():
     out_fp.write('Correlation coefficient: {:.4f}\n'.format(corrcoef))
     out_fp.write('R^2: {:.4f}\n'.format(corrcoef**2))
 
+    hm_ticks = [None, ] * args.heatmap_num_bins
+    for mod_pct in (0, 25, 50, 75, 100):
+        hm_ticks[int((args.heatmap_num_bins - 1) * mod_pct / 100)] = str(
+            mod_pct)
     hist_data = np.histogram2d(
-        samp2_meth_pct, samp1_meth_pct, bins=HEATMAP_BINS,
+        samp2_meth_pct, samp1_meth_pct, bins=args.heatmap_num_bins,
         range=[[0, 100], [0, 100]])[0][::-1]
     with np.errstate(divide='ignore'):
         log_hist_data = np.log10(hist_data)
@@ -113,7 +117,7 @@ def main():
     hm = sns.heatmap(
         log_hist_data, vmin=max(log_hist_data.min(), 1),
         vmax=log_hist_data.max(), cmap=CMAP, square=True,
-        xticklabels=HEATMAP_TICKS, yticklabels=HEATMAP_TICKS[::-1])
+        xticklabels=hm_ticks, yticklabels=hm_ticks[::-1])
     hm_cbar = hm.collections[0].colorbar
     hm_cbar.set_ticks(hm_cbar.get_ticks())
     hm_cbar.set_ticklabels([
@@ -127,7 +131,7 @@ def main():
 
     plt.figure(figsize=(6, 5))
     sns.heatmap(hist_data, cmap=CMAP, square=True, robust=True,
-                xticklabels=HEATMAP_TICKS, yticklabels=HEATMAP_TICKS[::-1])
+                xticklabels=hm_ticks, yticklabels=hm_ticks[::-1])
     plt.xlabel('{} Percent Methylated'.format(args.sample_names[0]))
     plt.ylabel('{} Percent Methylated'.format(args.sample_names[1]))
     plt.title('Raw Counts  N = {}  r = {:.4f}'.format(
