@@ -25,6 +25,9 @@ AGG_INFO = namedtuple('AGG_INFO', ('method', 'binary_threshold'))
 DEFAULT_BINARY_THRESH = 0.75
 DEFAULT_AGG_INFO = AGG_INFO(BIN_THRESH_NAME, None)
 
+ALL_ANNOT_MODS = namedtuple('ALL_ANNOT_MODS', ('all_mods', 'per_mod'))
+ANNOT_MODS = namedtuple('ANNOT_MODS', ('mod_seq', 'mod_qual'))
+
 # slots in ground truth mods numpy arrays for calibration
 GT_ALL_MOD_BASE_STR = 'all_mod_bases'
 GT_MOD_LLR_STR = '{}_mod_llrs'
@@ -664,8 +667,7 @@ def extract_stats_at_valid_sites(
 ########################
 
 def annotate_mods(
-        r_start, ref_seq, r_mod_scores, strand, mod_thresh=0.0, mod_base=None,
-        mod_map_base_conv=None):
+        r_start, ref_seq, r_mod_scores, strand, mods_info):
     """ Annotate reference sequence with called modified bases.
 
     Args:
@@ -675,53 +677,84 @@ def annotate_mods(
         r_mod_scores (list): Per-reference position modified base calls, as
             returned from megalodon.mods.call_read_mods.
         strand (int): 1 for forward strand -1 for reverse strand
-        mod_thresh (float): Threshold to call a modified base. Log likelihood
-            ratio; log(P_can / P_mod). Default: 0.0
-        mod_base (str): Restrict calls to single mod base. Should be single
-            letter mod base code.
-        mod_map_base_conv (dict): Map to translate called canonical or mod
-            bases.
+        mods_info (mods.ModInfo): Object containing information about modified
+            base processing
 
     Returns:
-        String modified base sequence and list of associated PHRED quality
-        scores.
+        mods.ALL_ANNOT_MODS containing mod_seq annotated with all modified
+        bases and per_mod annotated with each mod separately.
 
     Note: Reference sequence is in read orientation and mod calls are in
     genome coordiates.
     """
-    mod_seqs, mod_quals = [], []
-    prev_pos = 0
+    all_mods_seq, all_mods_qual = [], []
+    all_mods_prev_pos = 0
+    per_mod_data = dict((mod_base, [[], [], 0])
+                        for mod_base, _ in mods_info.mod_long_names)
     if strand == -1:
         ref_seq = ref_seq[::-1]
     for mod_pos, mod_lps, mod_bases, _, _, _ in sorted(r_mod_scores):
-        if mod_base is not None and mod_base not in mod_bases:
-            continue
         can_lp = np.log1p(-np.exp(mod_lps).sum())
-        # called canonical
-        if can_lp - mod_lps.max() > mod_thresh:
+
+        # first annotate all mods seq and qualities
+        if can_lp - mod_lps.max() > mods_info.mod_thresh:
             base_lp = can_lp
             base = ref_seq[mod_pos - r_start]
         else:
             most_prob_mod = np.argmax(mod_lps)
             base_lp = mod_lps[most_prob_mod]
             base = mod_bases[most_prob_mod]
-        if mod_map_base_conv is not None:
+        if mods_info.map_base_conv is not None:
             # convert base for bisulfite-like output
-            base = base.translate(mod_map_base_conv)
-        mod_seqs.append(ref_seq[prev_pos:mod_pos - r_start] + base)
-        mod_quals.extend(
-            [MOD_MAP_MAX_QUAL, ] * (mod_pos - r_start - prev_pos) +
+            base = base.translate(mods_info.map_base_conv)
+        all_mods_seq.append(
+            ref_seq[all_mods_prev_pos:mod_pos - r_start] + base)
+        all_mods_qual.extend(
+            [MOD_MAP_MAX_QUAL, ] * (mod_pos - r_start - all_mods_prev_pos) +
             [min(mh.log_prob_to_phred(base_lp, False), MOD_MAP_MAX_QUAL)])
-        prev_pos = mod_pos - r_start + 1
-    mod_seqs.append(ref_seq[prev_pos:])
-    mod_seq = ''.join(mod_seqs)
-    mod_quals.extend([MOD_MAP_MAX_QUAL] * len(ref_seq[prev_pos:]))
-    mod_quals = list(map(int, mod_quals))
-    if strand == -1:
-        mod_seq = mod_seq[::-1]
-        mod_quals = mod_quals[::-1]
+        all_mods_prev_pos = mod_pos - r_start + 1
 
-    return mod_seq, mod_quals
+        # annotate per-mod sequences and qualities
+        for mod_idx, mod_base in enumerate(mod_bases):
+            # called canonical
+            if can_lp - mod_lps[mod_idx] > mods_info.mod_thresh:
+                base_lp = can_lp
+                base = ref_seq[mod_pos - r_start]
+            else:
+                base_lp = mod_lps[mod_idx]
+                base = mod_base
+            if mods_info.map_base_conv is not None:
+                # convert base for bisulfite-like output
+                base = base.translate(mods_info.map_base_conv)
+            per_mod_data[mod_base][0].append(
+                ref_seq[per_mod_data[mod_base][2]:mod_pos - r_start] + base)
+            per_mod_data[mod_base][1].extend(
+                [MOD_MAP_MAX_QUAL, ] *
+                (mod_pos - r_start - per_mod_data[mod_base][2]) +
+                [min(mh.log_prob_to_phred(base_lp, False), MOD_MAP_MAX_QUAL)])
+            per_mod_data[mod_base][2] = mod_pos - r_start + 1
+
+    all_mods_seq.append(ref_seq[all_mods_prev_pos:])
+    all_mods_seq = ''.join(all_mods_seq)
+    all_mods_qual.extend([MOD_MAP_MAX_QUAL] * len(ref_seq[all_mods_prev_pos:]))
+    all_mods_qual = list(map(int, all_mods_qual))
+    if strand == -1:
+        all_mods_seq = all_mods_seq[::-1]
+        all_mods_qual = all_mods_qual[::-1]
+
+    per_mod_ret_data = {}
+    for mod_base, (mod_seq, mod_qual, mod_prev_pos) in per_mod_data.items():
+        mod_seq.append(ref_seq[mod_prev_pos:])
+        mod_seq = ''.join(mod_seq)
+        mod_qual.extend([MOD_MAP_MAX_QUAL] * len(ref_seq[mod_prev_pos:]))
+        mod_qual = list(map(int, mod_qual))
+        if strand == -1:
+            mod_seq = mod_seq[::-1]
+            mod_qual = mod_qual[::-1]
+        per_mod_ret_data[mod_base] = ANNOT_MODS(mod_seq, mod_qual)
+
+    return ALL_ANNOT_MODS(ANNOT_MODS(all_mods_seq, all_mods_qual),
+                          per_mod_ret_data)
 
 
 ########################
@@ -834,30 +867,34 @@ def call_read_mods(
                 m_ref_pos, loc_mod_lps, mod_bases, ref_motif, rel_pos,
                 raw_motif))
 
-    # annotate mods on reference sequence and send to signal mapping queue
+    # TODO add a flag to determine if this step should be completed to save
+    # compute. Known triggers are mod sig_map, mod per_ref and mod_mappings.
+    # annotate mods on reference sequence
+    # ignore divide around full annotate_mods call to avoid overhead
+    # on many calls to errstate
+    with np.errstate(divide='ignore'):
+        r_mod_seqs = annotate_mods(
+            r_ref_pos.start, r_ref_seq, r_mod_scores,
+            r_ref_pos.strand, mods_info)
+
+    # send mod annotated seqs to signal mapping queue if requested
     if mod_sig_map_q is not None and sig_map_res.pass_filts:
         # import locally so that import of mods module does not require
         # taiyaki install (required for signal_mapping module)
         from megalodon import signal_mapping
         if sig_map_res.ref_out_info.annotate_mods:
-            # ignore divide around full annotate_mods call to avoid overhead
-            # on many calls to errstate
-            with np.errstate(divide='ignore'):
-                r_mod_seq, _ = annotate_mods(
-                    r_ref_pos.start, sig_map_res.ref_seq, r_mod_scores,
-                    r_ref_pos.strand, mods_info.mod_thresh)
-            invalid_chars = set(r_mod_seq).difference(
+            invalid_chars = set(r_mod_seqs.all_mods.seq).difference(
                 sig_map_res.ref_out_info.alphabet)
             if len(invalid_chars) > 0:
                 raise mh.MegaError(
                     'Inavlid charcters found in mapped signal sequence: ' +
                     '({})'.format(''.join(invalid_chars)))
             # replace reference sequence with mod annotated sequence
-            sig_map_res = sig_map_res._replace(ref_seq=r_mod_seq)
+            sig_map_res = sig_map_res._replace(ref_seq=r_mod_seqs.all_mods.seq)
 
         mod_sig_map_q.put(signal_mapping.get_remapping(*sig_map_res[1:]))
 
-    return r_mod_scores
+    return r_mod_scores, r_mod_seqs
 
 
 #######################
@@ -869,11 +906,11 @@ def _get_mods_queue(
         mods_txt_fn, pr_refs_fn, ref_out_info, mod_map_fns, map_fmt,
         mods_info):
     def write_mod_alignment(
-            read_id, mod_seq, mod_quals, chrm, strand, r_st, mod_base):
+            read_id, mod_seq, mod_quals, chrm, strand, r_st, fp):
         a = pysam.AlignedSegment()
         a.query_name = read_id
         a.flag = 0 if strand == 1 else 16
-        a.reference_id = mod_map_fps[mod_base].get_tid(chrm)
+        a.reference_id = fp.get_tid(chrm)
         a.reference_start = r_st
         a.template_length = len(mod_seq)
         a.mapping_quality = MOD_MAP_MAX_QUAL
@@ -886,10 +923,10 @@ def _get_mods_queue(
         a.query_sequence = mod_seq
         a.query_qualities = array('B', mod_quals)
         a.cigartuples = [(0, len(mod_seq)), ]
-        mod_map_fps[mod_base].write(a)
+        fp.write(a)
 
     def store_mod_call(
-            r_mod_scores,  read_id, chrm, strand, r_start, ref_seq,
+            r_mod_scores, r_mods_seqs, read_id, chrm, strand, r_start, ref_seq,
             read_len, q_st, q_en, cigar, been_warned):
         try:
             mods_db.insert_read_scores(r_mod_scores, read_id, chrm, strand)
@@ -921,23 +958,14 @@ def _get_mods_queue(
             mapping.read_passes_filters(
                 ref_out_info, read_len, q_st, q_en, cigar))
         if do_output_pr_ref:
-            # ignore divide around full annotate_mods call to avoid overhead
-            # on many calls to errstate
-            with np.errstate(divide='ignore'):
-                mod_seq, mod_quals = annotate_mods(
-                    r_start, ref_seq, r_mod_scores, strand,
-                    mods_info.mod_thresh)
-            pr_refs_fp.write('>{}\n{}\n'.format(read_id, mod_seq))
+            pr_refs_fp.write('>{}\n{}\n'.format(
+                read_id, r_mod_seqs.all_mods.seq))
         if mod_map_fns is not None:
-            with np.errstate(divide='ignore'):
-                for mod_base, _ in mods_info.mod_long_names:
-                    mod_seq, mod_quals = annotate_mods(
-                        r_start, ref_seq, r_mod_scores, strand,
-                        mods_info.mod_thresh, mod_base,
-                        mods_info.map_base_conv)
-                    write_mod_alignment(
-                        read_id, mod_seq, mod_quals, chrm, strand, r_start,
-                        mod_base)
+            for mod_base, _ in mods_info.mod_long_names:
+                mod_seq, mod_qual = r_mod_seqs.per_mod[mod_base]
+                write_mod_alignment(
+                    read_id, mod_seq, mod_qual, chrm, strand, r_start,
+                    mod_map_fps[mod_base])
 
         return been_warned
 
@@ -989,7 +1017,7 @@ def _get_mods_queue(
     while True:
         try:
             # note strand is +1 for fwd or -1 for rev
-            r_mod_scores, (
+            (r_mod_scores, r_mod_seqs), (
                 read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
                 cigar) = mods_q.get(block=False)
         except queue.Empty:
@@ -999,20 +1027,20 @@ def _get_mods_queue(
             continue
         try:
             been_warned = store_mod_call(
-                r_mod_scores,  read_id, chrm, strand, r_start, ref_seq,
-                read_len, q_st, q_en, cigar, been_warned)
+                r_mod_scores, r_mod_seqs, read_id, chrm, strand, r_start,
+                ref_seq, read_len, q_st, q_en, cigar, been_warned)
         except Exception as e:
             LOGGER.debug('Error processing mods output for read: ' +
                          '{}\nError type: {}'.format(read_id, str(e)))
 
     while not mods_q.empty():
-        r_mod_scores, (
+        (r_mod_scores, r_mod_seqs), (
             read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
             cigar) = mods_q.get(block=False)
         try:
             been_warned = store_mod_call(
-                r_mod_scores,  read_id, chrm, strand, r_start, ref_seq,
-                read_len, q_st, q_en, cigar, been_warned)
+                r_mod_scores, r_mod_seqs, read_id, chrm, strand, r_start,
+                ref_seq, read_len, q_st, q_en, cigar, been_warned)
         except Exception as e:
             LOGGER.debug('Error processing mods output for read: ' +
                          '{}\nError type: {}'.format(read_id, str(e)))

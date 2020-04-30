@@ -52,7 +52,6 @@ def handle_errors(func, args, r_vals, out_q, fast5_fn, failed_reads_q):
         failed_reads_q.put((
             True, False, _UNEXPECTED_ERROR_CODE, fast5_fn,
             traceback.format_exc(), 0))
-    return
 
 
 def interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum):
@@ -163,8 +162,6 @@ def process_read(
             fast5_fn=sig_info.fast5_fn + ':::' + sig_info.read_id,
             failed_reads_q=failed_reads_q)
 
-    return
-
 
 ####################
 # Multi-processing #
@@ -189,7 +186,6 @@ def _get_bc_queue(
             except RuntimeError:
                 # same read_id encountered previously
                 pass
-        return
 
     bc_fp = open(mh.get_megalodon_fn(out_dir, mh.BC_NAME) + '.' + bc_fmt, 'w')
     write_fastq = bc_fmt == 'fastq'
@@ -219,8 +215,6 @@ def _get_bc_queue(
     if do_output_mods:
         mods_fp.close()
 
-    return
-
 
 def _process_reads_worker(
         read_file_q, bc_q, vars_q, failed_reads_q, mods_q, caller_conn,
@@ -237,7 +231,6 @@ def _process_reads_worker(
         LOGGER.debug(('Read worker {} has failed process preparation.\n' +
                       'Full error traceback:\n{}').format(
                           mp.current_process(), traceback.format_exc()))
-        return
 
     while True:
         try:
@@ -280,8 +273,6 @@ def _process_reads_worker(
                 traceback.format_exc(), 0))
             LOGGER.debug('Unexpected error for read {}'.format(read_id))
 
-    return
-
 
 if _DO_PROFILE:
     _process_reads_wrapper = _process_reads_worker
@@ -290,7 +281,6 @@ if _DO_PROFILE:
         import cProfile
         cProfile.runctx('_process_reads_wrapper(*args)', globals(), locals(),
                         filename='read_processing.prof')
-        return
 
 
 ############################
@@ -383,8 +373,6 @@ def _fill_files_queue(
     for _ in range(num_ps):
         read_file_q.put((None, None))
     num_reads_conn.send(len(used_read_ids))
-
-    return
 
 
 def format_fail_summ(header, fail_summ=[], reads_called=0, num_errs=None):
@@ -554,8 +542,6 @@ def _get_fail_queue(
     else:
         LOGGER.info('All reads processed successfully.')
 
-    return
-
 
 #######################
 # All read processing #
@@ -700,8 +686,6 @@ def process_all_reads(
     except KeyboardInterrupt:
         LOGGER.error('Exiting due to keyboard interrupt.')
         sys.exit(1)
-
-    return
 
 
 ####################
