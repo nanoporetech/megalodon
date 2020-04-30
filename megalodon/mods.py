@@ -25,7 +25,6 @@ AGG_INFO = namedtuple('AGG_INFO', ('method', 'binary_threshold'))
 DEFAULT_BINARY_THRESH = 0.75
 DEFAULT_AGG_INFO = AGG_INFO(BIN_THRESH_NAME, None)
 
-ALL_ANNOT_MODS = namedtuple('ALL_ANNOT_MODS', ('all_mods', 'per_mod'))
 ANNOT_MODS = namedtuple('ANNOT_MODS', ('mod_seq', 'mod_qual'))
 
 # slots in ground truth mods numpy arrays for calibration
@@ -666,8 +665,7 @@ def extract_stats_at_valid_sites(
 # Reference Mod Markup #
 ########################
 
-def annotate_mods(
-        r_start, ref_seq, r_mod_scores, strand, mods_info):
+def annotate_all_mods(r_start, ref_seq, r_mod_scores, strand, mods_info):
     """ Annotate reference sequence with called modified bases.
 
     Args:
@@ -681,22 +679,17 @@ def annotate_mods(
             base processing
 
     Returns:
-        mods.ALL_ANNOT_MODS containing mod_seq annotated with all modified
-        bases and per_mod annotated with each mod separately.
+        mods.ANNOT_MODS object annotated with all modified bases.
 
     Note: Reference sequence is in read orientation and mod calls are in
     genome coordiates.
     """
     all_mods_seq, all_mods_qual = [], []
-    all_mods_prev_pos = 0
-    per_mod_data = dict((mod_base, [[], [], 0])
-                        for mod_base, _ in mods_info.mod_long_names)
+    prev_pos = 0
     if strand == -1:
         ref_seq = ref_seq[::-1]
     for mod_pos, mod_lps, mod_bases, _, _, _ in sorted(r_mod_scores):
         can_lp = np.log1p(-np.exp(mod_lps).sum())
-
-        # first annotate all mods seq and qualities
         if can_lp - mod_lps.max() > mods_info.mod_thresh:
             base_lp = can_lp
             base = ref_seq[mod_pos - r_start]
@@ -708,12 +701,51 @@ def annotate_mods(
             # convert base for bisulfite-like output
             base = base.translate(mods_info.map_base_conv)
         all_mods_seq.append(
-            ref_seq[all_mods_prev_pos:mod_pos - r_start] + base)
+            ref_seq[prev_pos:mod_pos - r_start] + base)
         all_mods_qual.extend(
-            [MOD_MAP_MAX_QUAL, ] * (mod_pos - r_start - all_mods_prev_pos) +
+            [MOD_MAP_MAX_QUAL, ] * (mod_pos - r_start - prev_pos) +
             [min(mh.log_prob_to_phred(base_lp, False), MOD_MAP_MAX_QUAL)])
-        all_mods_prev_pos = mod_pos - r_start + 1
+        prev_pos = mod_pos - r_start + 1
 
+    all_mods_seq.append(ref_seq[prev_pos:])
+    all_mods_seq = ''.join(all_mods_seq)
+    all_mods_qual.extend([MOD_MAP_MAX_QUAL] * len(ref_seq[prev_pos:]))
+    all_mods_qual = list(map(int, all_mods_qual))
+    if strand == -1:
+        all_mods_seq = all_mods_seq[::-1]
+        all_mods_qual = all_mods_qual[::-1]
+
+    return ANNOT_MODS(all_mods_seq, all_mods_qual)
+
+
+def annotate_mods_per_mod(r_start, ref_seq, r_mod_scores, strand, mods_info):
+    """ Annotate reference sequence with called modified bases. Produce one
+    mods.ANNOT_MODS output for each modified base in mods_info.mod_long_names.
+
+    Args:
+        r_start (int): Reference start position for this read.
+        ref_seq (str): Read-centric reference sequence corresponding to
+            this read.
+        r_mod_scores (list): Per-reference position modified base calls, as
+            returned from megalodon.mods.call_read_mods.
+        strand (int): 1 for forward strand -1 for reverse strand
+        mods_info (mods.ModInfo): Object containing information about modified
+            base processing
+
+    Returns:
+        Dictionary with mod_base single letter code pointing to
+        mods.ANNOT_MODS with that modified base annotated.
+
+    Note: Reference sequence is in read orientation and mod calls are in
+    genome coordiates.
+    """
+    # seq, qual and prev_pos for each mod
+    per_mod_data = dict((mod_base, [[], [], 0])
+                        for mod_base, _ in mods_info.mod_long_names)
+    if strand == -1:
+        ref_seq = ref_seq[::-1]
+    for mod_pos, mod_lps, mod_bases, _, _, _ in sorted(r_mod_scores):
+        can_lp = np.log1p(-np.exp(mod_lps).sum())
         # annotate per-mod sequences and qualities
         for mod_idx, mod_base in enumerate(mod_bases):
             # called canonical
@@ -734,14 +766,6 @@ def annotate_mods(
                 [min(mh.log_prob_to_phred(base_lp, False), MOD_MAP_MAX_QUAL)])
             per_mod_data[mod_base][2] = mod_pos - r_start + 1
 
-    all_mods_seq.append(ref_seq[all_mods_prev_pos:])
-    all_mods_seq = ''.join(all_mods_seq)
-    all_mods_qual.extend([MOD_MAP_MAX_QUAL] * len(ref_seq[all_mods_prev_pos:]))
-    all_mods_qual = list(map(int, all_mods_qual))
-    if strand == -1:
-        all_mods_seq = all_mods_seq[::-1]
-        all_mods_qual = all_mods_qual[::-1]
-
     per_mod_ret_data = {}
     for mod_base, (mod_seq, mod_qual, mod_prev_pos) in per_mod_data.items():
         mod_seq.append(ref_seq[mod_prev_pos:])
@@ -753,8 +777,7 @@ def annotate_mods(
             mod_qual = mod_qual[::-1]
         per_mod_ret_data[mod_base] = ANNOT_MODS(mod_seq, mod_qual)
 
-    return ALL_ANNOT_MODS(ANNOT_MODS(all_mods_seq, all_mods_qual),
-                          per_mod_ret_data)
+    return per_mod_ret_data
 
 
 ########################
@@ -867,15 +890,19 @@ def call_read_mods(
                 m_ref_pos, loc_mod_lps, mod_bases, ref_motif, rel_pos,
                 raw_motif))
 
-    # TODO add a flag to determine if this step should be completed to save
-    # compute. Known triggers are mod sig_map, mod per_ref and mod_mappings.
-    # annotate mods on reference sequence
-    # ignore divide around full annotate_mods call to avoid overhead
-    # on many calls to errstate
-    with np.errstate(divide='ignore'):
-        r_mod_seqs = annotate_mods(
-            r_ref_pos.start, r_ref_seq, r_mod_scores,
-            r_ref_pos.strand, mods_info)
+    all_mods_seq = per_mod_seqs = None
+    if mods_info.do_ann_all_mods:
+        # ignore divide around full annotate_mods call to avoid overhead
+        # on many calls to errstate
+        with np.errstate(divide='ignore'):
+            all_mods_seq = annotate_all_mods(
+                r_ref_pos.start, r_ref_seq, r_mod_scores,
+                r_ref_pos.strand, mods_info)
+    if mods_info.do_ann_per_mod:
+        with np.errstate(divide='ignore'):
+            per_mod_seqs = annotate_mods_per_mod(
+                r_ref_pos.start, r_ref_seq, r_mod_scores,
+                r_ref_pos.strand, mods_info)
 
     # send mod annotated seqs to signal mapping queue if requested
     if mod_sig_map_q is not None and sig_map_res.pass_filts:
@@ -883,18 +910,18 @@ def call_read_mods(
         # taiyaki install (required for signal_mapping module)
         from megalodon import signal_mapping
         if sig_map_res.ref_out_info.annotate_mods:
-            invalid_chars = set(r_mod_seqs.all_mods.seq).difference(
+            invalid_chars = set(all_mods_seq.seq).difference(
                 sig_map_res.ref_out_info.alphabet)
             if len(invalid_chars) > 0:
                 raise mh.MegaError(
                     'Inavlid charcters found in mapped signal sequence: ' +
                     '({})'.format(''.join(invalid_chars)))
             # replace reference sequence with mod annotated sequence
-            sig_map_res = sig_map_res._replace(ref_seq=r_mod_seqs.all_mods.seq)
+            sig_map_res = sig_map_res._replace(ref_seq=all_mods_seq.seq)
 
         mod_sig_map_q.put(signal_mapping.get_remapping(*sig_map_res[1:]))
 
-    return r_mod_scores, r_mod_seqs
+    return r_mod_scores, all_mods_seq, per_mod_seqs
 
 
 #######################
@@ -926,8 +953,8 @@ def _get_mods_queue(
         fp.write(a)
 
     def store_mod_call(
-            r_mod_scores, r_mods_seqs, read_id, chrm, strand, r_start, ref_seq,
-            read_len, q_st, q_en, cigar, been_warned):
+            r_mod_scores, all_mods_seq, per_mod_seqs, read_id, chrm, strand,
+            r_start, ref_seq, read_len, q_st, q_en, cigar, been_warned):
         try:
             mods_db.insert_read_scores(r_mod_scores, read_id, chrm, strand)
         except Exception as e:
@@ -958,11 +985,10 @@ def _get_mods_queue(
             mapping.read_passes_filters(
                 ref_out_info, read_len, q_st, q_en, cigar))
         if do_output_pr_ref:
-            pr_refs_fp.write('>{}\n{}\n'.format(
-                read_id, r_mod_seqs.all_mods.seq))
+            pr_refs_fp.write('>{}\n{}\n'.format(read_id, all_mods_seq.seq))
         if mod_map_fns is not None:
             for mod_base, _ in mods_info.mod_long_names:
-                mod_seq, mod_qual = r_mod_seqs.per_mod[mod_base]
+                mod_seq, mod_qual = per_mod_seqs[mod_base]
                 write_mod_alignment(
                     read_id, mod_seq, mod_qual, chrm, strand, r_start,
                     mod_map_fps[mod_base])
@@ -991,10 +1017,8 @@ def _get_mods_queue(
     else:
         mods_txt_fp = open(mods_txt_fn, 'w')
         mods_txt_fp.write('\t'.join(mods_db.text_field_names) + '\n')
-
     if pr_refs_fn is not None:
         pr_refs_fp = open(pr_refs_fn, 'w')
-
     if mod_map_fns is not None:
         try:
             w_mode = mh.MAP_OUT_WRITE_MODES[map_fmt]
@@ -1016,7 +1040,7 @@ def _get_mods_queue(
     while True:
         try:
             # note strand is +1 for fwd or -1 for rev
-            (r_mod_scores, r_mod_seqs), (
+            (r_mod_scores, all_mods_seq, per_mod_seqs), (
                 read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
                 cigar) = mods_q.get(block=False)
         except queue.Empty:
@@ -1026,20 +1050,22 @@ def _get_mods_queue(
             continue
         try:
             been_warned = store_mod_call(
-                r_mod_scores, r_mod_seqs, read_id, chrm, strand, r_start,
-                ref_seq, read_len, q_st, q_en, cigar, been_warned)
+                r_mod_scores, all_mods_seq, per_mod_seqs, read_id, chrm,
+                strand, r_start, ref_seq, read_len, q_st, q_en, cigar,
+                been_warned)
         except Exception as e:
             LOGGER.debug('Error processing mods output for read: ' +
                          '{}\nError type: {}'.format(read_id, str(e)))
 
     while not mods_q.empty():
-        (r_mod_scores, r_mod_seqs), (
+        (r_mod_scores, all_mods_seq, per_mod_seqs), (
             read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
             cigar) = mods_q.get(block=False)
         try:
             been_warned = store_mod_call(
-                r_mod_scores, r_mod_seqs, read_id, chrm, strand, r_start,
-                ref_seq, read_len, q_st, q_en, cigar, been_warned)
+                r_mod_scores, all_mods_seq, per_mod_seqs, read_id, chrm,
+                strand, r_start, ref_seq, read_len, q_st, q_en, cigar,
+                been_warned)
         except Exception as e:
             LOGGER.debug('Error processing mods output for read: ' +
                          '{}\nError type: {}'.format(read_id, str(e)))
@@ -1142,9 +1168,10 @@ class ModInfo(object):
             do_output_mods=False, mods_calib_fn=None,
             mod_output_fmts=[mh.MOD_BEDMETHYL_NAME],
             edge_buffer=mh.DEFAULT_EDGE_BUFFER, pos_index_in_memory=True,
-            agg_info=DEFAULT_AGG_INFO, mod_thresh=0.0, map_base_conv=None):
+            agg_info=DEFAULT_AGG_INFO, mod_thresh=0.0, do_ann_all_mods=False,
+            do_ann_per_mod=False, map_base_conv=None):
         # this is pretty hacky, but these attributes are stored here as
-        # they are generally needed alongside other alphabet info
+        # they are generally needed alongside other modbase info
         # don't want to pass all of these parameters around individually though
         # as this would make function signatures too complicated
         self.mod_all_paths = mod_all_paths
@@ -1158,6 +1185,8 @@ class ModInfo(object):
         self.pos_index_in_memory = pos_index_in_memory
         self.agg_info = agg_info
         self.mod_thresh = mod_thresh
+        self.do_ann_all_mods = do_ann_all_mods
+        self.do_ann_per_mod = do_ann_per_mod
         self.map_base_conv_raw = map_base_conv
 
         self.alphabet = model_info.can_alphabet

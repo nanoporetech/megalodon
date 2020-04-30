@@ -600,10 +600,11 @@ def process_all_reads(
     if mh.PR_MOD_NAME in outputs:
         pr_refs_fn = mh.get_megalodon_fn(out_dir, mh.PR_REF_NAME) if (
             mh.PR_REF_NAME in outputs and ref_out_info.annotate_mods) else None
-        mod_map_fns = ((mod_base, '{}.{}.'.format(
-            mh.get_megalodon_fn(out_dir, mh.MOD_MAP_NAME), mln,
-            )) for mod_base, mln in mods_info.mod_long_names) \
-            if mh.MOD_MAP_NAME in outputs else None
+        mod_map_fns = None
+        if mh.MOD_MAP_NAME in outputs:
+            mod_map_fns = [(mod_base, '{}.{}.'.format(
+                mh.get_megalodon_fn(out_dir, mh.MOD_MAP_NAME), mln))
+                           for mod_base, mln in mods_info.mod_long_names]
         mods_txt_fn = (mh.get_megalodon_fn(out_dir, mh.PR_MOD_TXT_NAME)
                        if mods_info.write_mods_txt else None)
         getter_qs[mh.PR_MOD_NAME] = mh.create_getter_q(
@@ -784,6 +785,13 @@ def parse_mod_args(args, model_info):
             '--ref-include-mods and --ref-mods-all-motifs are not ' +
             'compatible. Ignoring --ref-include-mods')
         args.ref_include_mods = False
+    if args.ref_include_mods and not (mh.SIG_MAP_NAME in args.outputs or
+                                      mh.PR_REF_NAME in args.outputs):
+        LOGGER.warning((
+            '--ref-include-mods specified, but neither {} or {} specified ' +
+            'in outputs. Ignoring --ref-include-mods').format(
+                mh.SIG_MAP_NAME, mh.PR_REF_NAME))
+        args.ref_include_mods = False
     if mh.MOD_MAP_NAME in args.outputs and \
        mh.PR_MOD_NAME not in args.outputs:
         LOGGER.warning((
@@ -823,12 +831,17 @@ def parse_mod_args(args, model_info):
         agg_info = mods.AGG_INFO(
             mods.BIN_THRESH_NAME, args.mod_binary_threshold)
     mods_info = mods.ModInfo(
-        model_info, args.mod_motif, args.mod_all_paths,
-        args.write_mods_text, args.mod_context_bases,
-        mh.BC_MODS_NAME in args.outputs, mod_calib_fn,
-        args.mod_output_formats, args.edge_buffer,
-        not args.mod_positions_on_disk, agg_info, args.ref_mod_threshold,
-        args.mod_map_base_conv)
+        model_info=model_info, all_mod_motifs_raw=args.mod_motif,
+        mod_all_paths=args.mod_all_paths, write_mods_txt=args.write_mods_text,
+        mod_context_bases=args.mod_context_bases,
+        do_output_mods=mh.BC_MODS_NAME in args.outputs,
+        mods_calib_fn=mod_calib_fn, mod_output_fmts=args.mod_output_formats,
+        edge_buffer=args.edge_buffer,
+        pos_index_in_memory=not args.mod_positions_on_disk, agg_info=agg_info,
+        mod_thresh=args.ref_mod_threshold,
+        do_ann_all_mods=args.ref_include_mods,
+        do_ann_per_mod=mh.MOD_MAP_NAME in args.outputs,
+        map_base_conv=args.mod_map_base_conv)
     return args, mods_info
 
 
