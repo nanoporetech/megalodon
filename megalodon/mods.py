@@ -973,7 +973,6 @@ def _get_mods_queue(
         """ Sleep in a function for profiling
         """
         sleep(0.001)
-        return
 
     been_warned = False
 

@@ -410,13 +410,13 @@ def prep_errors_bar(
     else:
         bar = tqdm(total=tot_reads, smoothing=0, initial=curr_num_reads,
                    unit=' read(s)', dynamic_ncols=True, position=0,
-                   desc='Read Processing', mininterval=0.5)
+                   desc='Read Processing')
         if start_time is not None:
             bar.start_t = start_time
         if num_qs > 0:
             q_bars = OrderedDict((q_name, tqdm(
                 desc=q_name, total=mh._MAX_QUEUE_SIZE, smoothing=0,
-                dynamic_ncols=True, position=q_num + 1, mininterval=0.5,
+                dynamic_ncols=True, position=q_num + 1,
                 bar_format='output queue capacity {desc: <20}: ' +
                 '{percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}'))
                                  for q_num, q_name in enumerate(valid_q_names))
@@ -518,7 +518,7 @@ def _get_fail_queue(
             return
     if not suppress_progress:
         if q_bars is not None:
-            while any(getter_qs[q_name].queue.qsize() > 0
+            while any(not getter_qs[q_name].queue.empty()
                       for q_name in q_bars.keys()):
                 unexp_err_fp, last_err_write = update_prog(
                     reads_called, 0, unexp_err_fp, last_err_write, False)
