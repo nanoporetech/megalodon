@@ -290,10 +290,11 @@ def sort_and_index_mapping(map_fn, out_fn, ref_fn=None, do_index=False):
     if ref_fn is not None:
         sort_args.extend(('--reference', ref_fn))
     try:
+        sleep(0.1)
         pysam.sort(*sort_args)
         if do_index:
-            sleep(1)
-            pysam.index(out_fn)
+            sleep(0.1)
+            pysam.index(out_fn, catch_stdout=False, catch_stderr=False)
     except pysam.utils.SamtoolsError:
         LOGGER.warning('Sorting and/or indexing mapping failed.')
 

@@ -49,7 +49,6 @@ SINGLE_LETTER_CODE = {
     'K': 'GT', 'M': 'AC', 'N': 'ACGT', 'R': 'AG', 'S': 'CG', 'V': 'ACG',
     'W': 'AT', 'Y': 'CT'}
 
-
 _MAX_QUEUE_SIZE = 10000
 
 # allow 64GB for memory mapped sqlite file access
@@ -72,13 +71,18 @@ BC_OUT_FMTS = ('fastq', 'fasta')
 BC_MODS_NAME = 'mod_basecalls'
 MAP_NAME = 'mappings'
 MAP_SUMM_NAME = 'mappings_summary'
-MAP_OUT_FMTS = ('bam', 'cram', 'sam')
+MAP_OUT_BAM = 'bam'
+MAP_OUT_CRAM = 'cram'
+MAP_OUT_SAM = 'sam'
+MAP_OUT_FMTS = (MAP_OUT_BAM, MAP_OUT_CRAM, MAP_OUT_SAM)
+MAP_OUT_WRITE_MODES = {MAP_OUT_BAM: 'wb', MAP_OUT_CRAM: 'wc', MAP_OUT_SAM: 'w'}
 PR_VAR_NAME = 'per_read_variants'
 PR_VAR_TXT_NAME = 'per_read_variants_text'
-WHATSHAP_MAP_NAME = 'whatshap_mappings'
+VAR_MAP_NAME = 'variant_mappings'
 VAR_NAME = 'variants'
 PR_MOD_NAME = 'per_read_mods'
 PR_MOD_TXT_NAME = 'per_read_mods_text'
+MOD_MAP_NAME = 'mod_mappings'
 MOD_NAME = 'mods'
 SIG_MAP_NAME = 'signal_mappings'
 PR_REF_NAME = 'per_read_refs'
@@ -90,9 +94,10 @@ OUTPUT_FNS = {
     PR_VAR_NAME: 'per_read_variant_calls.db',
     PR_VAR_TXT_NAME: 'per_read_variant_calls.txt',
     VAR_NAME: 'variants.vcf',
-    WHATSHAP_MAP_NAME: 'whatshap_mappings',
+    VAR_MAP_NAME: 'variant_mappings',
     PR_MOD_NAME: 'per_read_modified_base_calls.db',
     PR_MOD_TXT_NAME: 'per_read_modified_base_calls.txt',
+    MOD_MAP_NAME: 'mod_mappings',
     MOD_NAME: 'modified_bases',
     SIG_MAP_NAME: 'signal_mappings.hdf5',
     PR_REF_NAME: 'per_read_references.fasta'
@@ -105,10 +110,10 @@ OUTPUT_DESCS = OrderedDict([
     (MAP_NAME, 'Mapped reads (BAM/CRAM/SAM)'),
     (PR_VAR_NAME, 'Per-read, per-site sequence variant scores database'),
     (VAR_NAME, 'Sample-level aggregated sequence variant calls (VCF)'),
-    (WHATSHAP_MAP_NAME,
-     'Sequence variant annotated mappings for use with whatshap'),
+    (VAR_MAP_NAME, 'Per-read mappings annotated with variant calls'),
     (PR_MOD_NAME, 'Per-read, per-site modified base scores database'),
     (MOD_NAME, 'Sample-level aggregated modified base calls (modVCF)'),
+    (MOD_MAP_NAME, 'Per-read mappings annotated with modified base calls'),
     (SIG_MAP_NAME, 'Signal mappings for taiyaki model training (HDF5)'),
     (PR_REF_NAME, 'Per-read reference sequence for model training (FASTA)')
 ])
@@ -128,14 +133,15 @@ MOD_OUTPUT_EXTNS = {
     MOD_WIG_NAME: 'wig'
 }
 
-ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, SIG_MAP_NAME, PR_VAR_NAME,
-                     VAR_NAME, WHATSHAP_MAP_NAME, PR_MOD_NAME, MOD_NAME))
+ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, SIG_MAP_NAME,
+                     PR_VAR_NAME, VAR_NAME, VAR_MAP_NAME,
+                     PR_MOD_NAME, MOD_NAME, MOD_MAP_NAME))
 GETTER_PROC = namedtuple('getter_proc', ('queue', 'proc', 'conn'))
 
 REF_OUT_INFO = namedtuple('ref_out_info', (
     'pct_idnt', 'pct_cov', 'min_len', 'max_len', 'alphabet',
     'collapse_alphabet', 'mod_long_names', 'annotate_mods', 'annotate_vars',
-    'mod_thresh', 'output_sig_maps', 'output_pr_refs', 'ref_mods_all_motifs'))
+    'output_sig_maps', 'output_pr_refs', 'ref_mods_all_motifs'))
 
 # directory names define model preset string
 # currently only one model trained
@@ -241,6 +247,13 @@ def mkdir(out_dir, overwrite):
     os.mkdir(out_dir)
 
     return
+
+
+def log_prob_to_phred(log_prob, ignore_np_divide=True):
+    if ignore_np_divide:
+        with np.errstate(divide='ignore'):
+            return -10 * np.log10(1 - np.exp(log_prob))
+    return -10 * np.log10(1 - np.exp(log_prob))
 
 
 ############################

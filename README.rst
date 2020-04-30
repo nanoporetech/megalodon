@@ -142,7 +142,7 @@ Finally the ``--guppy-timeout`` arguments ensures that a run will not stall on a
 High Quality Phased Variant Calls
 ---------------------------------
 
-In order to obtain the highest quality diploid sequence variant calls the full variant phasing pipeline employing whatshap should be applied.
+In order to obtain the highest quality diploid sequence variant calls, the full variant phasing pipeline employing whatshap should be applied.
 This pipeline is described in detail on the `full documentation page <https://nanoporetech.github.io/megalodon/variant_phasing.html>`_.
 The default diploid variant settings are optimized for the full phasing pipeline and not the highest quality diploid calls directly from a single megalodon call.
 
