@@ -985,7 +985,7 @@ def _get_mods_queue(
             mapping.read_passes_filters(
                 ref_out_info, read_len, q_st, q_en, cigar))
         if do_output_pr_ref:
-            pr_refs_fp.write('>{}\n{}\n'.format(read_id, all_mods_seq.seq))
+            pr_refs_fp.write('>{}\n{}\n'.format(read_id, all_mods_seq.mod_seq))
         if mod_map_fns is not None:
             for mod_base, _ in mods_info.mod_long_names:
                 mod_seq, mod_qual = per_mod_seqs[mod_base]
