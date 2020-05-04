@@ -972,7 +972,6 @@ def parse_ref_out_args(args, model_info):
     min_len, max_len = (args.ref_length_range
                         if args.ref_length_range is not None else
                         (None, None))
-    do_annotate_mods = args.ref_include_mods
     ref_mods_all_motifs = None
     if args.ref_mods_all_motifs is not None:
         ref_mods_all_motifs, sm_alphabet_info = parse_ref_mods_all_motifs(
@@ -988,7 +987,7 @@ def parse_ref_out_args(args, model_info):
         pct_cov=args.ref_percent_coverage_threshold,
         min_len=min_len, max_len=max_len, alphabet=sm_alphabet,
         collapse_alphabet=sm_coll_alphabet, mod_long_names=sm_mlns,
-        annotate_mods=do_annotate_mods,
+        annotate_mods=args.ref_include_mods,
         annotate_vars=args.ref_include_variants,
         output_sig_maps=output_sig_maps, output_pr_refs=output_pr_refs,
         ref_mods_all_motifs=ref_mods_all_motifs)

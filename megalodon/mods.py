@@ -917,14 +917,14 @@ def call_read_mods(
         # taiyaki install (required for signal_mapping module)
         from megalodon import signal_mapping
         if sig_map_res.ref_out_info.annotate_mods:
-            invalid_chars = set(all_mods_seq.seq).difference(
+            invalid_chars = set(all_mods_seq.mod_seq).difference(
                 sig_map_res.ref_out_info.alphabet)
             if len(invalid_chars) > 0:
                 raise mh.MegaError(
                     'Inavlid charcters found in mapped signal sequence: ' +
                     '({})'.format(''.join(invalid_chars)))
             # replace reference sequence with mod annotated sequence
-            sig_map_res = sig_map_res._replace(ref_seq=all_mods_seq.seq)
+            sig_map_res = sig_map_res._replace(ref_seq=all_mods_seq.mod_seq)
 
         mod_sig_map_q.put(signal_mapping.get_remapping(*sig_map_res[1:]))
 
@@ -992,7 +992,7 @@ def _get_mods_queue(
             mapping.read_passes_filters(
                 ref_out_info, read_len, q_st, q_en, cigar))
         if do_output_pr_ref:
-            pr_refs_fp.write('>{}\n{}\n'.format(read_id, all_mods_seq.seq))
+            pr_refs_fp.write('>{}\n{}\n'.format(read_id, all_mods_seq.mod_seq))
         if mod_map_fns is not None:
             for mod_base, _ in mods_info.mod_long_names:
                 mod_seq, mod_qual = per_mod_seqs[mod_base]

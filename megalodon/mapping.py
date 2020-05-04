@@ -42,8 +42,6 @@ class alignerPlus(mappy.Aligner):
             ref_lens.append(len(self.seq(ref_name)))
         self.ref_names_and_lens = (ref_names, ref_lens)
 
-        return
-
 
 def align_read(q_seq, aligner, map_thr_buf, read_id=None):
     try:
@@ -82,8 +80,6 @@ def _map_read_worker(aligner, map_conn, mo_q):
 
         if mo_q is not None and full_res is not None:
             mo_q.put((map_res[0], full_res))
-
-    return
 
 
 def parse_cigar(r_cigar, strand, ref_len):
@@ -208,6 +204,16 @@ def _get_map_queue(
         do_output_pr_refs, ref_out_info):
     def write_alignment(
             read_id, q_seq, chrm, strand, r_st, q_st, q_en, cigar):
+        nalign, nmatch, ndel, nins = [0, ] * 4
+        for op_len, op in cigar:
+            if op not in (4, 5):
+                nalign += op_len
+            if op in (0, 7):
+                nmatch += op_len
+            elif op in (2, 3):
+                ndel += op_len
+            elif op == 1:
+                nins += op_len
         bc_len = len(q_seq)
         q_seq = q_seq[q_st:q_en]
 
@@ -219,18 +225,10 @@ def _get_map_queue(
         a.reference_start = r_st
         a.cigartuples = [(op, op_l) for op_l, op in cigar]
         a.template_length = q_en - q_st
+        # add NM tag containing edit distance to the reference
+        a.tags = (('NM', nalign - nmatch), )
         map_fp.write(a)
 
-        nalign, nmatch, ndel, nins = [0, ] * 4
-        for op_len, op in cigar:
-            if op not in (4, 5):
-                nalign += op_len
-            if op in (0, 7):
-                nmatch += op_len
-            elif op in (2, 3):
-                ndel += op_len
-            elif op == 1:
-                nins += op_len
         # compute alignment stats
         r_map_summ = MAP_SUMM(
             read_id=read_id, pct_identity=100 * nmatch / float(nalign),
@@ -241,12 +239,9 @@ def _get_map_queue(
         summ_fp.write(MAP_SUMM_TMPLT.format(r_map_summ))
         summ_fp.flush()
 
-        return
-
     def write_pr_ref(read_id, ref_seq):
         pr_ref_fp.write('>{}\n{}\n'.format(read_id, ref_seq))
         pr_ref_fp.flush()
-        return
 
     def get_alignment():
         ref_seq, (read_id, q_seq, chrm, strand, r_st, q_st, q_en,
@@ -255,7 +250,6 @@ def _get_map_queue(
         if do_output_pr_refs and read_passes_filters(
                 ref_out_info, len(q_seq), q_st, q_en, cigar):
             write_pr_ref(read_id, ref_seq)
-        return
 
     summ_fp = open(mh.get_megalodon_fn(out_dir, mh.MAP_SUMM_NAME), 'w')
     summ_fp.write('\t'.join(MAP_SUMM._fields) + '\n')
@@ -284,8 +278,6 @@ def _get_map_queue(
         if do_output_pr_refs:
             pr_ref_fp.close()
 
-    return
-
 
 ####################
 # Samtools wrapper #
@@ -303,8 +295,6 @@ def sort_and_index_mapping(map_fn, out_fn, ref_fn=None, do_index=False):
             pysam.index(out_fn, catch_stdout=False, catch_stderr=False)
     except pysam.utils.SamtoolsError:
         LOGGER.warning('Sorting and/or indexing mapping failed.')
-
-    return
 
 
 ##########################
