@@ -3,6 +3,7 @@ Megalodon Model Training
 ************************
 
 This page describes how to use Megalodon to prepare training data and train a new basecalling model using Taiyaki.
+For modified base data preparation and model training documentation see the :doc:`modified base training documentation </modbase_training>` page.
 
 .. note::
 
@@ -13,24 +14,19 @@ This page describes how to use Megalodon to prepare training data and train a ne
 Data Preparation
 ----------------
 
-Data preparation involves adding the ``--outputs signal_mappings`` argument to a megalodon call.
-This will produce a ``signal_mappings.hdf5`` file in the specified megalodon output directory.
+To produce a training data ("mapped signal") file the ``--outputs signal_mappings`` argument should be added to a Megalodon call.
+This will produce a ``signal_mappings.hdf5`` file in the specified Megalodon output directory.
 For each read producing a valid reference mapping, this file contains a mapping between the raw signal and the mapped reference bases.
 This file can then be directly passed to the Taiyaki ``train_flipflop.py`` command for model training.
 
 ::
 
-   # set unix environment variables for optimal processing
-   export OPENBLAS_NUM_THREADS=1
-   export OMP_NUM_THREADS=1
-   # run megalodon outputting signal mappings and read mappings
+   # run megalodon; output signal mappings
    megalodon raw_fast5s/ \
-       --outputs mappings signal_mappings \
+       --outputs signal_mappings \
        --reference reference.fa \
        --devices 0 --processes 40
 
-   # set environment variables for optimal taiyaki training
-   export OMP_NUM_THREADS=40
    # run taiyaki training
    train_flipflop.py ./taiyaki/models/mLstm_flipflop.py \
        megalodon_results/signal_mappings.hdf5 --device 0
@@ -38,6 +34,11 @@ This file can then be directly passed to the Taiyaki ``train_flipflop.py`` comma
 Once training completes, the ``training/model_final.checkpoint`` contains the model.
 This can be converted to a guppy compatible model with the ``taiyaki/bin/dump_json.py`` script.
 A guppy config with appropriate settings should also be produced for new models.
+
+.. note::
+
+   For optimal performance, it is recommended that the ``OMP_NUM_THREADS`` unix environment variable be set to ``1`` for the above Megalodon command and a larger value for the Taiyaki training command.
+
 
 ----------------------
 Signal Mapping Options
@@ -59,54 +60,16 @@ Several options are available to control the behavior of the ``signal_mappings``
   - This option replaces the reference sequence with more likley proposed alternative sequences as called in the ``per_read_variants`` output.
   - Cannot specify both this option and ``--ref-include-mods``.
 
-------------------------------
-Modified Base Data Preparation
-------------------------------
-
-Several options are available to allow the output of modified bases into the output training data.
-In order to output modified base training data a modbase model must be provided.
-
-.. warning::
-
-  Great care should be taken when training a modified base basecalling model.
-  The accuracy of refernce modified base markup is strongly indicative of the final modified base detection performance for a trained model.
-
-- ``--ref-include-mods``
-
-  - Modified base calls will be included in signal mapping output.
-  - If provided, calls will not be made outside of sequences specified by ``--mod-motif``.
-
-    - Note that multiple ``--mod-motifs`` values may be specified.
-    - By default, modified base calls will be made in all sequence contexts.
-  - By default, the most likely modified base or canonical call will be included in the output reference where applicable.
-  - If a modbase model is provided, but this option is not specified, the produced dataset will included the modified bases within the alphabet, but no modified bases will be annotated in the read training sequences.
-- ``--ref-mods-all-motifs``
-
-  - This option will mark all tested sites as modified regardless of the score at each tested reference site.
-  - This option is applicable to samples where all instances of a particular motif are known to be modified (e.g. bacterial methylation).
-- ``--ref-mod-threshold``
-
-  - This option allows the user to manually set the log likelihood ratio threshold value for modidifed base reference markup.
-  - See the ``scripts/compute_mod_thresh_score.py`` command for assistance on determining a reasonable value for this parameter.
 
 ---------------------
 Megalodon Calibration
 ---------------------
 
-When a new model is trained the produced scores must be calibrated to acheive optimal aggregated results (over reads).
-Once produced calibration files can be passed to megalodon via the ``--variant-calibration-filename`` and ``--mod-calibration-filename`` arguments.
+When a new model is trained, the produced scores must be calibrated to acheive optimal aggregated results (over reads).
+Once produced, calibration files can be passed to Megalodon via the ``--variant-calibration-filename`` and ``--mod-calibration-filename`` arguments.
 
-Calibration requires a ground truth against which to compute scores.
-For sequence variants, a high quality reference for a set of reads is required.
+Sequence variant calibration requires a ground truth against which to compute scores.
+For sequence variants, a high quality reference for a set of reads will suffice for this requirement.
 Random sequence variants are proposed and scored in order to create distributions over which to calibrate the produced scores.
 In order to create a sequence variant calbration file, run ``megalodon/scripts/generate_ground_truth_variant_llr_scores.py`` followed by ``megalodon/scripts/calibrate_variant_llr_scores.py``.
 The optional ``--out-pdf`` provides visualization of the likelihood ratio score correction.
-
-# TODO: move modbase training to a new docs page
-For modified bases, a ground truth containing known modified reference sites as well as known canonical base sites is required.
-Similarly to sequence variant calibration, a modified base calibration file is created by running ``megalodon/scripts/generate_ground_truth_mod_llr_scores.py`` followed by ``megalodon/scripts/calibrate_mod_llr_scores.py``.
-It is recommended that modified base calibration sites be specified by passing a CSV flie containing the known modified and canonical sites.
-Modified base ground truths can also be specified by passing a control sample.
-When a control sample is specified all sites in the first sample are assumed to be modified.
-
-Calibration files are computed from the database files, so there is no need to output per-read text files for calibration.

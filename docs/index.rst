@@ -81,3 +81,4 @@ Contents
    variant_phasing
    file_formats
    model_training
+   modbase_training
