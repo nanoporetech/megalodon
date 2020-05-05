@@ -593,8 +593,6 @@ class ModelInfo(object):
                 scale_params=scale_params)
 
         if signal_reversed:
-            # TODO check that these are the only values that need to be
-            # adjusted
             called_read.seq = called_read.seq[::-1]
             called_read.qual = called_read.qual[::-1]
 
