@@ -116,7 +116,7 @@ def parse_cigar(r_cigar, strand, ref_len):
     return r_to_q_poss
 
 
-def map_read(q_seq, read_id, caller_conn):
+def map_read(q_seq, read_id, caller_conn, signal_reversed=False):
     """Map read (query) sequence and return:
     1) reference sequence (endcoded as int labels)
     2) mapping from reference to read positions (after trimming)
@@ -124,11 +124,17 @@ def map_read(q_seq, read_id, caller_conn):
     4) cigar as produced by mappy
     """
     # send seq to _map_read_worker and receive mapped seq and pos
+    if signal_reversed:
+        q_seq = q_seq[::-1]
     caller_conn.send((q_seq, read_id))
     r_ref_seq, r_algn = caller_conn.recv()
     if r_ref_seq is None:
         raise mh.MegaError('No alignment')
     chrm, strand, r_st, r_en, q_st, q_en, r_cigar = r_algn
+    if signal_reversed:
+        q_st, q_en = len(q_seq) - q_en, len(q_seq) - q_st
+        r_ref_seq = r_ref_seq[::-1]
+        r_cigar = r_cigar[::-1]
 
     try:
         r_to_q_poss = parse_cigar(r_cigar, strand, r_en - r_st)

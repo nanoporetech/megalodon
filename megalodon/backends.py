@@ -531,7 +531,7 @@ class ModelInfo(object):
 
     def run_pyguppy_model(
             self, sig_info, return_post_w_mods, return_mod_scores,
-            update_sig_info):
+            update_sig_info, signal_reversed):
         if self.model_type != PYGUPPY_NAME:
             raise mh.MegaError(
                 'Attempted to run pyguppy model with non-pyguppy ' +
@@ -592,12 +592,16 @@ class ModelInfo(object):
                             scale_params[1]).astype(np.float32),
                 scale_params=scale_params)
 
-        return (called_read.seq, called_read.qual, rl_cumsum, can_post,
-                sig_info, post_w_mods, mods_scores)
+        if signal_reversed:
+            called_read.seq = called_read.seq[::-1]
+            called_read.qual = called_read.qual[::-1]
+
+        return (called_read.seq, called_read.qual, rl_cumsum,
+                can_post, sig_info, post_w_mods, mods_scores)
 
     def basecall_read(
             self, sig_info, return_post_w_mods=True, return_mod_scores=False,
-            update_sig_info=False):
+            update_sig_info=False, signal_reversed=False):
         if self.model_type not in (TAI_NAME, FAST5_NAME, PYGUPPY_NAME):
             raise mh.MegaError('Invalid model backend')
 
@@ -606,7 +610,7 @@ class ModelInfo(object):
         if self.model_type == PYGUPPY_NAME:
             return self.run_pyguppy_model(
                 sig_info, return_post_w_mods, return_mod_scores,
-                update_sig_info)
+                update_sig_info, signal_reversed)
 
         post_w_mods = mod_weights = None
         if self.model_type == TAI_NAME:
