@@ -216,7 +216,7 @@ def parse_mod_data(
                 mods_db_fn, valid_sites, include_strand=include_strand)
         else:
             mods_data = [mods.extract_all_stats(mods_db_fn), ]
-    except FileNotFoundError:
+    except (FileNotFoundError, mh.MegaError):
         mods_data = None
 
     return mod_acc, parsim_acc, mods_data, ctrl_data
