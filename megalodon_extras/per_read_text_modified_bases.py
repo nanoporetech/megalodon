@@ -1,28 +1,13 @@
-import argparse
 from collections import defaultdict
 
 import numpy as np
 from tqdm import tqdm
 
 from megalodon import mods, megalodon_helper as mh
+from ._extras_parsers import get_parser_per_read_text_modified_bases
 
 
-def get_parser():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        'megalodon_results_dir',
-        help='Output directory from megalodon with per_read_mods in output.')
-    parser.add_argument(
-        '--out-filename',
-        help='Output filename for text summary. Default: output into ' +
-        'megalodon results directory')
-
-    return parser
-
-
-def main():
-    args = get_parser().parse_args()
-
+def _main(args):
     mods_db = mods.ModsDb(
         mh.get_megalodon_fn(args.megalodon_results_dir, mh.PR_MOD_NAME))
     mods_txt_fp = open(
@@ -53,8 +38,6 @@ def main():
                 r_mod_stats.items())) + '\n'
         mods_txt_fp.write(mod_out_text)
 
-    return
-
 
 if __name__ == '__main__':
-    main()
+    _main(get_parser_per_read_text_modified_bases().parse_args())

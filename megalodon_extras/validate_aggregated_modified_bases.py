@@ -1,6 +1,5 @@
 import os
 import sys
-import argparse
 from collections import defaultdict, namedtuple
 
 import numpy as np
@@ -11,6 +10,7 @@ from sklearn.metrics import (
     roc_curve, auc, precision_recall_curve, average_precision_score)
 
 from megalodon import megalodon_helper as mh
+from ._extras_parsers import get_parser_validate_aggregated_modified_bases
 
 
 MOD_BANDWIDTH = 1.0
@@ -171,48 +171,7 @@ def compute_val_metrics(
     plt.close()
 
 
-def get_parser():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        '--modified-bed-methyl-files', nargs='+', required=True,
-        help='Bed methyl files from modified sample(s).')
-    parser.add_argument(
-        '--ground-truth-csvs', nargs='+',
-        help='Ground truth csvs with (chrm, strand, pos, is_mod) values. ' +
-        'To collapse to forward strand coordinates, strand should be ".".')
-    parser.add_argument(
-        '--control-bed-methyl-files', nargs='+',
-        help='Bed methyl files from control sample(s).')
-    parser.add_argument(
-        '--valid-positions', action='append',
-        help='BED file containing positions to be considered. Multiple ' +
-        'files may be provided')
-    parser.add_argument(
-        '--coverage-threshold', type=int, default=1,
-        help='Only include sites with sufficient coverage. ' +
-        'Default: 1 (= All sites)')
-    parser.add_argument(
-        '--strand-offset', type=int,
-        help='Offset to combine stranded results. Positive value indicates ' +
-        'reverse strand sites have higher position values. Default treat ' +
-        'strands independently.')
-    parser.add_argument(
-        '--allow-unbalance-classes', action='store_true',
-        help='Allow unbalanced classes in modified base metric computation. ' +
-        'Default: Balance size of modified and canonical classes for each ' +
-        'comparison made.')
-    parser.add_argument(
-        '--out-pdf', default='megalodon_agg_validation.pdf',
-        help='Output pdf filename. Default: %(default)s')
-    parser.add_argument(
-        '--out-filename',
-        help='Output filename for text summary. Default: stdout')
-
-    return parser
-
-
-def main():
-    args = get_parser().parse_args()
+def _main(args):
     pdf_fp = PdfPages(args.out_pdf)
     out_fp = (sys.stdout if args.out_filename is None else
               open(args.out_filename, 'w'))
@@ -266,4 +225,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    _main(get_parser_validate_aggregated_modified_bases().parse_args())

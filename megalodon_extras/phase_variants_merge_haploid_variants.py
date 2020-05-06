@@ -1,11 +1,11 @@
 import sys
-import argparse
 
 import pysam
 import numpy as np
 from tqdm import tqdm
 
 from megalodon import variants, megalodon_helper as mh
+from ._extras_parsers import get_parser_phase_variants_merge_haploid_variants
 
 
 HEADER = """##fileformat=VCFv4.1
@@ -25,30 +25,6 @@ CONTIG_HEADER_LINE = "##contig=<ID={},length={}>"
 
 RECORD_LINE = ('{chrm}\t{pos}\t{rid}\t{ref}\t{alts}\t{qual}\t.\tDP={dp:d}\t' +
                'GT:GQ:DP:GL:PL\t{gt}:{gq:.0f}:{dp:d}:{gl}:{pl}\n')
-
-
-def get_parser():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        'diploid_called_variants',
-        help='Phased variants from which the diploid calls are derived.')
-    parser.add_argument(
-        'haplotype1_variants',
-        help='Variant file for haplotype 1.')
-    parser.add_argument(
-        'haplotype2_variants',
-        help='Variant file for haplotype 2.')
-    parser.add_argument(
-        '--out-vcf', default='merged_haploid_variants.vcf',
-        help='Output name for VCF. Default: %(default)s')
-    parser.add_argument(
-        '--force-invalid-variant-processing', action='store_true',
-        help='Force processing of mismatching varints. This script is ' +
-        'intended only to process variant files produced from the same set ' +
-        'of megalodon per-read variant calls. Behavior when processing ' +
-        'mismatched variants is not defined.')
-
-    return parser
 
 
 def are_same_var(s_v, h1_v, h2_v):
@@ -149,8 +125,6 @@ def write_var(curr_s_rec, curr_h1_rec, curr_h2_rec, out_vars, contig):
     out_vars.write(RECORD_LINE.format(
         chrm=contig, pos=pos, rid=rid, ref=ref, alts=alts, qual=qual, dp=dp,
         gt=gt, gq=gq, gl=gl_fmt, pl=pl_fmt))
-
-    return
 
 
 def iter_contig_vars(
@@ -287,9 +261,7 @@ def get_contig_iter(vars_idx, contig):
         return iter([])
 
 
-def main():
-    args = get_parser().parse_args()
-
+def _main(args):
     sys.stderr.write('Opening VCF files.\n')
     source_vars = pysam.VariantFile(args.diploid_called_variants)
     h1_vars = pysam.VariantFile(args.haplotype1_variants)
@@ -328,4 +300,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    _main(get_parser_phase_variants_merge_haploid_variants().parse_args())

@@ -845,9 +845,9 @@ def parse_mod_args(args, model_info):
                     if mh.PR_MOD_NAME in args.outputs else None)
     if args.mod_aggregate_method == mods.EM_NAME:
         agg_info = mods.AGG_INFO(mods.EM_NAME, None)
-    elif args.mod_aggregate_method == mods.BIN_THRESH_NAME:
+    elif args.mod_aggregate_method == mh.MOD_BIN_THRESH_NAME:
         agg_info = mods.AGG_INFO(
-            mods.BIN_THRESH_NAME, args.mod_binary_threshold)
+            mh.MOD_BIN_THRESH_NAME, args.mod_binary_threshold)
     mods_info = mods.ModInfo(
         model_info=model_info, all_mod_motifs_raw=args.mod_motif,
         mod_all_paths=args.mod_all_paths, write_mods_txt=args.write_mods_text,
@@ -1028,10 +1028,10 @@ def get_parser():
 
     pyg_grp = parser.add_argument_group('Guppy Backend Arguments')
     pyg_grp.add_argument(
-        '--guppy-config', default=backends.DEFAULT_GUPPY_CFG,
+        '--guppy-config', default=mh.DEFAULT_GUPPY_CFG,
         help='Guppy config. Default: %(default)s')
     pyg_grp.add_argument(
-        '--guppy-server-path', default=backends.DEFAULT_GUPPY_SERVER_PATH,
+        '--guppy-server-path', default=mh.DEFAULT_GUPPY_SERVER_PATH,
         help='Path to guppy server executable. Default: %(default)s')
 
     pyg_grp.add_argument(
@@ -1048,7 +1048,7 @@ def get_parser():
         '--guppy-server-port', type=int,
         help=hidden_help('Guppy server port. Default: Guppy auto'))
     pyg_grp.add_argument(
-        '--guppy-timeout', type=float, default=backends.DEFAULT_GUPPY_TIMEOUT,
+        '--guppy-timeout', type=float, default=mh.DEFAULT_GUPPY_TIMEOUT,
         help=hidden_help('Timeout to wait for guppy server to call a single ' +
                          'read in seconds. Default: %(default)f'))
     pyg_grp.add_argument(
@@ -1182,8 +1182,8 @@ def get_parser():
                          'Default: Calibrate scores as described in ' +
                          '--mod-calibration-filename'))
     mod_grp.add_argument(
-        '--mod-aggregate-method', choices=list(mods.AGG_METHOD_NAMES),
-        default=mods.BIN_THRESH_NAME,
+        '--mod-aggregate-method', choices=list(mh.MOD_AGG_METHOD_NAMES),
+        default=mh.MOD_BIN_THRESH_NAME,
         help=hidden_help('Modified base aggregation method. ' +
                          'Default: %(default)s'))
     mod_grp.add_argument(
@@ -1193,7 +1193,7 @@ def get_parser():
                          'best-path score)'))
     mod_grp.add_argument(
         '--mod-binary-threshold', type=float,
-        default=mods.DEFAULT_BINARY_THRESH,
+        default=mh.DEFAULT_MOD_BINARY_THRESH,
         help=hidden_help('Threshold for modified base aggregation ' +
                          '(probability of modified/canonical base). ' +
                          'Only applicable for "--mod-aggregate-method ' +

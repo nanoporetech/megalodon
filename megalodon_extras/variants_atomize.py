@@ -1,7 +1,8 @@
 import sys
-import argparse
 
 from megalodon import mapping, megalodon_helper as mh, variants
+from ._extras_parsers import get_parser_variants_atomize
+
 
 HEADER = ['##fileformat=VCFv4.1', '##source=megalodon_atomized']
 CONTIG_HEADER_LINE = "##contig=<ID={},length={}>"
@@ -11,26 +12,7 @@ FIELDS_LINE = ('#CHROM	POS	ID	REF	ALT	QUAL	FILTER' +
 RECORD_LINE = ('{chrm}\t{pos}\t{rid}\t{ref}\t{alts}\t.\t.\t{info}\t.\t.\n')
 
 
-def get_parser():
-    parser = argparse.ArgumentParser(
-        description='Atomize variants so this does not have to be ' +
-        'completed during read processing')
-    parser.add_argument('in_vcf', help='Proposed varitants (VCF)')
-    parser.add_argument(
-        'reference',
-        help='Reference FASTA or minimap2 index file corresponding to VCF.')
-    parser.add_argument(
-        '--out-vcf', default='atomized_variants.megalodon.vcf',
-        help='Output VCF file. Default: %(default)s')
-    parser.add_argument(
-        '--max-indel-size', type=int, default=50,
-        help='Maximum difference in number of reference and alternate ' +
-        'bases. Default: %(default)d')
-    return parser
-
-
-def main():
-    args = get_parser().parse_args()
+def _main(args):
     sys.stderr.write('Loading reference\n')
     aligner = mapping.alignerPlus(
         str(args.reference), preset=str('map-ont'), best_n=1)
@@ -70,8 +52,6 @@ def main():
     sys.stderr.write('Indexing output variant file\n')
     variants.index_variants(args.out_vcf)
 
-    return
-
 
 if __name__ == '__main__':
-    main()
+    _main(get_parser_variants_atomize().parse_args())

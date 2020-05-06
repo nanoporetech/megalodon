@@ -1,29 +1,13 @@
-import argparse
 from collections import defaultdict
 
 import numpy as np
 from tqdm import tqdm
 
 from megalodon import variants, megalodon_helper as mh
+from ._extras_parsers import get_parser_per_read_text_variants
 
 
-def get_parser():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        'megalodon_results_dir',
-        help='Output directory from megalodon with per_read_variants ' +
-        'in output.')
-    parser.add_argument(
-        '--out-filename',
-        help='Output filename for text summary. Default: output into ' +
-        'megalodon results directory')
-
-    return parser
-
-
-def main():
-    args = get_parser().parse_args()
-
+def _main(args):
     vars_db = variants.VarsDb(
         mh.get_megalodon_fn(args.megalodon_results_dir, mh.PR_VAR_NAME),
         uuid_strand_index_in_memory=True)
@@ -59,4 +43,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    _main(get_parser_per_read_text_variants().parse_args())

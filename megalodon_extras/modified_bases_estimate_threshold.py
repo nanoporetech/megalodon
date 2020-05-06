@@ -1,42 +1,13 @@
-import argparse
 from collections import defaultdict
 
 import numpy as np
 from tqdm import tqdm
 
 from megalodon import mods, megalodon_helper as mh
+from ._extras_parsers import get_parser_modified_bases_estimate_threshold
 
 
-def get_parser():
-    parser = argparse.ArgumentParser(
-        description='Extract threshold for marking up bases')
-
-    parser.add_argument(
-        'megalodon_results_dir',
-        help='Output directory from megalodon with per_read_mods in output.')
-    parser.add_argument(
-        'mod_base',
-        help='Single letter code for the modified base.')
-
-    parser.add_argument(
-        '--fraction-modified', type=float,
-        help='Specify fraction of modified calls. Default: Use ' +
-        '--mod-percentile most extreme scores to estimate the fraction.')
-    parser.add_argument(
-        '--mod-percentile', type=float, default=8.0,
-        help='Percentile of extreme scores to determine fraction of ' +
-        'modified bases. Default: %(default)d')
-    parser.add_argument(
-        '--num-positions', type=int,
-        help='Number of positions from which to select statistics. ' +
-        'Default: All positions')
-
-    return parser
-
-
-def main():
-    args = get_parser().parse_args()
-
+def _main(args):
     mods_db = mods.ModsDb(
         mh.get_megalodon_fn(args.megalodon_results_dir, mh.PR_MOD_NAME))
     scores = []
@@ -76,4 +47,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    _main(get_parser_modified_bases_estimate_threshold().parse_args())

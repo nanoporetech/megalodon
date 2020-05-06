@@ -1,9 +1,10 @@
 import sys
-import argparse
 from collections import defaultdict
 
 import pysam
 import numpy as np
+
+from ._extras_parsers import get_parser_variants_heterozygous_factor
 
 
 HOM_REF_TXT = 'hom_ref'
@@ -26,36 +27,7 @@ STATS_TMPLT = STATS_FMT_STR * (N_INT_STATS + 1) + \
               FLOAT_FMT_STR * N_FLOAT_STATS + '\n'
 
 
-def get_parser():
-    parser = argparse.ArgumentParser(
-        description="""
-        Given ground truth variants ground_truth.vcf and per_read_snp_calls.db
-        from completed validation run:
-        Example command line het testing:
-
-        snp_h_fact=0.85
-        indel_h_fact=0.78
-        mkdir -p het_factor.$snp_h_fact.$indel_h_fact
-        cp per_read_snp_calls.db het_factor.$snp_h_fact.$indel_h_fact/
-        python megalodon/scripts/run_aggregation.py
-            --output-directory het_factor.$snp_h_fact.$indel_h_fact/
-            --outputs snps --heterozygous-factor $snp_h_fact $indel_h_fact
-            --processes 8 --write-vcf-log-prob --reference reference.fa
-        python ../../megalodon/scripts/test_het_factor.py
-            ground_truth.vcf het_factor.$snp_h_fact.$indel_h_fact/variants.vcf
-        """,
-        formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument(
-        'ground_truth_variants',
-        help='VCF file containing ground truth diploid variant calls.')
-    parser.add_argument(
-        'megalodon_variants', default='megalodon_results/variants.vcf',
-        help='VCF file containing diploid variant calls from megalodon.')
-
-    return parser
-
-
-def main():
+def _main(args):
     def conv_call_str(gt_vals):
         gt_set = set(gt_vals)
         if gt_set == set([0]):
@@ -63,8 +35,6 @@ def main():
         elif gt_set == set([0, 1]):
             return HET_TXT
         return HOM_ALT_TXT
-
-    args = get_parser().parse_args()
 
     gt_calls = defaultdict(dict)
     for variant in pysam.VariantFile(args.ground_truth_variants).fetch():
@@ -140,8 +110,6 @@ def main():
         sys.stdout.write(mean_f1_fmt.format('Mean Stats:   ', *mean_stats))
         sys.stdout.write('\n')
 
-    return
-
 
 if __name__ == '__main__':
-    main()
+    _main(get_parser_variants_heterozygous_factor().parse_args())

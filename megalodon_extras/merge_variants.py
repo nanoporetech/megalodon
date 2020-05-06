@@ -1,30 +1,8 @@
-import argparse
-
 from megalodon import megalodon, variants, megalodon_helper as mh
+from._extras_parsers import get_parser_merge_variants
 
 
-def get_parser():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        'megalodon_results_dirs', nargs='+',
-        help='Output megalodon directories with per_read_vars in output.')
-    parser.add_argument(
-        '--output-megalodon-results-dir',
-        default='megalodon_merge_vars_results',
-        help='Output directory. Default: %(default)s')
-    parser.add_argument(
-        '--var-locations-on-disk', action='store_true',
-        help='Force sequnece variant locations to be stored only within on ' +
-        'disk database table. This option will reduce the RAM memory ' +
-        'requirement, but may slow processing. Default: ' +
-        'Store positions in memory.')
-
-    return parser
-
-
-def main():
-    args = get_parser().parse_args()
-
+def _main(args):
     megalodon.mkdir(args.output_megalodon_results_dir, False)
     out_vars_db = variants.VarsDb(
         mh.get_megalodon_fn(args.output_megalodon_results_dir, mh.PR_VAR_NAME),
@@ -56,4 +34,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    _main(get_parser_merge_variants().parse_args())
