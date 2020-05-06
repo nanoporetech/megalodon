@@ -115,7 +115,7 @@ def get_parser():
     var_grp.add_argument(
         '--variant-calibration-filename',
         help='File containing emperical calibration for variant scores. ' +
-        'See megalodon/scripts/calibrate_variant_llr_scores.py. Default: ' +
+        'See `megalodon_extras calibrate variants` command. Default: ' +
         'Load default calibration for specified guppy config.')
 
     var_grp.add_argument(
@@ -146,9 +146,9 @@ def get_parser():
     var_grp.add_argument(
         '--variants-are-atomized', action='store_true',
         help=hidden_help('Input variants have been atomized (with ' +
-                         'scripts/atomize_variants.py). This saves compute ' +
-                         'time, but has unpredictable behavior if variants ' +
-                         'are not atomized.'))
+                         '`megalodon_extras variants atomize` command). ' +
+                         'This saves compute time, but has unpredictable ' +
+                         'behavior if variants are not atomized.'))
     var_grp.add_argument(
         '--variant-context-bases', type=int, nargs=2,
         default=mh.DEFAULT_VAR_CONTEXT_BASES,
@@ -179,7 +179,7 @@ def get_parser():
     mod_grp.add_argument(
         '--mod-calibration-filename',
         help='File containing emperical calibration for modified base ' +
-        'scores. See megalodon/scripts/calibrate_mod_llr_scores.py. ' +
+        'scores. See `megalodon_extras calibrate modified_bases` command. ' +
         'Default: Load default calibration for specified guppy config.')
 
     mod_grp.add_argument(
@@ -284,8 +284,8 @@ def get_parser():
         '--ref-mod-threshold', type=float, default=0.0,
         help=hidden_help('Threshold (log(can_prob/mod_prob)) used to ' +
                          'annotate a modified bases in signal_mappings/' +
-                         'per_read_refs output. See ' +
-                         'scripts/compute_mod_thresh_score.py. ' +
+                         'per_read_refs output. See `megalodon_extras ' +
+                         'modified_bases estimate_threshold` command. ' +
                          'Default: %(default)f'))
 
     modmap_grp = parser.add_argument_group('Mod Mapping Arguments')

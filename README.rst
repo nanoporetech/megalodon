@@ -99,7 +99,7 @@ All megalodon outputs are written into the directory specified with the ``--outp
   - Per-read modified base calls
 
     - Per-read SQL DB containing modified base scores at each covered reference location
-    - Tab-delimited output can be produced by adding the ``--write-mods-text`` flag or produced post-run using the ``megalodon/scripts/write_per_read_modified_base_text.py`` script.
+    - Tab-delimited output can be produced by adding the ``--write-mods-text`` flag or produced post-run using the ``megalodon_extras aggregate run`` command.
 
       - This output can drastically slow processing, especially on slower disk or when outputting modified bases at all contexts.
   - Aggregated calls
@@ -111,7 +111,7 @@ All megalodon outputs are written into the directory specified with the ``--outp
   - Per-read Variant Calls
 
     - SQL DB containing per-read variant scores for each covered variant
-    - Tab-delimited output can be produced by adding the ``--write-variants-text`` flag or produced post-run using the ``megalodon/scripts/write_per_read_sequence_variant_text.py`` script.
+    - Tab-delimited output can be produced by adding the ``--write-variants-text`` flag or produced post-run using the ``megalodon_extras per_read_text variants`` command.
   - Aggregated calls
 
     - Format: VCF
@@ -153,7 +153,7 @@ When running megalodon with a high density of variants (more than 1 variant per 
 In particular, megalodon requires variants to be atomized first.
 In order to improve performance, this step can be carried out as a pre-processing step.
 
-To perform this pre-processing use the ``megalodon/scripts/atomize_variants.py`` command.
+To perform this pre-processing use the ``megalodon_extras variants atomize`` command.
 This will produce an atomized variants file.
 When running megalodon with this variants file the ``--variants-are-atomized`` flag should be set.
 

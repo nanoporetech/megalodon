@@ -67,7 +67,7 @@ Sequence Variant Arguments
   - Default: Viterbi best-path score.
 - ``--variants-are-atomized``
 
-  - Input variants have been atomized (with ``scripts/atomize_variants.py``).
+  - Input variants have been atomized (with ``megalodon_extras variants atomize``).
   - This saves compute time, but has unpredictable behavior if variants are not atomized.
 - ``--variant-context-bases``
 
@@ -216,7 +216,7 @@ This output category is intended for use in generating reference sequences or si
 - ``--ref-mod-threshold``
 
   - Threshold (in ``log(can_prob/mod_prob)`` space) used to annotate a modified bases in ``signal_mappings`` or ``per_read_refs`` outputs.
-  - See ``scripts/compute_mod_thresh_score.py`` for help computing this threshold.
+  - See ``megalodon_extras modified_bases estimate_threshold`` command for help computing this threshold.
   - Requires that `--ref-include-mods`` is set.
 
 ---------------------

@@ -650,11 +650,11 @@ def get_parser_variants_heterozygous_factor():
         indel_h_fact=0.78
         mkdir -p het_factor.$snp_h_fact.$indel_h_fact
         cp per_read_snp_calls.db het_factor.$snp_h_fact.$indel_h_fact/
-        python megalodon/scripts/run_aggregation.py
-            --output-directory het_factor.$snp_h_fact.$indel_h_fact/
-            --outputs snps --heterozygous-factor $snp_h_fact $indel_h_fact
+        megalodon_extras aggregate run \
+            --output-directory het_factor.$snp_h_fact.$indel_h_fact/ \
+            --outputs snps --heterozygous-factor $snp_h_fact $indel_h_fact \
             --processes 8 --write-vcf-log-prob --reference reference.fa
-        python ../../megalodon/scripts/test_het_factor.py
+        megalodon_extras variants heterozygous_factor \
             ground_truth.vcf het_factor.$snp_h_fact.$indel_h_fact/variants.vcf
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter)
