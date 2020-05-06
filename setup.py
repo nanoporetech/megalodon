@@ -98,7 +98,7 @@ setup(
     zip_safe=False,
     entry_points={
         'console_scripts': [
-            '{0} = {0}.{0}:_main'.format(__pkg_name__),
+            '{0} = {0}.__main__:_main'.format(__pkg_name__),
             '{0}_extras = {0}_extras.__main__:_main'.format(__pkg_name__),
         ]
     },
