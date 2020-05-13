@@ -147,7 +147,7 @@ This pipeline is described in detail on the `full documentation page <https://na
 The default diploid variant settings are optimized for the full phasing pipeline and not the highest quality diploid calls directly from a single megalodon call.
 
 High-Density Variants
-*********************
+---------------------
 
 When running megalodon with a high density of variants (more than 1 variant per 100 reference bases), certain steps can be taken to increase performace.
 In particular, megalodon requires variants to be atomized first.
@@ -158,7 +158,7 @@ This will produce an atomized variants file.
 When running megalodon with this variants file the ``--variants-are-atomized`` flag should be set.
 
 Disk Performance Considerations
-*******************************
+-------------------------------
 
 Per-read modified base and variant statistics are stored in an on-disk sqlite database.
 As of version 2.0, the status of output queues is displayed by default.
@@ -173,8 +173,17 @@ Moving the database location from a remote or network file system to a local fas
 RNA
 ---
 
-Megalodon provides experimental support for direct RNA processing.
-This support can be accessed within the ``rna`` github branch (access via ``git clone --branch rna https://github.com/nanoporetech/megalodon``).
+Megalodon now supports processing direct RNA nanopore data.
+In order to process an RNA sample specify the ``--rna`` flag as well as an RNA model using the ``--guppy-config`` argument.
+
+Megalodon performs mapping using the standard minimap option, ``map-ont``, and not the ``splice`` option, so a transcriptome reference must be provided.
+Megalodon supports RNA modified base detection provided an appropriate basecalling model, though no RNA modified base models are currently released for general use.
+Megalodon does not currently support variant detection from direct RNA data, but this feature may be added in a future release.
+
+.. note::
+
+   Megalodon does not currently perform checking that a set of reads agree with the provided model or options specified (e.g. ``--rna``).
+   Users should take care to ensure that the correct options are specified for each sample processed.
 
 Licence and Copyright
 ---------------------
