@@ -88,7 +88,8 @@ def get_parser_calibrate_modified_bases():
     parser.add_argument(
         '--ground-truth-llrs', default='mod_calibration_statistics.npz',
         help='Ground truth log-likelihood ratio statistics (produced by ' +
-        'generate_ground_truth_mod_llr_scores.py). Default: %(default)s')
+        '`megalodon_extras calibrate generate_modified_base_stats`). ' +
+        'Default: %(default)s')
     parser.add_argument(
         '--max-input-llr', type=int, default=mh.DEFAULT_CALIB_SMOOTH_MAX,
         help='Maximum log-likelihood ratio to compute calibration. ' +
@@ -132,7 +133,8 @@ def get_parser_calibrate_variants():
     parser.add_argument(
         '--ground-truth-llrs', default='variant_calibration_statistics.txt',
         help='Ground truth log-likelihood ratio statistics (produced by ' +
-        'generate_ground_truth_variant_llr_scores.py). Default: %(default)s')
+        '`megalodon_extras calibrate generate_variant_stats`). ' +
+        'Default: %(default)s')
     parser.add_argument(
         '--max-input-llr', type=int, default=mh.DEFAULT_CALIB_SMOOTH_MAX,
         help='Maximum log-likelihood ratio to compute calibration. ' +
