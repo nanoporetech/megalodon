@@ -42,8 +42,9 @@ Workflow
        --verbose-read-progress 3
 
    # filter whatshap incompatible variants and create indices
-   python \
-       megalodon/scripts/filter_whatshap.py $out_dir/variants.sorted.vcf \
+   megalodon_extras \
+       phase_variants whatshap_filter \
+       $out_dir/variants.sorted.vcf \
        $out_dir/variants.sorted.whatshap_filt.vcf \
        --filtered-records $out_dir/whatshap_filt.txt
    bgzip $out_dir/variants.sorted.whatshap_filt.vcf
@@ -66,35 +67,25 @@ Workflow
        -o $out_dir/variant_mappings.haplotagged.bam
 
    # extract haplotype reads and call haploid variants
-   python \
-       megalodon/scripts/extract_haplotype_read_ids.py \
+   megalodon_extras \
+       phase_variants extract_haplotype_reads \
        $out_dir/variant_mappings.haplotagged.bam \
        $out_dir/variant_mappings
-   python \
-       megalodon/scripts/run_aggregation.py \
+   megalodon_extras \
+       aggregate run \
        --megalodon-directory $out_dir --output-suffix haplotype_1  \
        --read-ids-filename $out_dir/variant_mappings.haplotype_1_read_ids.txt \
        --outputs variants --haploid --processes $nproc
-   python \
-       megalodon/scripts/run_aggregation.py \
+   megalodon_extras \
+       aggregate run \
        --megalodon-directory $out_dir --output-suffix haplotype_2  \
        --read-ids-filename $out_dir/variant_mappings.haplotype_2_read_ids.txt \
        --outputs variants --haploid --processes $nproc
 
    # merge haploid variants to produce diploid variants
-   python \
-       megalodon/scripts/merge_haploid_variants.py \
+   megalodon_extras \
+       phase_variants merge_haploid_variants \
        $out_dir/variants.sorted.vcf.gz \
        $out_dir/variants.haplotype_1.sorted.vcf.gz \
        $out_dir/variants.haplotype_2.sorted.vcf.gz \
        --out-vcf $out_dir/variants.haploid_merged.vcf
-
-.. note::
-
-   The default model included with megalodon is applicable only to MinION/GridION R9.4.1 flowcells and contains parameters for 5mC and 6mA detection with high-accuracy settings.
-   In order to run megalodon against another flowcell type or model type the taiyaki ``taiyaki/bin/json_to_checkpoint.py`` script can be used to convert a guppy JSON format.
-   See example code below to convert the guppy, MinION/GridION, R10, high-accuracy model into a taiyaki compatible file for use with meaglodon (via ``--taiyaki-model-filename`` argument).
-
-::
-
-   python taiyaki/bin/json_to_checkpoint.py ont-guppy-cpu/data/template_r10_450bps_hac.jsn --output template_r10_450bps_hac.cp

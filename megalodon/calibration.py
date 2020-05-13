@@ -6,11 +6,6 @@ from tqdm import tqdm
 from megalodon import megalodon_helper as mh
 
 
-DEFAULT_SMOOTH_BW = 0.8
-DEFAULT_SMOOTH_MAX = 200
-DEFAULT_SMOOTH_NVALS = 5001
-DEFAULT_MIN_DENSITY = 5e-6
-
 VAR_CALIB_TYPE = 'snp_type_indel_len'
 GENERIC_BASE = 'N'
 SNP_CALIB_TMPLT = 'snp_{}_{}_calibration'

@@ -18,12 +18,8 @@ from megalodon import (
 from megalodon._version import MEGALODON_VERSION
 
 
-BIN_THRESH_NAME = 'binary_threshold'
-EM_NAME = 'expectation_maximization'
-AGG_METHOD_NAMES = set((BIN_THRESH_NAME, EM_NAME))
 AGG_INFO = namedtuple('AGG_INFO', ('method', 'binary_threshold'))
-DEFAULT_BINARY_THRESH = 0.75
-DEFAULT_AGG_INFO = AGG_INFO(BIN_THRESH_NAME, None)
+DEFAULT_AGG_INFO = AGG_INFO(mh.MOD_BIN_THRESH_NAME, None)
 
 ANNOT_MODS = namedtuple('ANNOT_MODS', ('mod_seq', 'mod_qual'))
 
@@ -1566,7 +1562,7 @@ class AggMods(mh.AbstractAggregationClass):
             self.mods_db = ModsDb(mods_db_fn, chrm_index_in_memory=False,
                                   mod_index_in_memory=False)
         self.n_uniq_mods = None
-        assert agg_info.method in AGG_METHOD_NAMES
+        assert agg_info.method in mh.MOD_AGG_METHOD_NAMES
         self.agg_method = agg_info.method
         self.binary_thresh = agg_info.binary_threshold
         self.write_mod_lp = write_mod_lp
@@ -1680,7 +1676,7 @@ class AggMods(mh.AbstractAggregationClass):
     def compute_mod_stats(self, mod_pos, agg_method=None, valid_read_ids=None):
         if agg_method is None:
             agg_method = self.agg_method
-        if agg_method not in AGG_METHOD_NAMES:
+        if agg_method not in mh.MOD_AGG_METHOD_NAMES:
             raise NotImplementedError(
                 'No modified base proportion estimation method: {}'.format(
                     agg_method))
@@ -1696,9 +1692,9 @@ class AggMods(mh.AbstractAggregationClass):
         total_cov = len(mod_type_stats)
         if total_cov == 0:
             raise mh.MegaError('No valid reads cover modified base location')
-        if agg_method == BIN_THRESH_NAME:
+        if agg_method == mh.MOD_BIN_THRESH_NAME:
             mod_props, valid_cov = self.est_binary_thresh(mod_type_stats)
-        elif agg_method == EM_NAME:
+        elif agg_method == mh.MOD_EM_NAME:
             mod_props, valid_cov = self.est_em_prop(mod_type_stats)
 
         r0_stats = pr_mod_stats[0]

@@ -1,21 +1,9 @@
-import argparse
-
 import pysam
 
-
-def get_parser():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        'alignment_filename', help='Alignment filename.')
-    parser.add_argument(
-        'out_basename', help='Basename for read ids output.')
-
-    return parser
+from ._extras_parsers import get_parser_phase_variants_extract_haplotype_reads
 
 
-def main():
-    args = get_parser().parse_args()
-
+def _main(args):
     out_fps = {}
     for rec in pysam.AlignmentFile(args.alignment_filename):
         try:
@@ -35,4 +23,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    _main(get_parser_phase_variants_extract_haplotype_reads().parse_args())

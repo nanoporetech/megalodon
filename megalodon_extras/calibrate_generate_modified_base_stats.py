@@ -1,8 +1,8 @@
 import sys
-import argparse
 import numpy as np
 
 from megalodon import megalodon_helper as mh, mods
+from ._extras_parsers import get_parser_calibrate_generate_modified_bases_stats
 
 
 VERBOSE = False
@@ -32,34 +32,7 @@ def output_mods_data(all_mod_llrs, all_can_llrs, out_fn):
     np.savez(out_fn, **mod_base_stats)
 
 
-def get_parser():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        'megalodon_results_dir',
-        help='Output directory from Megalodon with mappings and ' +
-        'per_read_mods in outputs.')
-    parser.add_argument(
-        '--control-megalodon-results-dir',
-        help='Megalodon output directory with modified base control sample.')
-    parser.add_argument(
-        '--ground-truth-data',
-        help='Ground truth csv with (chrm, strand, pos, is_mod) values.')
-    parser.add_argument(
-        '--strand-specific-sites', action='store_true',
-        help='Sites in --ground-truth-data are strand-specific. If not ' +
-        'set, strand is ignored.')
-    parser.add_argument(
-        '--out-filename', default='mod_calibration_statistics.npz',
-        help='Output filename for text summary. Default: %(default)s')
-    parser.add_argument(
-        '--quiet', action='store_true',
-        help='Suppress progress information.')
-
-    return parser
-
-
-def main():
-    args = get_parser().parse_args()
+def _main(args):
     global VERBOSE
     VERBOSE = not args.quiet
 
@@ -111,4 +84,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    _main(get_parser_calibrate_generate_modified_bases_stats().parse_args())

@@ -62,9 +62,9 @@ Use the ``--guppy-server-path`` argument to specify a different path.
 
 This command produces the ``megalodon_results`` output directory containing all requested output files and logs.
 
-The majority of megalodon's functionality is accessed via the ``megalodon`` command (exemplified above), though a small number of additional scripts are found in the ``scripts`` directory of the code repository.
-These scripts include modified base or variant aggregation (much faster than re-computing per-read calls), modified base result validation, and model statistic calibration.
-Helper scripts to perform sequence variant phasing (details here :doc:`variant_phasing`) are also included in the ``scripts`` directory of the repository.
+The majority of megalodon's functionality is accessed via the ``megalodon`` command (exemplified above), though a number of additional operations are made available via the ``megalodon_extras`` command.
+These operations include modified base or variant aggregation (much faster than re-computing per-read calls), modified base result validation, and model statistic calibration.
+Helper commands to perform sequence variant phasing (details here :doc:`variant_phasing`) are also included in ``megalodon_extras``.
 In the future these script will move to a dedicated command line interface (likely ``megalodon_extras``).
 
 --------
@@ -80,3 +80,5 @@ Contents
    computing_considerations
    variant_phasing
    file_formats
+   model_training
+   modbase_training

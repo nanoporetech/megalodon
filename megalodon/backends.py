@@ -32,9 +32,6 @@ BACKEND_PARAMS = namedtuple('BACKEND_PARAMS', (
 
 COMPAT_GUPPY_MODEL_TYPES = set(('flipflop',))
 GUPPY_HOST = 'localhost'
-DEFAULT_GUPPY_SERVER_PATH = './ont-guppy/bin/guppy_basecall_server'
-DEFAULT_GUPPY_CFG = 'dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg'
-DEFAULT_GUPPY_TIMEOUT = 5.0
 PYGUPPY_PER_TRY_TIMEOUT = 0.05
 GUPPY_LOG_BASE = 'guppy_log'
 GUPPY_PORT_PAT = re.compile(r'Starting server on port:\W+(\d+)')

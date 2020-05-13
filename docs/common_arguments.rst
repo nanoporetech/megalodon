@@ -86,7 +86,7 @@ Sequence Variant Arguments
 - ``--variant-calibration-filename``
 
   - File containing emperical calibration for sequence variant scores.
-  - As created by megalodon/scripts/calibrate_variant_llr_scores.py.
+  - As created by the ``megalodon_extras calibrate variants`` command.
   - Default: Load default calibration file for guppy config.
 
 -----------------------
@@ -100,7 +100,7 @@ Modified Base Arguments
 - ``--mod-calibration-filename``
 
   - File containing emperical calibration for modified base scores.
-  - As created by megalodon/scripts/calibrate_mod_llr_scores.py.
+  - As created by ``megalodon_extras calibrate modified_bases`` command.
   - Default: Load default calibration file for guppy config.
 
 -----------------------
