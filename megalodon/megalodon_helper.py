@@ -28,6 +28,10 @@ DEFAULT_INDEL_CONTEXT = 10
 DEFAULT_VAR_CONTEXT_BASES = [DEFAULT_SNV_CONTEXT, DEFAULT_INDEL_CONTEXT]
 DEFAULT_MOD_CONTEXT = 5
 DEFAULT_CONTEXT_MIN_ALT_PROB = 0.05
+MOD_BIN_THRESH_NAME = 'binary_threshold'
+MOD_EM_NAME = 'expectation_maximization'
+MOD_AGG_METHOD_NAMES = set((MOD_BIN_THRESH_NAME, MOD_EM_NAME))
+DEFAULT_MOD_BINARY_THRESH = 0.75
 
 MED_NORM_FACTOR = 1.4826
 
@@ -148,6 +152,15 @@ REF_OUT_INFO = namedtuple('ref_out_info', (
 MODEL_DATA_DIR_NAME = 'model_data'
 VAR_CALIBRATION_FN = 'megalodon_variant_calibration.npz'
 MOD_CALIBRATION_FN = 'megalodon_mod_calibration.npz'
+DEFAULT_CALIB_SMOOTH_BW = 0.8
+DEFAULT_CALIB_SMOOTH_MAX = 200
+DEFAULT_CALIB_SMOOTH_NVALS = 5001
+DEFAULT_CALIB_MIN_DENSITY = 5e-6
+
+# default guppy settings
+DEFAULT_GUPPY_SERVER_PATH = './ont-guppy/bin/guppy_basecall_server'
+DEFAULT_GUPPY_CFG = 'dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg'
+DEFAULT_GUPPY_TIMEOUT = 5.0
 
 TRUE_TEXT_VALUES = set(('y', 'yes', 't', 'true', 'on', '1'))
 FALSE_TEXT_VALUES = set(('n', 'no', 'f', 'false', 'off', '0'))

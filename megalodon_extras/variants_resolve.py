@@ -1,63 +1,15 @@
 import re
-import argparse
 from collections import OrderedDict
 
 import numpy as np
 from tqdm import tqdm
 
 from megalodon import megalodon_helper as mh
+from ._extras_parsers import get_parser_variants_resolve
 
 
 GT_PAT = re.compile('^(?P<a1>.)(?:(?P<sep>[/|])(?P<a2>.))?$')
 INFO_PAT = re.compile('([^;=]+)(?:=([^;]+))?')
-
-
-def get_parser():
-    parser = argparse.ArgumentParser(
-        description='Consolidate variants including filtering out ' +
-        'reference variants and calling overlapping variants.')
-    parser.add_argument(
-        'variants',
-        help='Megalodon called variant file. Must contain GL sample field.')
-    parser.add_argument(
-        '--output-filename', default='megalodon.consolidated_variants.vcf',
-        help='Output filename. Default: %(default)s')
-    parser.add_argument(
-        '--max-likelihood-ratio', type=float, default=1,
-        help='Maximum likelihood ratio ([ref prob] / [max alt prob]) to ' +
-        'include variant in output. Allows output of uncertain reference ' +
-        'calls. Default: 1; Include only sites called as alternative.')
-    parser.add_argument(
-        '--min-depth', type=int,
-        help='Minimum depth to include a variant. Default: No depth filter')
-    parser.add_argument(
-        '--trim-variants', action='store_true',
-        help='Trim extra padding sequence included by megalodon (e.g. ' +
-        'around repeat-region indels). Default: Output as found in input ' +
-        'variants.')
-
-    ssv_grp = parser.add_argument_group('Strand-specific Variant Arguments')
-    ssv_grp.add_argument(
-        '--reverse-strand-variants',
-        help='Variants file produced only from reads mapping to the reverse ' +
-        'strand. If provided, this assumes that the main variants file ' +
-        'contains variants only supported by reads from the forward strand. ' +
-        'This is used to identify systematic basecalling error variants. ' +
-        'Errors made on both strands indicate potential putative variants ' +
-        'and are thus excluded. Homopolymer variants occuring on both ' +
-        'strands are included by default. Exclude these variants as well ' +
-        'by setting --exclude-both-strand-homopolymers .')
-    ssv_grp.add_argument(
-        '--homopolymer-min-length', type=int, default=4,
-        help='Minimum length to consider a variant as a homopolymer. ' +
-        'Default: %(default)d')
-    ssv_grp.add_argument(
-        '--exclude-both-strand-homopolymers', action='store_true',
-        help='By default homopolymer variants are included even if they ' +
-        'occur on both strands. Set this flag to treat homopolymer variants ' +
-        'as other variants.')
-
-    return parser
 
 
 class Variant(object):
@@ -230,8 +182,7 @@ def iter_valid_variants(vars_fn, do_trim_vars, max_lr, min_depth):
     return
 
 
-def main():
-    args = get_parser().parse_args()
+def _main(args):
     out_fp = open(args.output_filename, 'w')
     vars_iter = iter_valid_variants(
         args.variants, args.trim_variants, args.max_likelihood_ratio,
@@ -278,4 +229,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    _main(get_parser_variants_resolve().parse_args())

@@ -1,15 +1,7 @@
-import argparse
-
 from tqdm import tqdm
 
 from megalodon import variants
-
-parser = argparse.ArgumentParser(
-    description='Remove variants incompatible with whatshap')
-parser.add_argument('in_vcf', help='Megalodon VCF file')
-parser.add_argument('out_vcf', help='Output VCF file')
-parser.add_argument(
-    '--filtered-records', help='File to output filtered records.')
+from ._extras_parsers import get_parser_phase_variants_whatshap_filter
 
 
 def is_complex_variant(ref, alts):
@@ -42,8 +34,7 @@ def get_pos_ref_alts(vcf_line):
     return chrm, int(pos), ref, alts.split(',')
 
 
-def main():
-    args = parser.parse_args()
+def _main(args):
     out_fp = open(args.out_vcf, 'w')
     filt_fp = None if args.filtered_records is None else open(
         args.filtered_records, 'w')
@@ -86,4 +77,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    _main(get_parser_phase_variants_whatshap_filter().parse_args())

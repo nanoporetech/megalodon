@@ -1,6 +1,5 @@
 import os
 import sys
-import argparse
 from collections import defaultdict
 
 import numpy as np
@@ -8,6 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
 from megalodon import calibration
+from ._extras_parsers import get_parser_calibrate_variants
 
 
 def plot_calib(
@@ -81,47 +81,7 @@ def prep_out(out_fn, overwrite):
     return
 
 
-def get_parser():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        '--ground-truth-llrs', default='variant_calibration_statistics.txt',
-        help='Ground truth log-likelihood ratio statistics (produced by ' +
-        'generate_ground_truth_variant_llr_scores.py). Default: %(default)s')
-    parser.add_argument(
-        '--max-input-llr', type=int, default=calibration.DEFAULT_SMOOTH_MAX,
-        help='Maximum log-likelihood ratio to compute calibration. ' +
-        'Default: %(default)d')
-    parser.add_argument(
-        '--num-calibration-values', type=int,
-        default=calibration.DEFAULT_SMOOTH_NVALS,
-        help='Number of discrete calibration values to compute. ' +
-        'Default: %(default)d')
-    parser.add_argument(
-        '--smooth-bandwidth', type=float,
-        default=calibration.DEFAULT_SMOOTH_BW,
-        help='Smoothing bandwidth. Default: %(default)f')
-    parser.add_argument(
-        '--min-density', type=float, default=calibration.DEFAULT_MIN_DENSITY,
-        help='Minimum density value to compute calibration. This value ' +
-        'dynamically adjusts [--max-input-llr] when it is too large. ' +
-        'Default: %(default)f')
-    parser.add_argument(
-        '--out-filename', default='megalodon_variant_calibration.npz',
-        help='Filename to output calibration values. Default: %(default)s')
-    parser.add_argument(
-        '--out-pdf',
-        help='Output pdf filename for modified base calibration ' +
-        'visualization. Default: Do not produce plot.')
-    parser.add_argument(
-        '--overwrite', action='store_true',
-        help='Overwrite --out-filename if it exists.')
-
-    return parser
-
-
-def main():
-    args = get_parser().parse_args()
-
+def _main(args):
     prep_out(args.out_filename, args.overwrite)
 
     sys.stderr.write('Parsing log-likelihood ratios\n')
@@ -225,4 +185,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    _main(get_parser_calibrate_variants().parse_args())

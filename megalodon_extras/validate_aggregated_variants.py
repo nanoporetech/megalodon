@@ -1,5 +1,4 @@
 import sys
-import argparse
 
 import numpy as np
 import seaborn as sns
@@ -7,51 +6,13 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
 from megalodon import megalodon_helper as mh
+from ._extras_parsers import get_parser_validate_aggregated_variants
 
 
 CMAP = plt.cm.inferno_r
 
 
-def get_parser():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        '--sample1-bed-methyl-files', nargs='+', required=True,
-        help='Bed methyl files from first set of sample(s).')
-    parser.add_argument(
-        '--sample2-bed-methyl-files', nargs='+', required=True,
-        help='Bed methyl files from second set of sample(s).')
-    parser.add_argument(
-        '--sample-names', nargs=2, default=['Sample 1', 'Sample 2'],
-        help='Name for provided samples. Default: %(default)s')
-    parser.add_argument(
-        '--valid-positions', action='append',
-        help='BED file containing positions to be considered. Multiple ' +
-        'files may be provided')
-    parser.add_argument(
-        '--coverage-threshold', type=int, default=1,
-        help='Only include sites with sufficient coverage. ' +
-        'Default: 1 (= All sites)')
-    parser.add_argument(
-        '--heatmap-num-bins', type=int, default=50,
-        help='Number of bins for heatmap plotting. ' +
-        'Default: %(default)d')
-    parser.add_argument(
-        '--strand-offset', type=int,
-        help='Offset to combine stranded results. Positive value indicates ' +
-        'reverse strand sites have higher position values. Default treat ' +
-        'strands independently.')
-    parser.add_argument(
-        '--out-pdf', default='megalodon_mod_comaparison.pdf',
-        help='Output pdf filename. Default: %(default)s')
-    parser.add_argument(
-        '--out-filename',
-        help='Output filename for text summary. Default: stdout')
-
-    return parser
-
-
-def main():
-    args = get_parser().parse_args()
+def _main(args):
     pdf_fp = PdfPages(args.out_pdf)
     out_fp = (sys.stdout if args.out_filename is None else
               open(args.out_filename, 'w'))
@@ -145,4 +106,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    _main(get_parser_validate_aggregated_variants().parse_args())

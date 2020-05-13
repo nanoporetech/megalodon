@@ -1,5 +1,4 @@
 import sys
-import argparse
 import numpy as np
 
 import seaborn as sns
@@ -9,6 +8,7 @@ from sklearn.metrics import (
     roc_curve, auc, precision_recall_curve, average_precision_score)
 
 from megalodon import mapping, megalodon_helper as mh, mods
+from ._extras_parsers import get_parser_validate_results
 
 
 VERBOSE = False
@@ -267,48 +267,7 @@ def parse_valid_sites(valid_sites_fns, gt_data_fn, include_strand):
     return valid_sites, vs_labels, ctrl_sites
 
 
-def get_parser():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        'megalodon_results_dir',
-        help='Output directory from megalodon with mappings and ' +
-        'per_read_mods in outputs. Must have --write-mods-text set for ' +
-        'mods validation.')
-    parser.add_argument(
-        '--control-megalodon-results-dir',
-        help='Megalodon output directory for modified base control sample. ' +
-        'Could be a PCR or IVT sample.')
-    parser.add_argument(
-        '--ground-truth-data',
-        help='Ground truth csv with (chrm, strand, pos, is_mod) values.')
-    parser.add_argument(
-        '--valid-sites', nargs=2, action='append',
-        help='Name and BED file containing sites over which to restrict ' +
-        'modified base results. Multiple sets of valid sites may be provided.')
-    parser.add_argument(
-        '--strand-specific-sites', action='store_true',
-        help='Sites in --ground-truth-data and/or --valid-sites are ' +
-        'strand-specific')
-    parser.add_argument(
-        '--out-pdf', default='megalodon_validation.pdf',
-        help='Output pdf filename. Default: %(default)s')
-    parser.add_argument(
-        '--out-filename',
-        help='Output filename for text summary. Default: stdout')
-    parser.add_argument(
-        '--allow-unbalance-classes', action='store_true',
-        help='Allow unbalanced classes in modified base metric computation. ' +
-        'Default: Balance size of modified and canonical classes for each ' +
-        'comparison made.')
-    parser.add_argument(
-        '--quiet', action='store_true',
-        help='Suppress progress information.')
-
-    return parser
-
-
-def main():
-    args = get_parser().parse_args()
+def _main(args):
     global VERBOSE
     VERBOSE = not args.quiet
     pdf_fp = PdfPages(args.out_pdf)
@@ -356,4 +315,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    _main(get_parser_validate_results().parse_args())

@@ -345,8 +345,8 @@ def aggregate_stats(
         'Aggregating {} variants and {} modified base sites over reads.\n' +
         '\t\tNOTE: If this step is very slow, ensure the output directory ' +
         'is located on a fast read disk (e.g. local SSD). Aggregation can ' +
-        'be restarted using the megalodon/scripts/run_aggregation.py ' +
-        'script.').format(num_vars, num_mods))
+        'be restarted using the `megalodon_extras aggregate run` ' +
+        'command.').format(num_vars, num_mods))
     main_prog_conn, prog_conn = mp.Pipe()
     prog_p = mp.Process(
         target=_agg_prog_worker,

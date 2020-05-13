@@ -1,6 +1,5 @@
 import sys
 import queue
-import argparse
 import threading
 from time import sleep
 from random import choice
@@ -13,6 +12,7 @@ from tqdm import tqdm
 
 from megalodon import (
     megalodon_helper as mh, megalodon, backends, mapping, variants)
+from ._extras_parsers import get_parser_calibrate_generate_variants_stats
 
 
 CONTEXT_BASES = [mh.DEFAULT_SNV_CONTEXT, mh.DEFAULT_INDEL_CONTEXT]
@@ -254,8 +254,6 @@ def _process_reads_worker(
             var_calls_q.put((False, str(e)))
             pass
 
-    return
-
 
 if _DO_PROFILE:
     _process_reads_wrapper = _process_reads_worker
@@ -264,7 +262,6 @@ if _DO_PROFILE:
         import cProfile
         cProfile.runctx('_process_reads_wrapper(*args)', globals(), locals(),
                         filename='variant_calibration.prof')
-        return
 
 
 def _get_variant_calls(
@@ -316,8 +313,6 @@ def _get_variant_calls(
         for n_errs, err_str in sorted(
                 (v, k) for k, v in err_types.items())[::-1]:
             sys.stderr.write('\t{} : {} reads\n'.format(err_str, n_errs))
-
-    return
 
 
 def process_all_reads(
@@ -372,76 +367,8 @@ def process_all_reads(
         main_sc_conn.send(True)
         var_calls_p.join()
 
-    return
 
-
-def get_parser():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        'fast5s_dir',
-        help='Directory containing raw fast5 (will be searched recursively).')
-
-    pyg_grp = parser.add_argument_group('Guppy Backend Arguments')
-    pyg_grp.add_argument(
-        '--guppy-config', default=backends.DEFAULT_GUPPY_CFG,
-        help='Guppy config. Default: %(default)s')
-    pyg_grp.add_argument(
-        '--guppy-server-path', default=backends.DEFAULT_GUPPY_SERVER_PATH,
-        help='Path to guppy server executable. Default: %(default)s')
-    pyg_grp.add_argument(
-        '--guppy-server-port', type=int,
-        help='Guppy server port. Default: Guppy auto')
-    pyg_grp.add_argument(
-        '--guppy-params',
-        help='Extra guppy server parameters. Main purpose for optimal ' +
-        'performance based on compute environment. Quote parameters to ' +
-        'avoid them being parsed by megalodon.')
-    pyg_grp.add_argument(
-        '--guppy-timeout', type=float, default=backends.DEFAULT_GUPPY_TIMEOUT,
-        help='Timeout to wait for guppy server to call a single read in ' +
-        'seconds. Default: %(default)f')
-    pyg_grp.add_argument(
-        '--guppy-logs-output-directory', default='guppy_logs',
-        help='Directory to output guppy logs. Default: %(default)s')
-
-    map_grp = parser.add_argument_group('Mapping Arguments')
-    map_grp.add_argument(
-        '--reference',
-        help='Reference FASTA file used for mapping called reads.')
-
-    out_grp = parser.add_argument_group('Output Arguments')
-    out_grp.add_argument(
-        '--output', default='variant_calibration_statistics.txt',
-        help='Filename to output statistics. Default: %(default)s')
-    out_grp.add_argument(
-        '--num-reads', type=int,
-        help='Number of reads to process. Default: All reads')
-    out_grp.add_argument(
-        '--read-ids-filename',
-        help='File containing read ids to process (one per ' +
-        'line). Default: All reads')
-
-    misc_grp = parser.add_argument_group('Miscellaneous Arguments')
-    misc_grp.add_argument(
-        '--devices', nargs='+',
-        help='GPU devices for guppy or taiyaki basecalling backends.')
-    misc_grp.add_argument(
-        '--processes', type=int, default=1,
-        help='Number of parallel processes. Default: %(default)d')
-    misc_grp.add_argument(
-        '--suppress-progress', action='store_true',
-        help='Suppress progress bar.')
-    misc_grp.add_argument(
-        '--compute-false-reference-scores', action='store_true',
-        help='Compute scores given a false reference. Default: compute ' +
-        'all scores with ground truth correct reference.' +
-        '***** Experimental feature, may contain bugs *****.')
-
-    return parser
-
-
-def main():
-    args = get_parser().parse_args()
+def _main(args):
     # add required attributes for loading guppy, but not valid options for
     # this script.
     args.do_not_use_guppy_server = False
@@ -467,4 +394,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    _main(get_parser_calibrate_generate_variants_stats().parse_args())

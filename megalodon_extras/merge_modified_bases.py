@@ -1,31 +1,8 @@
-import argparse
-
 from megalodon import megalodon, mods, megalodon_helper as mh
+from ._extras_parsers import get_parser_merge_modified_bases
 
 
-def get_parser():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        'megalodon_results_dirs', nargs='+',
-        help='Output megalodon directories with per_read_mods in output.')
-    parser.add_argument(
-        '--output-megalodon-results-dir',
-        default='megalodon_merge_mods_results',
-        help='Output directory. Cannot exist before this command. ' +
-        'Default: %(default)s')
-    parser.add_argument(
-        '--mod-positions-on-disk', action='store_true',
-        help='Force modified base positions to be stored only within on ' +
-        'disk database table. This option will reduce the RAM memory ' +
-        'requirement, but may slow processing. Default: ' +
-        'Store positions in memory.')
-
-    return parser
-
-
-def main():
-    args = get_parser().parse_args()
-
+def _main(args):
     megalodon.mkdir(args.output_megalodon_results_dir, False)
     out_mods_db = mods.ModsDb(
         mh.get_megalodon_fn(args.output_megalodon_results_dir, mh.PR_MOD_NAME),
@@ -57,4 +34,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    _main(get_parser_merge_modified_bases().parse_args())

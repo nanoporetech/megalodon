@@ -21,7 +21,6 @@ SIG_MAP_RESULT = namedtuple('SIG_MAP_RESULT', (
 def set_all_motif_mods(int_ref, ref_mods_all_motifs, collapse_alphabet):
     ref_mod_pos, ref_mods = [], []
     for mod_base, int_mod_base, mln, int_motif, rel_pos in ref_mods_all_motifs:
-        can_base = collapse_alphabet[int_motif[rel_pos]]
         for pos in np.where(np.all(mh.rolling_window(
                 int_ref, int_motif.shape[0]) == int_motif, axis=1))[0]:
             ref_mod_pos.append(pos + rel_pos)

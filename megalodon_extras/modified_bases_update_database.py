@@ -1,30 +1,16 @@
 import sys
 import sqlite3
-import argparse
 from tqdm import tqdm
 from time import time
 
 from megalodon import mods
+from ._extras_parsers import get_parser_modified_bases_update_database
 
 
 DEBUG = False
 N_DEBUG = 50000000
 
 INSERT_BATCH_SIZE = 10000
-
-
-def get_parser():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        'old_db',
-        help='Megalodon version 0.1 modified base data base.')
-    parser.add_argument(
-        '--new-db', default='megalodon_mods.db',
-        help='Output data base name. Should replace ' +
-        'per_read_modified_base_calls.db in megalodon results directory in ' +
-        'order to process further. Default: %(default)s')
-
-    return parser
 
 
 def get_read_id(uuid, read_ids, new_db):
@@ -71,9 +57,7 @@ def fill_refs(old_cur, new_db):
     new_db.create_chrm_index()
 
 
-def main():
-    args = get_parser().parse_args()
-
+def _main(args):
     old_db = sqlite3.connect(args.old_db)
     old_cur = old_db.cursor()
     new_db = mods.ModsDb(args.new_db, read_only=False,
@@ -99,4 +83,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    _main(get_parser_modified_bases_update_database().parse_args())
