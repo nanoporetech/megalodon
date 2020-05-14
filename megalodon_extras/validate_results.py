@@ -43,6 +43,19 @@ def compute_mod_sites_stats(
 
     is_can = np.repeat([0, 1], [vs_mods_data.shape[0], vs_ctrl_data.shape[0]])
     all_data = np.concatenate([vs_mods_data, vs_ctrl_data])
+    if any(np.isnan(all_data)):
+        sys.stderr.write((
+            '***** WARNING ***** Encountered {} NaN modified base ' +
+            'scores.\n').format(sum(np.isnan(all_data))))
+        all_data = all_data[~np.isnan(all_data)]
+        if all_data.shape[0] == 0:
+            raise mh.MegaError('All modified base scores are NaN')
+    inf_idx = np.isinf(all_data)
+    if any(inf_idx):
+        all_data[inf_idx] = np.max(all_data[~inf_idx])
+    neginf_idx = np.isinf(all_data)
+    if any(neginf_idx):
+        all_data[neginf_idx] = np.min(all_data[~neginf_idx])
     if VERBOSE:
         sys.stderr.write(
             'Computing PR/ROC for {} at {}\n'.format(mod_base, vs_label))
@@ -131,10 +144,13 @@ def report_mod_metrics(
                 sys.stderr.write(MOD_MISSING_MSG.format(
                     mod_base, vs_label, 'control'))
                 continue
-            # compute modified base metrics
-            compute_mod_sites_stats(
-                vs_mods_data[mod_base], vs_ctrl_data[mod_base],
-                balance_classes, mod_base, vs_label, out_fp, pdf_fp)
+            try:
+                # compute modified base metrics
+                compute_mod_sites_stats(
+                    vs_mods_data[mod_base], vs_ctrl_data[mod_base],
+                    balance_classes, mod_base, vs_label, out_fp, pdf_fp)
+            except mh.MegaError as e:
+                sys.stderr.write(str(e) + '\n')
 
 
 def plot_acc(pdf_fp, mod_acc, mod_parsim_acc, ctrl_acc, ctrl_parsim_acc):

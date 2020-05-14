@@ -226,6 +226,13 @@ def rolling_window(a, size):
     return np.lib.stride_tricks.as_strided(a, shape=shape, strides=strides)
 
 
+def log_prob_to_phred(log_prob, ignore_np_divide=True):
+    if ignore_np_divide:
+        with np.errstate(divide='ignore'):
+            return -10 * np.log10(1 - np.exp(log_prob))
+    return -10 * np.log10(1 - np.exp(log_prob))
+
+
 #######################
 # Filename Extraction #
 #######################
@@ -259,14 +266,22 @@ def mkdir(out_dir, overwrite):
             shutil.rmtree(out_dir)
     os.mkdir(out_dir)
 
-    return
 
-
-def log_prob_to_phred(log_prob, ignore_np_divide=True):
-    if ignore_np_divide:
-        with np.errstate(divide='ignore'):
-            return -10 * np.log10(1 - np.exp(log_prob))
-    return -10 * np.log10(1 - np.exp(log_prob))
+def prep_out_fn(out_fn, overwrite):
+    if os.path.exists(out_fn):
+        if overwrite:
+            os.remove(out_fn)
+        else:
+            raise NotImplementedError(
+                'ERROR: Output filename exists and --overwrite not set.')
+    try:
+        open(out_fn, 'w').close()
+        os.remove(out_fn)
+    except Exception as e:
+        sys.stderr.write(
+            '*' * 60 + '\nERROR: Attempt to write to output filename ' +
+            'location failed with the following error.\n' + '*' * 60 + '\n\n')
+        raise e
 
 
 ############################

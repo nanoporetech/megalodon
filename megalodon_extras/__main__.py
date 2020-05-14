@@ -21,7 +21,9 @@ NESTED_COMMANDS = [
       (ep.CMD_CALIB_GEN_MODS,
        'Generate statistics for modified base calibration'),
       (ep.CMD_CALIB_GEN_VARS,
-       'Generate statistics for sequence variant calibration')]),
+       'Generate statistics for sequence variant calibration'),
+      (ep.CMD_CALIB_MERGE_MODS,
+       'Merge modified base calibration files')]),
 
     (ep.GRP_MERGE,
      'Merge per-read databases',
