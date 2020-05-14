@@ -128,6 +128,23 @@ def get_parser_calibrate_modified_bases():
     return parser
 
 
+def get_parser_calibrate_merge_modified_bases():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        'modified_base_calibration_files', nargs='+', metavar='MOD_CALIB_FN',
+        help='Modified base calibration filenames. For modified bases ' +
+        'included in more than one file the values from the first file ' +
+        'listed will be used.')
+    parser.add_argument(
+        '--out-filename', default='megalodon_mod_calibration.npz',
+        help='Filename to output calibration values. Default: %(default)s')
+    parser.add_argument(
+        '--overwrite', action='store_true',
+        help='Overwrite --out-filename if it exists.')
+
+    return parser
+
+
 def get_parser_calibrate_variants():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -679,6 +696,7 @@ CMD_CALIB_MODS = 'modified_bases'
 CMD_CALIB_VARS = 'variants'
 CMD_CALIB_GEN_MODS = 'generate_modified_base_stats'
 CMD_CALIB_GEN_VARS = 'generate_variant_stats'
+CMD_CALIB_MERGE_MODS = 'merge_modified_bases'
 
 GRP_MERGE = 'merge'
 CMD_MERGE_MODS = 'modified_bases'
@@ -715,7 +733,8 @@ PARSERS = {
         CMD_CALIB_MODS: get_parser_calibrate_modified_bases,
         CMD_CALIB_VARS: get_parser_calibrate_variants,
         CMD_CALIB_GEN_MODS: get_parser_calibrate_generate_modified_bases_stats,
-        CMD_CALIB_GEN_VARS: get_parser_calibrate_generate_variants_stats},
+        CMD_CALIB_GEN_VARS: get_parser_calibrate_generate_variants_stats,
+        CMD_CALIB_MERGE_MODS: get_parser_calibrate_merge_modified_bases},
     GRP_MERGE: {
         CMD_MERGE_MODS: get_parser_merge_modified_bases,
         CMD_MERGE_VARS: get_parser_merge_variants},

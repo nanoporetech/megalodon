@@ -15,6 +15,15 @@ DEL_LLR_RNG_TMPLT = 'del_{}_llr_range'
 INS_CALIB_TMPLT = 'ins_{}_calibration'
 INS_LLR_RNG_TMPLT = 'ins_{}_llr_range'
 
+# modified base fixed text strings
+MOD_STRAT_TYPE_TXT = 'stratify_type'
+MOD_BASE_STRAT_TYPE = 'mod_base'
+MOD_VALID_STRAT_TYPES = set((MOD_BASE_STRAT_TYPE, ))
+SMOOTH_NVALS_TXT = 'smooth_nvals'
+MOD_BASES_TXT = 'mod_bases'
+LLR_RANGE_SUFFIX = '_llr_range'
+CALIB_TABLE_SUFFIX = '_calibration_table'
+
 
 ##########################
 # Calibration Estimation #
@@ -243,14 +252,11 @@ class VarCalibrator(object):
             self.ins_calib_tables[indel_len] = calib_data[
                 INS_CALIB_TMPLT.format(indel_len)].copy()
 
-        return
-
     def __init__(self, vars_calib_fn):
         self.fn = vars_calib_fn
         if self.fn is not None:
             self._load_calibration()
         self.calib_loaded = self.fn is not None
-        return
 
     def calibrate_llr(self, llr, read_ref_seq, read_alt_seq):
         def simplify_var_seq(ref_seq, alt_seq):
@@ -301,29 +307,26 @@ class VarCalibrator(object):
 class ModCalibrator(object):
     def _load_calibration(self):
         calib_data = np.load(self.fn)
-        self.stratify_type = str(calib_data['stratify_type'])
-        assert self.stratify_type == 'mod_base'
+        self.stratify_type = str(calib_data[MOD_STRAT_TYPE_TXT])
+        assert self.stratify_type in MOD_VALID_STRAT_TYPES
 
-        self.num_calib_vals = np.int(calib_data['smooth_nvals'])
-        self.mod_bases = calib_data['mod_bases']
+        self.num_calib_vals = np.int(calib_data[SMOOTH_NVALS_TXT])
+        self.mod_bases = calib_data[MOD_BASES_TXT]
         self.mod_base_calibs = {}
         for mod_base in self.mod_bases:
-            mod_llr_range = calib_data[mod_base + '_llr_range'].copy()
+            mod_llr_range = calib_data[mod_base + LLR_RANGE_SUFFIX].copy()
             input_vals = np.linspace(
                 mod_llr_range[0], mod_llr_range[1],
                 self.num_calib_vals, endpoint=True)
             mod_calib_table = calib_data[
-                mod_base + '_calibration_table'].copy()
+                mod_base + CALIB_TABLE_SUFFIX].copy()
             self.mod_base_calibs[mod_base] = (input_vals, mod_calib_table)
-
-        return
 
     def __init__(self, mods_calib_fn):
         self.fn = mods_calib_fn
         if self.fn is not None:
             self._load_calibration()
         self.calib_loaded = self.fn is not None
-        return
 
     def calibrate_llr(self, llr, mod_base):
         if not self.calib_loaded or mod_base not in self.mod_base_calibs:

@@ -1,11 +1,10 @@
-import os
 import sys
 
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
-from megalodon import calibration, mods
+from megalodon import calibration, megalodon_helper as mh, mods
 from ._extras_parsers import get_parser_calibrate_modified_bases
 
 
@@ -65,25 +64,8 @@ def extract_llrs(llr_fn):
     return mod_base_llrs
 
 
-def prep_out(out_fn, overwrite):
-    if os.path.exists(out_fn):
-        if overwrite:
-            os.remove(out_fn)
-        else:
-            raise NotImplementedError(
-                'ERROR: --out-filename exists and --overwrite not set.')
-    try:
-        open(out_fn, 'w').close()
-        os.remove(out_fn)
-    except Exception:
-        sys.stderr.write(
-            '*' * 60 + '\nERROR: Attempt to write to --out-filename ' +
-            'location failed with the following error.\n' + '*' * 60 + '\n\n')
-        raise
-
-
 def _main(args):
-    prep_out(args.out_filename, args.overwrite)
+    mh.prep_out_fn(args.out_filename, args.overwrite)
 
     sys.stderr.write('Parsing log-likelihood ratios\n')
     mod_base_llrs = extract_llrs(args.ground_truth_llrs)
@@ -97,8 +79,8 @@ def _main(args):
             can_llrs, mod_llrs, args.max_input_llr,
             args.num_calibration_values, args.smooth_bandwidth,
             args.min_density, pdf_fp is not None)
-        save_kwargs[mod_base + '_llr_range'] = mod_llr_range
-        save_kwargs[mod_base + '_calibration_table'] = mod_calib
+        save_kwargs[mod_base + calibration.LLR_RANGE_SUFFIX] = mod_llr_range
+        save_kwargs[mod_base + calibration.CALIB_TABLE_SUFFIX] = mod_calib
         if pdf_fp is not None:
             plot_calib(pdf_fp, mod_base, *plot_data, args.pdf_prob_thresholds,
                        not args.plot_without_prob_thresholds)
@@ -110,7 +92,7 @@ def _main(args):
     mod_bases = list(mod_base_llrs.keys())
     np.savez(
         args.out_filename,
-        stratify_type='mod_base',
+        stratify_type=calibration.MOD_BASE_STRAT_TYPE,
         smooth_nvals=args.num_calibration_values,
         mod_bases=mod_bases,
         **save_kwargs)
