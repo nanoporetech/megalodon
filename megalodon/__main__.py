@@ -349,7 +349,7 @@ def get_parser():
 def _main():
     args = get_parser().parse_args()
     # only import megalodon if actually processing (not just printing help)
-    import megalodon
+    from megalodon import megalodon
     megalodon._main(args)
 
 
