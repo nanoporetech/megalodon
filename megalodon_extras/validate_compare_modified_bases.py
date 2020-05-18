@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
 from megalodon import megalodon_helper as mh
-from ._extras_parsers import get_parser_validate_aggregated_variants
+from ._extras_parsers import get_parser_validate_compare_modified_bases
 
 
 CMAP = plt.cm.inferno_r
@@ -106,4 +106,4 @@ def _main(args):
 
 
 if __name__ == '__main__':
-    _main(get_parser_validate_aggregated_variants().parse_args())
+    _main(get_parser_validate_compare_modified_bases().parse_args())
