@@ -550,7 +550,7 @@ def get_parser_validate_aggregated_modified_bases():
     return parser
 
 
-def get_parser_validate_aggregated_variants():
+def get_parser_validate_compare_modified_bases():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--sample1-bed-methyl-files', nargs='+', required=True,
@@ -719,7 +719,7 @@ CMD_TXT_VARS = 'variants'
 GRP_VAL = 'validate'
 CMD_VAL_RES = 'results'
 CMD_VAL_AGG_MODS = 'aggregated_modified_bases'
-CMD_VAL_AGG_VARS = 'aggregated_variants'
+CMD_VAL_COMP_MODS = 'compare_modified_bases'
 
 GRP_VARS = 'variants'
 CMD_VAR_ATOM = 'atomize'
@@ -753,7 +753,7 @@ PARSERS = {
     GRP_VAL: {
         CMD_VAL_RES: get_parser_validate_results,
         CMD_VAL_AGG_MODS: get_parser_validate_aggregated_modified_bases,
-        CMD_VAL_AGG_VARS: get_parser_validate_aggregated_variants},
+        CMD_VAL_COMP_MODS: get_parser_validate_compare_modified_bases},
     GRP_VARS: {
         CMD_VAR_ATOM: get_parser_variants_atomize,
         CMD_VAR_RESOLVE: get_parser_variants_resolve,

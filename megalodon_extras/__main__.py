@@ -58,13 +58,13 @@ NESTED_COMMANDS = [
        'Output per-read sequence variant statistics text file')]),
 
     (ep.GRP_VAL,
-     'Validate mapping, sequence variant and modified base results',
+     'Validate mapping and modified base results',
      [(ep.CMD_VAL_RES,
        'Validate per-read mappings and modified bases (if available)'),
       (ep.CMD_VAL_AGG_MODS,
        'Validate aggregated modified bases results'),
-      (ep.CMD_VAL_AGG_VARS,
-       'Validate aggregated sequence variant results')]),
+      (ep.CMD_VAL_COMP_MODS,
+       'Compare aggregated modified base results (bedMethyl files')]),
 
     (ep.GRP_VARS,
      'Miscellaneous sequence variant operations',
