@@ -286,6 +286,9 @@ def get_parser_merge_modified_bases():
         help='Output directory. Cannot exist before this command. ' +
         'Default: %(default)s')
     parser.add_argument(
+        '--overwrite', action='store_true',
+        help='Overwrite output directory if it exists.')
+    parser.add_argument(
         '--mod-positions-on-disk', action='store_true',
         help='Force modified base positions to be stored only within on ' +
         'disk database table. This option will reduce the RAM memory ' +
@@ -304,6 +307,9 @@ def get_parser_merge_variants():
         '--output-megalodon-results-dir',
         default='megalodon_merge_vars_results',
         help='Output directory. Default: %(default)s')
+    parser.add_argument(
+        '--overwrite', action='store_true',
+        help='Overwrite output directory if it exists.')
     parser.add_argument(
         '--var-locations-on-disk', action='store_true',
         help='Force sequnece variant locations to be stored only within on ' +

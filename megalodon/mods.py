@@ -172,8 +172,6 @@ class ModsDb(object):
             if self.uuid_idx_in_mem:
                 self.uuid_idx = {}
 
-        return
-
     # insert data functions
     def get_chrm_id_or_insert(self, chrm, chrm_len):
         try:
@@ -210,13 +208,11 @@ class ModsDb(object):
                         next_chrm_id,
                         next_chrm_id + len(chrm_names_and_lens[0]))
                 for strand in (1, -1))
-        return
 
     def insert_mod_long_names(self, mod_long_names):
         self.cur.executemany(
             'INSERT INTO mod_long_names (mod_base, mod_long_name) ' +
             'VALUES (?,?)', mod_long_names)
-        return
 
     def get_mod_long_names(self):
         return list(self.cur.execute(
@@ -367,7 +363,6 @@ class ModsDb(object):
             for pos_id, (mod_base_id, mod_lp) in zip(pos_ids, mod_base_ids))
         self.cur.executemany(
             'INSERT INTO data VALUES (?,?,?,?)', read_insert_data)
-        return
 
     def insert_data(self, score, pos_id, mod_base_id, read_id):
         self.cur.execute(
@@ -378,17 +373,14 @@ class ModsDb(object):
     # create and load index functions
     def create_chrm_index(self):
         self.cur.execute('CREATE UNIQUE INDEX chrm_idx ON chrm(chrm)')
-        return
 
     def load_chrm_read_index(self):
         self.chrm_read_idx = dict(self.cur.execute(
             'SELECT chrm_id, chrm FROM chrm').fetchall())
-        return
 
     def create_pos_index(self):
         self.cur.execute('CREATE UNIQUE INDEX pos_idx ON pos' +
                          '(pos_chrm, strand, pos)')
-        return
 
     def load_pos_read_index(self):
         self.pos_read_idx = dict((
@@ -404,12 +396,10 @@ class ModsDb(object):
                 self.pos_idx[(chrm_id, strand)] = {}
                 cs_pos_idx = self.pos_idx[(chrm_id, strand)]
             cs_pos_idx[pos] = pos_id
-        return
 
     def create_mod_index(self):
         self.cur.execute('CREATE UNIQUE INDEX mod_idx ON ' +
                          'mod(mod_base, motif, motif_pos, raw_motif)')
-        return
 
     def load_mod_read_index(self):
         self.mod_read_idx = dict((
@@ -418,17 +408,14 @@ class ModsDb(object):
             self.cur.execute(
                 'SELECT mod_id, mod_base, motif, motif_pos, raw_motif ' +
                 'FROM mod').fetchall()))
-        return
 
     def load_uuid_read_index(self):
         self.uuid_read_idx = dict(self.cur.execute(
             'SELECT read_id, uuid FROM read').fetchall())
-        return
 
     def create_data_covering_index(self):
         self.cur.execute('CREATE INDEX data_cov_idx ON data(' +
                          'score_pos, score_read, score_mod, score)')
-        return
 
     def iter_pos_scores(self, return_pos=False):
         """ Iterate log likelihood ratios (log(P_can / P_mod)) by position.
@@ -470,7 +457,6 @@ class ModsDb(object):
             pos_lps[read_id].append((self.get_mod_base_data(mod_id)[0], lp))
             prev_pos = curr_pos
         yield extract_pos(prev_pos), extract_pos_llrs(pos_lps)
-        return
 
     # reader functions
     def get_chrm_id(self, chrm):
@@ -565,23 +551,33 @@ class ModsDb(object):
             num_chrms = 0
         return num_chrms
 
+    def get_num_uniq_stats(self):
+        num_stats = self.cur.execute(
+            'SELECT MAX(rowid) FROM data').fetchone()[0]
+        if num_stats is None:
+            return 0
+        return num_stats
+
     def iter_pos(self):
-        for pos in self.cur.execute(
-                'SELECT pos_id, pos_chrm, strand, pos FROM pos').fetchall():
+        # use local cursor since other processing might use class cursor
+        local_cursor = self.db.cursor()
+        local_cursor.execute('SELECT pos_id, pos_chrm, strand, pos FROM pos')
+        for pos in local_cursor:
             yield pos
-        return
 
     def iter_data(self):
-        for data in self.cur.execute(
-                'SELECT score, uuid, mod_base, motif, motif_pos, raw_motif, ' +
-                'strand, pos, chrm, chrm_len ' +
-                'FROM data ' +
-                'INNER JOIN read ON data.score_read = read.read_id ' +
-                'INNER JOIN mod ON data.score_mod = mod.mod_id ' +
-                'INNER JOIN pos ON data.score_pos = pos.pos_id ' +
-                'INNER JOIN chrm ON pos.pos_chrm = chrm.chrm_id').fetchall():
+        # use local cursor since other processing might use class cursor
+        local_cursor = self.db.cursor()
+        local_cursor.execute(
+            'SELECT score, uuid, mod_base, motif, motif_pos, raw_motif, ' +
+            'strand, pos, chrm, chrm_len ' +
+            'FROM data ' +
+            'INNER JOIN read ON data.score_read = read.read_id ' +
+            'INNER JOIN mod ON data.score_mod = mod.mod_id ' +
+            'INNER JOIN pos ON data.score_pos = pos.pos_id ' +
+            'INNER JOIN chrm ON pos.pos_chrm = chrm.chrm_id')
+        for data in local_cursor:
             yield data
-        return
 
     def get_pos_stats(self, pos_data, return_uuids=False):
         read_id_conv = self.get_uuid if return_uuids else lambda x: x
@@ -598,7 +594,6 @@ class ModsDb(object):
     def close(self):
         self.db.commit()
         self.db.close()
-        return
 
 
 ##################
@@ -826,7 +821,6 @@ def call_read_mods(
                 if m_pos > max_pos:
                     break
                 yield m_pos, mod_bases, motif_match.group(), rel_pos, raw_motif
-        return
 
     # call all mods overlapping this read
     r_mod_scores = []
@@ -1095,7 +1089,6 @@ if _PROFILE_MODS_QUEUE:
         import cProfile
         cProfile.runctx('_get_mods_queue_wrapper(*args)', globals(), locals(),
                         filename='mods_getter_queue.prof')
-        return
 
 
 ############
@@ -1279,8 +1272,6 @@ class ModSite(object):
         if self.mod_props is not None:
             self.add_mod_props(self.mod_props)
 
-        return
-
     @property
     def _sorted_format_keys(self):
         sorted_keys = sorted(self.sample_dict.keys())
@@ -1401,7 +1392,6 @@ class ModVcfWriter(object):
         self.handle = open(self.filename, self.mode, encoding='utf-8')
         self.handle.write('\n'.join('##' + line for line in self.meta) + '\n')
         self.handle.write('#' + '\t'.join(self.header) + '\n')
-        return
 
     def write_mod_site(self, mod_site):
         elements = [getattr(mod_site, field.lower()) for field in self.header]
@@ -1413,13 +1403,10 @@ class ModVcfWriter(object):
             self.handle.write('\n'.join(self.buffer) + '\n')
             self.buffer = []
 
-        return
-
     def close(self):
         if len(self.buffer) > 0:
             self.handle.write('\n'.join(self.buffer) + '\n')
         self.handle.close()
-        return
 
 
 class ModBedMethylWriter(object):
@@ -1443,7 +1430,6 @@ class ModBedMethylWriter(object):
                 mh.MOD_OUTPUT_EXTNS[mh.MOD_BEDMETHYL_NAME]),
                                   self.mode, encoding='utf-8'))
             for mod_short_name, mod_long_name in self.mods)
-        return
 
     def write_mod_site(self, mod_site):
         for mod_base, mod_prop in mod_site.mod_props.items():
@@ -1464,15 +1450,12 @@ class ModBedMethylWriter(object):
                     '\n'.join(self.buffers[mod_base]) + '\n')
                 self.buffers[mod_base] = []
 
-        return
-
     def close(self):
         for mod_base, handle in self.handles.items():
             if len(self.buffers[mod_base]) > 0:
                 handle.write(
                     '\n'.join(self.buffers[mod_base]) + '\n')
             handle.close()
-        return
 
 
 class ModWigWriter(object):
@@ -1497,8 +1480,6 @@ class ModWigWriter(object):
             for mod_short_name, mod_long_name in self.mods
             for strand, strand_name in strands.items())
 
-        return
-
     def write_mod_site(self, mod_site):
         if mod_site.strand not in self.strands:
             mh.warning('Invalid strand encountered during wiggle output.')
@@ -1510,8 +1491,6 @@ class ModWigWriter(object):
                 continue
             self.mod_sites_data[(mod_base, mod_site.strand)][
                 mod_site.chrom].append((mod_site.pos, mod_prop))
-
-        return
 
     def close(self):
         # write all data on close since all data is required to write
@@ -1537,8 +1516,6 @@ class ModWigWriter(object):
                     wig_fp.write('\n'.join((
                         '{} {}'.format(pos, mod_prop)
                         for pos, mod_prop in sorted(cs_mod_sites))) + '\n')
-
-        return
 
 
 ##########################
@@ -1567,7 +1544,6 @@ class AggMods(mh.AbstractAggregationClass):
         self.binary_thresh = agg_info.binary_threshold
         self.write_mod_lp = write_mod_lp
         self._mod_long_names = self.mods_db.get_mod_long_names()
-        return
 
     def get_mod_long_names(self):
         if self._mod_long_names is None:
@@ -1584,7 +1560,6 @@ class AggMods(mh.AbstractAggregationClass):
         # workers avoid the ordered pos data extraction
         for q_val in self.mods_db.iter_pos():
             yield q_val
-        return
 
     def est_binary_thresh(self, pos_scores):
         valid_cov = 0
@@ -1725,7 +1700,6 @@ class AggMods(mh.AbstractAggregationClass):
 
     def close(self):
         self.mods_db.close()
-        return
 
 
 if __name__ == '__main__':
