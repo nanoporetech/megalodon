@@ -42,8 +42,10 @@ def get_parser():
 
     pyg_grp.add_argument(
         '--do-not-use-guppy-server', action='store_true',
-        help=hidden_help('Use alternative basecalling backend (either ' +
-                         'FAST5 --post_out or taiyaki.'))
+        help=hidden_help('Use alternative basecalling backend. Either ' +
+                         'FAST5 (default; requires --post_out when running ' +
+                         'guppy) or taiyaki (set `--taiyaki-model-filename` ' +
+                         'to use taiyaki backend).'))
     pyg_grp.add_argument(
         '--guppy-params',
         help=hidden_help('Extra guppy server parameters. Main purpose for ' +
