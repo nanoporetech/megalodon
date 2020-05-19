@@ -181,8 +181,6 @@ class VarsDb(object):
             if self.uuid_idx_in_mem:
                 self.uuid_idx = {}
 
-        return
-
     # insert data functions
     def get_chrm_id_or_insert(self, chrm, chrm_len):
         try:
@@ -222,7 +220,6 @@ class VarsDb(object):
                 for chrm_id in range(
                         next_chrm_id,
                         next_chrm_id + len(chrm_names_and_lens[0])))
-        return
 
     def get_loc_id_or_insert(
             self, chrm_id, test_start, test_end, pos, ref_seq, var_name):
@@ -366,7 +363,6 @@ class VarsDb(object):
             for loc_id, (alt_id, alt_lp) in zip(loc_ids, alt_ids))
         self.cur.executemany(
             'INSERT INTO data VALUES (?,?,?,?)', read_insert_data)
-        return
 
     def insert_data(self, score, loc_id, alt_id, read_id):
         self.cur.execute(
@@ -377,39 +373,32 @@ class VarsDb(object):
     # create and load index functions
     def create_chrm_index(self):
         self.cur.execute('CREATE UNIQUE INDEX chrm_idx ON chrm(chrm)')
-        return
 
     def load_chrm_index(self):
         self.chrm_name_idx = dict(self.cur.execute(
             'SELECT chrm_id, chrm FROM chrm').fetchall())
         self.chrm_id_idx = dict((v, k) for k, v in self.chrm_name_idx.items())
-        return
 
     def load_uuid_read_index(self):
         self.uuid_read_idx = dict(self.cur.execute(
             'SELECT read_id, uuid FROM read').fetchall())
-        return
 
     def load_uuid_strand_read_index(self):
         self.uuid_strand_read_idx = dict(
             (read_id, (uuid, strand)) for read_id, uuid, strand in
             self.cur.execute(
                 'SELECT read_id, uuid, strand FROM read').fetchall())
-        return
 
     def create_alt_index(self):
         self.cur.execute('CREATE UNIQUE INDEX alt_idx ON alt(alt_seq)')
-        return
 
     def load_alt_read_index(self):
         self.alt_read_idx = dict(self.cur.execute(
             'SELECT alt_id, alt_seq FROM alt').fetchall())
-        return
 
     def create_loc_index(self):
         self.cur.execute('CREATE UNIQUE INDEX loc_idx ON loc' +
                          '(loc_chrm, test_start, test_end)')
-        return
 
     def load_loc_read_index(self):
         self.loc_read_idx = dict(
@@ -417,12 +406,10 @@ class VarsDb(object):
             for loc_id, pos, ref_seq, var_name in self.cur.execute(
                     'SELECT loc_id, pos, ref_seq, var_name ' +
                     'FROM loc').fetchall())
-        return
 
     def create_data_covering_index(self):
         self.cur.execute('CREATE INDEX data_cov_idx ON data(' +
                          'score_loc, score_alt, score_read, score)')
-        return
 
     # reader functions
     def get_chrm_id(self, chrm):
@@ -500,41 +487,52 @@ class VarsDb(object):
         num_chrms = self.cur.execute(
             'SELECT MAX(chrm_id) FROM chrm').fetchone()[0]
         if num_chrms is None:
-            num_chrms = 0
+            return 0
         return num_chrms
 
     def get_num_uniq_var_loc(self):
         num_locs = self.cur.execute(
             'SELECT MAX(loc_id) FROM loc').fetchone()[0]
         if num_locs is None:
-            num_locs = 0
+            return 0
         return num_locs
 
     def get_num_uniq_alt_seqs(self):
         num_alts = self.cur.execute(
             'SELECT MAX(alt_id) FROM alt').fetchone()[0]
         if num_alts is None:
-            num_alts = 0
+            return 0
         return num_alts
 
+    def get_num_uniq_stats(self):
+        num_stats = self.cur.execute(
+            'SELECT MAX(rowid) FROM data').fetchone()[0]
+        if num_stats is None:
+            return 0
+        return num_stats
+
     def iter_locs(self):
-        for loc in self.cur.execute(
-                'SELECT loc_id, loc_chrm, pos, ref_seq, var_name, ' +
-                'test_start FROM loc').fetchall():
+        # use local cursor since other processing might use class cursor
+        local_cursor = self.db.cursor()
+        local_cursor.execute(
+            'SELECT loc_id, loc_chrm, pos, ref_seq, var_name, ' +
+            'test_start FROM loc')
+        for loc in local_cursor:
             yield loc
-        return
 
     def iter_data(self):
-        for data in self.cur.execute(
-                'SELECT score, uuid, strand, alt_seq, ref_seq, pos, ' +
-                'var_name, test_end, test_start, chrm, chrm_len ' +
-                'FROM data ' +
-                'INNER JOIN read ON data.score_read = read.read_id ' +
-                'INNER JOIN alt ON data.score_alt = alt.alt_id ' +
-                'INNER JOIN loc ON data.score_loc = loc.loc_id ' +
-                'INNER JOIN chrm ON loc.loc_chrm = chrm.chrm_id').fetchall():
+        # use local cursor since other processing might use class cursor
+        local_cursor = self.db.cursor()
+        local_cursor.execute(
+            'SELECT score, uuid, strand, alt_seq, ref_seq, pos, ' +
+            'var_name, test_end, test_start, chrm, chrm_len ' +
+            'FROM data ' +
+            'INNER JOIN read ON data.score_read = read.read_id ' +
+            'INNER JOIN alt ON data.score_alt = alt.alt_id ' +
+            'INNER JOIN loc ON data.score_loc = loc.loc_id ' +
+            'INNER JOIN chrm ON loc.loc_chrm = chrm.chrm_id')
+        for data in local_cursor:
             yield data
-        return
 
     def get_loc_stats(self, loc_data, return_uuids=False):
         read_id_conv = self.get_uuid if return_uuids else lambda x: x
@@ -552,7 +550,6 @@ class VarsDb(object):
     def close(self):
         self.db.commit()
         self.db.close()
-        return
 
 
 ####################
@@ -598,7 +595,6 @@ def write_per_read_debug(
                                           for alt_lp in alt_lps)),
                         'WITH_CONTEXT' if w_context else 'NO_CONTEXT')
     LOGGER.debug(out_txt)
-    return
 
 
 def score_seq(tpost, seq, tpost_start=0, tpost_end=None,
@@ -1125,8 +1121,6 @@ def _get_variants_queue(
     vars_db.create_data_covering_index()
     vars_db.close()
 
-    return
-
 
 ##############
 # VCF Reader #
@@ -1220,8 +1214,6 @@ class VarData(object):
             vars_idx.close()
             self.variants_idx = None
 
-        return
-
     @property
     def substitution_context(self):
         return self.context_bases[0]
@@ -1233,7 +1225,6 @@ class VarData(object):
     def reopen_variant_index(self):
         if self.variant_fn is not None:
             self.variants_idx = pysam.VariantFile(self.variant_fn)
-        return
 
     @staticmethod
     def compute_variant_distance(var1, var2):
@@ -1325,8 +1316,6 @@ class VarData(object):
                         yield vars_w_alt
             used_vars.extend(dist_context_vars)
 
-        return
-
     @staticmethod
     def iter_context_variants(read_variants, context_max_dist):
         """ Iterate variants as well as variants within context_max_dist
@@ -1385,8 +1374,6 @@ class VarData(object):
             yield curr_var, [var for var in curr_vars
                              if var.start >= curr_var.end or
                              curr_var.start >= var.end]
-
-        return
 
     @staticmethod
     def add_indel_context_base(
@@ -1456,8 +1443,6 @@ class VarData(object):
                 start=site_vars[0].start, stop=site_vars[0].stop,
                 ref=out_ref_seq, alts=out_alt_seqs, ref_start=out_start,
                 strand=site_vars[0].strand, has_context_base=has_context_base)
-
-        return
 
     @staticmethod
     def expand_ambig_variant(
@@ -1608,7 +1593,6 @@ class VarData(object):
                 stop=var.start + start_trim + np_ref_seq.shape[0], ref=var.ref,
                 alts=var.alts, ref_start=var.start, strand=strand,
                 has_context_base=start_trim == 1)
-        return
 
     def fetch_read_variants(self, read_ref_pos, read_ref_fwd_seq):
         try:
@@ -1739,8 +1723,6 @@ class VarData(object):
                 np_var_ref, np_var_alts, np_context_seqs,
                 context_read_start, context_read_end, variant)
 
-        return
-
     def calibrate_llr(self, llr, var_ref_seq, var_alt_seq):
         return self.calib_table.calibrate_llr(
             llr, var_ref_seq, var_alt_seq)
@@ -1771,7 +1753,6 @@ class Variant(object):
         if sample_dict is None:
             sample_dict = OrderedDict()
         self.sample_dict = sample_dict
-        return
 
     @property
     def _sorted_format_keys(self):
@@ -1839,7 +1820,6 @@ class Variant(object):
         self.add_sample_field(
             'PL', ','.join('{:.0f}' for _ in range(probs.shape[0])).format(
                 *np.around(pl)))
-        return
 
     def add_diploid_probs(self, probs, gts):
         # phred scaled likelihoods
@@ -1866,7 +1846,6 @@ class Variant(object):
         self.add_sample_field(
             'PL', ','.join('{:.0f}' for _ in range(probs.shape[0])).format(
                 *np.around(pl)))
-        return
 
     def __eq__(self, var2):
         return (self.chrm, self.pos, self.id) == (var2.chrm, var2.pos, var2.id)
@@ -1919,11 +1898,9 @@ class VcfWriter(object):
         self.handle = open(self.filename, self.mode, encoding='utf-8')
         self.handle.write('\n'.join('##' + line for line in self.meta) + '\n')
         self.handle.write('#' + '\t'.join(self.header) + '\n')
-        return
 
     def close(self):
         self.handle.close()
-        return
 
     def write_variant(self, variant):
         elements = [getattr(variant, field.lower()) for field in self.header]
@@ -1932,8 +1909,6 @@ class VcfWriter(object):
         elements[self.header.index('POS')] += 1
         self.handle.write('{}\n'.format('\t'.join(map(str, elements))))
         self.handle.flush()
-
-        return
 
 
 #############################
@@ -1955,7 +1930,6 @@ class AggVars(mh.AbstractAggregationClass):
                                   alt_index_in_memory=False)
         self.n_uniq_vars = None
         self.write_vcf_log_probs = write_vcf_log_probs
-        return
 
     def num_uniq(self):
         if self.n_uniq_vars is None:
@@ -1965,7 +1939,6 @@ class AggVars(mh.AbstractAggregationClass):
     def iter_uniq(self):
         for q_val in self.vars_db.iter_locs():
             yield q_val
-        return
 
     def compute_diploid_probs(self, ref_lps, alts_lps, het_factor=1.0):
         def compute_het_lp(a1, a2):
@@ -2071,7 +2044,6 @@ class AggVars(mh.AbstractAggregationClass):
 
     def close(self):
         self.vars_db.close()
-        return
 
 
 ########################
@@ -2090,7 +2062,6 @@ def sort_variants(in_vcf_fn, out_vcf_fn):
             out_vcf_fn, 'w', header=in_vcf_fp.header) as out_vcf_fp:
         for rec in sorted(in_vcf_fp.fetch(), key=lambda r: (r.chrom, r.start)):
             out_vcf_fp.write(rec)
-    return
 
 
 def index_variants(variant_fn):

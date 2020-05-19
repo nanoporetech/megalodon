@@ -841,8 +841,8 @@ def parse_mod_args(args, model_info):
         model_info.params.pyguppy.config, args.mod_calibration_filename,
         args.disable_mod_calibration)
                     if mh.PR_MOD_NAME in args.outputs else None)
-    if args.mod_aggregate_method == mods.EM_NAME:
-        agg_info = mods.AGG_INFO(mods.EM_NAME, None)
+    if args.mod_aggregate_method == mh.MOD_EM_NAME:
+        agg_info = mods.AGG_INFO(mh.MOD_EM_NAME, None)
     elif args.mod_aggregate_method == mh.MOD_BIN_THRESH_NAME:
         agg_info = mods.AGG_INFO(
             mh.MOD_BIN_THRESH_NAME, args.mod_binary_threshold)

@@ -286,6 +286,9 @@ def get_parser_merge_modified_bases():
         help='Output directory. Cannot exist before this command. ' +
         'Default: %(default)s')
     parser.add_argument(
+        '--overwrite', action='store_true',
+        help='Overwrite output directory if it exists.')
+    parser.add_argument(
         '--mod-positions-on-disk', action='store_true',
         help='Force modified base positions to be stored only within on ' +
         'disk database table. This option will reduce the RAM memory ' +
@@ -304,6 +307,9 @@ def get_parser_merge_variants():
         '--output-megalodon-results-dir',
         default='megalodon_merge_vars_results',
         help='Output directory. Default: %(default)s')
+    parser.add_argument(
+        '--overwrite', action='store_true',
+        help='Overwrite output directory if it exists.')
     parser.add_argument(
         '--var-locations-on-disk', action='store_true',
         help='Force sequnece variant locations to be stored only within on ' +
@@ -550,7 +556,7 @@ def get_parser_validate_aggregated_modified_bases():
     return parser
 
 
-def get_parser_validate_aggregated_variants():
+def get_parser_validate_compare_modified_bases():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--sample1-bed-methyl-files', nargs='+', required=True,
@@ -719,7 +725,7 @@ CMD_TXT_VARS = 'variants'
 GRP_VAL = 'validate'
 CMD_VAL_RES = 'results'
 CMD_VAL_AGG_MODS = 'aggregated_modified_bases'
-CMD_VAL_AGG_VARS = 'aggregated_variants'
+CMD_VAL_COMP_MODS = 'compare_modified_bases'
 
 GRP_VARS = 'variants'
 CMD_VAR_ATOM = 'atomize'
@@ -753,7 +759,7 @@ PARSERS = {
     GRP_VAL: {
         CMD_VAL_RES: get_parser_validate_results,
         CMD_VAL_AGG_MODS: get_parser_validate_aggregated_modified_bases,
-        CMD_VAL_AGG_VARS: get_parser_validate_aggregated_variants},
+        CMD_VAL_COMP_MODS: get_parser_validate_compare_modified_bases},
     GRP_VARS: {
         CMD_VAR_ATOM: get_parser_variants_atomize,
         CMD_VAR_RESOLVE: get_parser_variants_resolve,
