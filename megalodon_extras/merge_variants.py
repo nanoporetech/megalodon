@@ -1,3 +1,5 @@
+from tqdm import tqdm
+
 from megalodon import logging, megalodon_helper as mh, variants
 from._extras_parsers import get_parser_merge_variants
 
@@ -20,6 +22,9 @@ def _main(args):
             mh.get_megalodon_fn(mega_dir, mh.PR_VAR_NAME),
             read_only=True, chrm_index_in_memory=False,
             alt_index_in_memory=False, uuid_index_in_memory=False)
+        bar = tqdm(
+            desc=mega_dir, total=vars_db.get_num_uniq_stats(), smoothing=0,
+            dynamic_ncols=True)
         for (score, uuid, strand, alt_seq, ref_seq, pos, var_name,
              test_end, test_start, chrm, chrm_len) in vars_db.iter_data():
             chrm_id = out_vars_db.get_chrm_id_or_insert(chrm, chrm_len)
@@ -28,6 +33,8 @@ def _main(args):
             alt_id = out_vars_db.get_alt_id_or_insert(alt_seq)
             read_id = out_vars_db.get_read_id_or_insert(uuid)
             out_vars_db.insert_data(score, loc_id, alt_id, read_id)
+            bar.update()
+        bar.close()
 
     logger.info('Creating indices and closing database')
     if out_vars_db.chrm_idx_in_mem:

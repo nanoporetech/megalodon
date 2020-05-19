@@ -534,21 +534,21 @@ class ModsDb(object):
     def get_num_uniq_mod_pos(self):
         num_pos = self.cur.execute('SELECT MAX(pos_id) FROM pos').fetchone()[0]
         if num_pos is None:
-            num_pos = 0
+            return 0
         return num_pos
 
     def get_num_uniq_mod_bases(self):
         num_mod_bases = self.cur.execute(
             'SELECT MAX(mod_id) FROM mod').fetchone()[0]
         if num_mod_bases is None:
-            num_mod_bases = 0
+            return 0
         return num_mod_bases
 
     def get_num_uniq_chrms(self):
         num_chrms = self.cur.execute(
             'SELECT MAX(chrm_id) FROM chrm').fetchone()[0]
         if num_chrms is None:
-            num_chrms = 0
+            return 0
         return num_chrms
 
     def get_num_uniq_stats(self):
