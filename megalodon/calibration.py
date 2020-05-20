@@ -3,8 +3,10 @@ import sys
 import numpy as np
 from tqdm import tqdm
 
-from megalodon import megalodon_helper as mh
+from megalodon import logging, megalodon_helper as mh
 
+
+LOGGER = logging.get_logger()
 
 VAR_CALIB_TYPE = 'snp_type_indel_len'
 GENERIC_BASE = 'N'
@@ -92,10 +94,10 @@ def compute_calibration(
         min_dens_val, return_plot_info=False):
     smooth_ls = np.linspace(-max_input_llr, max_input_llr,
                             num_calib_vals, endpoint=True)
-    sys.stderr.write('\tComputing reference emperical density.\n')
+    LOGGER.info('\tComputing reference emperical density.')
     sm_ref, s_ref = compute_smooth_mono_density(
         ref_llrs, num_calib_vals, smooth_bw, smooth_ls)
-    sys.stderr.write('\tComputing alternative emperical density.\n')
+    LOGGER.info('\tComputing alternative emperical density.')
     sm_alt, s_alt = compute_smooth_mono_density(
         alt_llrs, num_calib_vals, smooth_bw, smooth_ls)
 
@@ -110,15 +112,15 @@ def compute_calibration(
                            'not overlap. Consider lowering min_dens_val.')
     if new_input_llr_range[0] != -max_input_llr or \
        new_input_llr_range[1] != max_input_llr:
-        sys.stderr.write(
+        LOGGER.info(
             '\tSetting new input llr range for more robust calibration ' +
-            '({}, {})\n'.format(*new_input_llr_range))
+            '({}, {})'.format(*new_input_llr_range))
         smooth_ls = np.linspace(new_input_llr_range[0], new_input_llr_range[1],
                                 num_calib_vals, endpoint=True)
-        sys.stderr.write('\tComputing new reference emperical density.\n')
+        LOGGER.info('\tComputing new reference emperical density.')
         sm_ref, s_ref = compute_smooth_mono_density(
             ref_llrs, num_calib_vals, smooth_bw, smooth_ls)
-        sys.stderr.write('\tComputing new alternative emperical density.\n')
+        LOGGER.info('\tComputing new alternative emperical density.')
         sm_alt, s_alt = compute_smooth_mono_density(
             alt_llrs, num_calib_vals, smooth_bw, smooth_ls)
 
@@ -145,7 +147,7 @@ def compute_mirrored_calibration(
     smooth_ls = np.linspace(-max_input_llr, max_input_llr,
                             num_calib_vals, endpoint=True)
 
-    sys.stderr.write('\tComputing reference emperical density.\n')
+    LOGGER.info('\tComputing reference emperical density.')
     sm_ref, s_ref = compute_smooth_mono_density(
         ref_llrs, num_calib_vals, smooth_bw, smooth_ls)
 
@@ -155,15 +157,18 @@ def compute_mirrored_calibration(
     # then recompute smooth values
     new_input_llr_range = determine_min_dens_edge(
         sm_ref, sm_ref[::-1], min_dens_val, smooth_ls)
-    assert new_input_llr_range[0] == -new_input_llr_range[1]
+    if new_input_llr_range[0] != -new_input_llr_range[1]:
+        LOGGER.warning(
+            'Unexpected new llr range for mirrored calibration: {}'.format(
+                str(new_input_llr_range)))
     if new_input_llr_range[0] != -max_input_llr or \
        new_input_llr_range[1] != max_input_llr:
-        sys.stderr.write(
+        LOGGER.info(
             '\tSetting new input llr range for more robust calibration ' +
-            '({}, {})\n'.format(*new_input_llr_range))
+            '({}, {})'.format(*new_input_llr_range))
         smooth_ls = np.linspace(new_input_llr_range[0], new_input_llr_range[1],
                                 num_calib_vals, endpoint=True)
-        sys.stderr.write('\tComputing new reference emperical density.\n')
+        LOGGER.info('\tComputing new reference emperical density.')
         sm_ref, s_ref = compute_smooth_mono_density(
             ref_llrs, num_calib_vals, smooth_bw, smooth_ls)
 

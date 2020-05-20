@@ -8,7 +8,18 @@ Guppy Backend Argument
 
 - ``--do-not-use-guppy-server``
 
-  - Use alternative basecalling backend (either FAST5 --post_out or taiyaki.
+  - Use alternative basecalling backend
+  - Alternatives are:
+
+    - FAST5: Read called sequence and full posterior data from fast5 files.
+
+      - This is the default when ``--do-not-use-guppy-server`` is set.
+      - Note that this option requires ``--post_out`` be set when running Guppy and may increase the fast5 file size by 5-10X.
+    - Taiyaki: Use the Taiyaki package basecalling interface
+
+      - This requires a Taiyaki installation (potentially with GPU settings).
+      - Trigger this mode by setting the ``--taiyaki-model-filename`` option.
+      - This is much slower than Guppy and is generally intended for experimental models with either layers or architectures not supported by Guppy.
 - ``--guppy-params``
 
   - Extra guppy server parameters.

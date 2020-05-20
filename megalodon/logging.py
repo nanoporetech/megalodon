@@ -13,7 +13,6 @@ class CustomFormatter(logging.Formatter):
 
     def __init__(self, fmt='[%(asctime)s] %(levelname)-8s: %(message)s'):
         super().__init__(fmt=fmt, datefmt='%H:%M:%S', style='%')
-        return
 
     def format(self, record):
         format_orig = self._fmt
@@ -34,24 +33,24 @@ class CustomFormatter(logging.Formatter):
         return result
 
 
-def init_logger(out_dir, out_suffix=None):
-    log_fn = os.path.join(out_dir, mh.LOG_FILENAME)
-    if out_suffix is not None:
-        base_fn, fn_ext = os.path.splitext(log_fn)
-        log_fn = base_fn + '.' + out_suffix + fn_ext
-    log_file = logging.FileHandler(log_fn, 'w')
-    log_file.setLevel(logging.DEBUG)
-    log_file.setFormatter(CustomFormatter())
+def init_logger(out_dir=None, out_suffix=None):
+    if out_dir is not None:
+        log_fn = os.path.join(out_dir, mh.LOG_FILENAME)
+        if out_suffix is not None:
+            base_fn, fn_ext = os.path.splitext(log_fn)
+            log_fn = base_fn + '.' + out_suffix + fn_ext
+        log_file = logging.FileHandler(log_fn, 'w')
+        log_file.setLevel(logging.DEBUG)
+        log_file.setFormatter(CustomFormatter())
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
     console.setFormatter(CustomFormatter())
 
     root_logger = logging.getLogger('')
     root_logger.setLevel(logging.DEBUG)
-    root_logger.addHandler(log_file)
+    if out_dir is not None:
+        root_logger.addHandler(log_file)
     root_logger.addHandler(console)
-
-    return
 
 
 def get_logger(module_name=''):

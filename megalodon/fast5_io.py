@@ -72,7 +72,7 @@ def get_posteriors(read):
         latest_basecall + '/BaseCalled_template/StateData')
     if state_data is None or state_attrs is None:
         raise mh.MegaError(
-            'StateData not found in FAST5 file. Ensure --fsat5_out and ' +
+            'StateData not found in FAST5 file. Ensure --fast5_out and ' +
             '--post_out were set when running guppy.')
     # convert state data from integers to float values
     posteriors = (state_data.astype(np.float32) + state_attrs['offset']) * \
