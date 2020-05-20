@@ -12,7 +12,8 @@ def _main(args):
     logger.info('Opening new sequence variant statistics database')
     out_vars_db = variants.VarsDb(
         mh.get_megalodon_fn(args.output_megalodon_results_dir, mh.PR_VAR_NAME),
-        read_only=False, loc_index_in_memory=not args.var_locations_on_disk)
+        read_only=False, loc_index_in_memory=not args.var_locations_on_disk,
+        uuid_index_in_memory=True)
 
     for mega_dir in args.megalodon_results_dirs:
         logger.info('Adding sequence variant statistics from {}'.format(

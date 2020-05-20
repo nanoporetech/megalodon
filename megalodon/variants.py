@@ -106,7 +106,7 @@ class VarsDb(object):
 
     def __init__(self, fn, read_only=True, db_safety=1,
                  loc_index_in_memory=False, chrm_index_in_memory=True,
-                 alt_index_in_memory=True, uuid_index_in_memory=True,
+                 alt_index_in_memory=True, uuid_index_in_memory=False,
                  uuid_strand_index_in_memory=False):
         """ Interface to database containing sequence variant statistics.
 
@@ -380,32 +380,32 @@ class VarsDb(object):
         self.chrm_id_idx = dict((v, k) for k, v in self.chrm_name_idx.items())
 
     def load_uuid_read_index(self):
-        self.uuid_read_idx = dict(self.cur.execute(
-            'SELECT read_id, uuid FROM read').fetchall())
+        self.cur.execute('SELECT read_id, uuid FROM read')
+        self.uuid_read_idx = dict(
+            (read_id, uuid) for read_id, uuid in self.cur)
 
     def load_uuid_strand_read_index(self):
+        self.cur.execute('SELECT read_id, uuid, strand FROM read')
         self.uuid_strand_read_idx = dict(
-            (read_id, (uuid, strand)) for read_id, uuid, strand in
-            self.cur.execute(
-                'SELECT read_id, uuid, strand FROM read').fetchall())
+            (read_id, (uuid, strand)) for read_id, uuid, strand in self.cur)
 
     def create_alt_index(self):
         self.cur.execute('CREATE UNIQUE INDEX alt_idx ON alt(alt_seq)')
 
     def load_alt_read_index(self):
-        self.alt_read_idx = dict(self.cur.execute(
-            'SELECT alt_id, alt_seq FROM alt').fetchall())
+        self.cur.execute('SELECT alt_id, alt_seq FROM alt')
+        self.alt_read_idx = dict(
+            (alt_id, alt_seq) for alt_id, alt_seq in self.cur)
 
     def create_loc_index(self):
         self.cur.execute('CREATE UNIQUE INDEX loc_idx ON loc' +
                          '(loc_chrm, test_start, test_end)')
 
     def load_loc_read_index(self):
+        self.cur.execute('SELECT loc_id, pos, ref_seq, var_name FROM loc')
         self.loc_read_idx = dict(
             (loc_id, (pos, ref_seq, var_name))
-            for loc_id, pos, ref_seq, var_name in self.cur.execute(
-                    'SELECT loc_id, pos, ref_seq, var_name ' +
-                    'FROM loc').fetchall())
+            for loc_id, pos, ref_seq, var_name in self.cur)
 
     def create_data_covering_index(self):
         self.cur.execute('CREATE INDEX data_cov_idx ON data(' +
