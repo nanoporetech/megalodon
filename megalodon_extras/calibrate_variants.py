@@ -6,8 +6,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
-from megalodon import calibration
+from megalodon import calibration, logging
 from ._extras_parsers import get_parser_calibrate_variants
+
+
+LOGGER = logging.get_logger()
 
 
 def plot_calib(
@@ -34,7 +37,6 @@ def plot_calib(
     axarr[2].set_xlabel('Theoretical LLR (NN Score)')
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
-    return
 
 
 def extract_llrs(llr_fn, max_indel_len=None):
@@ -73,18 +75,17 @@ def prep_out(out_fn, overwrite):
         open(out_fn, 'w').close()
         os.remove(out_fn)
     except Exception:
-        sys.stderr.write(
-            '*' * 60 + '\nERROR: Attempt to write to --out-filename ' +
-            'location failed with the following error.\n' + '*' * 60 + '\n\n')
+        LOGGER.error(
+            'Attempt to write to --out-filename location failed with the ' +
+            'following error.')
         raise
-
-    return
 
 
 def _main(args):
+    logging.init_logger()
     prep_out(args.out_filename, args.overwrite)
 
-    sys.stderr.write('Parsing log-likelihood ratios\n')
+    LOGGER.info('Parsing log-likelihood ratios')
     snp_ref_llrs, ins_ref_llrs, del_ref_llrs = extract_llrs(
         args.ground_truth_llrs)
     # add calibration for a generic varaint (mostly multiple SNPs
@@ -103,11 +104,11 @@ def _main(args):
         'Must test every length in length range for indels')
 
     pdf_fp = None if args.out_pdf is None else PdfPages(args.out_pdf)
-    sys.stderr.write('Computing stratified single-base SNP calibration.\n')
+    LOGGER.info('Computing stratified single-base SNP calibration.')
     snp_calibs = {}
     for (ref_seq, alt_seq), snp_llrs in sorted(snp_ref_llrs.items()):
-        sys.stderr.write('Computing ' + ref_seq + ' -> ' + alt_seq +
-                         ' SNP calibration.\n')
+        LOGGER.info('Computing ' + ref_seq + ' -> ' + alt_seq +
+                         ' SNP calibration.')
         snp_calib, snp_llr_range, plot_data \
             = calibration.compute_mirrored_calibration(
                 np.array(snp_llrs), args.max_input_llr,
@@ -117,10 +118,10 @@ def _main(args):
         if pdf_fp is not None:
             plot_calib(pdf_fp, 'SNP: ' + ref_seq + ' -> ' + alt_seq,
                        *plot_data)
-    sys.stderr.write('Computing deletion calibration.\n')
+    LOGGER.info('Computing deletion calibration.')
     del_calibs = {}
     for del_len, del_llrs in sorted(del_ref_llrs.items()):
-        sys.stderr.write('Computing deletion length {} calibration.\n'.format(
+        LOGGER.info('Computing deletion length {} calibration.'.format(
             del_len))
         del_calib, del_llr_range, plot_data \
             = calibration.compute_mirrored_calibration(
@@ -130,10 +131,10 @@ def _main(args):
         del_calibs[del_len] = (del_calib, del_llr_range)
         if pdf_fp is not None:
             plot_calib(pdf_fp, 'Deletion Length ' + str(del_len), *plot_data)
-    sys.stderr.write('Computing insertion calibration.\n')
+    LOGGER.info('Computing insertion calibration.')
     ins_calibs = {}
     for ins_len, ins_llrs in sorted(ins_ref_llrs.items()):
-        sys.stderr.write('Computing insertion length {} calibration.\n'.format(
+        LOGGER.info('Computing insertion length {} calibration.'.format(
             ins_len))
         ins_calib, ins_llr_range, plot_data \
             = calibration.compute_mirrored_calibration(
@@ -148,7 +149,7 @@ def _main(args):
         pdf_fp.close()
 
     # save calibration table for reading into variant calibration table
-    sys.stderr.write('Saving calibrations to file.\n')
+    LOGGER.info('Saving calibrations to file.')
     snp_llr_range_save_data, snp_calib_save_data = {}, {}
     for (ref_seq, alt_seq), (snp_calib, snp_llr_range) in snp_calibs.items():
         snp_calib_save_data[
@@ -180,8 +181,6 @@ def _main(args):
         **ins_calib_save_data,
         **ins_llr_range_save_data
     )
-
-    return
 
 
 if __name__ == '__main__':

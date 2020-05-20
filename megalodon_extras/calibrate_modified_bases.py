@@ -4,10 +4,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
-from megalodon import calibration, megalodon_helper as mh, mods
+from megalodon import calibration, logging, megalodon_helper as mh, mods
 from ._extras_parsers import get_parser_calibrate_modified_bases
 
 
+LOGGER = logging.get_logger()
 PROB_COLORS = ("#bcbddc", "#807dba", "#6a51a3")
 
 
@@ -65,16 +66,17 @@ def extract_llrs(llr_fn):
 
 
 def _main(args):
+    logging.init_logger()
     mh.prep_out_fn(args.out_filename, args.overwrite)
 
-    sys.stderr.write('Parsing log-likelihood ratios\n')
+    LOGGER.info('Parsing log-likelihood ratios')
     mod_base_llrs = extract_llrs(args.ground_truth_llrs)
 
     pdf_fp = None if args.out_pdf is None else PdfPages(args.out_pdf)
     save_kwargs = {}
     for mod_base, (mod_llrs, can_llrs) in mod_base_llrs.items():
-        sys.stderr.write(
-            'Computing {} modified base calibration.\n'.format(mod_base))
+        LOGGER.info(
+            'Computing {} modified base calibration.'.format(mod_base))
         mod_calib, mod_llr_range, plot_data = calibration.compute_calibration(
             can_llrs, mod_llrs, args.max_input_llr,
             args.num_calibration_values, args.smooth_bandwidth,
@@ -88,7 +90,7 @@ def _main(args):
         pdf_fp.close()
 
     # save calibration table for reading into mod calibration table
-    sys.stderr.write('Saving calibrations to file.\n')
+    LOGGER.info('Saving calibrations to file.')
     mod_bases = list(mod_base_llrs.keys())
     np.savez(
         args.out_filename,
