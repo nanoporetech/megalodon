@@ -477,39 +477,56 @@ def get_parser_per_read_text_variants():
 ####################
 
 def get_parser_validate_results():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description='Produce per-read results report for sequence mappings ' +
+        'and modified bases. Modified base validation requires a ground ' +
+        'truth in the form of either a control sample or ground truth ' +
+        'modified and unmodified sites within a sample.')
+
     parser.add_argument(
-        'megalodon_results_dir',
-        help='Output directory from megalodon with mappings and ' +
-        'per_read_mods in outputs. Must have --write-mods-text set for ' +
-        'mods validation.')
-    parser.add_argument(
-        '--control-megalodon-results-dir',
-        help='Megalodon output directory for modified base control sample. ' +
-        'Could be a PCR or IVT sample.')
-    parser.add_argument(
+        'megalodon_results_dirs', nargs='+',
+        help='Output directories from megalodon with mappings and ' +
+        'optionally per_read_mods in outputs.')
+
+    mod_grp = parser.add_argument_group('Modified Base Arguments')
+    mod_grp.add_argument(
+        '--control-megalodon-results-dirs', nargs='+',
+        help='Megalodon output directories for modified base control ' +
+        'sample. Could be a PCR or IVT sample. These samples will be ' +
+        'matched in order with the main results directories.')
+    mod_grp.add_argument(
         '--ground-truth-data',
         help='Ground truth csv with (chrm, strand, pos, is_mod) values.')
-    parser.add_argument(
+    mod_grp.add_argument(
         '--valid-sites', nargs=2, action='append',
         help='Name and BED file containing sites over which to restrict ' +
-        'modified base results. Multiple sets of valid sites may be provided.')
-    parser.add_argument(
+        'modified base results. Multiple sets of valid sites may be ' +
+        'provided. For example E. coli 6mA sites could be specified as: ' +
+        '`--valid-sites "Dam Methylation" Dam_motif_sites.bed ' +
+        '--valid-sites "EcoKI Methylation" EcoKI_motif_sites.bed`.')
+    mod_grp.add_argument(
         '--strand-specific-sites', action='store_true',
         help='Sites in --ground-truth-data and/or --valid-sites are ' +
-        'strand-specific')
-    parser.add_argument(
-        '--out-pdf', default='megalodon_validation.pdf',
-        help='Output pdf filename. Default: %(default)s')
-    parser.add_argument(
-        '--out-filename',
-        help='Output filename for text summary. Default: stdout')
-    parser.add_argument(
+        'strand-specific. Default: Sites are not strand specific.')
+    mod_grp.add_argument(
         '--allow-unbalance-classes', action='store_true',
         help='Allow unbalanced classes in modified base metric computation. ' +
         'Default: Balance size of modified and canonical classes for each ' +
         'comparison made.')
-    parser.add_argument(
+
+    out_grp = parser.add_argument_group('Output Arguments')
+    out_grp.add_argument(
+        '--results-labels', nargs='+',
+        help='Name for each Megalodon results directory. Control ' +
+        'directories will have the suffix " Control" appended to the names. ' +
+        'Default: "Sample 1", "Sample 2", ...')
+    out_grp.add_argument(
+        '--out-pdf', default='megalodon_validation.pdf',
+        help='Output pdf filename. Default: %(default)s')
+    out_grp.add_argument(
+        '--out-filename',
+        help='Output filename for text summary. Default: stdout')
+    out_grp.add_argument(
         '--quiet', action='store_true',
         help='Suppress progress information.')
 
