@@ -183,9 +183,9 @@ def process_read(
     # now test reference correct variants
     for r_var_pos in var_poss:
         if len(set(r_ref_seq[
-                r_var_pos - context_bases:
-                r_var_pos + indel_size + 1 + context_bases]).difference(
-                    CAN_BASES_SET)) > 0:
+                r_var_pos - max(context_bases):
+                r_var_pos + max_indel_len + 1 +
+                max(context_bases)]).difference(CAN_BASES_SET)) > 0:
             # skip reference positions with N's in any context
             continue
         # test simple SNP first
