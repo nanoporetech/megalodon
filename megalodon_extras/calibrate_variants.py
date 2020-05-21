@@ -1,5 +1,4 @@
 import os
-import sys
 from collections import defaultdict
 
 import numpy as np
@@ -108,7 +107,7 @@ def _main(args):
     snp_calibs = {}
     for (ref_seq, alt_seq), snp_llrs in sorted(snp_ref_llrs.items()):
         LOGGER.info('Computing ' + ref_seq + ' -> ' + alt_seq +
-                         ' SNP calibration.')
+                    ' SNP calibration.')
         snp_calib, snp_llr_range, plot_data \
             = calibration.compute_mirrored_calibration(
                 np.array(snp_llrs), args.max_input_llr,

@@ -15,8 +15,6 @@ from megalodon import (
 from ._extras_parsers import get_parser_calibrate_generate_variants_stats
 
 
-CONTEXT_BASES = [mh.DEFAULT_SNV_CONTEXT, mh.DEFAULT_INDEL_CONTEXT]
-EDGE_BUFFER = 10
 MAX_INDEL_LEN = 5
 ALL_PATHS = False
 TEST_EVERY_N_LOCS = 5
@@ -124,9 +122,10 @@ def call_alt_true_indel(
 
 def process_read(
         sig_info, model_info, caller_conn, map_thr_buf, do_false_ref,
-        context_bases=CONTEXT_BASES, edge_buffer=EDGE_BUFFER,
-        max_indel_len=MAX_INDEL_LEN, all_paths=ALL_PATHS,
-        every_n=TEST_EVERY_N_LOCS, max_pos_per_read=MAX_POS_PER_READ):
+        context_bases=mh.DEFAULT_VAR_CONTEXT_BASES,
+        edge_buffer=mh.DEFAULT_EDGE_BUFFER, max_indel_len=MAX_INDEL_LEN,
+        all_paths=ALL_PATHS, every_n=TEST_EVERY_N_LOCS,
+        max_pos_per_read=MAX_POS_PER_READ):
     r_seq, _, rl_cumsum, can_post, _, _, _ = model_info.basecall_read(
         sig_info, return_post_w_mods=False)
 
@@ -183,6 +182,12 @@ def process_read(
 
     # now test reference correct variants
     for r_var_pos in var_poss:
+        if len(set(r_ref_seq[
+                r_var_pos - context_bases:
+                r_var_pos + indel_size + 1 + context_bases]).difference(
+                    CAN_BASES_SET)) > 0:
+            # skip reference positions with N's in any context
+            continue
         # test simple SNP first
         var_ref_seq = r_ref_seq[r_var_pos]
         for var_alt_seq in CAN_BASES_SET.difference(var_ref_seq):
