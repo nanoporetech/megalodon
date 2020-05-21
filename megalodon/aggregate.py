@@ -48,8 +48,6 @@ def _agg_vars_worker(
             pass
         var_prog_q.put(1)
 
-    return
-
 
 def _get_var_stats_queue(
         var_stats_q, var_conn, out_dir, ref_names_and_lens, out_suffix,
@@ -80,8 +78,6 @@ def _get_var_stats_queue(
 
     agg_var_fp.close()
 
-    return
-
 
 def _agg_mods_worker(
         pos_q, mod_stats_q, mod_prog_q, mods_db_fn, mod_agg_info,
@@ -92,11 +88,9 @@ def _agg_mods_worker(
 
     def put_mod_site(mod_site):
         mod_stats_q.put(mod_site)
-        return
 
     def do_sleep():
         sleep(0.0001)
-        return
 
     agg_mods = mods.AggMods(
         mods_db_fn, mod_agg_info, write_mod_lp,
@@ -120,8 +114,6 @@ def _agg_mods_worker(
             pass
         mod_prog_q.put(1)
 
-    return
-
 
 if _DO_PROFILE_AGG_MOD:
     _agg_mods_wrapper = _agg_mods_worker
@@ -130,7 +122,6 @@ if _DO_PROFILE_AGG_MOD:
         import cProfile
         cProfile.runctx('_agg_mods_wrapper(*args)', globals(), locals(),
                         filename='aggregate_mods.prof')
-        return
 
 
 def _get_mod_stats_queue(
@@ -143,7 +134,6 @@ def _get_mod_stats_queue(
     def do_sleep():
         # function for profiling purposes
         sleep(0.001)
-        return
 
     agg_mod_bn = mh.get_megalodon_fn(out_dir, mh.MOD_NAME)
     if out_suffix is not None:
@@ -178,8 +168,6 @@ def _get_mod_stats_queue(
     for agg_mod_fp in agg_mod_fps:
         agg_mod_fp.close()
 
-    return
-
 
 if _DO_PROFILE_GET_MODS:
     _get_mod_stats_queue_wrapper = _get_mod_stats_queue
@@ -189,7 +177,6 @@ if _DO_PROFILE_GET_MODS:
         cProfile.runctx('_get_mod_stats_queue_wrapper(*args)',
                         globals(), locals(),
                         filename='get_mods_queue.prof')
-        return
 
 
 def _agg_prog_worker(
@@ -244,9 +231,8 @@ def _agg_prog_worker(
     if mod_bar is not None:
         mod_bar.close()
     if num_mods > 0 and num_vars > 0 and not suppress_progress:
+        # print newlines to move past progress bars.
         sys.stderr.write('\n\n')
-
-    return
 
 
 def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps, limit=None):
@@ -258,8 +244,6 @@ def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps, limit=None):
     for _ in range(num_ps):
         locs_q.put(None)
 
-    return
-
 
 if _DO_PROFILE_AGG_FILLER:
     _fill_locs_queue_wrapper = _fill_locs_queue
@@ -268,7 +252,6 @@ if _DO_PROFILE_AGG_FILLER:
         import cProfile
         cProfile.runctx('_fill_locs_queue_wrapper(*args)', globals(), locals(),
                         filename='agg_fill_locs.prof')
-        return
 
 
 def aggregate_stats(
@@ -376,8 +359,6 @@ def aggregate_stats(
     if prog_p.is_alive():
         main_prog_conn.send(True)
         prog_p.join()
-
-    return
 
 
 if __name__ == '__main__':
