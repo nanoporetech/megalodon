@@ -1921,13 +1921,16 @@ class AggVars(mh.AbstractAggregationClass):
     """
     def __init__(
             self, vars_db_fn, write_vcf_log_probs=False,
-            load_in_mem_indices=True):
-        # open as read only database
-        if load_in_mem_indices:
-            self.vars_db = VarsDb(vars_db_fn)
+            load_uuid_index_in_memory=False, no_indices_in_mem=False):
+        # open as read only database with specified indices
+        if no_indices_in_mem:
+            self.vars_db = VarsDb(
+                vars_db_fn, chrm_index_in_memory=False,
+                alt_index_in_memory=False)
+        elif load_uuid_index_in_memory:
+            self.vars_db = VarsDb(vars_db_fn, uuid_index_in_memory=True)
         else:
-            self.vars_db = VarsDb(vars_db_fn, chrm_index_in_memory=False,
-                                  alt_index_in_memory=False)
+            self.vars_db = VarsDb(vars_db_fn)
         self.n_uniq_vars = None
         self.write_vcf_log_probs = write_vcf_log_probs
 

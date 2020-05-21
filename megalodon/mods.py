@@ -1530,13 +1530,17 @@ class AggMods(mh.AbstractAggregationClass):
     CpG sites).
     """
     def __init__(self, mods_db_fn, agg_info=DEFAULT_AGG_INFO,
-                 write_mod_lp=False, load_in_mem_indices=True):
+                 write_mod_lp=False, load_uuid_index_in_memory=False,
+                 no_indices_in_mem=False):
         # open as read only database (default)
-        if load_in_mem_indices:
-            self.mods_db = ModsDb(mods_db_fn)
+        if no_indices_in_mem:
+            self.mods_db = ModsDb(
+                mods_db_fn, chrm_index_in_memory=False,
+                mod_index_in_memory=False)
+        if load_uuid_index_in_memory:
+            self.mods_db = ModsDb(mods_db_fn, uuid_index_in_memory=True)
         else:
-            self.mods_db = ModsDb(mods_db_fn, chrm_index_in_memory=False,
-                                  mod_index_in_memory=False)
+            self.mods_db = ModsDb(mods_db_fn)
         self.n_uniq_mods = None
         assert agg_info.method in mh.MOD_AGG_METHOD_NAMES
         self.agg_method = agg_info.method
