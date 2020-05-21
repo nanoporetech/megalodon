@@ -1,9 +1,9 @@
-import sys
 import sqlite3
-from tqdm import tqdm
 from time import time
 
-from megalodon import mods
+from tqdm import tqdm
+
+from megalodon import logging, mods
 from ._extras_parsers import get_parser_modified_bases_update_database
 
 
@@ -11,6 +11,8 @@ DEBUG = False
 N_DEBUG = 50000000
 
 INSERT_BATCH_SIZE = 10000
+
+LOGGER = logging.get_logger()
 
 
 def get_read_id(uuid, read_ids, new_db):
@@ -58,27 +60,28 @@ def fill_refs(old_cur, new_db):
 
 
 def _main(args):
+    logging.init_logger()
     old_db = sqlite3.connect(args.old_db)
     old_cur = old_db.cursor()
     new_db = mods.ModsDb(args.new_db, read_only=False,
                          pos_index_in_memory=True)
 
-    sys.stderr.write('Reading/loading reference record names.\n')
+    LOGGER.info('Reading/loading reference record names.')
     fill_refs(old_cur, new_db)
 
-    sys.stderr.write('Reading/loading modified base scores.\n')
+    LOGGER.info('Reading/loading modified base scores.')
     fill_mods(old_cur, new_db)
 
     if not DEBUG:
         new_db.create_mod_index()
         t0 = time()
-        sys.stderr.write('Creating positions index.\n')
+        LOGGER.info('Creating positions index.')
         new_db.create_pos_index()
         t1 = time()
-        sys.stderr.write('Took {} seconds.\n'.format(t1 - t0))
-        sys.stderr.write('Creating scores position index.\n')
+        LOGGER.info('Took {} seconds.'.format(t1 - t0))
+        LOGGER.info('Creating scores position index.')
         new_db.create_data_covering_index()
-        sys.stderr.write('Took {} seconds.\n'.format(time() - t1))
+        LOGGER.info('Took {} seconds.'.format(time() - t1))
     new_db.close()
 
 

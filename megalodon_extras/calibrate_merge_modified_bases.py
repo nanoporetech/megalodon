@@ -1,12 +1,14 @@
-import sys
-
 import numpy as np
 
-from megalodon import calibration, megalodon_helper as mh
+from megalodon import calibration, logging, megalodon_helper as mh
 from ._extras_parsers import get_parser_calibrate_merge_modified_bases
 
 
+LOGGER = logging.get_logger()
+
+
 def _main(args):
+    logging.init_logger()
     mh.prep_out_fn(args.out_filename, args.overwrite)
 
     calib_data = np.load(args.modified_base_calibration_files[-1])
@@ -34,7 +36,7 @@ def _main(args):
         save_kwargs[mod_base + calibration.CALIB_TABLE_SUFFIX] = mod_calib
 
     # save calibration table for reading into mod calibration table
-    sys.stderr.write('Saving calibrations to file.\n')
+    LOGGER.info('Saving calibrations to file.')
     mod_bases = list(mod_calibs.keys())
     np.savez(
         args.out_filename,

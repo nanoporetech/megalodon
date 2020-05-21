@@ -1,8 +1,10 @@
 import sys
 
-from megalodon import mapping, megalodon_helper as mh, variants
+from megalodon import logging, mapping, megalodon_helper as mh, variants
 from ._extras_parsers import get_parser_variants_atomize
 
+
+LOGGER = logging.get_logger()
 
 HEADER = ['##fileformat=VCFv4.1', '##source=megalodon_atomized']
 CONTIG_HEADER_LINE = "##contig=<ID={},length={}>"
@@ -13,16 +15,17 @@ RECORD_LINE = ('{chrm}\t{pos}\t{rid}\t{ref}\t{alts}\t.\t.\t{info}\t.\t.\n')
 
 
 def _main(args):
-    sys.stderr.write('Loading reference\n')
+    logging.init_logger()
+    LOGGER.info('Loading reference')
     aligner = mapping.alignerPlus(
         str(args.reference), preset=str('map-ont'), best_n=1)
     aligner.add_ref_lens()
-    sys.stderr.write('Loading variants\n')
+    LOGGER.info('Loading variants')
     var_data = variants.VarData(
         args.in_vcf, args.max_indel_size, keep_var_fp_open=True,
         aligner=aligner)
     contigs = var_data.variants_idx.header.contigs.values()
-    sys.stderr.write('Atomizing variants\n')
+    LOGGER.info('Atomizing variants')
     with open(args.out_vcf, 'w') as out_vars:
         out_vars.write('\n'.join(
             HEADER +
@@ -34,9 +37,9 @@ def _main(args):
         for ctg in contigs:
             chrm_seq = aligner.seq(ctg.name)
             if len(chrm_seq) != ctg.length:
-                sys.stderr.write((
-                    'WARNING: Mismatched contig lengths ({}) between ' +
-                    'reference ({}) and input VCF ({})\n').format(
+                LOGGER.warning((
+                    'Mismatched contig lengths ({}) between ' +
+                    'reference ({}) and input VCF ({})').format(
                         ctg.name, len(chrm_seq), ctg.length))
             map_pos = mapping.MAP_POS(
                 chrm=ctg.name, strand=None, start=0, end=len(chrm_seq),
@@ -49,7 +52,7 @@ def _main(args):
                     info=variants.HAS_CONTEXT_BASE_TAG
                     if var.has_context_base else '.'))
 
-    sys.stderr.write('Indexing output variant file\n')
+    LOGGER.info('Indexing output variant file')
     variants.index_variants(args.out_vcf)
 
 

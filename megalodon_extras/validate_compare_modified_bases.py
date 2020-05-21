@@ -5,9 +5,11 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
-from megalodon import megalodon_helper as mh
+from megalodon import logging, megalodon_helper as mh
 from ._extras_parsers import get_parser_validate_compare_modified_bases
 
+
+LOGGER = logging.init_logger()
 
 CMAP = plt.cm.inferno_r
 COV_SAMP1_COLOR = '#7A7A7A'
@@ -185,6 +187,7 @@ def parse_inputs(
 
 
 def _main(args):
+    logging.init_logger()
     pdf_fp = PdfPages(args.out_pdf)
     out_fp = (sys.stdout if args.out_filename is None else
               open(args.out_filename, 'w'))

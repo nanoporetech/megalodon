@@ -33,7 +33,7 @@ class CustomFormatter(logging.Formatter):
         return result
 
 
-def init_logger(out_dir=None, out_suffix=None):
+def init_logger(out_dir=None, out_suffix=None, quiet=False):
     if out_dir is not None:
         log_fn = os.path.join(out_dir, mh.LOG_FILENAME)
         if out_suffix is not None:
@@ -43,7 +43,10 @@ def init_logger(out_dir=None, out_suffix=None):
         log_file.setLevel(logging.DEBUG)
         log_file.setFormatter(CustomFormatter())
     console = logging.StreamHandler()
-    console.setLevel(logging.INFO)
+    if quiet:
+        console.setLevel(logging.WARNING)
+    else:
+        console.setLevel(logging.INFO)
     console.setFormatter(CustomFormatter())
 
     root_logger = logging.getLogger('')

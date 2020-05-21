@@ -1,4 +1,3 @@
-import sys
 import queue
 import threading
 from time import sleep
@@ -11,7 +10,7 @@ import numpy as np
 from tqdm import tqdm
 
 from megalodon import (
-    megalodon_helper as mh, megalodon, backends, mapping, variants)
+    backends, logging, mapping, megalodon_helper as mh, megalodon, variants)
 from ._extras_parsers import get_parser_calibrate_generate_variants_stats
 
 
@@ -22,6 +21,8 @@ MAX_POS_PER_READ = 400
 
 CAN_BASES = "ACGT"
 CAN_BASES_SET = set(CAN_BASES)
+
+LOGGER = logging.get_logger()
 
 _DO_PROFILE = False
 
@@ -314,16 +315,16 @@ def _get_variant_calls(
         bar.close()
 
     if len(err_types) > 0:
-        sys.stderr.write('Failed reads summary:\n')
+        LOGGER.info('Failed reads summary:')
         for n_errs, err_str in sorted(
                 (v, k) for k, v in err_types.items())[::-1]:
-            sys.stderr.write('\t{} : {} reads\n'.format(err_str, n_errs))
+            LOGGER.info('\t{} : {} reads'.format(err_str, n_errs))
 
 
 def process_all_reads(
         fast5s_dir, num_reads, read_ids_fn, model_info, aligner, num_ps,
         out_fn, suppress_progress, do_false_ref):
-    sys.stderr.write('Preparing workers and calling reads.\n')
+    LOGGER.info('Preparing workers and calling reads.')
     # read filename queue filler
     fast5_q = mp.Queue()
     num_reads_conn, getter_num_reads_conn = mp.Pipe()
@@ -374,6 +375,7 @@ def process_all_reads(
 
 
 def _main(args):
+    logging.init_logger()
     # add required attributes for loading guppy, but not valid options for
     # this script.
     args.do_not_use_guppy_server = False
@@ -381,14 +383,14 @@ def _main(args):
     try:
         mh.mkdir(args.output_directory, False)
     except mh.MegaError:
-        sys.stderr.write(
-            '***** WARNING ***** Guppy logs output directory exists. ' +
-            'Potentially overwriting guppy logs.\n')
+        LOGGER.warning(
+            'Guppy logs output directory exists. Potentially overwriting ' +
+            'guppy logs.')
 
-    sys.stderr.write('Loading model.\n')
+    LOGGER.info('Loading model.')
     backend_params = backends.parse_backend_params(args)
     with backends.ModelInfo(backend_params, args.processes) as model_info:
-        sys.stderr.write('Loading reference.\n')
+        LOGGER.info('Loading reference.')
         aligner = mapping.alignerPlus(
             str(args.reference), preset=str('map-ont'), best_n=1)
 
