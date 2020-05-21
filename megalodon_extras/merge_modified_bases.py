@@ -12,7 +12,8 @@ def _main(args):
     logger.info('Opening new modified base statistics database')
     out_mods_db = mods.ModsDb(
         mh.get_megalodon_fn(args.output_megalodon_results_dir, mh.PR_MOD_NAME),
-        read_only=False, pos_index_in_memory=not args.mod_positions_on_disk)
+        read_only=False, pos_index_in_memory=not args.mod_positions_on_disk,
+        uuid_index_in_memory=True)
 
     for mega_dir in args.megalodon_results_dirs:
         logger.info('Adding modified base statistics from {}'.format(

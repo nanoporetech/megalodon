@@ -102,7 +102,7 @@ class ModsDb(object):
 
     def __init__(self, fn, read_only=True, db_safety=1,
                  chrm_index_in_memory=True, pos_index_in_memory=False,
-                 mod_index_in_memory=True, uuid_index_in_memory=True):
+                 mod_index_in_memory=True, uuid_index_in_memory=False):
         """ Interface to database containing modified base statistics.
 
         Default settings are for optimal read_only performance.
@@ -383,11 +383,10 @@ class ModsDb(object):
                          '(pos_chrm, strand, pos)')
 
     def load_pos_read_index(self):
+        self.cur.execute('SELECT pos_id, pos_chrm, strand, pos FROM pos')
         self.pos_read_idx = dict((
             (pos_id, (chrm_id, strand, pos))
-            for pos_id, chrm_id, strand, pos in self.cur.execute(
-                    'SELECT pos_id, pos_chrm, strand, pos ' +
-                    'FROM pos').fetchall()))
+            for pos_id, chrm_id, strand, pos in self.cur))
         self.pos_idx = {}
         for pos_id, (chrm_id, strand, pos) in self.pos_read_idx.items():
             try:
@@ -402,16 +401,16 @@ class ModsDb(object):
                          'mod(mod_base, motif, motif_pos, raw_motif)')
 
     def load_mod_read_index(self):
+        self.cur.execute(
+            'SELECT mod_id, mod_base, motif, motif_pos, raw_motif FROM mod')
         self.mod_read_idx = dict((
             (mod_id, (mod_base, motif, motif_pos, raw_motif))
-            for mod_id, mod_base, motif, motif_pos, raw_motif in
-            self.cur.execute(
-                'SELECT mod_id, mod_base, motif, motif_pos, raw_motif ' +
-                'FROM mod').fetchall()))
+            for mod_id, mod_base, motif, motif_pos, raw_motif in self.cur))
 
     def load_uuid_read_index(self):
-        self.uuid_read_idx = dict(self.cur.execute(
-            'SELECT read_id, uuid FROM read').fetchall())
+        self.cur.execute('SELECT read_id, uuid FROM read')
+        self.uuid_read_idx = dict(
+            (read_id, uuid) for read_id, uuid in self.cur)
 
     def create_data_covering_index(self):
         self.cur.execute('CREATE INDEX data_cov_idx ON data(' +
@@ -487,8 +486,8 @@ class ModsDb(object):
 
     def get_all_chrm_and_lens(self):
         try:
-            return tuple(map(tuple, zip(*self.cur.execute(
-                'SELECT chrm, chrm_len FROM chrm').fetchall())))
+            self.cur.execute('SELECT chrm, chrm_len FROM chrm')
+            return tuple((chrm, chrm_len) for chrm, chrm_len in self.cur)
         except sqlite3.OperationalError:
             raise mh.MegaError(
                 'Old megalodon database scheme detected. Please re-run ' +
@@ -1531,13 +1530,17 @@ class AggMods(mh.AbstractAggregationClass):
     CpG sites).
     """
     def __init__(self, mods_db_fn, agg_info=DEFAULT_AGG_INFO,
-                 write_mod_lp=False, load_in_mem_indices=True):
+                 write_mod_lp=False, load_uuid_index_in_memory=False,
+                 no_indices_in_mem=False):
         # open as read only database (default)
-        if load_in_mem_indices:
-            self.mods_db = ModsDb(mods_db_fn)
+        if no_indices_in_mem:
+            self.mods_db = ModsDb(
+                mods_db_fn, chrm_index_in_memory=False,
+                mod_index_in_memory=False)
+        if load_uuid_index_in_memory:
+            self.mods_db = ModsDb(mods_db_fn, uuid_index_in_memory=True)
         else:
-            self.mods_db = ModsDb(mods_db_fn, chrm_index_in_memory=False,
-                                  mod_index_in_memory=False)
+            self.mods_db = ModsDb(mods_db_fn)
         self.n_uniq_mods = None
         assert agg_info.method in mh.MOD_AGG_METHOD_NAMES
         self.agg_method = agg_info.method

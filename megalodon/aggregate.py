@@ -26,7 +26,9 @@ LOGGER = logging.get_logger()
 def _agg_vars_worker(
         locs_q, var_stats_q, var_prog_q, vars_db_fn, write_vcf_lp,
         het_factors, call_mode, valid_read_ids):
-    agg_vars = variants.AggVars(vars_db_fn, write_vcf_lp)
+    agg_vars = variants.AggVars(
+        vars_db_fn, write_vcf_lp,
+        load_uuid_index_in_memory=valid_read_ids is not None)
 
     while True:
         try:
@@ -96,7 +98,9 @@ def _agg_mods_worker(
         sleep(0.0001)
         return
 
-    agg_mods = mods.AggMods(mods_db_fn, mod_agg_info, write_mod_lp)
+    agg_mods = mods.AggMods(
+        mods_db_fn, mod_agg_info, write_mod_lp,
+        load_uuid_index_in_memory=valid_read_ids is not None)
 
     while True:
         try:
@@ -246,7 +250,7 @@ def _agg_prog_worker(
 
 
 def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps, limit=None):
-    agg_db = agg_class(db_fn, load_in_mem_indices=False)
+    agg_db = agg_class(db_fn, no_indices_in_mem=True)
     for i, loc in enumerate(agg_db.iter_uniq()):
         locs_q.put(loc)
         if limit is not None and i >= limit:
@@ -278,8 +282,7 @@ def aggregate_stats(
         0, 0, queue.Queue(), queue.Queue())
     if mh.VAR_NAME in outputs:
         vars_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_VAR_NAME)
-        agg_vars = variants.AggVars(
-            vars_db_fn, load_in_mem_indices=False)
+        agg_vars = variants.AggVars(vars_db_fn, no_indices_in_mem=True)
         num_vars = agg_vars.num_uniq()
         ref_names_and_lens = agg_vars.vars_db.get_all_chrm_and_lens()
         agg_vars.close()
@@ -309,7 +312,7 @@ def aggregate_stats(
 
     if mh.MOD_NAME in outputs:
         mods_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME)
-        agg_mods = mods.AggMods(mods_db_fn, load_in_mem_indices=False)
+        agg_mods = mods.AggMods(mods_db_fn, no_indices_in_mem=True)
         mod_long_names = agg_mods.get_mod_long_names()
         num_mods = agg_mods.num_uniq()
         ref_names_and_lens = agg_mods.mods_db.get_all_chrm_and_lens()

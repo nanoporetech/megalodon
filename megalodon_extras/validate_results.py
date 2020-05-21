@@ -59,6 +59,7 @@ def plot_pr(pdf_fp, pr_data):
         plt.ylabel('Precision')
         plt.title(('Modified Base "{}" Precision-Recall Curves').format(
             mod_base))
+        plt.legend()
         pdf_fp.savefig(bbox_inches='tight')
         plt.close()
 
@@ -75,6 +76,7 @@ def plot_roc(pdf_fp, roc_data):
         plt.xlabel('False Positive Rate')
         plt.ylabel('True Positive Rate')
         plt.title(('Modified Base "{}" ROC Curves').format(mod_base))
+        plt.legend()
         pdf_fp.savefig(bbox_inches='tight')
         plt.close()
 
@@ -85,7 +87,7 @@ def plot_kde(pdf_fp, kde_data):
             LOGGER.info(
                 'Plotting {} modified base statistics densities'.format(
                     samp_lab))
-        plt.figure(figsize=(11, 7))
+        plt.figure(figsize=(8, 5))
         sns.kdeplot(mod_stats, shade=True, bw=MOD_BANDWIDTH,
                     gridsize=MOD_GRIDSIZE, label='Yes')
         sns.kdeplot(ctrl_stats, shade=True, bw=MOD_BANDWIDTH,
@@ -100,8 +102,8 @@ def plot_kde(pdf_fp, kde_data):
 
 
 def compute_mod_sites_stats(
-        mod_stats, ctrl_stats, balance_classes, mod_base, samp_lab,
-        vs_lab, out_fp, pdf_fp):
+        mod_stats, ctrl_stats, balance_classes, mod_base, samp_lab, vs_lab,
+        out_fp):
     if balance_classes:
         # randomly downsample sample with more observations
         if mod_stats.shape[0] > ctrl_stats.shape[0]:
@@ -148,14 +150,14 @@ def compute_mod_sites_stats(
         MOD_VAL_METRICS_TMPLT.format(
             optim_f1, optim_thresh, avg_prcn, roc_auc, mod_stats.shape[0],
             ctrl_stats.shape[0], mod_base, samp_lab, vs_lab))
-    pr_data = (mod_base, ('{} at {} AP={:0.2f}'.format(
-        samp_lab, vs_lab, avg_prcn), precision, recall))
-    roc_data = (mod_base, ('{} at {} AUC={:0.2f}'.format(
-        samp_lab, vs_lab, roc_auc), fpr, tpr))
+    pr_data = ('{} at {} mAP={:0.2f}'.format(
+        samp_lab, vs_lab, avg_prcn), precision, recall)
+    roc_data = ('{} at {} AUC={:0.2f}'.format(
+        samp_lab, vs_lab, roc_auc), fpr, tpr)
     kde_data = ('{} from {} at {}'.format(
-        samp_lab, vs_lab, roc_auc), mod_stats, ctrl_stats)
+        mod_base, samp_lab, vs_lab), mod_stats, ctrl_stats)
 
-    return kde_data, pr_data, roc_data
+    return pr_data, roc_data, kde_data
 
 
 def report_mod_metrics(
@@ -202,23 +204,27 @@ def report_mod_metrics(
                     pr_data, roc_data, kde_data = compute_mod_sites_stats(
                         vs_samp_mod_data[mod_base],
                         vs_samp_ctrl_data[mod_base],
-                        balance_classes, mod_base, vs_lab, out_fp, pdf_fp)
-                    all_pr_data[pr_data[0]].append(pr_data[1])
-                    all_roc_data[roc_data[0]].append(roc_data[1])
-                    all_kde_data.append(all_kde_data)
+                        balance_classes, mod_base, samp_lab, vs_lab, out_fp)
+                    all_pr_data[mod_base].append(pr_data)
+                    all_roc_data[mod_base].append(roc_data)
+                    all_kde_data.append(kde_data)
                 except mh.MegaError as e:
                     LOGGER.warning(str(e))
+
+    plot_pr(pdf_fp, all_pr_data)
+    plot_roc(pdf_fp, all_roc_data)
+    plot_kde(pdf_fp, all_kde_data)
 
 
 def plot_acc(pdf_fp, samps_val_data):
     if VERBOSE:
         LOGGER.info('Plotting mapping accuracy distribution(s)')
-    plt.figure(figsize=(11, 7))
+    plt.figure(figsize=(8, 5))
     for samp_val_data in samps_val_data:
         if samp_val_data.acc is not None:
             sns.kdeplot(samp_val_data.acc, shade=True, bw=BC_BANDWIDTH,
                         gridsize=BC_GRIDSIZE, label=samp_val_data.label)
-    plt.legend(prop={'size': 16}, title=BC_LEGEND_LABEL)
+    plt.legend(title=BC_LEGEND_LABEL)
     plt.xlabel('Mapping Accuracy')
     plt.ylabel('Density')
     plt.title('Mapping Accuracy')
@@ -226,12 +232,12 @@ def plot_acc(pdf_fp, samps_val_data):
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
 
-    plt.figure(figsize=(11, 7))
+    plt.figure(figsize=(8, 5))
     for samp_val_data in samps_val_data:
         if samp_val_data.parsim_acc is not None:
             sns.kdeplot(samp_val_data.parsim_acc, shade=True, bw=BC_BANDWIDTH,
                         gridsize=BC_GRIDSIZE, label=samp_val_data.label)
-    plt.legend(prop={'size': 16}, title=BC_LEGEND_LABEL)
+    plt.legend(title=BC_LEGEND_LABEL)
     plt.xlabel('Mapping Accuracy')
     plt.ylabel('Density')
     plt.title('Mapping Accuracy (Parsimonious: match - ins / ref_len)')
@@ -366,7 +372,7 @@ def _main(args):
             mega_dir, out_fp, valid_sites, args.strand_specific_sites,
             samp_lab, ctrl_sites)
         for samp_lab, mega_dir in zip(samp_labs, args.megalodon_results_dirs)]
-    ctrl_samps_data = []
+    ctrl_samps_data = None
     # if control is not specified via ground truth file, and control results
     # dir was provided parse control data
     if args.control_megalodon_results_dirs is not None:
@@ -378,8 +384,9 @@ def _main(args):
                 '{} Control'.format(samp_lab))
             for samp_lab, mega_dir in
             zip(samp_labs, args.control_megalodon_results_dirs)]
-
-    plot_acc(pdf_fp, mod_samps_data + ctrl_samps_data)
+        plot_acc(pdf_fp, mod_samps_data + ctrl_samps_data)
+    else:
+        plot_acc(pdf_fp, mod_samps_data)
 
     if do_report_mod_metrics:
         # enter newline between basecall accuracy and mod base results
