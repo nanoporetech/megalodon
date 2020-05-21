@@ -10,6 +10,63 @@ from ._extras_parsers import get_parser_validate_compare_modified_bases
 
 
 CMAP = plt.cm.inferno_r
+COV_SAMP1_COLOR = '#7A7A7A'
+COV_SAMP2_COLOR = '#0084A9'
+
+
+def get_coverage_plot_data(
+        samp1_cov, samp2_cov, trim_lower_pct=5, trim_upper_pctl=95):
+    samp1_bin_cov = np.bincount(samp1_cov)
+    samp2_bin_cov = np.bincount(samp2_cov)
+    # find intervals included requested percentile of total coverage
+    samp1_pctl = 100 * np.cumsum(samp1_bin_cov) / samp1_bin_cov.sum()
+    samp2_pctl = 100 * np.cumsum(samp2_bin_cov) / samp2_bin_cov.sum()
+    cov_start = min(np.searchsorted(samp1_pctl, trim_lower_pct, side='left'),
+                    np.searchsorted(samp2_pctl, trim_lower_pct, side='left'))
+    cov_end = max(np.searchsorted(samp1_pctl, trim_upper_pctl, side='right'),
+                  np.searchsorted(samp2_pctl, trim_upper_pctl, side='right'))
+    if samp1_bin_cov.shape[0] < cov_end:
+        samp1_tmp = samp1_bin_cov
+        samp1_bin_cov = np.zeros(cov_end)
+        samp1_bin_cov[:samp1_tmp.shape[0]] = samp1_tmp
+    if samp2_bin_cov.shape[0] < cov_end:
+        samp2_tmp = samp2_bin_cov
+        samp2_bin_cov = np.zeros(cov_end)
+        samp2_bin_cov[:samp2_tmp.shape[0]] = samp1_tmp
+    return (np.arange(cov_start, cov_end), samp1_bin_cov[cov_start:cov_end],
+            samp2_bin_cov[cov_start:cov_end])
+
+
+def plot_cov(
+        samp1_cov, samp2_cov, samp1_valid_cov, samp2_valid_cov, samp_names,
+        pdf_fp, width=0.35):
+    x_ind, samp1_bin_valid_cov, samp2_bin_valid_cov = get_coverage_plot_data(
+        samp1_valid_cov, samp2_valid_cov)
+    plt.figure(figsize=(6, 5))
+    plt.bar(x_ind, samp1_bin_valid_cov, width, color=COV_SAMP1_COLOR,
+            label=samp_names[0])
+    plt.bar(x_ind, samp2_bin_valid_cov, width, color=COV_SAMP2_COLOR,
+            label=samp_names[1])
+    plt.xlabel('Read Coverage')
+    plt.ylabel('Number of Genomic Sites')
+    plt.title('Read Coverage (Overlapping and Coverage Filtered Sites)')
+    plt.legend()
+    pdf_fp.savefig(bbox_inches='tight')
+    plt.close()
+
+    x_ind, samp1_bin_cov, samp2_bin_cov = get_coverage_plot_data(
+        samp1_cov, samp2_cov)
+    plt.figure(figsize=(6, 5))
+    plt.bar(x_ind, samp1_bin_cov, width, color=COV_SAMP1_COLOR,
+            label=samp_names[0])
+    plt.bar(x_ind, samp2_bin_cov, width, color=COV_SAMP2_COLOR,
+            label=samp_names[1])
+    plt.xlabel('Read Coverage')
+    plt.ylabel('Number of Genomic Sites')
+    plt.title('Read Coverage (All Sites)')
+    plt.legend()
+    pdf_fp.savefig(bbox_inches='tight')
+    plt.close()
 
 
 def plot_hm(samp1_mod_pct, samp2_mod_pct, hm_num_bins, samp_names,
@@ -92,7 +149,8 @@ def compute_filt_mod_pct(
     out_fp.write('{} valid corresponding sites detected\n'.format(
         samp1_mod_pct.shape[0]))
 
-    return np.array(samp1_mod_pct), np.array(samp2_mod_pct)
+    return (np.array(samp1_mod_pct), np.array(samp2_mod_pct),
+            np.array(samp1_valid_cov), np.array(samp2_valid_cov))
 
 
 def parse_inputs(
@@ -134,12 +192,15 @@ def _main(args):
      valid_pos) = parse_inputs(
          args.sample1_bed_methyl_files, args.sample2_bed_methyl_files,
          args.strand_offset, args.sample_names, args.valid_positions)
-    samp1_mod_pct, samp2_mod_pct = compute_filt_mod_pct(
-        samp1_cov, samp1_mod_cov, samp2_cov, samp2_mod_cov, valid_pos,
-        args.coverage_threshold, args.sample_names)
+    (samp1_mod_pct, samp2_mod_pct,
+     samp1_valid_cov, samp2_valid_cov) = compute_filt_mod_pct(
+         samp1_cov, samp1_mod_cov, samp2_cov, samp2_mod_cov, valid_pos,
+         args.coverage_threshold, args.sample_names)
     plot_hm(
         samp1_mod_pct, samp2_mod_pct, args.heatmap_num_bins, args.sample_names,
         out_fp, pdf_fp)
+    plot_cov(samp1_cov, samp2_cov, samp1_valid_cov, samp2_valid_cov,
+             args.sample_names, pdf_fp)
 
     pdf_fp.close()
     if out_fp is not sys.stdout:
