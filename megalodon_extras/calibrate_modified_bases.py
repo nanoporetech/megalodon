@@ -39,13 +39,17 @@ def plot_calib(
             llr_x = np.log(p / (1 - p))
             thresh_val = np.argmin(np.abs(thresh_f - llr_x))
             nthresh_val = np.argmin(np.abs(thresh_f + llr_x))
+            prop_filt = (sum(sm_ref[nthresh_val:thresh_val]) +
+                         sum(sm_alt[nthresh_val:thresh_val])) / (
+                             sum(sm_ref) + sum(sm_alt))
             for i in range(2):
                 axarr[i].axvline(x=smooth_ls[thresh_val], color=col)
                 axarr[i].axvline(x=smooth_ls[nthresh_val], color=col)
             axarr[2].axvline(x=smooth_ls[thresh_val], color=col)
-            axarr[2].axvline(x=smooth_ls[nthresh_val], color=col, label=p)
-            axarr[2].legend(loc='upper right', bbox_to_anchor=(1, -0.12),
-                            ncol=3)
+            axarr[2].axvline(x=smooth_ls[nthresh_val], color=col,
+                             label=('--mod-binary-threshold={} ' +
+                                    '(filters {:.0f}%)').format(p, prop_filt))
+            axarr[2].legend()
 
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
