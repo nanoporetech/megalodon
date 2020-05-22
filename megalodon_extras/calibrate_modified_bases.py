@@ -46,10 +46,11 @@ def plot_calib(
                 axarr[i].axvline(x=smooth_ls[thresh_val], color=col)
                 axarr[i].axvline(x=smooth_ls[nthresh_val], color=col)
             axarr[2].axvline(x=smooth_ls[thresh_val], color=col)
-            axarr[2].axvline(x=smooth_ls[nthresh_val], color=col,
-                             label=('--mod-binary-threshold={} ' +
-                                    '(filters {:.0f}%)').format(p, prop_filt))
-            axarr[2].legend()
+            axarr[2].axvline(
+                x=smooth_ls[nthresh_val], color=col, label=(
+                    '--mod-binary-threshold={} (filters {:.0f}%)').format(
+                        p, 100 * prop_filt))
+            axarr[2].legend(fontsize='small')
 
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
