@@ -31,6 +31,25 @@ CALIB_TABLE_SUFFIX = '_calibration_table'
 # Calibration Estimation #
 ##########################
 
+def determine_llr_plateau_edge(
+        sm_ref, sm_alt, num_calib_vals, diff_eps, llr_buffer, smooth_ls):
+    """ Compute new edges of calibration computation based on sites where
+    log likelihood ratios plateau.
+    """
+    prob_alt = sm_alt / (sm_ref + sm_alt)
+    # compute probability mid-point (llr=0 for mirrored)
+    prob_mp = int(np.around(num_calib_vals / 2))
+    # force monotonic decreasing with reverse maximum before p=0.5 and
+    # forward minimum after p=0.5
+    mono_prob = np.concatenate([
+        np.maximum.accumulate(prob_alt[:prob_mp][::-1])[::-1],
+        np.minimum.accumulate(prob_alt[prob_mp:])])
+    llr = np.log((1 - mono_prob) / mono_prob)
+    llr_moved_sites = np.where(np.diff(llr) > diff_eps)[0]
+    return (np.around(smooth_ls[llr_moved_sites[0]]).astype(int) - llr_buffer,
+            np.around(smooth_ls[llr_moved_sites[-1]]).astype(int) + llr_buffer)
+
+
 def determine_min_dens_edge(sm_ref, sm_alt, min_dens_val, smooth_ls):
     """ Compute positions where the density values are too small to produce
     robust calibration estimates and return range with valid density values.
@@ -143,7 +162,7 @@ def compute_calibration(
 
 def compute_mirrored_calibration(
         ref_llrs, max_input_llr, num_calib_vals, smooth_bw,
-        min_dens_val, return_plot_info=False):
+        diff_eps, llr_buffer, return_plot_info=False):
     smooth_ls = np.linspace(-max_input_llr, max_input_llr,
                             num_calib_vals, endpoint=True)
 
@@ -151,12 +170,8 @@ def compute_mirrored_calibration(
     sm_ref, s_ref = compute_smooth_mono_density(
         ref_llrs, num_calib_vals, smooth_bw, smooth_ls)
 
-    # the ratio of very small density values can cause invalid or inaccurate
-    # calibration values, so check that the max_input_llr is valid or
-    # find a valid clipping location according to min_dens_val
-    # then recompute smooth values
-    new_input_llr_range = determine_min_dens_edge(
-        sm_ref, sm_ref[::-1], min_dens_val, smooth_ls)
+    new_input_llr_range = determine_llr_plateau_edge(
+        sm_ref, sm_ref[::-1], num_calib_vals, diff_eps, llr_buffer, smooth_ls)
     if new_input_llr_range[0] != -new_input_llr_range[1]:
         LOGGER.warning(
             'Unexpected new llr range for mirrored calibration: {}'.format(

@@ -166,10 +166,13 @@ def get_parser_calibrate_variants():
         default=mh.DEFAULT_CALIB_SMOOTH_BW,
         help='Smoothing bandwidth. Default: %(default)f')
     parser.add_argument(
-        '--min-density', type=float, default=mh.DEFAULT_CALIB_MIN_DENSITY,
-        help='Minimum density value to compute calibration. This value ' +
-        'dynamically adjusts [--max-input-llr] when it is too large. ' +
+        '--diff-epsilon', type=float, default=1e-5,
+        help='Epsilon to determine when the likelihood ratio has plateaued. ' +
         'Default: %(default)f')
+    parser.add_argument(
+        '--llr-clip-buffer', type=int, default=3,
+        help='Clipped buffer when determining range for computed ' +
+        'calibration log likelihood ratios. Default: %(default)d')
     parser.add_argument(
         '--out-filename', default='megalodon_variant_calibration.npz',
         help='Filename to output calibration values. Default: %(default)s')
