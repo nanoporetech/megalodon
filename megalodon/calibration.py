@@ -44,8 +44,11 @@ def determine_llr_plateau_edge(
     mono_prob = np.concatenate([
         np.maximum.accumulate(prob_alt[:prob_mp][::-1])[::-1],
         np.minimum.accumulate(prob_alt[prob_mp:])])
-    llr = np.log((1 - mono_prob) / mono_prob)
-    llr_moved_sites = np.where(np.diff(llr) > diff_eps)[0]
+    with np.errstate(divide='ignore', invalid='ignore'):
+        llr = np.log((1 - mono_prob) / mono_prob)
+        llr_moved_sites = np.where(np.diff(llr) > diff_eps)[0]
+    if len(llr_moved_sites) == 0:
+        return 0, 0
     return (np.around(smooth_ls[llr_moved_sites[0]]).astype(int) - llr_buffer,
             np.around(smooth_ls[llr_moved_sites[-1]]).astype(int) + llr_buffer)
 
@@ -110,7 +113,7 @@ def compute_smooth_mono_density(llrs, num_calib_vals, smooth_bw, smooth_ls):
 
 def compute_calibration(
         ref_llrs, alt_llrs, max_input_llr, num_calib_vals, smooth_bw,
-        min_dens_val, return_plot_info=False):
+        min_dens_val, diff_eps, llr_buffer, return_plot_info=False):
     smooth_ls = np.linspace(-max_input_llr, max_input_llr,
                             num_calib_vals, endpoint=True)
     LOGGER.info('\tComputing reference emperical density.')
@@ -120,12 +123,12 @@ def compute_calibration(
     sm_alt, s_alt = compute_smooth_mono_density(
         alt_llrs, num_calib_vals, smooth_bw, smooth_ls)
 
-    # the ratio of very small density values can cause invalid or inaccurate
-    # calibration values, so check that the max_input_llr is valid or
-    # find a valid clipping location according to min_dens_val
-    # then recompute smooth values
-    new_input_llr_range = determine_min_dens_edge(
-        sm_ref, sm_alt, min_dens_val, smooth_ls)
+    plateau_llr_range = determine_llr_plateau_edge(
+        sm_ref, sm_ref[::-1], num_calib_vals, diff_eps, llr_buffer, smooth_ls)
+    min_dens_llr_range = determine_min_dens_edge(
+        sm_ref, sm_ref[::-1], min_dens_val, smooth_ls)
+    new_input_llr_range = (max(plateau_llr_range[0], min_dens_llr_range[0]),
+                           min(plateau_llr_range[1], min_dens_llr_range[1]))
     if new_input_llr_range[1] - new_input_llr_range[0] <= 0:
         raise mh.MegaError('Ground truth smoothed monotonic densities do ' +
                            'not overlap. Consider lowering min_dens_val.')
@@ -162,7 +165,7 @@ def compute_calibration(
 
 def compute_mirrored_calibration(
         ref_llrs, max_input_llr, num_calib_vals, smooth_bw,
-        diff_eps, llr_buffer, return_plot_info=False):
+        min_dens_val, diff_eps, llr_buffer, return_plot_info=False):
     smooth_ls = np.linspace(-max_input_llr, max_input_llr,
                             num_calib_vals, endpoint=True)
 
@@ -170,8 +173,14 @@ def compute_mirrored_calibration(
     sm_ref, s_ref = compute_smooth_mono_density(
         ref_llrs, num_calib_vals, smooth_bw, smooth_ls)
 
-    new_input_llr_range = determine_llr_plateau_edge(
+    plateau_llr_range = determine_llr_plateau_edge(
         sm_ref, sm_ref[::-1], num_calib_vals, diff_eps, llr_buffer, smooth_ls)
+    min_dens_llr_range = determine_min_dens_edge(
+        sm_ref, sm_ref[::-1], min_dens_val, smooth_ls)
+    new_input_llr_range = (max(plateau_llr_range[0], min_dens_llr_range[0]),
+                           min(plateau_llr_range[1], min_dens_llr_range[1]))
+    if new_input_llr_range[0] >= new_input_llr_range[1]:
+        raise mh.MegaError('Invalid densities for calibration.')
     if new_input_llr_range[0] != -new_input_llr_range[1]:
         LOGGER.warning(
             'Unexpected new llr range for mirrored calibration: {}'.format(
