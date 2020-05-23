@@ -44,7 +44,7 @@ def determine_llr_plateau_edge(
     mono_prob = np.concatenate([
         np.maximum.accumulate(prob_alt[:prob_mp][::-1])[::-1],
         np.minimum.accumulate(prob_alt[prob_mp:])])
-    with np.errstate(divide='ignore', invalid='ignore'):
+    with np.errstate(divide='ignore', invalid='ignore', over='ignore'):
         llr = np.log((1 - mono_prob) / mono_prob)
         llr_moved_sites = np.where(np.diff(llr) > diff_eps)[0]
     if len(llr_moved_sites) == 0:
