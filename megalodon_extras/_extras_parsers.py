@@ -125,7 +125,7 @@ def get_parser_calibrate_modified_bases():
         help='Output pdf filename for modified base calibration ' +
         'visualization. Default: Do not produce plot.')
     parser.add_argument(
-        '--pdf-prob-thresholds', nargs=3, type=float, default=[0.75, 0.8, 0.9],
+        '--pdf-prob-thresholds', nargs=3, type=float, default=[0.75, 0.8, 0.85],
         help='Probability thresholds to mark on output pdf.')
     parser.add_argument(
         '--plot-without-prob-thresholds', action='store_true',
