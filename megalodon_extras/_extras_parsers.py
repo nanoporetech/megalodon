@@ -109,6 +109,15 @@ def get_parser_calibrate_modified_bases():
         'dynamically adjusts [--max-input-llr] when it is too large. ' +
         'Default: %(default)f')
     parser.add_argument(
+        '--diff-epsilon', type=float, default=mh.DEFAULT_CALIB_DIFF_EPS,
+        help='Epsilon to determine when the likelihood ratio has plateaued. ' +
+        'Default: %(default)f')
+    parser.add_argument(
+        '--llr-clip-buffer', type=int,
+        default=mh.DEFAULT_CALIB_LLR_CLIP_BUFFER,
+        help='Clipped buffer when determining range for computed ' +
+        'calibration log likelihood ratios. Default: %(default)d')
+    parser.add_argument(
         '--out-filename', default='megalodon_mod_calibration.npz',
         help='Filename to output calibration values. Default: %(default)s')
     parser.add_argument(
@@ -116,7 +125,7 @@ def get_parser_calibrate_modified_bases():
         help='Output pdf filename for modified base calibration ' +
         'visualization. Default: Do not produce plot.')
     parser.add_argument(
-        '--pdf-prob-thresholds', nargs=3, type=float, default=[0.75, 0.8, 0.9],
+        '--pdf-prob-thresholds', nargs=3, type=float, default=[0.75, 0.8, 0.85],
         help='Probability thresholds to mark on output pdf.')
     parser.add_argument(
         '--plot-without-prob-thresholds', action='store_true',
@@ -170,6 +179,15 @@ def get_parser_calibrate_variants():
         help='Minimum density value to compute calibration. This value ' +
         'dynamically adjusts [--max-input-llr] when it is too large. ' +
         'Default: %(default)f')
+    parser.add_argument(
+        '--diff-epsilon', type=float, default=mh.DEFAULT_CALIB_DIFF_EPS,
+        help='Epsilon to determine when the likelihood ratio has plateaued. ' +
+        'Default: %(default)f')
+    parser.add_argument(
+        '--llr-clip-buffer', type=int,
+        default=mh.DEFAULT_CALIB_LLR_CLIP_BUFFER,
+        help='Clipped buffer when determining range for computed ' +
+        'calibration log likelihood ratios. Default: %(default)d')
     parser.add_argument(
         '--out-filename', default='megalodon_variant_calibration.npz',
         help='Filename to output calibration values. Default: %(default)s')
