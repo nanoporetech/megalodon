@@ -1,4 +1,7 @@
 import sys
+import queue
+from time import sleep
+import multiprocessing as mp
 
 import numpy as np
 from tqdm import tqdm
@@ -25,6 +28,8 @@ SMOOTH_NVALS_TXT = 'smooth_nvals'
 MOD_BASES_TXT = 'mod_bases'
 LLR_RANGE_SUFFIX = '_llr_range'
 CALIB_TABLE_SUFFIX = '_calibration_table'
+
+DEFAULT_SMOOTH_MP_BATCH_SIZE = 10000
 
 
 ##########################
@@ -86,15 +91,74 @@ def determine_min_dens_edge(sm_ref, sm_alt, min_dens_val, smooth_ls):
             np.around(smooth_ls[-upper_invalid_dens_pos]).astype(int))
 
 
-def compute_smooth_mono_density(llrs, num_calib_vals, smooth_bw, smooth_ls):
+def _compute_smooth_density_worker(llr_q, smooth_llr_q, smooth_bw, smooth_ls):
     def guassian(x):
         return (np.exp(-x ** 2 / (2 * smooth_bw ** 2)) /
                 (smooth_bw * np.sqrt(2 * np.pi)))
 
-    smooth_vals = np.zeros(num_calib_vals)
-    for llr in tqdm(llrs, smoothing=0, dynamic_ncols=True):
-        smooth_vals += guassian(smooth_ls - llr)
-    smooth_vals /= llrs.shape[0]
+    while True:
+        try:
+            batch_llrs = llr_q.get(block=False)
+        except queue.Empty:
+            break
+        smooth_vals = np.zeros(smooth_ls.shape[0])
+        for llr in batch_llrs:
+            smooth_vals += guassian(smooth_ls - llr)
+        smooth_llr_q.put((smooth_vals, batch_llrs.shape[0]))
+
+
+def compute_smooth_density_mp(
+        llrs, smooth_bw, smooth_ls, num_processes,
+        smooth_mp_batch_size=DEFAULT_SMOOTH_MP_BATCH_SIZE):
+    # fill queue with all llrs
+    llr_q = mp.Queue()
+    for b_start in range(0, llrs.shape[0], smooth_mp_batch_size):
+        llr_q.put(llrs[b_start:b_start + smooth_mp_batch_size])
+
+    # start smooth bw processes
+    smooth_llr_q = mp.Queue()
+    smooth_ps = []
+    for _ in range(num_processes):
+        p = mp.Process(
+            target=_compute_smooth_density_worker,
+            args=(llr_q, smooth_llr_q, smooth_bw, smooth_ls),
+            daemon=True)
+        p.start()
+        smooth_ps.append(p)
+
+    # retrieve smooth arrays
+    smooth_vals = np.zeros(smooth_ls.shape[0])
+    total_nvals = 0
+    while any(p.is_alive() for p in smooth_ps):
+        try:
+            batch_smooth_vals, nvals = smooth_llr_q.get(block=False)
+        except queue.Empty:
+            sleep(0.001)
+            continue
+        smooth_vals += batch_smooth_vals
+        total_nvals += nvals
+    while not smooth_llr_q.empty():
+        batch_smooth_vals, nvals = smooth_llr_q.get(block=False)
+        smooth_vals += batch_smooth_vals
+        total_nvals += nvals
+
+    return smooth_vals / total_nvals
+
+
+def compute_smooth_mono_density(
+        llrs, num_calib_vals, smooth_bw, smooth_ls, num_processes=1):
+    def guassian(x):
+        return (np.exp(-x ** 2 / (2 * smooth_bw ** 2)) /
+                (smooth_bw * np.sqrt(2 * np.pi)))
+
+    if num_processes == 1:
+        smooth_vals = np.zeros(num_calib_vals)
+        for llr in tqdm(llrs, smoothing=0, dynamic_ncols=True):
+            smooth_vals += guassian(smooth_ls - llr)
+        smooth_vals /= llrs.shape[0]
+    else:
+        smooth_vals = compute_smooth_density_mp(
+            llrs, smooth_bw, smooth_ls, num_processes)
 
     peak_site = np.argmax(smooth_vals)
     # force monotonic increasing before peak and monotonic decreasing after
@@ -113,15 +177,16 @@ def compute_smooth_mono_density(llrs, num_calib_vals, smooth_bw, smooth_ls):
 
 def compute_calibration(
         ref_llrs, alt_llrs, max_input_llr, num_calib_vals, smooth_bw,
-        min_dens_val, diff_eps, llr_buffer, return_plot_info=False):
+        min_dens_val, diff_eps, llr_buffer, return_plot_info=False,
+        num_proc=1):
     smooth_ls = np.linspace(-max_input_llr, max_input_llr,
                             num_calib_vals, endpoint=True)
     LOGGER.info('\tComputing reference emperical density.')
     sm_ref, s_ref = compute_smooth_mono_density(
-        ref_llrs, num_calib_vals, smooth_bw, smooth_ls)
+        ref_llrs, num_calib_vals, smooth_bw, smooth_ls, num_proc)
     LOGGER.info('\tComputing alternative emperical density.')
     sm_alt, s_alt = compute_smooth_mono_density(
-        alt_llrs, num_calib_vals, smooth_bw, smooth_ls)
+        alt_llrs, num_calib_vals, smooth_bw, smooth_ls, num_proc)
 
     plateau_llr_range = determine_llr_plateau_edge(
         sm_ref, sm_ref[::-1], num_calib_vals, diff_eps, llr_buffer, smooth_ls)
@@ -141,10 +206,10 @@ def compute_calibration(
                                 num_calib_vals, endpoint=True)
         LOGGER.info('\tComputing new reference emperical density.')
         sm_ref, s_ref = compute_smooth_mono_density(
-            ref_llrs, num_calib_vals, smooth_bw, smooth_ls)
+            ref_llrs, num_calib_vals, smooth_bw, smooth_ls, num_proc)
         LOGGER.info('\tComputing new alternative emperical density.')
         sm_alt, s_alt = compute_smooth_mono_density(
-            alt_llrs, num_calib_vals, smooth_bw, smooth_ls)
+            alt_llrs, num_calib_vals, smooth_bw, smooth_ls, num_proc)
 
     prob_alt = sm_alt / (sm_ref + sm_alt)
     # compute probability mid-point
@@ -165,13 +230,14 @@ def compute_calibration(
 
 def compute_mirrored_calibration(
         ref_llrs, max_input_llr, num_calib_vals, smooth_bw,
-        min_dens_val, diff_eps, llr_buffer, return_plot_info=False):
+        min_dens_val, diff_eps, llr_buffer, return_plot_info=False,
+        num_proc=1):
     smooth_ls = np.linspace(-max_input_llr, max_input_llr,
                             num_calib_vals, endpoint=True)
 
     LOGGER.info('\tComputing reference emperical density.')
     sm_ref, s_ref = compute_smooth_mono_density(
-        ref_llrs, num_calib_vals, smooth_bw, smooth_ls)
+        ref_llrs, num_calib_vals, smooth_bw, smooth_ls, num_proc)
 
     plateau_llr_range = determine_llr_plateau_edge(
         sm_ref, sm_ref[::-1], num_calib_vals, diff_eps, llr_buffer, smooth_ls)
@@ -194,7 +260,7 @@ def compute_mirrored_calibration(
                                 num_calib_vals, endpoint=True)
         LOGGER.info('\tComputing new reference emperical density.')
         sm_ref, s_ref = compute_smooth_mono_density(
-            ref_llrs, num_calib_vals, smooth_bw, smooth_ls)
+            ref_llrs, num_calib_vals, smooth_bw, smooth_ls, num_proc)
 
     prob_alt = sm_ref[::-1] / (sm_ref + sm_ref[::-1])
     # compute probability mid-point (llr=0 for mirrored)

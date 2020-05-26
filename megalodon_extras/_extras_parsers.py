@@ -125,11 +125,17 @@ def get_parser_calibrate_modified_bases():
         help='Output pdf filename for modified base calibration ' +
         'visualization. Default: Do not produce plot.')
     parser.add_argument(
-        '--pdf-prob-thresholds', nargs=3, type=float, default=[0.75, 0.8, 0.85],
-        help='Probability thresholds to mark on output pdf.')
+        '--pdf-prob-thresholds', nargs=3, type=float,
+        default=[0.75, 0.8, 0.85],
+        help='Probability thresholds to mark on output pdf. ' +
+        'Default: %(default)s')
     parser.add_argument(
         '--plot-without-prob-thresholds', action='store_true',
         help='Do not include probability thresholds in plot(s).')
+    parser.add_argument(
+        '--processes', type=int, default=1,
+        help='Number of processing cores to use for density smoothing ' +
+        'computation. Default: %(default)d')
     parser.add_argument(
         '--overwrite', action='store_true',
         help='Overwrite --out-filename if it exists.')
@@ -188,6 +194,10 @@ def get_parser_calibrate_variants():
         default=mh.DEFAULT_CALIB_LLR_CLIP_BUFFER,
         help='Clipped buffer when determining range for computed ' +
         'calibration log likelihood ratios. Default: %(default)d')
+    parser.add_argument(
+        '--processes', type=int, default=1,
+        help='Number of processing cores to use for density smoothing ' +
+        'computation. Default: %(default)d')
     parser.add_argument(
         '--out-filename', default='megalodon_variant_calibration.npz',
         help='Filename to output calibration values. Default: %(default)s')

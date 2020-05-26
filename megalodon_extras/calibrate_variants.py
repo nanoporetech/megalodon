@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
-from megalodon import calibration, logging
+from megalodon import calibration, logging, megalodon_helper as mh
 from ._extras_parsers import get_parser_calibrate_variants
 
 
@@ -120,7 +120,7 @@ def _main(args):
                     np.array(snp_llrs), args.max_input_llr,
                     args.num_calibration_values, args.smooth_bandwidth,
                     args.min_density, args.diff_epsilon, args.llr_clip_buffer,
-                    pdf_fp is not None)
+                    pdf_fp is not None, num_proc=args.processes)
         except mh.MegaError:
             do_save_calib = False
             LOGGER.error(INVALID_CALIB_MSG)
@@ -139,7 +139,7 @@ def _main(args):
                     np.array(del_llrs), args.max_input_llr,
                     args.num_calibration_values, args.smooth_bandwidth,
                     args.min_density, args.diff_epsilon, args.llr_clip_buffer,
-                    pdf_fp is not None)
+                    pdf_fp is not None, num_proc=args.processes)
         except mh.MegaError:
             do_save_calib = False
             LOGGER.error(INVALID_CALIB_MSG)
@@ -157,7 +157,7 @@ def _main(args):
                     np.array(ins_llrs), args.max_input_llr,
                     args.num_calibration_values, args.smooth_bandwidth,
                     args.min_density, args.diff_epsilon, args.llr_clip_buffer,
-                    pdf_fp is not None)
+                    pdf_fp is not None, num_proc=args.processes)
         except mh.MegaError:
             do_save_calib = False
             LOGGER.error(INVALID_CALIB_MSG)

@@ -84,7 +84,7 @@ def _main(args):
             can_llrs, mod_llrs, args.max_input_llr,
             args.num_calibration_values, args.smooth_bandwidth,
             args.min_density, args.diff_epsilon, args.llr_clip_buffer,
-            pdf_fp is not None)
+            pdf_fp is not None, num_proc=args.processes)
         save_kwargs[mod_base + calibration.LLR_RANGE_SUFFIX] = mod_llr_range
         save_kwargs[mod_base + calibration.CALIB_TABLE_SUFFIX] = mod_calib
         if pdf_fp is not None:
