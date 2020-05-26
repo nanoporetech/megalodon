@@ -100,6 +100,10 @@ def _compute_smooth_density_worker(llr_q, smooth_llr_q, smooth_bw, smooth_ls):
         try:
             batch_llrs = llr_q.get(block=False)
         except queue.Empty:
+            sleep(0.001)
+            continue
+        # None stored in queue to indicate exhausted queue
+        if batch_llrs is None:
             break
         smooth_vals = np.zeros(smooth_ls.shape[0])
         for llr in batch_llrs:
@@ -108,17 +112,19 @@ def _compute_smooth_density_worker(llr_q, smooth_llr_q, smooth_bw, smooth_ls):
 
 
 def compute_smooth_density_mp(
-        llrs, smooth_bw, smooth_ls, num_processes,
+        llrs, smooth_bw, smooth_ls, num_proc,
         smooth_mp_batch_size=DEFAULT_SMOOTH_MP_BATCH_SIZE):
     # fill queue with all llrs
     llr_q = mp.Queue()
     for b_start in range(0, llrs.shape[0], smooth_mp_batch_size):
         llr_q.put(llrs[b_start:b_start + smooth_mp_batch_size])
+    for _ in range(num_proc):
+        llr_q.put(None)
 
     # start smooth bw processes
     smooth_llr_q = mp.Queue()
     smooth_ps = []
-    for _ in range(num_processes):
+    for _ in range(num_proc):
         p = mp.Process(
             target=_compute_smooth_density_worker,
             args=(llr_q, smooth_llr_q, smooth_bw, smooth_ls),
@@ -126,6 +132,7 @@ def compute_smooth_density_mp(
         p.start()
         smooth_ps.append(p)
 
+    bar = tqdm(total=llrs.shape[0], smoothing=0, dynamic_ncols=True)
     # retrieve smooth arrays
     smooth_vals = np.zeros(smooth_ls.shape[0])
     total_nvals = 0
@@ -137,28 +144,31 @@ def compute_smooth_density_mp(
             continue
         smooth_vals += batch_smooth_vals
         total_nvals += nvals
+        bar.update(nvals)
     while not smooth_llr_q.empty():
         batch_smooth_vals, nvals = smooth_llr_q.get(block=False)
         smooth_vals += batch_smooth_vals
         total_nvals += nvals
+        bar.update(nvals)
+    bar.close()
 
     return smooth_vals / total_nvals
 
 
 def compute_smooth_mono_density(
-        llrs, num_calib_vals, smooth_bw, smooth_ls, num_processes=1):
+        llrs, num_calib_vals, smooth_bw, smooth_ls, num_proc=1):
     def guassian(x):
         return (np.exp(-x ** 2 / (2 * smooth_bw ** 2)) /
                 (smooth_bw * np.sqrt(2 * np.pi)))
 
-    if num_processes == 1:
+    if num_proc == 1:
         smooth_vals = np.zeros(num_calib_vals)
         for llr in tqdm(llrs, smoothing=0, dynamic_ncols=True):
             smooth_vals += guassian(smooth_ls - llr)
         smooth_vals /= llrs.shape[0]
     else:
         smooth_vals = compute_smooth_density_mp(
-            llrs, smooth_bw, smooth_ls, num_processes)
+            llrs, smooth_bw, smooth_ls, num_proc)
 
     peak_site = np.argmax(smooth_vals)
     # force monotonic increasing before peak and monotonic decreasing after
