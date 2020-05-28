@@ -211,6 +211,10 @@ def report_mod_metrics(
 
 
 def plot_acc(pdf_fp, samps_val_data):
+    # check that there are accuracies to be plotted, else return
+    if all(samp_val_data.acc is None for samp_val_data in samps_val_data):
+        return
+
     LOGGER.info('Plotting mapping accuracy distribution(s)')
     plt.figure(figsize=(8, 5))
     for samp_val_data in samps_val_data:
@@ -257,7 +261,7 @@ def report_acc_metrics(res_dir, out_fp, samp_lab):
             med_bc_acc, mean_bc_acc, mode_bc_acc, len(bc_data), samp_lab))
     except FileNotFoundError:
         bc_acc = parsim_acc = None
-        LOGGER.warning('Mappings not found for {}'.format(res_dir))
+        LOGGER.info('Mappings not found for {}'.format(res_dir))
 
     return bc_acc, parsim_acc
 
