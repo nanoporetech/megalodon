@@ -41,7 +41,8 @@ def determine_llr_plateau_edge(
     """ Compute new edges of calibration computation based on sites where
     log likelihood ratios plateau.
     """
-    prob_alt = sm_alt / (sm_ref + sm_alt)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        prob_alt = sm_alt / (sm_ref + sm_alt)
     # compute probability mid-point (llr=0 for mirrored)
     prob_mp = int(np.around(num_calib_vals / 2))
     # force monotonic decreasing with reverse maximum before p=0.5 and
