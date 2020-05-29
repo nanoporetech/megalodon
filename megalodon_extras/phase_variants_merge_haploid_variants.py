@@ -4,9 +4,11 @@ import pysam
 import numpy as np
 from tqdm import tqdm
 
-from megalodon import variants, megalodon_helper as mh
+from megalodon import logging, megalodon_helper as mh, variants
 from ._extras_parsers import get_parser_phase_variants_merge_haploid_variants
 
+
+LOGGER = logging.get_logger()
 
 HEADER = """##fileformat=VCFv4.1
 ##source=megalodon_haploid_merge
@@ -163,9 +165,9 @@ def iter_contig_vars(
             while next_rec is not None and curr_pos < s_pos:
                 if not force_invalid_vars:
                     bar.close()
-                    sys.stderr.write((
-                        'ERROR: Variant found in haplotype file which is ' +
-                        'missing from source file: {}:{}.\nSet ' +
+                    LOGGER.error((
+                        'Variant found in haplotype file which is missing ' +
+                        'from source file: {}:{}.\nSet ' +
                         '--force-invalid-variant-processing to force ' +
                         'processing. Results when invalid variants are ' +
                         'encountered is not defined.').format(
@@ -262,7 +264,8 @@ def get_contig_iter(vars_idx, contig):
 
 
 def _main(args):
-    sys.stderr.write('Opening VCF files.\n')
+    logging.init_logger()
+    LOGGER.info('Opening VCF files.')
     source_vars = pysam.VariantFile(args.diploid_called_variants)
     h1_vars = pysam.VariantFile(args.haplotype1_variants)
     h2_vars = pysam.VariantFile(args.haplotype2_variants)
@@ -275,7 +278,7 @@ def _main(args):
         raise mh.MegaError(
             'Variant files must be indexed. Use bgzip and tabix.')
 
-    sys.stderr.write('Processing variants.\n')
+    LOGGER.info('Processing variants.')
     out_vars = open(args.out_vcf, 'w')
     out_vars.write(HEADER.format('\n'.join(
         (CONTIG_HEADER_LINE.format(ctg.name, ctg.length)

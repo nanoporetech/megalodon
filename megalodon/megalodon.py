@@ -723,9 +723,11 @@ def parse_aligner_args(args):
         setattr(aligner, 'out_fmt', args.mappings_format)
         setattr(aligner, 'ref_fn', mh.resolve_path(args.reference))
         aligner.add_ref_lens()
-        mapping.test_open_alignment_out_file(
-            args.output_directory, aligner.out_fmt,
-            aligner.ref_names_and_lens, aligner.ref_fn)
+        if mh.MAP_NAME in args.outputs:
+            # test that alignment file can be opened
+            mapping.test_open_alignment_out_file(
+                args.output_directory, aligner.out_fmt,
+                aligner.ref_names_and_lens, aligner.ref_fn)
     else:
         aligner = None
         if args.reference is not None:

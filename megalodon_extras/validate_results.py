@@ -12,7 +12,6 @@ from megalodon import logging, mapping, megalodon_helper as mh, mods
 from ._extras_parsers import get_parser_validate_results
 
 
-VERBOSE = False
 LOGGER = logging.get_logger()
 
 PLOT_MIN_BC_ACC = 80
@@ -48,8 +47,7 @@ MOD_VAL_METRICS_TMPLT = (
 
 def plot_pr(pdf_fp, pr_data):
     for mod_base, mod_pr_data in pr_data.items():
-        if VERBOSE:
-            LOGGER.info('Plotting {} precision-recall curves'.format(mod_base))
+        LOGGER.info('Plotting {} precision-recall curves'.format(mod_base))
         plt.figure(figsize=(8, 7))
         for lab, prec, recall in mod_pr_data:
             plt.step(recall, prec, label=lab, where='post')
@@ -66,8 +64,7 @@ def plot_pr(pdf_fp, pr_data):
 
 def plot_roc(pdf_fp, roc_data):
     for mod_base, mod_roc_data in roc_data.items():
-        if VERBOSE:
-            LOGGER.info('Plotting {} ROC curves'.format(mod_base))
+        LOGGER.info('Plotting {} ROC curves'.format(mod_base))
         plt.figure(figsize=(8, 7))
         for lab, fpr, tpr in mod_roc_data:
             plt.step(fpr, tpr, label=lab)
@@ -83,10 +80,9 @@ def plot_roc(pdf_fp, roc_data):
 
 def plot_kde(pdf_fp, kde_data):
     for samp_lab, mod_stats, ctrl_stats in kde_data:
-        if VERBOSE:
-            LOGGER.info(
-                'Plotting {} modified base statistics densities'.format(
-                    samp_lab))
+        LOGGER.info(
+            'Plotting {} modified base statistics densities'.format(
+                samp_lab))
         plt.figure(figsize=(8, 5))
         sns.kdeplot(mod_stats, shade=True, bw=MOD_BANDWIDTH,
                     gridsize=MOD_GRIDSIZE, label='Yes')
@@ -128,10 +124,9 @@ def compute_mod_sites_stats(
     neginf_idx = np.isinf(all_stats)
     if any(neginf_idx):
         all_stats[neginf_idx] = np.min(all_stats[~neginf_idx])
-    if VERBOSE:
-        LOGGER.info(
-            'Computing PR/ROC for {} from {} at {}'.format(
-                mod_base, samp_lab, vs_lab))
+    LOGGER.info(
+        'Computing PR/ROC for {} from {} at {}'.format(
+            mod_base, samp_lab, vs_lab))
     # compute roc and presicion recall
     precision, recall, thresh = precision_recall_curve(is_can, all_stats)
     prec_recall_sum = precision + recall
@@ -163,8 +158,7 @@ def compute_mod_sites_stats(
 def report_mod_metrics(
         mod_samps_data, ctrl_samps_data, balance_classes, vs_labs,
         out_fp, pdf_fp):
-    if VERBOSE:
-        LOGGER.info('Computing modified base metrics')
+    LOGGER.info('Computing modified base metrics')
     if vs_labs is None:
         vs_labs = [DEFAULT_VS_LABEL, ]
     all_mods_data = [msd.mod_data for msd in mod_samps_data]
@@ -217,8 +211,11 @@ def report_mod_metrics(
 
 
 def plot_acc(pdf_fp, samps_val_data):
-    if VERBOSE:
-        LOGGER.info('Plotting mapping accuracy distribution(s)')
+    # check that there are accuracies to be plotted, else return
+    if all(samp_val_data.acc is None for samp_val_data in samps_val_data):
+        return
+
+    LOGGER.info('Plotting mapping accuracy distribution(s)')
     plt.figure(figsize=(8, 5))
     for samp_val_data in samps_val_data:
         if samp_val_data.acc is not None:
@@ -264,8 +261,7 @@ def report_acc_metrics(res_dir, out_fp, samp_lab):
             med_bc_acc, mean_bc_acc, mode_bc_acc, len(bc_data), samp_lab))
     except FileNotFoundError:
         bc_acc = parsim_acc = None
-        if VERBOSE:
-            LOGGER.warning('Mappings not found for {}'.format(res_dir))
+        LOGGER.info('Mappings not found for {}'.format(res_dir))
 
     return bc_acc, parsim_acc
 
@@ -301,8 +297,7 @@ def parse_valid_sites(valid_sites_fns, gt_data_fn, include_strand):
 
     # if ground truth file provided, parse first
     if gt_data_fn is not None:
-        if VERBOSE:
-            LOGGER.info('Reading ground truth file')
+        LOGGER.info('Reading ground truth file')
         gt_mod_pos, gt_ctrl_pos = mh.parse_ground_truth_file(
             gt_data_fn, include_strand=include_strand)
         if valid_sites_fns is None:
@@ -311,8 +306,7 @@ def parse_valid_sites(valid_sites_fns, gt_data_fn, include_strand):
             return [gt_mod_pos, ], None, [gt_ctrl_pos, ]
 
     # parse valid sites files and intersect with ground truth (if provided)
-    if VERBOSE:
-        LOGGER.info('Reading valid sites data')
+    LOGGER.info('Reading valid sites data')
     valid_sites, vs_labs = [], []
     ctrl_sites = None if gt_data_fn is None else []
     for vs_lab, valid_sites_fn in valid_sites_fns:
@@ -340,9 +334,7 @@ def parse_valid_sites(valid_sites_fns, gt_data_fn, include_strand):
 
 
 def _main(args):
-    global VERBOSE
-    VERBOSE = not args.quiet
-    logging.init_logger()
+    logging.init_logger(quiet=args.quiet)
     pdf_fp = PdfPages(args.out_pdf)
     out_fp = (sys.stdout if args.out_filename is None else
               open(args.out_filename, 'w'))
@@ -357,8 +349,7 @@ def _main(args):
         args.valid_sites, args.ground_truth_data, args.strand_specific_sites)
 
     out_fp.write(ACC_METRICS_HEADER)
-    if VERBOSE:
-        LOGGER.info('Reading Megalodon results data')
+    LOGGER.info('Reading Megalodon results data')
     if args.results_labels is None:
         samp_labs = ['Sample {}'.format(samp_i + 1)
                      for samp_i in range(len(args.megalodon_results_dirs))]
@@ -376,8 +367,7 @@ def _main(args):
     # if control is not specified via ground truth file, and control results
     # dir was provided parse control data
     if args.control_megalodon_results_dirs is not None:
-        if VERBOSE:
-            LOGGER.info('Reading Megalodon control data results')
+        LOGGER.info('Reading Megalodon control data results')
         ctrl_samps_data = [
             parse_mod_data(
                 mega_dir, out_fp, valid_sites, args.strand_specific_sites,

@@ -18,7 +18,6 @@ def iterate_fast5_filenames(input_path, recursive=True):
     else:
         for fn in glob(os.path.join(input_path, '*.fast5')):
             yield fn
-    return
 
 
 def iterate_fast5_reads(fast5s_dir, limit=None, recursive=True):
@@ -40,7 +39,6 @@ def iterate_fast5_reads(fast5s_dir, limit=None, recursive=True):
                 nreads += 1
                 if limit is not None and nreads >= limit:
                     return
-    return
 
 
 def get_read(fast5_fn, read_id):

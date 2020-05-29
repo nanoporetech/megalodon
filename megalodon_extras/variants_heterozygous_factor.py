@@ -1,11 +1,13 @@
-import sys
 from collections import defaultdict
 
 import pysam
 import numpy as np
 
+from megalodon import logging
 from ._extras_parsers import get_parser_variants_heterozygous_factor
 
+
+LOGGER = logging.get_logger()
 
 HOM_REF_TXT = 'hom_ref'
 HET_TXT = 'het'
@@ -22,9 +24,9 @@ STAT_NAMES = ('HomRef', 'Het', 'HomAlt', 'F1', 'Precision', 'Recall')
 N_STATS = len(STAT_NAMES)
 N_INT_STATS = 3
 N_FLOAT_STATS = N_STATS - N_INT_STATS
-HEADER_TMPLT = STATS_FMT_STR * (N_STATS + 1) + '\n'
+HEADER_TMPLT = STATS_FMT_STR * (N_STATS + 1)
 STATS_TMPLT = STATS_FMT_STR * (N_INT_STATS + 1) + \
-              FLOAT_FMT_STR * N_FLOAT_STATS + '\n'
+              FLOAT_FMT_STR * N_FLOAT_STATS
 
 
 def _main(args):
@@ -36,6 +38,7 @@ def _main(args):
             return HET_TXT
         return HOM_ALT_TXT
 
+    logging.init_logger()
     gt_calls = defaultdict(dict)
     for variant in pysam.VariantFile(args.ground_truth_variants).fetch():
         # skip mutli-allelic sites
@@ -96,19 +99,18 @@ def _main(args):
                     2 * (prec * recall) / (prec + recall), prec, recall))
 
         # print output
-        sys.stdout.write(var_type + '\n')
-        sys.stdout.write(HEADER_TMPLT.format('Truth\tCalls', *STAT_NAMES))
+        LOGGER.info(var_type)
+        LOGGER.info(HEADER_TMPLT.format('Truth\tCalls', *STAT_NAMES))
         for truth, (f1, prec, recall) in zip(
                 (HOM_REF_TXT, HET_TXT, HOM_ALT_TXT),
                 vt_stats):
-            sys.stdout.write(STATS_TMPLT.format(
+            LOGGER.info(STATS_TMPLT.format(
                 truth, counts[(truth, HOM_REF_TXT)], counts[(truth, HET_TXT)],
                 counts[(truth, HOM_ALT_TXT)], f1, prec, recall))
         mean_f1_fmt = ('{:>' + str(STAT_WIDTH * (N_STATS - 2)) + '}' +
                        FLOAT_FMT_STR * N_FLOAT_STATS + '\n')
         mean_stats = map(np.nanmean, zip(*vt_stats))
-        sys.stdout.write(mean_f1_fmt.format('Mean Stats:   ', *mean_stats))
-        sys.stdout.write('\n')
+        LOGGER.info(mean_f1_fmt.format('Mean Stats:   ', *mean_stats))
 
 
 if __name__ == '__main__':

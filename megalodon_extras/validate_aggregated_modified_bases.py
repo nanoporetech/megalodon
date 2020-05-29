@@ -9,9 +9,11 @@ from matplotlib.backends.backend_pdf import PdfPages
 from sklearn.metrics import (
     roc_curve, auc, precision_recall_curve, average_precision_score)
 
-from megalodon import megalodon_helper as mh
+from megalodon import logging, megalodon_helper as mh
 from ._extras_parsers import get_parser_validate_aggregated_modified_bases
 
+
+LOGGER = logging.get_logger()
 
 MOD_BANDWIDTH = 1.0
 MOD_GRIDSIZE = 1000
@@ -27,7 +29,7 @@ def parse_mod_sample(bm_files, strand_offset, cov_thresh, samp_name):
         bm_files, strand_offset=strand_offset)
     all_cov = np.array([cov for ctg_cov in cov.values()
                         for cov in ctg_cov.values()])
-    sys.stderr.write('{} coverage median: {:.2f}   mean: {:.2f}\n'.format(
+    LOGGER.info('{} coverage median: {:.2f}   mean: {:.2f}'.format(
         samp_name, np.median(all_cov), np.mean(all_cov)))
     test_sites = {}
     for ctg in mod_cov:
@@ -111,7 +113,7 @@ def compute_val_metrics(
                 ctrl_pct_mod, mod_pct_mod.shape[0], replace=False)
     all_pct_mod = np.concatenate([mod_pct_mod, ctrl_pct_mod])
     if all_pct_mod.shape[0] == 0:
-        sys.stderr.write('Skipping "{}". No vaild sites available.\n'.format(
+        LOGGER.info('Skipping "{}". No vaild sites available.'.format(
             samp_name))
         return
     is_mod = np.repeat(
@@ -136,7 +138,7 @@ def compute_val_metrics(
             samp_name, optim_f1, optim_thresh, avg_prcn, roc_auc,
             mod_pct_mod.shape[0], ctrl_pct_mod.shape[0]))
 
-    sys.stderr.write('Plotting {}\n'.format(samp_name))
+    LOGGER.info('Plotting {}'.format(samp_name))
     plt.figure(figsize=(11, 7))
     sns.kdeplot(mod_pct_mod, shade=True, bw=MOD_BANDWIDTH,
                 gridsize=MOD_GRIDSIZE, label='Yes')
@@ -172,6 +174,7 @@ def compute_val_metrics(
 
 
 def _main(args):
+    logging.init_logger()
     pdf_fp = PdfPages(args.out_pdf)
     out_fp = (sys.stdout if args.out_filename is None else
               open(args.out_filename, 'w'))
@@ -182,23 +185,23 @@ def _main(args):
     ctrl_samp = all_gt_data = None
     if args.control_bed_methyl_files is not None:
         if args.ground_truth_csvs is not None:
-            sys.stderr.write(
-                '****** WARNING ******\n\tCannot process both control data ' +
-                'and ground truth data.\n\tIgnoring ground truth CSV.\n')
+            LOGGER.warning(
+                'Cannot process both control data and ground truth data. ' +
+                'Ignoring ground truth CSV.')
             ctrl_samp = parse_mod_sample(
                 args.control_bed_methyl_files, args.strand_offset,
                 args.coverage_threshold, 'Control')
     elif args.ground_truth_csvs is not None:
         if args.valid_positions is not None:
-            sys.stderr.write(
-                '****** WARNING ******\n\tCannot process both ground truth ' +
-                'data and valid sites.\n\tIgnoring valid sites.\n')
+            LOGGER.warning(
+                'Cannot process both ground truth data and valid sites. ' +
+                'Ignoring valid sites.')
             args.valid_positions = None
         all_gt_data = parse_ground_truth_data(args.ground_truth_csvs)
     else:
-        sys.stderr.write(
-            '****** ERROR ******\n\tMust provide either --ground-truth-csvs ' +
-            'or --control-bed-methyl-files.\n')
+        LOGGER.error(
+            'Must provide either --ground-truth-csvs or ' +
+            '--control-bed-methyl-files.')
         sys.exit(1)
 
     if args.valid_positions is not None:

@@ -5,9 +5,11 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
-from megalodon import megalodon_helper as mh
+from megalodon import logging, megalodon_helper as mh
 from ._extras_parsers import get_parser_validate_compare_modified_bases
 
+
+LOGGER = logging.init_logger()
 
 CMAP = plt.cm.inferno_r
 COV_SAMP1_COLOR = '#7A7A7A'
@@ -15,7 +17,7 @@ COV_SAMP2_COLOR = '#0084A9'
 
 
 def get_coverage_plot_data(
-        samp1_cov, samp2_cov, trim_lower_pct=5, trim_upper_pctl=95):
+        samp1_cov, samp2_cov, trim_lower_pct=1, trim_upper_pctl=99):
     samp1_bin_cov = np.bincount(samp1_cov)
     samp2_bin_cov = np.bincount(samp2_cov)
     # find intervals included requested percentile of total coverage
@@ -32,7 +34,7 @@ def get_coverage_plot_data(
     if samp2_bin_cov.shape[0] < cov_end:
         samp2_tmp = samp2_bin_cov
         samp2_bin_cov = np.zeros(cov_end)
-        samp2_bin_cov[:samp2_tmp.shape[0]] = samp1_tmp
+        samp2_bin_cov[:samp2_tmp.shape[0]] = samp2_tmp
     return (np.arange(cov_start, cov_end), samp1_bin_cov[cov_start:cov_end],
             samp2_bin_cov[cov_start:cov_end])
 
@@ -45,7 +47,7 @@ def plot_cov(
     plt.figure(figsize=(6, 5))
     plt.bar(x_ind, samp1_bin_valid_cov, width, color=COV_SAMP1_COLOR,
             label=samp_names[0])
-    plt.bar(x_ind, samp2_bin_valid_cov, width, color=COV_SAMP2_COLOR,
+    plt.bar(x_ind + width, samp2_bin_valid_cov, width, color=COV_SAMP2_COLOR,
             label=samp_names[1])
     plt.xlabel('Read Coverage')
     plt.ylabel('Number of Genomic Sites')
@@ -59,7 +61,7 @@ def plot_cov(
     plt.figure(figsize=(6, 5))
     plt.bar(x_ind, samp1_bin_cov, width, color=COV_SAMP1_COLOR,
             label=samp_names[0])
-    plt.bar(x_ind, samp2_bin_cov, width, color=COV_SAMP2_COLOR,
+    plt.bar(x_ind + width, samp2_bin_cov, width, color=COV_SAMP2_COLOR,
             label=samp_names[1])
     plt.xlabel('Read Coverage')
     plt.ylabel('Number of Genomic Sites')
@@ -116,7 +118,7 @@ def plot_hm(samp1_mod_pct, samp2_mod_pct, hm_num_bins, samp_names,
 
 def compute_filt_mod_pct(
         samp1_cov, samp1_mod_cov, samp2_cov, samp2_mod_cov, valid_pos,
-        cov_thresh, out_fp, samp_names):
+        cov_thresh, samp_names, out_fp):
     # compute methylation percentages
     samp1_mod_pct, samp2_mod_pct = [], []
     samp1_valid_cov, samp2_valid_cov = [], []
@@ -147,7 +149,7 @@ def compute_filt_mod_pct(
             samp_names[1], np.median(samp2_valid_cov),
             np.mean(samp2_valid_cov), np.std(samp2_valid_cov)))
     out_fp.write('{} valid corresponding sites detected\n'.format(
-        samp1_mod_pct.shape[0]))
+        len(samp1_mod_pct)))
 
     return (np.array(samp1_mod_pct), np.array(samp2_mod_pct),
             np.array(samp1_valid_cov), np.array(samp2_valid_cov))
@@ -180,26 +182,28 @@ def parse_inputs(
         valid_pos = mh.parse_beds(
             valid_pos_fn, ignore_strand=strand_offset is not None)
 
-    return samp1_cov, samp1_mod_cov, samp2_cov, samp2_mod_cov, valid_pos
+    return (samp1_cov, samp1_mod_cov, samp1_all_cov,
+            samp2_cov, samp2_mod_cov, samp2_all_cov, valid_pos)
 
 
 def _main(args):
+    logging.init_logger()
     pdf_fp = PdfPages(args.out_pdf)
     out_fp = (sys.stdout if args.out_filename is None else
               open(args.out_filename, 'w'))
 
-    (samp1_cov, samp1_mod_cov, samp2_cov, samp2_mod_cov,
-     valid_pos) = parse_inputs(
+    (samp1_cov, samp1_mod_cov, samp1_all_cov,
+     samp2_cov, samp2_mod_cov, samp2_all_cov, valid_pos) = parse_inputs(
          args.sample1_bed_methyl_files, args.sample2_bed_methyl_files,
-         args.strand_offset, args.sample_names, args.valid_positions)
+         args.strand_offset, args.sample_names, args.valid_positions, out_fp)
     (samp1_mod_pct, samp2_mod_pct,
      samp1_valid_cov, samp2_valid_cov) = compute_filt_mod_pct(
          samp1_cov, samp1_mod_cov, samp2_cov, samp2_mod_cov, valid_pos,
-         args.coverage_threshold, args.sample_names)
+         args.coverage_threshold, args.sample_names, out_fp)
     plot_hm(
         samp1_mod_pct, samp2_mod_pct, args.heatmap_num_bins, args.sample_names,
         out_fp, pdf_fp)
-    plot_cov(samp1_cov, samp2_cov, samp1_valid_cov, samp2_valid_cov,
+    plot_cov(samp1_all_cov, samp2_all_cov, samp1_valid_cov, samp2_valid_cov,
              args.sample_names, pdf_fp)
 
     pdf_fp.close()

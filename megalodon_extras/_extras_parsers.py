@@ -109,6 +109,15 @@ def get_parser_calibrate_modified_bases():
         'dynamically adjusts [--max-input-llr] when it is too large. ' +
         'Default: %(default)f')
     parser.add_argument(
+        '--diff-epsilon', type=float, default=mh.DEFAULT_CALIB_DIFF_EPS,
+        help='Epsilon to determine when the likelihood ratio has plateaued. ' +
+        'Default: %(default)f')
+    parser.add_argument(
+        '--llr-clip-buffer', type=int,
+        default=mh.DEFAULT_CALIB_LLR_CLIP_BUFFER,
+        help='Clipped buffer when determining range for computed ' +
+        'calibration log likelihood ratios. Default: %(default)d')
+    parser.add_argument(
         '--out-filename', default='megalodon_mod_calibration.npz',
         help='Filename to output calibration values. Default: %(default)s')
     parser.add_argument(
@@ -116,11 +125,17 @@ def get_parser_calibrate_modified_bases():
         help='Output pdf filename for modified base calibration ' +
         'visualization. Default: Do not produce plot.')
     parser.add_argument(
-        '--pdf-prob-thresholds', nargs=3, type=float, default=[0.75, 0.8, 0.9],
-        help='Probability thresholds to mark on output pdf.')
+        '--pdf-prob-thresholds', nargs=3, type=float,
+        default=[0.75, 0.8, 0.85],
+        help='Probability thresholds to mark on output pdf. ' +
+        'Default: %(default)s')
     parser.add_argument(
         '--plot-without-prob-thresholds', action='store_true',
         help='Do not include probability thresholds in plot(s).')
+    parser.add_argument(
+        '--processes', type=int, default=1,
+        help='Number of processing cores to use for density smoothing ' +
+        'computation. Default: %(default)d')
     parser.add_argument(
         '--overwrite', action='store_true',
         help='Overwrite --out-filename if it exists.')
@@ -171,6 +186,19 @@ def get_parser_calibrate_variants():
         'dynamically adjusts [--max-input-llr] when it is too large. ' +
         'Default: %(default)f')
     parser.add_argument(
+        '--diff-epsilon', type=float, default=mh.DEFAULT_CALIB_DIFF_EPS,
+        help='Epsilon to determine when the likelihood ratio has plateaued. ' +
+        'Default: %(default)f')
+    parser.add_argument(
+        '--llr-clip-buffer', type=int,
+        default=mh.DEFAULT_CALIB_LLR_CLIP_BUFFER,
+        help='Clipped buffer when determining range for computed ' +
+        'calibration log likelihood ratios. Default: %(default)d')
+    parser.add_argument(
+        '--processes', type=int, default=1,
+        help='Number of processing cores to use for density smoothing ' +
+        'computation. Default: %(default)d')
+    parser.add_argument(
         '--out-filename', default='megalodon_variant_calibration.npz',
         help='Filename to output calibration values. Default: %(default)s')
     parser.add_argument(
@@ -193,6 +221,12 @@ def get_parser_calibrate_generate_modified_bases_stats():
     parser.add_argument(
         '--control-megalodon-results-dir',
         help='Megalodon output directory with modified base control sample.')
+    parser.add_argument(
+        '--exclude-modified-bases', nargs='+',
+        help='Set of modified bases (single letter codes) to exclude.')
+    parser.add_argument(
+        '--modified-bases-set', nargs='+',
+        help='Only process these modified bases (single letter codes).')
     parser.add_argument(
         '--ground-truth-data',
         help='Ground truth csv with (chrm, strand, pos, is_mod) values.')

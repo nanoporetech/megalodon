@@ -1,4 +1,7 @@
 import sys
+import queue
+from time import sleep
+import multiprocessing as mp
 
 import numpy as np
 from tqdm import tqdm
@@ -26,10 +29,35 @@ MOD_BASES_TXT = 'mod_bases'
 LLR_RANGE_SUFFIX = '_llr_range'
 CALIB_TABLE_SUFFIX = '_calibration_table'
 
+DEFAULT_SMOOTH_MP_BATCH_SIZE = 10000
+
 
 ##########################
 # Calibration Estimation #
 ##########################
+
+def determine_llr_plateau_edge(
+        sm_ref, sm_alt, num_calib_vals, diff_eps, llr_buffer, smooth_ls):
+    """ Compute new edges of calibration computation based on sites where
+    log likelihood ratios plateau.
+    """
+    with np.errstate(divide='ignore', invalid='ignore'):
+        prob_alt = sm_alt / (sm_ref + sm_alt)
+    # compute probability mid-point (llr=0 for mirrored)
+    prob_mp = int(np.around(num_calib_vals / 2))
+    # force monotonic decreasing with reverse maximum before p=0.5 and
+    # forward minimum after p=0.5
+    mono_prob = np.concatenate([
+        np.maximum.accumulate(prob_alt[:prob_mp][::-1])[::-1],
+        np.minimum.accumulate(prob_alt[prob_mp:])])
+    with np.errstate(divide='ignore', invalid='ignore', over='ignore'):
+        llr = np.log((1 - mono_prob) / mono_prob)
+        llr_moved_sites = np.where(np.diff(llr) > diff_eps)[0]
+    if len(llr_moved_sites) == 0:
+        return 0, 0
+    return (np.around(smooth_ls[llr_moved_sites[0]]).astype(int) - llr_buffer,
+            np.around(smooth_ls[llr_moved_sites[-1]]).astype(int) + llr_buffer)
+
 
 def determine_min_dens_edge(sm_ref, sm_alt, min_dens_val, smooth_ls):
     """ Compute positions where the density values are too small to produce
@@ -64,15 +92,84 @@ def determine_min_dens_edge(sm_ref, sm_alt, min_dens_val, smooth_ls):
             np.around(smooth_ls[-upper_invalid_dens_pos]).astype(int))
 
 
-def compute_smooth_mono_density(llrs, num_calib_vals, smooth_bw, smooth_ls):
+def _compute_smooth_density_worker(llr_q, smooth_llr_q, smooth_bw, smooth_ls):
     def guassian(x):
         return (np.exp(-x ** 2 / (2 * smooth_bw ** 2)) /
                 (smooth_bw * np.sqrt(2 * np.pi)))
 
-    smooth_vals = np.zeros(num_calib_vals)
-    for llr in tqdm(llrs, smoothing=0, dynamic_ncols=True):
-        smooth_vals += guassian(smooth_ls - llr)
-    smooth_vals /= llrs.shape[0]
+    while True:
+        try:
+            batch_llrs = llr_q.get(block=False)
+        except queue.Empty:
+            sleep(0.001)
+            continue
+        # None stored in queue to indicate exhausted queue
+        if batch_llrs is None:
+            break
+        smooth_vals = np.zeros(smooth_ls.shape[0])
+        for llr in batch_llrs:
+            smooth_vals += guassian(smooth_ls - llr)
+        smooth_llr_q.put((smooth_vals, batch_llrs.shape[0]))
+
+
+def compute_smooth_density_mp(
+        llrs, smooth_bw, smooth_ls, num_proc,
+        smooth_mp_batch_size=DEFAULT_SMOOTH_MP_BATCH_SIZE):
+    # fill queue with all llrs
+    llr_q = mp.Queue()
+    for b_start in range(0, llrs.shape[0], smooth_mp_batch_size):
+        llr_q.put(llrs[b_start:b_start + smooth_mp_batch_size])
+    for _ in range(num_proc):
+        llr_q.put(None)
+
+    # start smooth bw processes
+    smooth_llr_q = mp.Queue()
+    smooth_ps = []
+    for _ in range(num_proc):
+        p = mp.Process(
+            target=_compute_smooth_density_worker,
+            args=(llr_q, smooth_llr_q, smooth_bw, smooth_ls),
+            daemon=True)
+        p.start()
+        smooth_ps.append(p)
+
+    bar = tqdm(total=llrs.shape[0], smoothing=0, dynamic_ncols=True)
+    # retrieve smooth arrays
+    smooth_vals = np.zeros(smooth_ls.shape[0])
+    total_nvals = 0
+    while any(p.is_alive() for p in smooth_ps):
+        try:
+            batch_smooth_vals, nvals = smooth_llr_q.get(block=False)
+        except queue.Empty:
+            sleep(0.001)
+            continue
+        smooth_vals += batch_smooth_vals
+        total_nvals += nvals
+        bar.update(nvals)
+    while not smooth_llr_q.empty():
+        batch_smooth_vals, nvals = smooth_llr_q.get(block=False)
+        smooth_vals += batch_smooth_vals
+        total_nvals += nvals
+        bar.update(nvals)
+    bar.close()
+
+    return smooth_vals / total_nvals
+
+
+def compute_smooth_mono_density(
+        llrs, num_calib_vals, smooth_bw, smooth_ls, num_proc=1):
+    def guassian(x):
+        return (np.exp(-x ** 2 / (2 * smooth_bw ** 2)) /
+                (smooth_bw * np.sqrt(2 * np.pi)))
+
+    if num_proc == 1:
+        smooth_vals = np.zeros(num_calib_vals)
+        for llr in tqdm(llrs, smoothing=0, dynamic_ncols=True):
+            smooth_vals += guassian(smooth_ls - llr)
+        smooth_vals /= llrs.shape[0]
+    else:
+        smooth_vals = compute_smooth_density_mp(
+            llrs, smooth_bw, smooth_ls, num_proc)
 
     peak_site = np.argmax(smooth_vals)
     # force monotonic increasing before peak and monotonic decreasing after
@@ -91,22 +188,23 @@ def compute_smooth_mono_density(llrs, num_calib_vals, smooth_bw, smooth_ls):
 
 def compute_calibration(
         ref_llrs, alt_llrs, max_input_llr, num_calib_vals, smooth_bw,
-        min_dens_val, return_plot_info=False):
+        min_dens_val, diff_eps, llr_buffer, return_plot_info=False,
+        num_proc=1):
     smooth_ls = np.linspace(-max_input_llr, max_input_llr,
                             num_calib_vals, endpoint=True)
     LOGGER.info('\tComputing reference emperical density.')
     sm_ref, s_ref = compute_smooth_mono_density(
-        ref_llrs, num_calib_vals, smooth_bw, smooth_ls)
+        ref_llrs, num_calib_vals, smooth_bw, smooth_ls, num_proc)
     LOGGER.info('\tComputing alternative emperical density.')
     sm_alt, s_alt = compute_smooth_mono_density(
-        alt_llrs, num_calib_vals, smooth_bw, smooth_ls)
+        alt_llrs, num_calib_vals, smooth_bw, smooth_ls, num_proc)
 
-    # the ratio of very small density values can cause invalid or inaccurate
-    # calibration values, so check that the max_input_llr is valid or
-    # find a valid clipping location according to min_dens_val
-    # then recompute smooth values
-    new_input_llr_range = determine_min_dens_edge(
-        sm_ref, sm_alt, min_dens_val, smooth_ls)
+    plateau_llr_range = determine_llr_plateau_edge(
+        sm_ref, sm_ref[::-1], num_calib_vals, diff_eps, llr_buffer, smooth_ls)
+    min_dens_llr_range = determine_min_dens_edge(
+        sm_ref, sm_ref[::-1], min_dens_val, smooth_ls)
+    new_input_llr_range = (max(plateau_llr_range[0], min_dens_llr_range[0]),
+                           min(plateau_llr_range[1], min_dens_llr_range[1]))
     if new_input_llr_range[1] - new_input_llr_range[0] <= 0:
         raise mh.MegaError('Ground truth smoothed monotonic densities do ' +
                            'not overlap. Consider lowering min_dens_val.')
@@ -119,10 +217,10 @@ def compute_calibration(
                                 num_calib_vals, endpoint=True)
         LOGGER.info('\tComputing new reference emperical density.')
         sm_ref, s_ref = compute_smooth_mono_density(
-            ref_llrs, num_calib_vals, smooth_bw, smooth_ls)
+            ref_llrs, num_calib_vals, smooth_bw, smooth_ls, num_proc)
         LOGGER.info('\tComputing new alternative emperical density.')
         sm_alt, s_alt = compute_smooth_mono_density(
-            alt_llrs, num_calib_vals, smooth_bw, smooth_ls)
+            alt_llrs, num_calib_vals, smooth_bw, smooth_ls, num_proc)
 
     prob_alt = sm_alt / (sm_ref + sm_alt)
     # compute probability mid-point
@@ -143,20 +241,23 @@ def compute_calibration(
 
 def compute_mirrored_calibration(
         ref_llrs, max_input_llr, num_calib_vals, smooth_bw,
-        min_dens_val, return_plot_info=False):
+        min_dens_val, diff_eps, llr_buffer, return_plot_info=False,
+        num_proc=1):
     smooth_ls = np.linspace(-max_input_llr, max_input_llr,
                             num_calib_vals, endpoint=True)
 
     LOGGER.info('\tComputing reference emperical density.')
     sm_ref, s_ref = compute_smooth_mono_density(
-        ref_llrs, num_calib_vals, smooth_bw, smooth_ls)
+        ref_llrs, num_calib_vals, smooth_bw, smooth_ls, num_proc)
 
-    # the ratio of very small density values can cause invalid or inaccurate
-    # calibration values, so check that the max_input_llr is valid or
-    # find a valid clipping location according to min_dens_val
-    # then recompute smooth values
-    new_input_llr_range = determine_min_dens_edge(
+    plateau_llr_range = determine_llr_plateau_edge(
+        sm_ref, sm_ref[::-1], num_calib_vals, diff_eps, llr_buffer, smooth_ls)
+    min_dens_llr_range = determine_min_dens_edge(
         sm_ref, sm_ref[::-1], min_dens_val, smooth_ls)
+    new_input_llr_range = (max(plateau_llr_range[0], min_dens_llr_range[0]),
+                           min(plateau_llr_range[1], min_dens_llr_range[1]))
+    if new_input_llr_range[0] >= new_input_llr_range[1]:
+        raise mh.MegaError('Invalid densities for calibration.')
     if new_input_llr_range[0] != -new_input_llr_range[1]:
         LOGGER.warning(
             'Unexpected new llr range for mirrored calibration: {}'.format(
@@ -170,7 +271,7 @@ def compute_mirrored_calibration(
                                 num_calib_vals, endpoint=True)
         LOGGER.info('\tComputing new reference emperical density.')
         sm_ref, s_ref = compute_smooth_mono_density(
-            ref_llrs, num_calib_vals, smooth_bw, smooth_ls)
+            ref_llrs, num_calib_vals, smooth_bw, smooth_ls, num_proc)
 
     prob_alt = sm_ref[::-1] / (sm_ref + sm_ref[::-1])
     # compute probability mid-point (llr=0 for mirrored)

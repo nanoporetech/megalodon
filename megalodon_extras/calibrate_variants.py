@@ -6,11 +6,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
-from megalodon import calibration, logging
+from megalodon import calibration, logging, megalodon_helper as mh
 from ._extras_parsers import get_parser_calibrate_variants
 
 
 LOGGER = logging.get_logger()
+INVALID_CALIB_MSG = (
+    'Encountered invalid distributions for calibration. Not saving ' +
+    'calibration file, but pdf will be plotted in order to identify ' +
+    'potential issues.')
 
 
 def plot_calib(
@@ -103,17 +107,23 @@ def _main(args):
     assert set(ins_ref_llrs) == set(range(1, max_indel_len + 1)), (
         'Must test every length in length range for indels')
 
+    do_save_calib = True
     pdf_fp = None if args.out_pdf is None else PdfPages(args.out_pdf)
     LOGGER.info('Computing stratified single-base SNP calibration.')
     snp_calibs = {}
     for (ref_seq, alt_seq), snp_llrs in sorted(snp_ref_llrs.items()):
         LOGGER.info('Computing ' + ref_seq + ' -> ' + alt_seq +
-                         ' SNP calibration.')
-        snp_calib, snp_llr_range, plot_data \
-            = calibration.compute_mirrored_calibration(
-                np.array(snp_llrs), args.max_input_llr,
-                args.num_calibration_values, args.smooth_bandwidth,
-                args.min_density, pdf_fp is not None)
+                    ' SNP calibration.')
+        try:
+            snp_calib, snp_llr_range, plot_data \
+                = calibration.compute_mirrored_calibration(
+                    np.array(snp_llrs), args.max_input_llr,
+                    args.num_calibration_values, args.smooth_bandwidth,
+                    args.min_density, args.diff_epsilon, args.llr_clip_buffer,
+                    pdf_fp is not None, num_proc=args.processes)
+        except mh.MegaError:
+            do_save_calib = False
+            LOGGER.error(INVALID_CALIB_MSG)
         snp_calibs[(ref_seq, alt_seq)] = (snp_calib, snp_llr_range)
         if pdf_fp is not None:
             plot_calib(pdf_fp, 'SNP: ' + ref_seq + ' -> ' + alt_seq,
@@ -123,11 +133,16 @@ def _main(args):
     for del_len, del_llrs in sorted(del_ref_llrs.items()):
         LOGGER.info('Computing deletion length {} calibration.'.format(
             del_len))
-        del_calib, del_llr_range, plot_data \
-            = calibration.compute_mirrored_calibration(
-                np.array(del_llrs), args.max_input_llr,
-                args.num_calibration_values, args.smooth_bandwidth,
-                args.min_density, pdf_fp is not None)
+        try:
+            del_calib, del_llr_range, plot_data \
+                = calibration.compute_mirrored_calibration(
+                    np.array(del_llrs), args.max_input_llr,
+                    args.num_calibration_values, args.smooth_bandwidth,
+                    args.min_density, args.diff_epsilon, args.llr_clip_buffer,
+                    pdf_fp is not None, num_proc=args.processes)
+        except mh.MegaError:
+            do_save_calib = False
+            LOGGER.error(INVALID_CALIB_MSG)
         del_calibs[del_len] = (del_calib, del_llr_range)
         if pdf_fp is not None:
             plot_calib(pdf_fp, 'Deletion Length ' + str(del_len), *plot_data)
@@ -136,11 +151,16 @@ def _main(args):
     for ins_len, ins_llrs in sorted(ins_ref_llrs.items()):
         LOGGER.info('Computing insertion length {} calibration.'.format(
             ins_len))
-        ins_calib, ins_llr_range, plot_data \
-            = calibration.compute_mirrored_calibration(
-                np.array(ins_llrs), args.max_input_llr,
-                args.num_calibration_values, args.smooth_bandwidth,
-                args.min_density, pdf_fp is not None)
+        try:
+            ins_calib, ins_llr_range, plot_data \
+                = calibration.compute_mirrored_calibration(
+                    np.array(ins_llrs), args.max_input_llr,
+                    args.num_calibration_values, args.smooth_bandwidth,
+                    args.min_density, args.diff_epsilon, args.llr_clip_buffer,
+                    pdf_fp is not None, num_proc=args.processes)
+        except mh.MegaError:
+            do_save_calib = False
+            LOGGER.error(INVALID_CALIB_MSG)
         ins_calibs[ins_len] = (ins_calib, ins_llr_range)
         if pdf_fp is not None:
             plot_calib(pdf_fp, 'Insertion Length ' + str(ins_len), *plot_data)
@@ -148,6 +168,8 @@ def _main(args):
     if pdf_fp is not None:
         pdf_fp.close()
 
+    if not do_save_calib:
+        sys.exit(1)
     # save calibration table for reading into variant calibration table
     LOGGER.info('Saving calibrations to file.')
     snp_llr_range_save_data, snp_calib_save_data = {}, {}

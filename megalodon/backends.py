@@ -339,9 +339,14 @@ class ModelInfo(object):
                 server_args.extend(('-x', devices_str))
             if self.params.pyguppy.server_params is not None:
                 server_args.extend(self.params.pyguppy.server_params.split())
-            self.guppy_server_proc = subprocess.Popen(
-                server_args, shell=False,
-                stdout=self.guppy_out_fp, stderr=self.guppy_err_fp)
+            try:
+                self.guppy_server_proc = subprocess.Popen(
+                    server_args, shell=False,
+                    stdout=self.guppy_out_fp, stderr=self.guppy_err_fp)
+            except FileNotFoundError:
+                raise mh.MegaError(
+                    'Guppy server executable not found. Please specify path ' +
+                    'via `--guppy-server-path` argument.')
             # wait until server is successfully started or fails
             while True:
                 used_port = get_server_port()

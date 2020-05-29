@@ -1,5 +1,3 @@
-import sys
-
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
@@ -41,13 +39,18 @@ def plot_calib(
             llr_x = np.log(p / (1 - p))
             thresh_val = np.argmin(np.abs(thresh_f - llr_x))
             nthresh_val = np.argmin(np.abs(thresh_f + llr_x))
+            prop_filt = (sum(sm_ref[nthresh_val:thresh_val]) +
+                         sum(sm_alt[nthresh_val:thresh_val])) / (
+                             sum(sm_ref) + sum(sm_alt))
             for i in range(2):
                 axarr[i].axvline(x=smooth_ls[thresh_val], color=col)
                 axarr[i].axvline(x=smooth_ls[nthresh_val], color=col)
             axarr[2].axvline(x=smooth_ls[thresh_val], color=col)
-            axarr[2].axvline(x=smooth_ls[nthresh_val], color=col, label=p)
-            axarr[2].legend(loc='upper right', bbox_to_anchor=(1, -0.12),
-                            ncol=3)
+            axarr[2].axvline(
+                x=smooth_ls[nthresh_val], color=col, label=(
+                    '--mod-binary-threshold={} (filters {:.0f}%)').format(
+                        p, 100 * prop_filt))
+            axarr[2].legend(fontsize='small')
 
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
@@ -80,7 +83,8 @@ def _main(args):
         mod_calib, mod_llr_range, plot_data = calibration.compute_calibration(
             can_llrs, mod_llrs, args.max_input_llr,
             args.num_calibration_values, args.smooth_bandwidth,
-            args.min_density, pdf_fp is not None)
+            args.min_density, args.diff_epsilon, args.llr_clip_buffer,
+            pdf_fp is not None, num_proc=args.processes)
         save_kwargs[mod_base + calibration.LLR_RANGE_SUFFIX] = mod_llr_range
         save_kwargs[mod_base + calibration.CALIB_TABLE_SUFFIX] = mod_calib
         if pdf_fp is not None:

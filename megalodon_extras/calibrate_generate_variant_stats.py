@@ -1,4 +1,3 @@
-import sys
 import queue
 import threading
 from time import sleep
@@ -11,12 +10,10 @@ import numpy as np
 from tqdm import tqdm
 
 from megalodon import (
-    megalodon_helper as mh, megalodon, backends, mapping, variants)
+    backends, logging, mapping, megalodon_helper as mh, megalodon, variants)
 from ._extras_parsers import get_parser_calibrate_generate_variants_stats
 
 
-CONTEXT_BASES = [mh.DEFAULT_SNV_CONTEXT, mh.DEFAULT_INDEL_CONTEXT]
-EDGE_BUFFER = 10
 MAX_INDEL_LEN = 5
 ALL_PATHS = False
 TEST_EVERY_N_LOCS = 5
@@ -24,6 +21,8 @@ MAX_POS_PER_READ = 400
 
 CAN_BASES = "ACGT"
 CAN_BASES_SET = set(CAN_BASES)
+
+LOGGER = logging.get_logger()
 
 _DO_PROFILE = False
 
@@ -124,9 +123,10 @@ def call_alt_true_indel(
 
 def process_read(
         sig_info, model_info, caller_conn, map_thr_buf, do_false_ref,
-        context_bases=CONTEXT_BASES, edge_buffer=EDGE_BUFFER,
-        max_indel_len=MAX_INDEL_LEN, all_paths=ALL_PATHS,
-        every_n=TEST_EVERY_N_LOCS, max_pos_per_read=MAX_POS_PER_READ):
+        context_bases=mh.DEFAULT_VAR_CONTEXT_BASES,
+        edge_buffer=mh.DEFAULT_EDGE_BUFFER, max_indel_len=MAX_INDEL_LEN,
+        all_paths=ALL_PATHS, every_n=TEST_EVERY_N_LOCS,
+        max_pos_per_read=MAX_POS_PER_READ):
     r_seq, _, rl_cumsum, can_post, _, _, _ = model_info.basecall_read(
         sig_info, return_post_w_mods=False)
 
@@ -183,6 +183,12 @@ def process_read(
 
     # now test reference correct variants
     for r_var_pos in var_poss:
+        if len(set(r_ref_seq[
+                r_var_pos - max(context_bases):
+                r_var_pos + max_indel_len + 1 +
+                max(context_bases)]).difference(CAN_BASES_SET)) > 0:
+            # skip reference positions with N's in any context
+            continue
         # test simple SNP first
         var_ref_seq = r_ref_seq[r_var_pos]
         for var_alt_seq in CAN_BASES_SET.difference(var_ref_seq):
@@ -309,16 +315,16 @@ def _get_variant_calls(
         bar.close()
 
     if len(err_types) > 0:
-        sys.stderr.write('Failed reads summary:\n')
+        LOGGER.info('Failed reads summary:')
         for n_errs, err_str in sorted(
                 (v, k) for k, v in err_types.items())[::-1]:
-            sys.stderr.write('\t{} : {} reads\n'.format(err_str, n_errs))
+            LOGGER.info('\t{} : {} reads'.format(err_str, n_errs))
 
 
 def process_all_reads(
         fast5s_dir, num_reads, read_ids_fn, model_info, aligner, num_ps,
         out_fn, suppress_progress, do_false_ref):
-    sys.stderr.write('Preparing workers and calling reads.\n')
+    LOGGER.info('Preparing workers and calling reads.')
     # read filename queue filler
     fast5_q = mp.Queue()
     num_reads_conn, getter_num_reads_conn = mp.Pipe()
@@ -369,6 +375,7 @@ def process_all_reads(
 
 
 def _main(args):
+    logging.init_logger()
     # add required attributes for loading guppy, but not valid options for
     # this script.
     args.do_not_use_guppy_server = False
@@ -376,14 +383,14 @@ def _main(args):
     try:
         mh.mkdir(args.output_directory, False)
     except mh.MegaError:
-        sys.stderr.write(
-            '***** WARNING ***** Guppy logs output directory exists. ' +
-            'Potentially overwriting guppy logs.\n')
+        LOGGER.warning(
+            'Guppy logs output directory exists. Potentially overwriting ' +
+            'guppy logs.')
 
-    sys.stderr.write('Loading model.\n')
+    LOGGER.info('Loading model.')
     backend_params = backends.parse_backend_params(args)
     with backends.ModelInfo(backend_params, args.processes) as model_info:
-        sys.stderr.write('Loading reference.\n')
+        LOGGER.info('Loading reference.')
         aligner = mapping.alignerPlus(
             str(args.reference), preset=str('map-ont'), best_n=1)
 

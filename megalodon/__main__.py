@@ -135,8 +135,9 @@ def get_parser():
         '--heterozygous-factors', type=float, nargs=2,
         default=[mh.DEFAULT_SNV_HET_FACTOR, mh.DEFAULT_INDEL_HET_FACTOR],
         help=hidden_help('Bayesian prior factor for snv and indel ' +
-                         'heterozygous calls (compared to 1.0 for hom ' +
-                         'ref/alt). Default: %(default)s'))
+                         'heterozygous calls. Smaller values preference ' +
+                         'heterozygous calls; Larger values perference ' +
+                         'homozygous calls. Default: %(default)s'))
     var_grp.add_argument(
         '--max-indel-size', type=int, default=mh.DEFAULT_MAX_INDEL_SIZE,
         help=hidden_help('Maximum difference in number of reference and ' +
