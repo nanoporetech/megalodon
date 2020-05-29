@@ -222,6 +222,12 @@ def get_parser_calibrate_generate_modified_bases_stats():
         '--control-megalodon-results-dir',
         help='Megalodon output directory with modified base control sample.')
     parser.add_argument(
+        '--exclude-modified-bases', nargs='+',
+        help='Set of modified bases (single letter codes) to exclude.')
+    parser.add_argument(
+        '--modified-bases-set', nargs='+',
+        help='Only process these modified bases (single letter codes).')
+    parser.add_argument(
         '--ground-truth-data',
         help='Ground truth csv with (chrm, strand, pos, is_mod) values.')
     parser.add_argument(
