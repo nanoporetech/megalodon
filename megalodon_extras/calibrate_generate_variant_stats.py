@@ -322,15 +322,15 @@ def _get_variant_calls(
 
 
 def process_all_reads(
-        fast5s_dir, num_reads, read_ids_fn, model_info, aligner, num_ps,
-        out_fn, suppress_progress, do_false_ref):
+        fast5s_dir, recursive, num_reads, read_ids_fn, model_info, aligner,
+        num_ps, out_fn, suppress_progress, do_false_ref):
     LOGGER.info('Preparing workers and calling reads.')
     # read filename queue filler
     fast5_q = mp.Queue()
     num_reads_conn, getter_num_reads_conn = mp.Pipe()
     files_p = mp.Process(
         target=megalodon._fill_files_queue, args=(
-            fast5_q, fast5s_dir, num_reads, read_ids_fn, True, num_ps,
+            fast5_q, fast5s_dir, num_reads, read_ids_fn, recursive, num_ps,
             num_reads_conn),
         daemon=True)
     files_p.start()
@@ -395,9 +395,10 @@ def _main(args):
             str(args.reference), preset=str('map-ont'), best_n=1)
 
         process_all_reads(
-            args.fast5s_dir, args.num_reads, args.read_ids_filename,
-            model_info, aligner, args.processes, args.output,
-            args.suppress_progress, args.compute_false_reference_scores)
+            args.fast5s_dir, not args.not_recursive, args.num_reads,
+            args.read_ids_filename, model_info, aligner, args.processes,
+            args.output, args.suppress_progress,
+            args.compute_false_reference_scores)
 
 
 if __name__ == '__main__':
