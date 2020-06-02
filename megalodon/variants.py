@@ -201,25 +201,25 @@ class VarsDb(object):
                 self.loc_idx[chrm_id] = {}
         return chrm_id
 
-    def insert_chrms(self, chrm_names_and_lens):
+    def insert_chrms(self, ref_names_and_lens):
         next_chrm_id = self.get_num_uniq_chrms() + 1
         self.cur.executemany('INSERT INTO chrm (chrm, chrm_len) VALUES (?,?)',
-                             zip(*chrm_names_and_lens))
+                             zip(*ref_names_and_lens))
         if self.chrm_idx_in_mem:
             self.chrm_id_idx.update(zip(
-                chrm_names_and_lens[0],
+                ref_names_and_lens[0],
                 range(next_chrm_id,
-                      next_chrm_id + len(chrm_names_and_lens[0]))))
+                      next_chrm_id + len(ref_names_and_lens[0]))))
             self.chrm_name_idx.update(zip(
                 range(next_chrm_id,
-                      next_chrm_id + len(chrm_names_and_lens[0])),
-                chrm_names_and_lens[0]))
+                      next_chrm_id + len(ref_names_and_lens[0])),
+                ref_names_and_lens[0]))
         if self.loc_idx_in_mem:
             self.loc_idx.update(
                 (chrm_id, {})
                 for chrm_id in range(
                         next_chrm_id,
-                        next_chrm_id + len(chrm_names_and_lens[0])))
+                        next_chrm_id + len(ref_names_and_lens[0])))
 
     def get_loc_id_or_insert(
             self, chrm_id, test_start, test_end, pos, ref_seq, var_name):
@@ -440,8 +440,8 @@ class VarsDb(object):
 
     def get_all_chrm_and_lens(self):
         try:
-            return tuple(map(tuple, zip(*self.cur.execute(
-                'SELECT chrm, chrm_len FROM chrm').fetchall())))
+            self.cur.execute('SELECT chrm, chrm_len FROM chrm')
+            return tuple(zip(*self.cur))
         except sqlite3.OperationalError:
             raise mh.MegaError(
                 'Old megalodon database scheme detected. Please re-run ' +
@@ -1886,7 +1886,7 @@ class VcfWriter(object):
         self.version = version
         contig_mis = [] if ref_names_and_lens is None else [
             mh.CONTIG_MI.format(ref_name, ref_len)
-            for ref_name, ref_len in zip(*ref_names_and_lens)]
+            for ref_name, ref_len in sorted(zip(*ref_names_and_lens))]
         self.meta = [
             mh.VCF_VERSION_MI.format(self.version),
             mh.FILE_DATE_MI.format(datetime.date.today().strftime("%Y%m%d")),
