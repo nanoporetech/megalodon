@@ -460,6 +460,7 @@ class ModelInfo(object):
 
     def extract_signal_info(self, fast5_fn, read_id, extract_dacs=False):
         read = fast5_io.get_read(fast5_fn, read_id)
+        seq_summ_info = mh.extract_seq_summary_info(read)
         dacs = scale_params = raw_sig = None
         if extract_dacs:
             # if not processing signal mappings, don't save dacs
@@ -472,26 +473,29 @@ class ModelInfo(object):
         if self.model_type == TAI_NAME:
             if raw_sig is None:
                 raw_sig = fast5_io.get_signal(read, scale=True)
-            return SIGNAL_DATA(
+            sig_data = SIGNAL_DATA(
                 raw_signal=raw_sig, dacs=dacs, scale_params=scale_params,
                 raw_len=raw_sig.shape[0], fast5_fn=fast5_fn, read_id=read_id,
                 stride=self.stride)
+            return sig_data, seq_summ_info
         elif self.model_type == FAST5_NAME:
             bc_mod_post = fast5_io.get_posteriors(read)
             if extract_dacs:
                 trim_start, trim_len = fast5_io.get_signal_trim_coordiates(
                     read)
                 dacs = dacs[trim_start:trim_start + trim_len]
-            return SIGNAL_DATA(
+            sig_data = SIGNAL_DATA(
                 raw_len=bc_mod_post.shape[0] * self.stride, dacs=dacs,
                 fast5_fn=fast5_fn, read_id=read_id, stride=self.stride,
                 posteriors=bc_mod_post)
+            return sig_data, seq_summ_info
         elif self.model_type == PYGUPPY_NAME:
             if dacs is None:
                 dacs = fast5_io.get_signal(read, scale=False)
-            return SIGNAL_DATA(
+            sig_data = SIGNAL_DATA(
                 dacs=dacs, raw_len=dacs.shape[0], fast5_fn=fast5_fn,
                 read_id=read_id, stride=self.stride)
+            return sig_data, seq_summ_info
 
         raise mh.MegaError('Invalid model type')
 

@@ -72,6 +72,7 @@ STRAND_FIELD_NAME = 'STRAND'
 # outputs specification
 BC_NAME = 'basecalls'
 BC_OUT_FMTS = ('fastq', 'fasta')
+SEQ_SUMM_NAME = 'seq_summary'
 BC_MODS_NAME = 'mod_basecalls'
 MAP_NAME = 'mappings'
 MAP_SUMM_NAME = 'mappings_summary'
@@ -92,6 +93,7 @@ SIG_MAP_NAME = 'signal_mappings'
 PR_REF_NAME = 'per_read_refs'
 OUTPUT_FNS = {
     BC_NAME: 'basecalls',
+    SEQ_SUMM_NAME: 'sequencing_summary.txt',
     BC_MODS_NAME: 'basecalls.modified_base_scores.hdf5',
     MAP_NAME: 'mappings',
     MAP_SUMM_NAME: 'mappings.summary.txt',
@@ -158,6 +160,18 @@ DEFAULT_CALIB_SMOOTH_NVALS = 5001
 DEFAULT_CALIB_MIN_DENSITY = 5e-8
 DEFAULT_CALIB_DIFF_EPS = 1e-6
 DEFAULT_CALIB_LLR_CLIP_BUFFER = 1
+
+SEQ_SUMM_INFO = namedtuple('seq_summ_info', (
+    'filename', 'read_id', 'run_id', 'batch_id', 'channel', 'mux',
+    'start_time', 'duration', 'num_events', 'passes_filtering',
+    'template_start', 'num_events_template', 'template_duration',
+    'sequence_length_template', 'mean_qscore_template',
+    'strand_score_template', 'median_template', 'mad_template',
+    'scaling_median_template', 'scaling_mad_template'))
+# set default value of None for ref, alts, ref_start and strand;
+# false for has_context_base
+SEQ_SUMM_INFO.__new__.__defaults__ = ['NA', ] * 11
+CHAN_INFO_CHANNEL_SLOT = 'channel_number'
 
 # default guppy settings
 DEFAULT_GUPPY_SERVER_PATH = './ont-guppy/bin/guppy_basecall_server'
@@ -233,6 +247,17 @@ def log_prob_to_phred(log_prob, ignore_np_divide=True):
         with np.errstate(divide='ignore'):
             return -10 * np.log10(1 - np.exp(log_prob))
     return -10 * np.log10(1 - np.exp(log_prob))
+
+
+def extract_seq_summary_info(read):
+    channel_info = read.get_channel_info()
+    read_info = read.status.read_info[0]
+    return SEQ_SUMM_INFO(
+        filename=read.filename, read_id=read.read_id,
+        run_id=str(read.get_run_id()), batch_id='NA',
+        channel=channel_info[CHAN_INFO_CHANNEL_SLOT],
+        mux=read_info.start_mux, start_time=read_info.start_time,
+        duration=read_info.duration, num_events='NA')
 
 
 #######################

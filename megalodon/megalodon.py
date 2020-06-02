@@ -81,8 +81,9 @@ def interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum):
 
 
 def process_read(
-        sig_info, model_info, bc_q, caller_conn, sig_map_q, ref_out_info,
-        vars_data, vars_q, mods_q, mods_info, failed_reads_q, signal_reversed):
+        sig_info, seq_summ_info, model_info, bc_q, caller_conn, sig_map_q,
+        ref_out_info, vars_data, vars_q, mods_q, mods_info, failed_reads_q,
+        signal_reversed):
     """ Workhorse per-read megalodon function (connects all the parts)
     """
     # perform basecalling using loaded backend
@@ -97,9 +98,11 @@ def process_read(
             if mods_scores is not None:
                 mods_scores = mods_scores[::-1]
             bc_q.put((
-                sig_info.read_id, r_seq[::-1], r_qual[::-1], mods_scores))
+                sig_info.read_id, r_seq[::-1], r_qual[::-1], mods_scores,
+                seq_summ_info))
         else:
-            bc_q.put((sig_info.read_id, r_seq, r_qual, mods_scores))
+            bc_q.put((
+                sig_info.read_id, r_seq, r_qual, mods_scores, seq_summ_info))
 
     # if no mapping connection return after basecalls are passed out
     if caller_conn is None:
@@ -178,7 +181,7 @@ def process_read(
 
 def _get_bc_queue(
         bc_q, bc_conn, out_dir, bc_fmt, do_output_mods, mod_long_names):
-    def write_read(read_id, r_seq, r_qual, mods_scores):
+    def write_read(read_id, r_seq, r_qual, mods_scores, seq_summ_info):
         if write_fastq:
             if r_qual is None:
                 r_qual = '!' * len(r_seq)
@@ -186,6 +189,14 @@ def _get_bc_queue(
         else:
             bc_fp.write('>{}\n{}\n'.format(read_id, r_seq))
         bc_fp.flush()
+
+        # TODO fill out as many of these attributes as possible from this point
+        """seq_summ_info = seq_summ_info._replace(
+        seq_summ_ passes_filtering, template_start, num_events_template,
+        template_duration, sequence_length_template, mean_qscore_template,
+        strand_score_template, median_template, mad_template,
+        scaling_median_template, scaling_mad_template)"""
+        seq_summ_fp.write('\t'.join(map(str, seq_summ_info)) + '\n')
 
         if do_output_mods:
             try:
@@ -198,6 +209,8 @@ def _get_bc_queue(
 
     bc_fp = open(mh.get_megalodon_fn(out_dir, mh.BC_NAME) + '.' + bc_fmt, 'w')
     write_fastq = bc_fmt == 'fastq'
+    seq_summ_fp = open(mh.get_megalodon_fn(out_dir, mh.SEQ_SUMM_NAME), 'w')
+    seq_summ_fp.write('\t'.join(mh.SEQ_SUMM_INFO._fields) + '\n')
     # TODO convert this to writing un-aligned sam with htseq recommended format
     if do_output_mods:
         mods_fp = h5py.File(mh.get_megalodon_fn(out_dir, mh.BC_MODS_NAME), 'w')
@@ -208,8 +221,9 @@ def _get_bc_queue(
 
     while True:
         try:
-            read_id, r_seq, r_qual, mods_scores = bc_q.get(block=False)
-            write_read(read_id, r_seq, r_qual, mods_scores)
+            read_id, r_seq, r_qual, mods_scores, seq_summ_info = bc_q.get(
+                block=False)
+            write_read(read_id, r_seq, r_qual, mods_scores, seq_summ_info)
         except queue.Empty:
             if bc_conn.poll():
                 break
@@ -217,8 +231,9 @@ def _get_bc_queue(
             continue
 
     while not bc_q.empty():
-        read_id, r_seq, r_qual, mods_scores = bc_q.get(block=False)
-        write_read(read_id, r_seq, r_qual, mods_scores)
+        read_id, r_seq, r_qual, mods_scores, seq_summ_info = bc_q.get(
+            block=False)
+        write_read(read_id, r_seq, r_qual, mods_scores, seq_summ_info)
 
     bc_fp.close()
     if do_output_mods:
@@ -257,11 +272,11 @@ def _process_reads_worker(
                     mp.current_process()))
                 break
             LOGGER.debug('Analyzing read {}'.format(read_id))
-            sig_info = model_info.extract_signal_info(
+            sig_info, seq_summ_info = model_info.extract_signal_info(
                 fast5_fn, read_id, sig_map_q is not None)
             process_read(
-                sig_info, model_info, bc_q, caller_conn, sig_map_q,
-                ref_out_info, vars_data, vars_q, mods_q, mods_info,
+                sig_info, seq_summ_info, model_info, bc_q, caller_conn,
+                sig_map_q, ref_out_info, vars_data, vars_q, mods_q, mods_info,
                 failed_reads_q, signal_reversed)
             failed_reads_q.put((
                 False, True, None, None, None, sig_info.raw_len))
