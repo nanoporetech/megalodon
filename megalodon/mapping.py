@@ -197,7 +197,7 @@ def test_open_alignment_out_file(out_dir, map_fmt, ref_names_and_lens, ref_fn):
             'Failed to open alignment file for writing. Check that ' +
             'reference file is compressed with bgzip for CRAM output.')
     map_fp.close()
-    os.remove(map_fp.name)
+    os.remove(map_fp.filename)
 
 
 def _get_map_queue(
