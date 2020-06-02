@@ -65,6 +65,11 @@ def extract_llrs(llr_fn, max_indel_len=None):
                 else:
                     ins_ref_llrs[len(alt_seq) - len(ref_seq)].append(llr)
 
+    if min(len(snp_ref_llrs), len(ins_ref_llrs), len(del_ref_llrs)) == 0:
+        raise mh.MegaError(
+            'Variant statistics file does not contain sufficient data for ' +
+            'calibration.')
+
     return snp_ref_llrs, ins_ref_llrs, del_ref_llrs
 
 

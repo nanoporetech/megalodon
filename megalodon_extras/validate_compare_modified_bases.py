@@ -119,10 +119,19 @@ def plot_hm(samp1_mod_pct, samp2_mod_pct, hm_num_bins, samp_names,
 def compute_filt_mod_pct(
         samp1_cov, samp1_mod_cov, samp2_cov, samp2_mod_cov, valid_pos,
         cov_thresh, samp_names, out_fp):
+    common_ctgs = set(samp1_cov).intersection(samp2_cov)
+    if len(common_ctgs) == 0:
+        LOGGER.error(
+            'No common contigs found between provided samples.\n\t"{}" ' +
+            'first 5 contigs: {}\n\t"{}" first 5 contigs: {}'.format(
+                samp_names[0], ','.join(sorted(list(samp1_cov.keys()))[:5]),
+                samp_names[1], ','.join(sorted(list(samp2_cov.keys()))[:5])))
+        sys.exit(1)
+
     # compute methylation percentages
     samp1_mod_pct, samp2_mod_pct = [], []
     samp1_valid_cov, samp2_valid_cov = [], []
-    for ctg in set(samp1_cov).intersection(samp2_cov):
+    for ctg in common_ctgs:
         if valid_pos is not None:
             if ctg not in valid_pos:
                 continue
@@ -140,6 +149,12 @@ def compute_filt_mod_pct(
                 100 * samp2_mod_cov[ctg][pos] / samp2_pos_cov)
             samp1_valid_cov.append(samp1_pos_cov)
             samp2_valid_cov.append(samp2_pos_cov)
+
+    if len(samp1_valid_cov) == 0:
+        LOGGER.error(
+            'No overlapping positions identified between provided samples.')
+        sys.exit(1)
+
     out_fp.write(
         '{} valid coverage median: {:.2f}   mean: {:.2f}  sd: {:.2f}\n'.format(
             samp_names[0], np.median(samp1_valid_cov),
