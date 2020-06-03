@@ -129,13 +129,12 @@ def _log_softmax_axis1(x):
 
 
 def get_pyguppy_read(read_id, raw_data, channel_info):
-    # TODO figure out if read_tag needs to be set
     return {
-        'read_tag': 0,
+        'read_tag': np.random.randint(0, int(2**32 - 1)),
         'read_id': read_id,
         'raw_data': raw_data,
-        'daq_offset': channel_info[OFST_STR],
-        'daq_scaling': channel_info[RNG_STR] / channel_info[DIGI_STR]}
+        'daq_offset': float(channel_info[OFST_STR]),
+        'daq_scaling': float(channel_info[RNG_STR]) / channel_info[DIGI_STR]}
 
 
 class PyguppyCalledRead(object):
@@ -400,17 +399,21 @@ class ModelInfo(object):
                 pyguppy=self.params.pyguppy._replace(port=used_port))
 
         def set_pyguppy_model_attributes():
-            init_client = PyGuppyClient(
+            init_client = self.pyguppy_GuppyBasecallerClient(
                 '{}:{}'.format(GUPPY_HOST, self.params.pyguppy.port),
                 self.params.pyguppy.config, **PYGUPPY_CLIENT_KWARGS)
             try:
                 init_client.connect()
             except ConnectionError:
-                pass
+                raise mh.MegaError(
+                    'Error connecting to Guppy server. Server unavailable.')
             except ValueError:
-                pass
-            except RuntimeError:
-                pass
+                raise mh.MegaError(
+                    'Error connecting to Guppy server. Missing barcode kit.')
+            except RuntimeError as e:
+                raise mh.MegaError(
+                    'Error connecting to Guppy server. Undefined error: ' +
+                    str(e))
             init_read = get_pyguppy_read(
                 'a', np.zeros(init_sig_len, dtype=np.int16),
                 {OFST_STR: 0, RNG_STR: 1, DIGI_STR: 1})
@@ -491,12 +494,9 @@ class ModelInfo(object):
             # open guppy client interface (None indicates using config
             # from server)
             self.client = self.pyguppy_GuppyBasecallerClient(
-                self.params.pyguppy.config, host=GUPPY_HOST,
-                port=self.params.pyguppy.port, timeout=PYGUPPY_PER_TRY_TIMEOUT,
-                retries=self.pyguppy_retries)
+                '{}:{}'.format(GUPPY_HOST, self.params.pyguppy.port),
+                self.params.pyguppy.config, **PYGUPPY_CLIENT_KWARGS)
             self.client.connect()
-
-        return
 
     def extract_signal_info(self, fast5_fn, read_id, extract_dacs=False):
         read = fast5_io.get_read(fast5_fn, read_id)
