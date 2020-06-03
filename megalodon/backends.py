@@ -35,8 +35,13 @@ GUPPY_HOST = 'localhost'
 PYGUPPY_PER_TRY_TIMEOUT = 0.05
 GUPPY_LOG_BASE = 'guppy_log'
 GUPPY_PORT_PAT = re.compile(r'Starting server on port:\W+(\d+)')
-PYGUPPY_SHIFT_NAME = 'median'
-PYGUPPY_SCALE_NAME = 'med_abs_dev'
+PYGUPPY_CLIENT_KWARGS = {
+    'move_and_trace_enabled': True,
+    'state_data_enabled': True
+}
+OFST_STR = 'offset'
+RNG_STR = 'range'
+DIGI_STR = 'digitisation'
 
 # maximum time (in seconds) to wait before assigning device
 # over different processes. Actual time choosen randomly
@@ -46,9 +51,9 @@ MAX_DEVICE_WAIT = 1.0
 
 SIGNAL_DATA = namedtuple('SIGNAL_DATA', (
     'fast5_fn', 'read_id', 'raw_len', 'dacs', 'raw_signal',
-    'scale_params', 'stride', 'posteriors'))
+    'scale_params', 'stride', 'posteriors', 'channel_info'))
 # set default value of None for ref, alts and ref_start
-SIGNAL_DATA.__new__.__defaults__ = tuple([None, ] * 5)
+SIGNAL_DATA.__new__.__defaults__ = tuple([None, ] * 6)
 
 LOGGER = logging.get_logger()
 
@@ -121,6 +126,39 @@ def _log_softmax_axis1(x):
     e_x = np.exp((x.T - np.max(x, axis=1)).T)
     with np.errstate(divide='ignore'):
         return np.log((e_x.T / e_x.sum(axis=1)).T)
+
+
+def get_pyguppy_read(read_id, raw_data, channel_info):
+    # TODO figure out if read_tag needs to be set
+    return {
+        'read_tag': 0,
+        'read_id': read_id,
+        'raw_data': raw_data,
+        'daq_offset': channel_info[OFST_STR],
+        'daq_scaling': channel_info[RNG_STR] / channel_info[DIGI_STR]}
+
+
+class PyguppyCalledRead(object):
+    def __init__(self, called_read):
+        """ Convert pyguppy_client_lib dict to python object
+        """
+        read_metadata = called_read['metadata']
+        self.model_type = read_metadata['basecall_type']
+        self.model_stride = read_metadata['model_stride']
+        self.mod_long_names = read_metadata['base_mod_long_names'].split()
+        self.output_alphabet = read_metadata['base_mod_alphabet']
+        if len(self.output_alphabet) == 0:
+            self.output_alphabet = mh.ALPHABET
+        self.state_size = read_metadata['state_size']
+        self.trimmed_samples = read_metadata['trimmed_samples']
+        self.scaling_shift = read_metadata['scaling_median']
+        self.scaling_scale = read_metadata['scaling_med_abs_dev']
+
+        read_datasets = called_read['datasets']
+        self.move = read_datasets['movement']
+        self.state = read_datasets['state_data']
+        self.seq = read_datasets['sequence']
+        self.qual = read_datasets['qstring']
 
 
 class ModelInfo(object):
@@ -362,49 +400,51 @@ class ModelInfo(object):
                 pyguppy=self.params.pyguppy._replace(port=used_port))
 
         def set_pyguppy_model_attributes():
-            init_client = self.pyguppy_GuppyBasecallerClient(
-                self.params.pyguppy.config, host=GUPPY_HOST,
-                port=self.params.pyguppy.port,
-                timeout=PYGUPPY_PER_TRY_TIMEOUT,
-                retries=self.pyguppy_retries)
+            init_client = PyGuppyClient(
+                '{}:{}'.format(GUPPY_HOST, self.params.pyguppy.port),
+                self.params.pyguppy.config, **PYGUPPY_CLIENT_KWARGS)
             try:
                 init_client.connect()
-                init_read = init_client.basecall(
-                    ReadData(np.zeros(init_sig_len, dtype=np.int16), 'a'),
-                    state=True, trace=True)
-            except (TimeoutError, self.zmqAgainError):
+            except ConnectionError:
+                pass
+            except ValueError:
+                pass
+            except RuntimeError:
+                pass
+            init_read = get_pyguppy_read(
+                'a', np.zeros(init_sig_len, dtype=np.int16),
+                {OFST_STR: 0, RNG_STR: 1, DIGI_STR: 1})
+            try:
+                init_called_read = self.pyguppy_basecall(
+                    init_client, init_read)
+            except mh.MegaError:
                 raise mh.MegaError(
-                    'Failed to run test read with guppy. See guppy logs in ' +
+                    'Failed to run test read with Guppy. See Guppy logs in ' +
                     '--output-directory.')
+
             init_client.disconnect()
-            if init_read.model_type not in COMPAT_GUPPY_MODEL_TYPES:
+            if init_called_read.model_type not in COMPAT_GUPPY_MODEL_TYPES:
                 raise mh.MegaError((
                     'Megalodon is not compatible with guppy model type: ' +
-                    '{}').format(init_read.model_type))
+                    '{}').format(init_called_read.model_type))
 
-            self.stride = init_read.model_stride
-            self.ordered_mod_long_names = init_read.mod_long_names
-            self.output_alphabet = init_read.mod_alphabet
-            self.output_size = init_read.state_size
+            self.stride = init_called_read.model_stride
+            self.ordered_mod_long_names = init_called_read.mod_long_names
+            self.output_alphabet = init_called_read.output_alphabet
+            self.output_size = init_called_read.state_size
             if self.ordered_mod_long_names is None:
                 self.ordered_mod_long_names = []
-            if self.output_alphabet is None:
-                self.output_alphabet = mh.ALPHABET
 
         LOGGER.info('Loading guppy basecalling backend.')
         self.model_type = PYGUPPY_NAME
         self.process_devices = [None, ] * self.num_proc
 
         # load necessary packages and store in object attrs
-        from zmq.error import Again
-        from pyguppyclient.decode import ReadData
-        from pyguppyclient.client import GuppyBasecallerClient
-        self.zmqAgainError = Again
-        self.pyguppy_ReadData = ReadData
-        self.pyguppy_GuppyBasecallerClient = GuppyBasecallerClient
-
         self.pyguppy_retries = max(
             1, int(self.params.pyguppy.timeout / PYGUPPY_PER_TRY_TIMEOUT))
+        from pyguppy_client_lib.pyclient import PyGuppyClient
+        self.pyguppy_GuppyBasecallerClient = PyGuppyClient
+
         start_guppy_server()
         set_pyguppy_model_attributes()
         self._parse_minimal_alphabet_info()
@@ -491,7 +531,8 @@ class ModelInfo(object):
                 dacs = fast5_io.get_signal(read, scale=False)
             return SIGNAL_DATA(
                 dacs=dacs, raw_len=dacs.shape[0], fast5_fn=fast5_fn,
-                read_id=read_id, stride=self.stride)
+                read_id=read_id, stride=self.stride,
+                channel_info=read.get_channel_info())
 
         raise mh.MegaError('Invalid model type')
 
@@ -531,6 +572,42 @@ class ModelInfo(object):
                     raw_mod_weights[:, lab_indices]))
         return np.concatenate(mod_layers, axis=1)
 
+    def pyguppy_basecall(self, client, read):
+        try:
+            client.pass_read(read)
+        except ValueError:
+            raise mh.MegaError(
+                'Failed to send read to guppy server. Likely malformated ' +
+                'read.')
+        except ConnectionError:
+            raise mh.MegaError(
+                'Failed to send read to guppy server. No guppy server.')
+        except RuntimeError:
+            raise mh.MegaError(
+                'Failed to send read to guppy server. Undefined guppy ' +
+                'server response.')
+
+        try:
+            while True:
+                num_tries = 0
+                try:
+                    num_tries += 1
+                    called_read = client.get_completed_reads()[0]
+                    break
+                except IndexError:
+                    if num_tries >= self.pyguppy_retries:
+                        raise mh.MegaError('Guppy server timeout')
+                    sleep(PYGUPPY_PER_TRY_TIMEOUT)
+        except ConnectionError:
+            raise mh.MegaError(
+                'Failed to retrieve read from guppy server. No guppy server ' +
+                'connection.')
+        except RuntimeError as e:
+            raise mh.MegaError(
+                'Failed to retrieve read from guppy server. Unexpected ' +
+                'error: ' + str(e))
+        return PyguppyCalledRead(called_read)
+
     def run_pyguppy_model(
             self, sig_info, return_post_w_mods, return_mod_scores,
             update_sig_info, signal_reversed):
@@ -540,13 +617,8 @@ class ModelInfo(object):
                 'initialization.')
 
         post_w_mods = mods_scores = None
-        try:
-            called_read = self.client.basecall(
-                self.pyguppy_ReadData(sig_info.dacs, sig_info.read_id),
-                state=True, trace=True)
-        except (TimeoutError, self.zmqAgainError):
-            raise mh.MegaError(
-                'Pyguppy server timeout. See --guppy-timeout option')
+        called_read = self.pyguppy_basecall(self.client, get_pyguppy_read(
+            sig_info.read_id, sig_info.dacs, sig_info.channel_info))
 
         # compute rl_cumsum from move table
         rl_cumsum = np.where(called_read.move)[0]
@@ -586,8 +658,8 @@ class ModelInfo(object):
             trimmed_dacs = sig_info.dacs[called_read.trimmed_samples:]
             # guppy does not apply the med norm factor
             scale_params = (
-                called_read.scaling[PYGUPPY_SHIFT_NAME],
-                called_read.scaling[PYGUPPY_SCALE_NAME] * mh.MED_NORM_FACTOR)
+                called_read.scaling_shift,
+                called_read.scaling_scale * mh.MED_NORM_FACTOR)
             sig_info = sig_info._replace(
                 raw_len=trimmed_dacs.shape[0], dacs=trimmed_dacs,
                 raw_signal=((trimmed_dacs - scale_params[0]) /
