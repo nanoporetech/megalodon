@@ -545,13 +545,13 @@ class ModelInfo(object):
 
         post_w_mods = mods_scores = None
         try:
-            pyguppy_read = self.pyguppy_ReadData(
-                sig_info.dacs, sig_info.read_id,
-                offset=float(sig_info.channel_info[OFST_STR]),
-                scaling=float(sig_info.channel_info[RNG_STR]) /
-                sig_info.channel_info[DIGI_STR]),
             called_read = self.client.basecall(
-                pyguppy_read, state=True, trace=True)
+                self.pyguppy_ReadData(
+                    sig_info.dacs, sig_info.read_id,
+                    offset=float(sig_info.channel_info[OFST_STR]),
+                    scaling=float(sig_info.channel_info[RNG_STR]) /
+                    sig_info.channel_info[DIGI_STR]),
+                state=True, trace=True)
         except (TimeoutError, self.zmqAgainError):
             raise mh.MegaError(
                 'Pyguppy server timeout. See --guppy-timeout option')
