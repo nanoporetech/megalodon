@@ -1028,10 +1028,13 @@ def _main(args):
             args.suppress_progress_bars, mods_info, args.database_safety,
             ref_out_info, args.rna, not args.suppress_queues_status)
 
-    if aligner is not None:
-        ref_fn = aligner.ref_fn
-        map_out_fmt = aligner.out_fmt
-        del aligner
+    if aligner is None:
+        # all other tasks require aligner
+        return
+
+    ref_fn = aligner.ref_fn
+    map_out_fmt = aligner.out_fmt
+    del aligner
 
     # start mapping processes before other post-per-read tasks
     map_p, mod_map_ps, var_map_p, var_sort_fn = start_sort_mapping_procs(

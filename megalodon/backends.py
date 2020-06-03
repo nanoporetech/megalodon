@@ -37,6 +37,9 @@ GUPPY_LOG_BASE = 'guppy_log'
 GUPPY_PORT_PAT = re.compile(r'Starting server on port:\W+(\d+)')
 PYGUPPY_SHIFT_NAME = 'median'
 PYGUPPY_SCALE_NAME = 'med_abs_dev'
+OFST_STR = 'offset'
+RNG_STR = 'range'
+DIGI_STR = 'digitisation'
 
 # maximum time (in seconds) to wait before assigning device
 # over different processes. Actual time choosen randomly
@@ -46,9 +49,9 @@ MAX_DEVICE_WAIT = 1.0
 
 SIGNAL_DATA = namedtuple('SIGNAL_DATA', (
     'fast5_fn', 'read_id', 'raw_len', 'dacs', 'raw_signal',
-    'scale_params', 'stride', 'posteriors'))
+    'scale_params', 'stride', 'posteriors', 'channel_info'))
 # set default value of None for ref, alts and ref_start
-SIGNAL_DATA.__new__.__defaults__ = tuple([None, ] * 5)
+SIGNAL_DATA.__new__.__defaults__ = tuple([None, ] * 6)
 
 LOGGER = logging.get_logger()
 
@@ -491,7 +494,8 @@ class ModelInfo(object):
                 dacs = fast5_io.get_signal(read, scale=False)
             return SIGNAL_DATA(
                 dacs=dacs, raw_len=dacs.shape[0], fast5_fn=fast5_fn,
-                read_id=read_id, stride=self.stride)
+                read_id=read_id, stride=self.stride,
+                channel_info=read.get_channel_info())
 
         raise mh.MegaError('Invalid model type')
 
@@ -541,9 +545,13 @@ class ModelInfo(object):
 
         post_w_mods = mods_scores = None
         try:
+            pyguppy_read = self.pyguppy_ReadData(
+                sig_info.dacs, sig_info.read_id,
+                offset=float(sig_info.channel_info[OFST_STR]),
+                scaling=float(sig_info.channel_info[RNG_STR]) /
+                sig_info.channel_info[DIGI_STR]),
             called_read = self.client.basecall(
-                self.pyguppy_ReadData(sig_info.dacs, sig_info.read_id),
-                state=True, trace=True)
+                pyguppy_read, state=True, trace=True)
         except (TimeoutError, self.zmqAgainError):
             raise mh.MegaError(
                 'Pyguppy server timeout. See --guppy-timeout option')
