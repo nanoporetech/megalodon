@@ -238,11 +238,9 @@ def _get_map_queue(
             strand=mh.int_strand_to_str(strand), start=r_st,
             end=r_st + nalign - nins)
         summ_fp.write(MAP_SUMM_TMPLT.format(r_map_summ))
-        summ_fp.flush()
 
     def write_pr_ref(read_id, ref_seq):
         pr_ref_fp.write('>{}\n{}\n'.format(read_id, ref_seq))
-        pr_ref_fp.flush()
 
     def get_alignment():
         ref_seq, (read_id, q_seq, chrm, strand, r_st, q_st, q_en,
