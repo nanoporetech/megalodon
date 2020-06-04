@@ -192,21 +192,21 @@ class ModsDb(object):
                 self.pos_idx[(chrm_id, -1)] = {}
         return chrm_id
 
-    def insert_chrms(self, chrm_names_and_lens):
+    def insert_chrms(self, ref_names_and_lens):
         next_chrm_id = self.get_num_uniq_chrms() + 1
         self.cur.executemany('INSERT INTO chrm (chrm, chrm_len) VALUES (?,?)',
-                             zip(*chrm_names_and_lens))
+                             zip(*ref_names_and_lens))
         if self.chrm_idx_in_mem:
             self.chrm_idx.update(zip(
-                chrm_names_and_lens[0],
+                ref_names_and_lens[0],
                 range(next_chrm_id,
-                      next_chrm_id + len(chrm_names_and_lens[0]))))
+                      next_chrm_id + len(ref_names_and_lens[0]))))
         if self.pos_idx_in_mem:
             self.pos_idx.update(
                 ((chrm_id, strand), {})
                 for chrm_id in range(
                         next_chrm_id,
-                        next_chrm_id + len(chrm_names_and_lens[0]))
+                        next_chrm_id + len(ref_names_and_lens[0]))
                 for strand in (1, -1))
 
     def insert_mod_long_names(self, mod_long_names):
@@ -487,7 +487,7 @@ class ModsDb(object):
     def get_all_chrm_and_lens(self):
         try:
             self.cur.execute('SELECT chrm, chrm_len FROM chrm')
-            return tuple((chrm, chrm_len) for chrm, chrm_len in self.cur)
+            return tuple(zip(*self.cur))
         except sqlite3.OperationalError:
             raise mh.MegaError(
                 'Old megalodon database scheme detected. Please re-run ' +
@@ -1375,7 +1375,7 @@ class ModVcfWriter(object):
         self.version = version
         contig_mis = [] if ref_names_and_lens is None else [
             mh.CONTIG_MI.format(ref_name, ref_len)
-            for ref_name, ref_len in zip(*ref_names_and_lens)]
+            for ref_name, ref_len in sorted(zip(*ref_names_and_lens))]
         self.meta = [
             mh.VCF_VERSION_MI.format(self.version),
             mh.FILE_DATE_MI.format(

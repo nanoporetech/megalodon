@@ -157,6 +157,13 @@ To perform this pre-processing use the ``megalodon_extras variants atomize`` com
 This will produce an atomized variants file.
 When running megalodon with this variants file the ``--variants-are-atomized`` flag should be set.
 
+During variant processing, the probability of a variant in isolation is computed first.
+In a second round of processing, each variant is inspected in the context of nearby variants.
+By default, all variants are considered in this second round of processing.
+For high density variants it is recommended that variants be filtered before this second round considering context variants.
+Set the ``--context-min-alt-prob`` argument in order to activate this filter (recommended values in the range ``0.01-0.05``).
+Note that this may adversely effect the calling of multiple variants in close proximity (e.g. multiple adgacent SNPs, even if they are encoded as a single variant in the provided VCF).
+
 Disk Performance Considerations
 -------------------------------
 

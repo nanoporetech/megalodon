@@ -295,6 +295,10 @@ def get_parser_calibrate_generate_variants_stats():
         '--devices', nargs='+',
         help='GPU devices for guppy or taiyaki basecalling backends.')
     misc_grp.add_argument(
+        '--not-recursive', action='store_true',
+        help='Only search for fast5 read files directly found within the ' +
+        'fast5 directory. Default: search recursively')
+    misc_grp.add_argument(
         '--processes', type=int, default=1,
         help='Number of parallel processes. Default: %(default)d')
     misc_grp.add_argument(

@@ -200,9 +200,9 @@ def compute_calibration(
         alt_llrs, num_calib_vals, smooth_bw, smooth_ls, num_proc)
 
     plateau_llr_range = determine_llr_plateau_edge(
-        sm_ref, sm_ref[::-1], num_calib_vals, diff_eps, llr_buffer, smooth_ls)
+        sm_ref, sm_alt, num_calib_vals, diff_eps, llr_buffer, smooth_ls)
     min_dens_llr_range = determine_min_dens_edge(
-        sm_ref, sm_ref[::-1], min_dens_val, smooth_ls)
+        sm_ref, sm_alt, min_dens_val, smooth_ls)
     new_input_llr_range = (max(plateau_llr_range[0], min_dens_llr_range[0]),
                            min(plateau_llr_range[1], min_dens_llr_range[1]))
     if new_input_llr_range[1] - new_input_llr_range[0] <= 0:
