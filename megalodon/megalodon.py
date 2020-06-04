@@ -185,7 +185,6 @@ def _get_bc_queue(
             bc_fp.write('@{}\n{}\n+\n{}\n'.format(read_id, r_seq, r_qual))
         else:
             bc_fp.write('>{}\n{}\n'.format(read_id, r_seq))
-        bc_fp.flush()
 
         if do_output_mods:
             try:
