@@ -82,3 +82,11 @@ Contents
    file_formats
    model_training
    modbase_training
+   extras_aggregate
+   extras_calibrate
+   extras_merge
+   extras_modified_bases
+   extras_phase_variants
+   extras_per_read_text
+   extras_validate
+   extras_variants
