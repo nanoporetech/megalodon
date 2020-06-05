@@ -92,6 +92,9 @@ class ModsDb(object):
             ('score_mod', 'INTEGER'),
             ('score_read', 'INTEGER'))))))
 
+    pos_mem_dt = np.uint32
+    pos_mem_max = np.iinfo(pos_mem_dt).max
+
     # namedtuple for returning mods from a single position
     mod_data = namedtuple('mod_data', [
         'read_id', 'chrm', 'strand', 'pos', 'score', 'mod_base', 'motif',
@@ -188,8 +191,10 @@ class ModsDb(object):
             if self.chrm_idx_in_mem:
                 self.chrm_idx[chrm] = chrm_id
             if self.pos_idx_in_mem:
-                self.pos_idx[(chrm_id, 1)] = {}
-                self.pos_idx[(chrm_id, -1)] = {}
+                self.pos_idx[(chrm_id, 1)] = np.full(
+                    chrm_len, self.pos_mem_max, self.pos_mem_dt)
+                self.pos_idx[(chrm_id, -1)] = np.full(
+                    chrm_len, self.pos_mem_max, self.pos_mem_dt)
         return chrm_id
 
     def insert_chrms(self, ref_names_and_lens):
@@ -202,11 +207,22 @@ class ModsDb(object):
                 range(next_chrm_id,
                       next_chrm_id + len(ref_names_and_lens[0]))))
         if self.pos_idx_in_mem:
+            if 2 * sum(ref_names_and_lens[1]) > self.pos_mem_max:
+                self.pos_mem_dt = np.uint64
+                self.pos_mem_max = np.iinfo(self.pos_mem_dt).max
+                if 2 * sum(ref_names_and_lens[1]) > self.pos_mem_max:
+                    raise mh.MegaError(
+                        'Cannot store modified base positions in memory for ' +
+                        'a genome this size. Please specify ' +
+                        '--mod-positions-on-disk.')
+                LOGGER.warning(
+                    'Large genome requires using 64-bit integers to store ' +
+                    'mod base positions in memory. This may cause a memory ' +
+                    'error.')
             self.pos_idx.update(
-                ((chrm_id, strand), {})
-                for chrm_id in range(
-                        next_chrm_id,
-                        next_chrm_id + len(ref_names_and_lens[0]))
+                ((chrm_i + next_chrm_id, strand), np.full(
+                    chrm_len, self.pos_mem_max, self.pos_mem_dt))
+                for chrm_i, chrm_len in enumerate(ref_names_and_lens[1])
                 for strand in (1, -1))
 
     def insert_mod_long_names(self, mod_long_names):
@@ -222,11 +238,13 @@ class ModsDb(object):
         try:
             if self.pos_idx_in_mem:
                 pos_id = self.pos_idx[(chrm_id, strand)][pos]
+                if pos_id == self.pos_mem_max:
+                    raise TypeError
             else:
                 pos_id = self.cur.execute(
                     'SELECT pos_id FROM pos WHERE pos_chrm=? AND strand=? ' +
                     'AND pos=?', (chrm_id, strand, pos)).fetchone()[0]
-        except (TypeError, KeyError):
+        except TypeError:
             self.cur.execute(
                 'INSERT INTO pos (pos_chrm, strand, pos) VALUES (?,?,?)',
                 (chrm_id, strand, pos))
@@ -249,7 +267,12 @@ class ModsDb(object):
 
         r_uniq_pos = set(itemgetter(0)(pms) for pms in r_mod_scores)
         if self.pos_idx_in_mem:
+            r_uniq_pos = np.array(list(r_uniq_pos), dtype=int)
             cs_pos_idx = self.pos_idx[(chrm_id, strand)]
+            r_poss = cs_pos_idx[r_uniq_pos]
+            # extract positions that have not yet been observed
+            pos_to_add = r_uniq_pos[np.where(np.equal(
+                r_poss, self.pos_mem_max))[0]]
         else:
             cs_pos_idx = dict(
                 pos_and_id for pos in r_uniq_pos
@@ -257,19 +280,24 @@ class ModsDb(object):
                         'SELECT pos, pos_id FROM pos ' +
                         'WHERE pos_chrm=? AND strand=? AND pos=?',
                         (chrm_id, strand, pos)).fetchall())
-        pos_to_add = tuple(r_uniq_pos.difference(cs_pos_idx))
+            pos_to_add = tuple(r_uniq_pos.difference(cs_pos_idx))
 
         if len(pos_to_add) > 0:
             next_pos_id = self.get_num_uniq_mod_pos() + 1
             self.cur.executemany(
                 'INSERT INTO pos (pos_chrm, strand, pos) VALUES (?,?,?)',
-                ((chrm_id, strand, pos) for pos in pos_to_add))
-            cs_pos_idx.update(zip(
-                pos_to_add,
-                range(next_pos_id, next_pos_id + len(pos_to_add))))
+                ((chrm_id, strand, int(pos)) for pos in pos_to_add))
+            if self.pos_idx_in_mem:
+                cs_pos_idx[pos_to_add] = np.arange(
+                    next_pos_id, next_pos_id + len(pos_to_add),
+                    dtype=self.pos_mem_dt)
+            else:
+                cs_pos_idx.update(zip(
+                    pos_to_add,
+                    range(next_pos_id, next_pos_id + len(pos_to_add))))
 
         return chain.from_iterable(
-            repeat(cs_pos_idx[pos], len(mod_lps))
+            repeat(int(cs_pos_idx[pos]), len(mod_lps))
             for pos, mod_lps, _, _, _, _ in r_mod_scores)
 
     def get_mod_base_id_or_insert(self, mod_base, motif, motif_pos, raw_motif):
