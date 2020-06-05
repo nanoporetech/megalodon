@@ -1908,7 +1908,6 @@ class VcfWriter(object):
         # VCF POS field is 1-based
         elements[self.header.index('POS')] += 1
         self.handle.write('{}\n'.format('\t'.join(map(str, elements))))
-        self.handle.flush()
 
 
 #############################

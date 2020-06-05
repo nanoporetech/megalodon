@@ -285,7 +285,6 @@ def _get_variant_calls(
             if valid_res:
                 for var_call in read_var_calls:
                     out_fp.write('{}\t{}\t{}\t{}\n'.format(*var_call))
-                out_fp.flush()
             else:
                 err_types[read_var_calls] += 1
             if not suppress_progress:
@@ -305,7 +304,6 @@ def _get_variant_calls(
         if valid_res:
             for var_call in read_var_calls:
                 out_fp.write('{}\t{}\t{}\t{}\n'.format(*var_call))
-            out_fp.flush()
         else:
             err_types[read_var_calls] += 1
         if not suppress_progress:
