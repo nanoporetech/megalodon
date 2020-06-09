@@ -472,7 +472,7 @@ class ModsDb(object):
         # Add position index numpy arrays for new chromosomes if stored in mem
         if self.in_mem_pos_to_dbid:
             if 2 * sum(ref_names_and_lens[1]) > self.pos_mem_max:
-                if len(self.pos_idx) > 0:
+                if len(self.pos_to_dbid) > 0:
                     raise mh.MegaError(POS_IDX_CHNG_ERR_MSG)
                 self.pos_mem_dt = np.uint64
                 self.pos_mem_max = np.iinfo(self.pos_mem_dt).max

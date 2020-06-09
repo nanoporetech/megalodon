@@ -18,6 +18,10 @@ def _main(args):
         in_mem_mod_to_dbid=True, in_mem_uuid_to_dbid=True,
         in_mem_pos_to_dbid=not args.mod_positions_on_disk)
 
+    LOGGER.info(
+        'Merging will proceed in five stages:\n\t1) chrmosomes\n\t2) ' +
+        'modified base definitions\n\t3) read identifiers\n\t4)reference ' +
+        'positions\n\t5) modified base statistics')
     LOGGER.info('Merging chrm tables')
     ref_names_and_lens = [[], []]
     for mega_dir in args.megalodon_results_dirs:
@@ -48,7 +52,7 @@ def _main(args):
         mods_db.close()
         bar.close()
 
-    LOGGER.info('Merging uuid tables')
+    LOGGER.info('Merging read uuid tables')
     for mega_dir in args.megalodon_results_dirs:
         mods_db = mods.ModsDb(mh.get_megalodon_fn(mega_dir, mh.PR_MOD_NAME))
         bar = tqdm(desc=mega_dir, total=mods_db.get_num_uniq_reads(),
