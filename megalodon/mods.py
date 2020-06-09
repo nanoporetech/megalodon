@@ -2039,6 +2039,7 @@ class AggMods(mh.AbstractAggregationClass):
 
         pr_mod_stats = self.mods_db.get_pos_stats(
             mod_pos, return_uuids=valid_read_ids is not None)
+        print(pr_mod_stats)
         mod_type_stats = defaultdict(dict)
         for r_stats in pr_mod_stats:
             if valid_read_ids is not None and \

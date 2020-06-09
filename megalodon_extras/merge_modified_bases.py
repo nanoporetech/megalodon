@@ -11,18 +11,9 @@ from ._extras_parsers import get_parser_merge_modified_bases
 LOGGER = logging.get_logger()
 
 
-def init_pos_dict(mods_db):
-    return dict(
-        ((chrm, strand), [])
-        for _, chrm, _ in mods_db.iter_chrms()
-        for strand in (1, -1))
-
-
-def insert_pos_data(dir_pos, out_mods_db):
-    for (chrm, strand), cs_pos in dir_pos.items():
-        out_mods_db.get_pos_dbids_or_insert(
-            cs_pos, out_mods_db.get_chrm_dbid(chrm), strand)
-
+########################
+# data table functions #
+########################
 
 def get_data_dbids(out_mods_db, chrm, strand, pos, mod_data, uuid):
     # extract output database ids
@@ -44,6 +35,7 @@ def extract_data_worker(in_db_fns_q, data_q, out_mods_db_fn, batch_size):
             in_mod_db_fn = in_db_fns_q.get(block=False)
         except queue.Empty:
             sleep(0.001)
+            continue
         if in_mod_db_fn is None:
             break
 
@@ -128,6 +120,23 @@ def insert_data(in_mod_db_fns, out_mods_db, batch_size):
         bar.close()
 
 
+#######################
+# pos table functions #
+#######################
+
+def init_pos_dict(mods_db):
+    return dict(
+        ((chrm, strand), [])
+        for _, chrm, _ in mods_db.iter_chrms()
+        for strand in (1, -1))
+
+
+def insert_pos_data(dir_pos, out_mods_db):
+    for (chrm, strand), cs_pos in dir_pos.items():
+        out_mods_db.get_pos_dbids_or_insert(
+            cs_pos, out_mods_db.get_chrm_dbid(chrm), strand)
+
+
 def extract_pos_worker(in_mod_db_fn, batch_size, pos_q):
     mods_db = mods.ModsDb(in_mod_db_fn)
     pos_batch = init_pos_dict(mods_db)
@@ -150,7 +159,7 @@ def insert_pos_mp(in_mod_db_fns, out_mods_db, batch_size):
     pos_ps = []
     for in_mod_db_fn in in_mod_db_fns:
         mods_db = mods.ModsDb(in_mod_db_fn)
-        total_batches += (mods_db.get_num_uniq_reads() // batch_size) + 1
+        total_batches += (mods_db.get_num_uniq_mod_pos() // batch_size) + 1
         mods_db.close()
         p = mp.Process(
             target=extract_pos_worker,
@@ -196,6 +205,10 @@ def insert_pos(in_mod_db_fns, out_mods_db, batch_size):
         mods_db.close()
         bar.close()
 
+
+########################
+# read table functions #
+########################
 
 def extract_reads_worker(in_mod_db_fn, batch_size, uuids_q):
     mods_db = mods.ModsDb(in_mod_db_fn)
@@ -255,11 +268,16 @@ def insert_reads(in_mod_db_fns, out_mods_db):
         bar.close()
 
 
+############################
+# mod/chrm table functions #
+############################
+
 def insert_mods(in_mod_db_fns, out_mods_db):
     LOGGER.info('Merging mod tables')
+    all_mod_long_names = set()
     for in_mod_db_fn in in_mod_db_fns:
         mods_db = mods.ModsDb(in_mod_db_fn)
-        out_mods_db.insert_mod_long_names(mods_db.get_mod_long_names())
+        all_mod_long_names.update(mods_db.get_mod_long_names())
         bar = tqdm(desc=in_mod_db_fn, total=mods_db.get_num_uniq_mods(),
                    smoothing=0, dynamic_ncols=True)
         for (_, mod_base, motif, motif_pos,
@@ -269,6 +287,7 @@ def insert_mods(in_mod_db_fns, out_mods_db):
             bar.update()
         mods_db.close()
         bar.close()
+    out_mods_db.insert_mod_long_names(list(all_mod_long_names))
 
 
 def insert_chrms(in_mod_db_fns, out_mods_db):
@@ -289,6 +308,10 @@ def insert_chrms(in_mod_db_fns, out_mods_db):
     out_mods_db.insert_chrms(ref_names_and_lens)
     out_mods_db.create_chrm_index()
 
+
+########
+# main #
+########
 
 def _main(args):
     mh.mkdir(args.output_megalodon_results_dir, args.overwrite)
