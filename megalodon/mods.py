@@ -386,12 +386,26 @@ class ModsDb(object):
             self.dbid_to_chrm = dict(
                 (dbid, (chrm, chrm_len)) for dbid, chrm, chrm_len in dbid_chrm)
 
+    def check_in_mem_pos_size(self, chrm_lens):
+        if 2 * sum(chrm_lens) > self.pos_mem_max:
+            if len(self.pos_to_dbid) > 0:
+                raise mh.MegaError(POS_IDX_CHNG_ERR_MSG)
+            self.pos_mem_dt = np.uint64
+            self.pos_mem_max = np.iinfo(self.pos_mem_dt).max
+            if 2 * sum(chrm_lens) > self.pos_mem_max:
+                raise mh.MegaError(
+                    'Cannot store modified base positions in memory for ' +
+                    'a genome this size. Please specify ' +
+                    '--mod-positions-on-disk.')
+
     def load_in_mem_pos(self):
         if not (self.in_mem_pos_to_dbid or self.in_mem_dbid_to_pos):
             return
         dbid_pos = self.cur.execute(
             'SELECT pos_id, pos_chrm, strand, pos FROM pos').fetchall()
         if self.in_mem_pos_to_dbid:
+            self.check_in_mem_pos_size([
+                chrm_len for _, _, chrm_len in self.iter_chrms()])
             # position to database id is stored as a dictionary of numpy arrays
             # this was done since standard dictionaries cause memory errors
             # for large genomes potentially toward the end of a long run.
@@ -470,20 +484,7 @@ class ModsDb(object):
 
         # Add position index numpy arrays for new chromosomes if stored in mem
         if self.in_mem_pos_to_dbid:
-            if 2 * sum(ref_names_and_lens[1]) > self.pos_mem_max:
-                if len(self.pos_to_dbid) > 0:
-                    raise mh.MegaError(POS_IDX_CHNG_ERR_MSG)
-                self.pos_mem_dt = np.uint64
-                self.pos_mem_max = np.iinfo(self.pos_mem_dt).max
-                if 2 * sum(ref_names_and_lens[1]) > self.pos_mem_max:
-                    raise mh.MegaError(
-                        'Cannot store modified base positions in memory for ' +
-                        'a genome this size. Please specify ' +
-                        '--mod-positions-on-disk.')
-                LOGGER.warning(
-                    'Large genome requires using 64-bit integers to store ' +
-                    'mod base positions in memory. This may cause a memory ' +
-                    'error.')
+            self.check_in_mem_pos_size(ref_names_and_lens[1])
             self.pos_to_dbid.update(
                 ((chrm_i + next_chrm_id, strand), np.full(
                     chrm_len, self.pos_mem_max, self.pos_mem_dt))
