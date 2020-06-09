@@ -285,7 +285,7 @@ def _process_reads_worker(
             LOGGER.debug('Unexpected error for read {}'.format(read_id))
 
     if mod_pos_conn is not None:
-        mod_pos_conn.send(None)
+        mod_pos_conn.close()
 
 
 if _DO_PROFILE:
@@ -668,6 +668,19 @@ def process_all_reads(
         p.daemon = True
         p.start()
         proc_reads_ps.append(p)
+        mod_pos_conn.close()
+
+    # extract and enter modified base position and mod_base database ids in
+    # separate processes in order to get around bottleneck in
+    # single threaded mod base database data entry
+    mod_pos_p = None
+    if mh.PR_MOD_NAME in outputs:
+        mod_pos_p = mp.Process(
+            target=mods._mod_aux_table_inserts, args=(
+                mods_db_fn, db_safety, mods_info.pos_index_in_memory,
+                mod_pos_conns), daemon=True)
+        mod_pos_p.start()
+
     # ensure process all start up before initializing mapping threads
     sleep(0.1)
 
@@ -685,17 +698,6 @@ def process_all_reads(
             t.daemon = True
             t.start()
             map_read_ts.append(t)
-
-    # extract and enter modified base position and mod_base database ids in
-    # separate processes in order to get around bottleneck in
-    # single threaded mod base database data entry
-    mod_pos_p = None
-    if mh.PR_MOD_NAME in outputs:
-        mod_pos_p = mp.Process(
-            target=mods._mod_aux_table_inserts, args=(
-                mods_db_fn, db_safety, mods_info.pos_index_in_memory,
-                mod_pos_conns), daemon=True)
-        mod_pos_p.start()
 
     try:
         files_p.join()

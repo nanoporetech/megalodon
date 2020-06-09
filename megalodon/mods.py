@@ -7,6 +7,7 @@ import sqlite3
 import datetime
 from time import sleep
 from array import array
+from multiprocessing.connection import wait
 from collections import defaultdict, namedtuple, OrderedDict
 
 import numpy as np
@@ -1413,25 +1414,20 @@ def _mod_aux_table_inserts(mod_db_fn, db_safety, pos_in_mem, mod_pos_conns):
         in_mem_dbid_to_chrm=True, in_mem_mod_to_dbid=True, read_only=False)
     # loop over connections to read worker processes until all have been
     # exhausted
-    while len(mod_pos_conns):
-        completed_conn_idx = []
-        for conn_idx, conn in enumerate(mod_pos_conns):
-            if not conn.poll():
-                continue
-            conn_res = conn.recv()
-            if conn_res is None:
-                completed_conn_idx.append(conn_idx)
-                continue
-            r_uniq_pos, r_uniq_mod_bases, chrm, strand, uuid = conn_res
-            chrm_dbid = mods_db.get_chrm_dbid(chrm)
-            r_pos_dbids = mods_db.get_pos_dbids_or_insert(
-                r_uniq_pos, chrm_dbid, strand)
-            r_mod_dbids = mods_db.get_mod_base_ids_or_insert(r_uniq_mod_bases)
-            read_dbid = mods_db.insert_read_uuid(uuid)
-            conn.send((r_pos_dbids, r_mod_dbids, read_dbid))
-
-        for idx in completed_conn_idx[::-1]:
-            del mod_pos_conns[idx]
+    while mod_pos_conns:
+        for r in wait(mod_pos_conns):
+            try:
+                conn_res = r.recv()
+            except EOFError:
+                mod_pos_conns.remove(r)
+            else:
+                r_uniq_pos, r_uniq_mod_bases, chrm, strand, uuid = conn_res
+                chrm_dbid = mods_db.get_chrm_dbid(chrm)
+                r_pos_dbids = mods_db.get_pos_dbids_or_insert(
+                    r_uniq_pos, chrm_dbid, strand)
+                r_mod_dbids = mods_db.get_mod_base_ids_or_insert(r_uniq_mod_bases)
+                read_dbid = mods_db.insert_read_uuid(uuid)
+                r.send((r_pos_dbids, r_mod_dbids, read_dbid))
 
     mods_db.close()
 
