@@ -82,7 +82,8 @@ def interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum):
 
 def process_read(
         sig_info, model_info, bc_q, caller_conn, sig_map_q, ref_out_info,
-        vars_data, vars_q, mods_q, mods_info, failed_reads_q, signal_reversed):
+        vars_data, vars_q, mods_q, mod_pos_conn, mods_info, failed_reads_q,
+        signal_reversed):
     """ Workhorse per-read megalodon function (connects all the parts)
     """
     # perform basecalling using loaded backend
@@ -163,7 +164,8 @@ def process_read(
         handle_errors(
             func=mods.call_read_mods,
             args=(r_ref_pos, r_ref_seq, ref_to_block, mapped_post_w_mods,
-                  mods_info, mod_sig_map_q, sig_map_res, signal_reversed),
+                  mods_info, mod_pos_conn, mod_sig_map_q, sig_map_res,
+                  signal_reversed, sig_info.read_id),
             r_vals=(sig_info.read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
@@ -225,9 +227,9 @@ def _get_bc_queue(
 
 
 def _process_reads_worker(
-        read_file_q, bc_q, vars_q, failed_reads_q, mods_q, caller_conn,
-        sig_map_q, ref_out_info, model_info, vars_data, mods_info, device,
-        signal_reversed):
+        read_file_q, bc_q, vars_q, failed_reads_q, mods_q, mod_pos_conn,
+        caller_conn, sig_map_q, ref_out_info, model_info, vars_data, mods_info,
+        device, signal_reversed):
     # wrap process prep in try loop to avoid stalled command
     try:
         model_info.prep_model_worker(device)
@@ -260,8 +262,8 @@ def _process_reads_worker(
                 fast5_fn, read_id, sig_map_q is not None)
             process_read(
                 sig_info, model_info, bc_q, caller_conn, sig_map_q,
-                ref_out_info, vars_data, vars_q, mods_q, mods_info,
-                failed_reads_q, signal_reversed)
+                ref_out_info, vars_data, vars_q, mods_q, mod_pos_conn,
+                mods_info, failed_reads_q, signal_reversed)
             failed_reads_q.put((
                 False, True, None, None, None, sig_info.raw_len))
             LOGGER.debug('Successfully processed read {}'.format(read_id))
@@ -281,6 +283,9 @@ def _process_reads_worker(
                 True, True, _UNEXPECTED_ERROR_CODE, fast5_fn + ':::' + read_id,
                 traceback.format_exc(), 0))
             LOGGER.debug('Unexpected error for read {}'.format(read_id))
+
+    if mod_pos_conn is not None:
+        mod_pos_conn.send(None)
 
 
 if _DO_PROFILE:
@@ -617,12 +622,15 @@ def process_all_reads(
                            for mod_base, mln in mods_info.mod_long_names]
         mods_txt_fn = (mh.get_megalodon_fn(out_dir, mh.PR_MOD_TXT_NAME)
                        if mods_info.write_mods_txt else None)
+        mods_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME)
+        mods.init_mods_db(
+            mods_db_fn, db_safety, aligner.ref_names_and_lens, mods_info)
+        # TODO handle on-disk index creation
         getter_qs[mh.PR_MOD_NAME] = mh.create_getter_q(
             mods._get_mods_queue, (
-                mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME), db_safety,
-                aligner.ref_names_and_lens, aligner.ref_fn, mods_txt_fn,
-                pr_refs_fn, ref_out_info, mod_map_fns, aligner.out_fmt,
-                mods_info))
+                mods_db_fn, db_safety, aligner.ref_names_and_lens,
+                aligner.ref_fn, mods_txt_fn, pr_refs_fn, ref_out_info,
+                mod_map_fns, aligner.out_fmt, mods_info))
     if mh.SIG_MAP_NAME in outputs:
         alphabet_info = signal_mapping.get_alphabet_info(
             ref_out_info.alphabet, ref_out_info.collapse_alphabet,
@@ -638,18 +646,23 @@ def process_all_reads(
                           suppress_progress, do_show_qs, getter_qs),
         max_size=None)
 
-    proc_reads_ps, map_conns = [], []
+    proc_reads_ps, map_conns, mod_pos_conns = [], [], []
     for device in model_info.process_devices:
         if aligner is None:
             map_conn, caller_conn = None, None
         else:
             map_conn, caller_conn = mp.Pipe()
         map_conns.append(map_conn)
+        if mh.PR_MOD_NAME in outputs:
+            mod_pos_conn, mod_pos_db_conn = mp.Pipe()
+        else:
+            mod_pos_conn, mod_pos_db_conn = None, None
+        mod_pos_conns.append(mod_pos_db_conn)
         p = mp.Process(
             target=_process_reads_worker, args=(
                 read_file_q, getter_qs[mh.BC_NAME].queue,
                 getter_qs[mh.PR_VAR_NAME].queue, fr_prog_getter.queue,
-                getter_qs[mh.PR_MOD_NAME].queue, caller_conn,
+                getter_qs[mh.PR_MOD_NAME].queue, mod_pos_conn, caller_conn,
                 getter_qs[mh.SIG_MAP_NAME].queue, ref_out_info, model_info,
                 vars_data, mods_info, device, signal_reversed))
         p.daemon = True
@@ -673,6 +686,17 @@ def process_all_reads(
             t.start()
             map_read_ts.append(t)
 
+    # extract and enter modified base position and mod_base database ids in
+    # separate processes in order to get around bottleneck in
+    # single threaded mod base database data entry
+    mod_pos_p = None
+    if mh.PR_MOD_NAME in outputs:
+        mod_pos_p = mp.Process(
+            target=mods._mod_aux_table_inserts, args=(
+                mods_db_fn, db_safety, mods_info.pos_index_in_memory,
+                mod_pos_conns), daemon=True)
+        mod_pos_p.start()
+
     try:
         files_p.join()
         for proc_reads_p in proc_reads_ps:
@@ -684,6 +708,7 @@ def process_all_reads(
         if fr_prog_getter.proc.is_alive():
             fr_prog_getter.conn.send(True)
             fr_prog_getter.proc.join()
+        mod_pos_p.join()
         for out_name, getter_q in getter_qs.items():
             if out_name in outputs and getter_q.proc.is_alive():
                 getter_q.conn.send(True)
