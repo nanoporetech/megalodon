@@ -441,7 +441,6 @@ class ModsDb(object):
         except mh.MegaError:
             self.cur.execute('INSERT INTO chrm (chrm, chrm_len) VALUES (?,?)',
                              (chrm, chrm_len))
-            self.db.commit()
             chrm_dbid = self.cur.lastrowid
             if self.in_mem_chrm_to_dbid:
                 self.chrm_to_dbid[chrm] = chrm_dbid
@@ -461,7 +460,6 @@ class ModsDb(object):
         next_chrm_id = self.get_num_uniq_chrms() + 1
         self.cur.executemany('INSERT INTO chrm (chrm, chrm_len) VALUES (?,?)',
                              zip(*ref_names_and_lens))
-        self.db.commit()
         chrm_dbids = list(range(next_chrm_id,
                                 next_chrm_id + len(ref_names_and_lens[0])))
         if self.in_mem_chrm_to_dbid:
@@ -506,7 +504,6 @@ class ModsDb(object):
             self.cur.execute(
                 'INSERT INTO pos (pos_chrm, strand, pos) VALUES (?,?,?)',
                 (chrm_dbid, strand, pos))
-            self.db.commit()
             pos_dbid = self.cur.lastrowid
             if self.in_mem_pos_to_dbid:
                 self.pos_to_dbid[(chrm_dbid, strand)][pos] = pos_dbid
@@ -551,7 +548,6 @@ class ModsDb(object):
             self.cur.executemany(
                 'INSERT INTO pos (pos_chrm, strand, pos) VALUES (?,?,?)',
                 ((chrm_dbid, strand, int(pos)) for pos in pos_to_add))
-            self.db.commit()
             pos_dbids = list(range(next_pos_id, next_pos_id + len(pos_to_add)))
             if self.in_mem_pos_to_dbid:
                 cs_pos_to_dbid[pos_to_add] = np.array(
@@ -570,7 +566,6 @@ class ModsDb(object):
         self.cur.executemany(
             'INSERT INTO mod_long_names (mod_base, mod_long_name) ' +
             'VALUES (?,?)', mod_long_names)
-        self.db.commit()
 
     def get_mod_base_dbid_or_insert(
             self, mod_base, motif, motif_pos, raw_motif):
@@ -587,7 +582,6 @@ class ModsDb(object):
             self.cur.execute(
                 'INSERT INTO mod (mod_base, motif, motif_pos, raw_motif) ' +
                 'VALUES (?,?,?,?)', (mod_base, motif, motif_pos, raw_motif))
-            self.db.commit()
             mod_dbid = self.cur.lastrowid
             if self.in_mem_mod_to_dbid:
                 self.mod_to_dbid[
@@ -631,7 +625,6 @@ class ModsDb(object):
             self.cur.executemany(
                 'INSERT INTO mod (mod_base, motif, motif_pos, raw_motif) ' +
                 'VALUES (?,?,?,?)', mod_bases_to_add)
-            self.db.commit()
             mod_dbids = list(range(next_mod_base_id,
                                    next_mod_base_id + len(mod_bases_to_add)))
             # update either extracted entries from DB or in memory index
@@ -660,7 +653,6 @@ class ModsDb(object):
                     (uuid, )).fetchone()[0]
         except (TypeError, KeyError):
             self.cur.execute('INSERT INTO read (uuid) VALUES (?)', (uuid, ))
-            self.db.commit()
             read_dbid = self.cur.lastrowid
             if self.in_mem_dbid_to_uuid:
                 self.uuid_to_dbid[uuid] = read_dbid
@@ -676,7 +668,6 @@ class ModsDb(object):
             Database ID.
         """
         self.cur.execute('INSERT INTO read (uuid) VALUES (?)', (uuid,))
-        self.db.commit()
         return self.cur.lastrowid
 
     def insert_read_data(self, r_insert_data):
@@ -689,13 +680,11 @@ class ModsDb(object):
         """
         self.cur.executemany('INSERT INTO data VALUES (?,?,?,?)',
                              r_insert_data)
-        self.db.commit()
 
     def insert_data(self, score, pos_id, mod_base_id, read_id):
         self.cur.execute(
             'INSERT INTO data (score, score_pos, score_mod, score_read) ' +
             'VALUES (?,?,?,?)', (score, pos_id, mod_base_id, read_id))
-        self.db.commit()
         return self.cur.lastrowid
 
     #########################
@@ -1252,6 +1241,7 @@ def init_mods_db(mods_db_fn, db_safety, ref_names_and_lens, mods_info):
         mods_db_fn, db_safety=db_safety, read_only=False, init_db_tables=True)
     mods_db.insert_chrms(ref_names_and_lens)
     mods_db.insert_mod_long_names(mods_info.mod_long_names)
+    mods_db.db.commit()
     LOGGER.debug((
         'mod_getter: in_mem_indices:\n\t' +
         'chrm -> dbid : {}\n\tdbid -> chrm : {}\n\t' +
@@ -1295,6 +1285,7 @@ def _get_mods_queue(
             been_warned):
         try:
             mods_db.insert_read_data(r_insert_data)
+            mods_db.db.commit()
         except Exception as e:
             if not been_warned:
                 LOGGER.warning(
@@ -1425,8 +1416,10 @@ def _mod_aux_table_inserts(mod_db_fn, db_safety, pos_in_mem, mod_pos_conns):
                 chrm_dbid = mods_db.get_chrm_dbid(chrm)
                 r_pos_dbids = mods_db.get_pos_dbids_or_insert(
                     r_uniq_pos, chrm_dbid, strand)
-                r_mod_dbids = mods_db.get_mod_base_ids_or_insert(r_uniq_mod_bases)
+                r_mod_dbids = mods_db.get_mod_base_ids_or_insert(
+                    r_uniq_mod_bases)
                 read_dbid = mods_db.insert_read_uuid(uuid)
+                mods_db.db.commit()
                 r.send((r_pos_dbids, r_mod_dbids, read_dbid))
 
     mods_db.close()
