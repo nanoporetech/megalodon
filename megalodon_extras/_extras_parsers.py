@@ -324,6 +324,10 @@ def get_parser_merge_modified_bases():
         help='Output directory. Cannot exist before this command. ' +
         'Default: %(default)s')
     parser.add_argument(
+        '--data-batch-size', type=int, default=100000,
+        help='Batch size to insert position and statistics data. ' +
+        'Default: %(default)d')
+    parser.add_argument(
         '--overwrite', action='store_true',
         help='Overwrite output directory if it exists.')
     parser.add_argument(
