@@ -56,6 +56,7 @@ def _main(args):
     LOGGER.info('Merging mod tables')
     for mega_dir in args.megalodon_results_dirs:
         mods_db = mods.ModsDb(mh.get_megalodon_fn(mega_dir, mh.PR_MOD_NAME))
+        out_mods_db.insert_mod_long_names(mods_db.get_mod_long_names())
         bar = tqdm(desc=mega_dir, total=mods_db.get_num_uniq_mods(),
                    smoothing=0, dynamic_ncols=True)
         for (_, mod_base, motif, motif_pos,

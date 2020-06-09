@@ -494,7 +494,7 @@ class ModsDb(object):
     def get_pos_dbid_or_insert(self, chrm_dbid, strand, pos):
         try:
             if self.in_mem_pos_to_dbid:
-                pos_dbid = self.pos_to_dbid[(chrm_dbid, strand)][pos]
+                pos_dbid = int(self.pos_to_dbid[(chrm_dbid, strand)][pos])
                 if pos_dbid == self.pos_mem_max:
                     raise TypeError
             else:
