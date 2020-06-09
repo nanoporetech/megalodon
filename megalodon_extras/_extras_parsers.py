@@ -328,14 +328,16 @@ def get_parser_merge_modified_bases():
         help='Batch size to insert position and statistics data. ' +
         'Default: %(default)d')
     parser.add_argument(
+        '--max-processes', type=int, default=4,
+        help='Maximum number of processes to open for reading statistics. ' +
+        'Each process must load all output database in memory indices, and ' +
+        'thus may incur high memory usage. Default: %(default)d')
+    parser.add_argument(
+        '--single-process', action='store_true',
+        help='Do not use multiprocessing with one input database per process.')
+    parser.add_argument(
         '--overwrite', action='store_true',
         help='Overwrite output directory if it exists.')
-    parser.add_argument(
-        '--mod-positions-on-disk', action='store_true',
-        help='Force modified base positions to be stored only within on ' +
-        'disk database table. This option will reduce the RAM memory ' +
-        'requirement, but may slow processing. Default: ' +
-        'Store positions in memory.')
 
     return parser
 
