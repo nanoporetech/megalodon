@@ -250,15 +250,15 @@ def _get_map_queue(
                 ref_out_info, len(q_seq), q_st, q_en, cigar):
             write_pr_ref(read_id, ref_seq)
 
+    # initialize file pointers
     summ_fp = open(mh.get_megalodon_fn(out_dir, mh.MAP_SUMM_NAME), 'w')
     summ_fp.write('\t'.join(MAP_SUMM._fields) + '\n')
-
     map_fp = open_alignment_out_file(
         out_dir, map_fmt, ref_names_and_lens, ref_fn)
-
     if do_output_pr_refs:
         pr_ref_fp = open(mh.get_megalodon_fn(out_dir, mh.PR_REF_NAME), 'w')
 
+    # loop to get alignments and write to requested files
     try:
         while True:
             try:

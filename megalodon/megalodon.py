@@ -215,11 +215,10 @@ def _get_bc_queue(
         except queue.Empty:
             if bc_conn.poll():
                 break
-            sleep(0.001)
             continue
 
     while not bc_q.empty():
-        read_id, r_seq, r_qual, mods_scores = bc_q.get(block=True, timeout=1)
+        read_id, r_seq, r_qual, mods_scores = bc_q.get(block=False)
         write_read(read_id, r_seq, r_qual, mods_scores)
 
     bc_fp.close()
@@ -249,7 +248,6 @@ def _process_reads_worker(
             try:
                 fast5_fn, read_id = read_file_q.get(block=True, timeout=1)
             except queue.Empty:
-                sleep(0.001)
                 continue
 
             if fast5_fn is None:
@@ -309,7 +307,6 @@ def post_process_mapping(map_bn, map_fmt, ref_fn):
         target=mapping.sort_and_index_mapping,
         args=(map_fn, map_sort_fn, ref_fn, True), daemon=True)
     map_p.start()
-    sleep(0.001)
 
     return map_p, map_sort_fn
 
@@ -338,8 +335,7 @@ def get_map_procs(
     if var_map_p is not None:
         if var_map_p.is_alive():
             LOGGER.info('Waiting for variant mappings sort')
-            while var_map_p.is_alive():
-                sleep(0.001)
+            var_map_p.join()
         if index_variant_fn is not None and var_sort_fn is not None:
             LOGGER.info(variants.get_whatshap_command(
                 index_variant_fn, var_sort_fn,
@@ -347,13 +343,12 @@ def get_map_procs(
     if mod_map_ps is not None:
         if any(mod_map_p.is_alive() for mod_map_p in mod_map_ps):
             LOGGER.info('Waiting for modified base mappings sort')
-            while any(mod_map_p.is_alive() for mod_map_p in mod_map_ps):
-                sleep(0.001)
+            for mod_map_p in mod_map_ps:
+                mod_map_p.join()
     if map_p is not None:
         if map_p.is_alive():
             LOGGER.info('Waiting for mappings sort')
-            while map_p.is_alive():
-                sleep(0.001)
+            map_p.join()
 
 
 ##########################
@@ -526,7 +521,6 @@ def _get_fail_queue(
                     # if all reads are done signal was sent from main thread
                     if f_conn.poll():
                         break
-                sleep(0.001)
                 continue
         except KeyboardInterrupt:
             # exit gracefully on keyboard inturrupt
@@ -669,7 +663,8 @@ def process_all_reads(
         p.daemon = True
         p.start()
         proc_reads_ps.append(p)
-        mod_pos_conn.close()
+        if mod_pos_conn is not None:
+            mod_pos_conn.close()
 
     # extract and enter modified base position and mod_base database ids in
     # separate processes in order to get around bottleneck in
@@ -711,7 +706,8 @@ def process_all_reads(
         if fr_prog_getter.proc.is_alive():
             fr_prog_getter.conn.send(True)
             fr_prog_getter.proc.join()
-        mod_pos_p.join()
+        if mod_pos_p is not None:
+            mod_pos_p.join()
         for out_name, getter_q in getter_qs.items():
             if out_name in outputs and getter_q.proc.is_alive():
                 getter_q.conn.send(True)

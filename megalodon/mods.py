@@ -5,7 +5,6 @@ import pysam
 import queue
 import sqlite3
 import datetime
-from time import sleep
 from array import array
 from multiprocessing.connection import wait
 from collections import defaultdict, namedtuple, OrderedDict
@@ -887,8 +886,11 @@ class ModsDb(object):
             for pos_dbid, (chrm_dbid, strand, pos) in self.dbid_to_pos.items():
                 yield pos_dbid, chrm_dbid, strand, pos
         elif self.in_mem_pos_to_dbid:
-            for (chrm_dbid, strand, pos), pos_dbid in self.pos_to_dbid.items():
-                yield pos_dbid, chrm_dbid, strand, pos
+            for (chrm_dbid, strand), cs_pos in self.pos_to_dbid.items():
+                valid_cs_pos = np.where(np.not_equal(
+                    cs_pos, self.pos_mem_max))[0]
+                for pos, pos_dbid in zip(valid_cs_pos, cs_pos[valid_cs_pos]):
+                    yield pos_dbid, chrm_dbid, strand, pos
         else:
             # use local cursor since other processing might use class cursor
             local_cursor = self.db.cursor()
@@ -1358,11 +1360,6 @@ def _get_mods_queue(
 
         return been_warned
 
-    def do_sleep():
-        """ Sleep in a function for profiling
-        """
-        sleep(0.001)
-
     been_warned = False
 
     mods_db = ModsDb(mods_db_fn, db_safety=db_safety, read_only=False)
@@ -1401,7 +1398,6 @@ def _get_mods_queue(
         except queue.Empty:
             if mods_conn.poll():
                 break
-            do_sleep()
             continue
         try:
             been_warned = store_mod_call(
@@ -1415,7 +1411,7 @@ def _get_mods_queue(
     while not mods_q.empty():
         (r_mod_scores, all_mods_seq, per_mod_seqs, mod_out_text), (
             read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
-            cigar) = mods_q.get(block=True, timeout=1)
+            cigar) = mods_q.get(block=False)
         try:
             been_warned = store_mod_call(
                 r_mod_scores, mod_out_text, all_mods_seq, per_mod_seqs,
