@@ -1147,9 +1147,9 @@ def call_read_mods(
         # database ids
         r_uniq_pos = sorted(set(pms[0] for pms in r_mod_scores))
         r_uniq_mod_bases = sorted(set(
-        (mod_base, motif, motif_pos, raw_motif)
-        for _, _, mod_bases, motif, motif_pos, raw_motif in r_mod_scores
-        for mod_base in mod_bases))
+            (mod_base, motif, motif_pos, raw_motif)
+            for _, _, mod_bases, motif, motif_pos, raw_motif in r_mod_scores
+            for mod_base in mod_bases))
         mod_pos_conn.send((
             r_uniq_pos, r_uniq_mod_bases, r_ref_pos.chrm, r_ref_pos.strand,
             uuid))
