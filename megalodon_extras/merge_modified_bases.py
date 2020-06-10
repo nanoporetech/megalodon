@@ -10,6 +10,8 @@ from ._extras_parsers import get_parser_merge_modified_bases
 
 LOGGER = logging.get_logger()
 
+QUEUE_SIZE_LIMIT = 100
+
 
 ########################
 # data table functions #
@@ -65,7 +67,7 @@ def insert_data_mp(
         in_db_fns_q.put(in_mod_db_fn)
     for _ in range(num_proc):
         in_db_fns_q.put(None)
-    data_q = mp.Queue()
+    data_q = mp.Queue(maxsize=QUEUE_SIZE_LIMIT)
     data_ps = []
     for _ in range(num_proc):
         p = mp.Process(
@@ -155,7 +157,7 @@ def extract_pos_worker(in_mod_db_fn, batch_size, pos_q):
 def insert_pos_mp(in_mod_db_fns, out_mods_db, batch_size):
     LOGGER.info('Merging pos tables using multiprocessing')
     total_batches = 0
-    pos_q = mp.Queue()
+    pos_q = mp.Queue(maxsize=QUEUE_SIZE_LIMIT)
     pos_ps = []
     for in_mod_db_fn in in_mod_db_fns:
         mods_db = mods.ModsDb(in_mod_db_fn)
