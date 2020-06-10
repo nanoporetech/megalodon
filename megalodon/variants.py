@@ -1093,7 +1093,8 @@ def _get_variants_queue(
     while True:
         try:
             r_var_calls, (read_id, chrm, strand, r_start, ref_seq, read_len,
-                          q_st, q_en, cigar) = vars_q.get(block=False)
+                          q_st, q_en, cigar) = vars_q.get(
+                              block=True, timeout=1)
         except queue.Empty:
             if vars_conn.poll():
                 break
@@ -1908,7 +1909,6 @@ class VcfWriter(object):
         # VCF POS field is 1-based
         elements[self.header.index('POS')] += 1
         self.handle.write('{}\n'.format('\t'.join(map(str, elements))))
-        self.handle.flush()
 
 
 #############################
