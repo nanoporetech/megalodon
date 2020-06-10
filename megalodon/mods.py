@@ -111,7 +111,8 @@ class ModsDb(object):
                  in_mem_chrm_to_dbid=False, in_mem_dbid_to_chrm=False,
                  in_mem_pos_to_dbid=False, in_mem_dbid_to_pos=False,
                  in_mem_mod_to_dbid=False, in_mem_dbid_to_mod=False,
-                 in_mem_uuid_to_dbid=False, in_mem_dbid_to_uuid=False):
+                 in_mem_uuid_to_dbid=False, in_mem_dbid_to_uuid=False,
+                 force_uint32_pos_to_dbid=False):
         """ Interface to database containing modified base statistics.
 
         Default settings are for optimal read_only performance.
@@ -127,6 +128,7 @@ class ModsDb(object):
         self.in_mem_dbid_to_pos = in_mem_dbid_to_pos
         self.in_mem_dbid_to_mod = in_mem_dbid_to_mod
         self.in_mem_dbid_to_uuid = in_mem_dbid_to_uuid
+        self.force_uint32 = force_uint32_pos_to_dbid
 
         if self.read_only:
             if not os.path.exists(fn):
@@ -388,6 +390,9 @@ class ModsDb(object):
 
     def check_in_mem_pos_size(self, chrm_lens):
         if 2 * sum(chrm_lens) > self.pos_mem_max:
+            if self.force_uint32:
+                LOGGER.warning('Forcing uint32')
+                return
             if len(self.pos_to_dbid) > 0:
                 raise mh.MegaError(POS_IDX_CHNG_ERR_MSG)
             self.pos_mem_dt = np.uint64
@@ -663,6 +668,40 @@ class ModsDb(object):
                 self.uuid_to_dbid[uuid] = read_dbid
         return read_dbid
 
+    def get_read_dbids_or_insert(self, uuids):
+        """ Get database IDs for a list of uuids. If values are not found in
+        the database they will be inserted.
+
+        Args:
+            uuids (list): Unique read identifiers (str)
+
+        Returns:
+            List of database IDs (int)
+        """
+        if self.in_mem_uuid_to_dbid:
+            uuid_to_dbid = self.uuid_to_dbid
+        else:
+            uuid_to_dbid = dict(
+                (uuid, uuid_dbid[0]) for uuid in uuids for uuid_dbid in
+                self.cur.execute('SELECT read_id FROM read WHERE uuid=?',
+                                 uuid).fetchall())
+
+        uuids_to_add = tuple(set(uuids).difference(uuid_to_dbid))
+
+        if len(uuids_to_add) > 0:
+            next_read_dbid = self.get_num_uniq_reads() + 1
+            self.cur.executemany(
+                'INSERT INTO read (uuid) VALUES (?)',
+                ((uuid, ) for uuid in uuids_to_add))
+            read_dbids = list(range(next_read_dbid,
+                                    next_read_dbid + len(uuids_to_add)))
+            # update either extracted entries from DB or in memory index
+            uuid_to_dbid.update(zip(uuids_to_add, read_dbids))
+            if self.in_mem_dbid_to_uuid:
+                self.dbid_to_uuid.update(zip(read_dbids, uuids_to_add))
+
+        return [uuid_to_dbid[uuid] for uuid in uuids]
+
     def insert_read_uuid(self, uuid):
         """ Insert unique read identifier into database.
 
@@ -779,9 +818,6 @@ class ModsDb(object):
         """
         if self.in_mem_dbid_to_chrm:
             for chrm_dbid, (chrm, chrm_len) in self.dbid_to_chrm.items():
-                yield chrm_dbid, chrm, chrm_len
-        elif self.in_mem_chrm_to_dbid:
-            for (chrm, chrm_len), chrm_dbid in self.chrm_to_dbid.items():
                 yield chrm_dbid, chrm, chrm_len
         else:
             # use local cursor since other processing might use class cursor
