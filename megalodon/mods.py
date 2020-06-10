@@ -404,6 +404,7 @@ class ModsDb(object):
         dbid_pos = self.cur.execute(
             'SELECT pos_id, pos_chrm, strand, pos FROM pos').fetchall()
         if self.in_mem_pos_to_dbid:
+            self.pos_to_dbid = {}
             self.check_in_mem_pos_size([
                 chrm_len for _, _, chrm_len in self.iter_chrms()])
             # position to database id is stored as a dictionary of numpy arrays
@@ -524,16 +525,21 @@ class ModsDb(object):
         Returns:
             List of position database IDs for each entry in r_uniq_pos.
         """
+        def add_pos_to_db(pos_to_add):
+            # separate function for profiling
+            self.cur.executemany(
+                'INSERT INTO pos (pos_chrm, strand, pos) VALUES (?,?,?)',
+                ((chrm_dbid, strand, int(pos)) for pos in pos_to_add))
+
         if len(r_uniq_pos) == 0:
             return []
 
         if self.in_mem_pos_to_dbid:
-            r_uniq_pos = np.array(r_uniq_pos, dtype=int)
             cs_pos_to_dbid = self.pos_to_dbid[(chrm_dbid, strand)]
-            r_poss = cs_pos_to_dbid[r_uniq_pos]
             # extract positions that have not yet been observed
-            pos_to_add = r_uniq_pos[np.where(np.equal(
-                r_poss, self.pos_mem_max))[0]]
+            pos_to_add = [
+                r_uniq_pos[to_add_idx] for to_add_idx in np.where(np.equal(
+                    cs_pos_to_dbid[r_uniq_pos], self.pos_mem_max))[0]]
         else:
             cs_pos_to_dbid = dict(
                 pos_and_dbid for pos in r_uniq_pos
@@ -546,9 +552,7 @@ class ModsDb(object):
         # insert positions and update in memory indices
         if len(pos_to_add) > 0:
             next_pos_id = self.get_num_uniq_mod_pos() + 1
-            self.cur.executemany(
-                'INSERT INTO pos (pos_chrm, strand, pos) VALUES (?,?,?)',
-                ((chrm_dbid, strand, int(pos)) for pos in pos_to_add))
+            add_pos_to_db(pos_to_add)
             pos_dbids = list(range(next_pos_id, next_pos_id + len(pos_to_add)))
             if self.in_mem_pos_to_dbid:
                 cs_pos_to_dbid[pos_to_add] = np.array(
@@ -1102,6 +1106,23 @@ def call_read_mods(
                     break
                 yield m_pos, mod_bases, motif_match.group(), rel_pos, raw_motif
 
+    def get_pos_mod_read_dbids(r_mod_scores):
+        # send unique positions and mod bases to connection to extract
+        # database ids
+        r_uniq_pos = sorted(set(pms[0] for pms in r_mod_scores))
+        r_uniq_mod_bases = sorted(set(
+        (mod_base, motif, motif_pos, raw_motif)
+        for _, _, mod_bases, motif, motif_pos, raw_motif in r_mod_scores
+        for mod_base in mod_bases))
+        mod_pos_conn.send((
+            r_uniq_pos, r_uniq_mod_bases, r_ref_pos.chrm, r_ref_pos.strand,
+            uuid))
+        r_pos_dbids, r_mod_dbids, read_dbid = mod_pos_conn.recv()
+        # enumerate data to be added to main data table
+        r_pos_dbids = dict(zip(r_uniq_pos, r_pos_dbids))
+        r_mod_dbids = dict(zip(r_uniq_mod_bases, r_mod_dbids))
+        return r_pos_dbids, r_mod_dbids, read_dbid
+
     # call all mods overlapping this read
     r_mod_scores = []
     # ignore when one or more mod_llrs is -inf (or close enough for exp)
@@ -1198,18 +1219,7 @@ def call_read_mods(
 
         mod_sig_map_q.put(signal_mapping.get_remapping(*sig_map_res[1:]))
 
-    # send unique positions and mod bases to connection to extract database ids
-    r_uniq_pos = sorted(set(pms[0] for pms in r_mod_scores))
-    r_uniq_mod_bases = sorted(set(
-        (mod_base, motif, motif_pos, raw_motif)
-        for _, _, mod_bases, motif, motif_pos, raw_motif in r_mod_scores
-        for mod_base in mod_bases))
-    mod_pos_conn.send((
-        r_uniq_pos, r_uniq_mod_bases, r_ref_pos.chrm, r_ref_pos.strand, uuid))
-    r_pos_dbids, r_mod_dbids, read_dbid = mod_pos_conn.recv()
-    # enumerate data to be added to main data table
-    r_pos_dbids = dict(zip(r_uniq_pos, r_pos_dbids))
-    r_mod_dbids = dict(zip(r_uniq_mod_bases, r_mod_dbids))
+    r_pos_dbids, r_mod_dbids, read_dbid = get_pos_mod_read_dbids(r_mod_scores)
     r_insert_data = [
         (mod_lp, r_pos_dbids[mod_pos],
          r_mod_dbids[(mod_base, ref_motif, rel_pos, raw_motif)], read_dbid)
@@ -1351,7 +1361,7 @@ def _get_mods_queue(
             # note strand is +1 for fwd or -1 for rev
             (r_mod_scores, all_mods_seq, per_mod_seqs, mod_out_text), (
                 read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
-                cigar) = mods_q.get(block=False)
+                cigar) = mods_q.get(block=True, timeout=1)
         except queue.Empty:
             if mods_conn.poll():
                 break
@@ -1369,7 +1379,7 @@ def _get_mods_queue(
     while not mods_q.empty():
         (r_mod_scores, all_mods_seq, per_mod_seqs, mod_out_text), (
             read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
-            cigar) = mods_q.get(block=False)
+            cigar) = mods_q.get(block=True, timeout=1)
         try:
             been_warned = store_mod_call(
                 r_mod_scores, mod_out_text, all_mods_seq, per_mod_seqs,

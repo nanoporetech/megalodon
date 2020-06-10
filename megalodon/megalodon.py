@@ -209,7 +209,8 @@ def _get_bc_queue(
 
     while True:
         try:
-            read_id, r_seq, r_qual, mods_scores = bc_q.get(block=False)
+            read_id, r_seq, r_qual, mods_scores = bc_q.get(
+                block=True, timeout=1)
             write_read(read_id, r_seq, r_qual, mods_scores)
         except queue.Empty:
             if bc_conn.poll():
@@ -218,7 +219,7 @@ def _get_bc_queue(
             continue
 
     while not bc_q.empty():
-        read_id, r_seq, r_qual, mods_scores = bc_q.get(block=False)
+        read_id, r_seq, r_qual, mods_scores = bc_q.get(block=True, timeout=1)
         write_read(read_id, r_seq, r_qual, mods_scores)
 
     bc_fp.close()
@@ -246,7 +247,7 @@ def _process_reads_worker(
     while True:
         try:
             try:
-                fast5_fn, read_id = read_file_q.get(block=False)
+                fast5_fn, read_id = read_file_q.get(block=True, timeout=1)
             except queue.Empty:
                 sleep(0.001)
                 continue
@@ -511,7 +512,7 @@ def _get_fail_queue(
         try:
             try:
                 (is_err, do_update_prog, err_type, fast5_fn,
-                 err_tb, n_sig) = failed_reads_q.get(block=False)
+                 err_tb, n_sig) = failed_reads_q.get(block=True, timeout=1)
                 sig_called += n_sig
                 reads_called += 1
                 unexp_err_fp, last_err_write = update_prog(
