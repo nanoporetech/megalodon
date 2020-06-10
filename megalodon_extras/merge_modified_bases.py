@@ -149,6 +149,7 @@ def extract_pos_worker(in_mod_db_fn, batch_size, pos_q):
         if num_pos >= batch_size:
             pos_q.put(pos_batch)
             pos_batch = init_pos_dict(mods_db)
+            num_pos = 0
     if num_pos >= 0:
         pos_q.put(pos_batch)
     mods_db.close()
