@@ -56,7 +56,7 @@ def extract_data_worker(
         if len(batch_data) > 0:
             data_q.put(batch_data)
         mods_db.close()
-
+        out_mods_db.db.commit()
     out_mods_db.close()
 
 
@@ -356,10 +356,12 @@ def _main(args):
         insert_data_mp(in_mod_db_fns, out_mods_db, out_mods_db_fn,
                        args.data_batch_size, args.max_processes,
                        args.force_uint32_pos_index)
+    out_mods_db.db.commit()
 
     LOGGER.info(
         'Creating data covering index for efficient searching by position')
     out_mods_db.create_data_covering_index()
+    out_mods_db.db.commit()
     out_mods_db.close()
 
 
