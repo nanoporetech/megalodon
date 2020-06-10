@@ -32,7 +32,7 @@ def _agg_vars_worker(
 
     while True:
         try:
-            var_loc = locs_q.get(block=False)
+            var_loc = locs_q.get(block=True, timeout=1)
         except queue.Empty:
             sleep(0.001)
             continue
@@ -62,7 +62,7 @@ def _get_var_stats_queue(
 
     while True:
         try:
-            var_var = var_stats_q.get(block=False)
+            var_var = var_stats_q.get(block=True, timeout=1)
             if var_var is None:
                 continue
             agg_var_fp.write_variant(var_var)
@@ -84,7 +84,7 @@ def _agg_mods_worker(
         valid_read_ids, write_mod_lp):
     # functions for profiling purposes
     def get_pos_data():
-        return pos_q.get(block=False)
+        return pos_q.get(block=True, timeout=1)
 
     def put_mod_site(mod_site):
         mod_stats_q.put(mod_site)
@@ -129,7 +129,7 @@ def _get_mod_stats_queue(
         out_suffix, write_mod_lp, mod_output_fmts):
     def get_mod_site():
         # function for profiling purposes
-        return mod_stats_q.get(block=False)
+        return mod_stats_q.get(block=True, timeout=1)
 
     def do_sleep():
         # function for profiling purposes
@@ -198,7 +198,7 @@ def _agg_prog_worker(
 
     while True:
         try:
-            var_prog_q.get(block=False)
+            var_prog_q.get(block=True, timeout=1)
             if not suppress_progress:
                 if var_bar is not None:
                     var_bar.update(1)
@@ -206,7 +206,7 @@ def _agg_prog_worker(
                     mod_bar.update(0)
         except queue.Empty:
             try:
-                mod_prog_q.get(block=False)
+                mod_prog_q.get(block=True, timeout=1)
                 if not suppress_progress:
                     if var_bar is not None:
                         var_bar.update(0)
