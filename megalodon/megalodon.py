@@ -535,6 +535,7 @@ def _get_fail_queue(
         if q_bars is not None:
             for q_bar in q_bars.values():
                 q_bar.close()
+            sys.stderr.write('\n' * (len(q_bars) + 1))
 
     if len(failed_reads[_UNEXPECTED_ERROR_CODE]) >= 1:
         LOGGER.warning((
