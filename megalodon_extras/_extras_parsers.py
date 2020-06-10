@@ -342,6 +342,12 @@ def get_parser_merge_modified_bases():
         'gigabases. If set, no more than 2.1 billion unique stranded ' +
         'reference sites should contain modified base scores.')
     parser.add_argument(
+        '--database-safety', type=int, default=1,
+        help='Setting for database performance versus corruption ' +
+        'protection. Options: 0 (DB corruption on application crash), ' +
+        '1 (DB corruption on system crash), 2 (DB safe mode). ' +
+        'Default: %(default)d')
+    parser.add_argument(
         '--overwrite', action='store_true',
         help='Overwrite output directory if it exists.')
 

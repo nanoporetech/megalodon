@@ -27,13 +27,14 @@ def get_data_dbids(out_mods_db, chrm, strand, pos, mod_data, uuid):
 
 
 def extract_data_worker(
-        in_db_fns_q, data_q, out_mods_db_fn, batch_size, force_uint32):
+        in_db_fns_q, data_q, out_mods_db_fn, batch_size, force_uint32,
+        db_safety):
     # load output database with all in memory indices
     out_mods_db = mods.ModsDb(
         out_mods_db_fn, read_only=True,
         in_mem_chrm_to_dbid=True, in_mem_mod_to_dbid=True,
         in_mem_uuid_to_dbid=True, in_mem_pos_to_dbid=True,
-        force_uint32_pos_to_dbid=force_uint32)
+        force_uint32_pos_to_dbid=force_uint32, db_safety=db_safety)
     while True:
         try:
             in_mod_db_fn = in_db_fns_q.get(block=False)
@@ -62,7 +63,7 @@ def extract_data_worker(
 
 def insert_data_mp(
         in_mod_db_fns, out_mods_db, out_mods_db_fn, batch_size, max_proc,
-        force_uint32):
+        force_uint32, db_safety):
     LOGGER.info('Merging modified base data using multiprocessing')
     num_proc = min(max_proc, len(in_mod_db_fns))
     in_db_fns_q = mp.Queue()
@@ -76,7 +77,7 @@ def insert_data_mp(
         p = mp.Process(
             target=extract_data_worker,
             args=(in_db_fns_q, data_q, out_mods_db_fn, batch_size,
-                  force_uint32), daemon=True)
+                  force_uint32, db_safety), daemon=True)
         p.start()
         data_ps.append(p)
 
@@ -330,7 +331,8 @@ def _main(args):
         out_mods_db_fn, read_only=False, init_db_tables=True,
         in_mem_chrm_to_dbid=True, in_mem_mod_to_dbid=True,
         in_mem_uuid_to_dbid=True, in_mem_pos_to_dbid=True,
-        force_uint32_pos_to_dbid=args.force_uint32_pos_index)
+        force_uint32_pos_to_dbid=args.force_uint32_pos_index,
+        db_safety=args.database_safety)
 
     in_mod_db_fns = [mh.get_megalodon_fn(mega_dir, mh.PR_MOD_NAME)
                      for mega_dir in args.megalodon_results_dirs]
@@ -353,9 +355,10 @@ def _main(args):
     if args.single_process:
         insert_data(in_mod_db_fns, out_mods_db, args.data_batch_size)
     else:
-        insert_data_mp(in_mod_db_fns, out_mods_db, out_mods_db_fn,
-                       args.data_batch_size, args.max_processes,
-                       args.force_uint32_pos_index)
+        insert_data_mp(
+            in_mod_db_fns, out_mods_db, out_mods_db_fn, args.data_batch_size,
+            args.max_processes, args.force_uint32_pos_index,
+            db_safety=args.database_safety)
     out_mods_db.db.commit()
 
     LOGGER.info(
