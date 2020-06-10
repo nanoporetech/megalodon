@@ -111,7 +111,8 @@ class ModsDb(object):
                  in_mem_chrm_to_dbid=False, in_mem_dbid_to_chrm=False,
                  in_mem_pos_to_dbid=False, in_mem_dbid_to_pos=False,
                  in_mem_mod_to_dbid=False, in_mem_dbid_to_mod=False,
-                 in_mem_uuid_to_dbid=False, in_mem_dbid_to_uuid=False):
+                 in_mem_uuid_to_dbid=False, in_mem_dbid_to_uuid=False,
+                 force_uint32_pos_to_dbid=False):
         """ Interface to database containing modified base statistics.
 
         Default settings are for optimal read_only performance.
@@ -127,6 +128,7 @@ class ModsDb(object):
         self.in_mem_dbid_to_pos = in_mem_dbid_to_pos
         self.in_mem_dbid_to_mod = in_mem_dbid_to_mod
         self.in_mem_dbid_to_uuid = in_mem_dbid_to_uuid
+        self.force_uint32 = force_uint32_pos_to_dbid
 
         if self.read_only:
             if not os.path.exists(fn):
@@ -388,6 +390,9 @@ class ModsDb(object):
 
     def check_in_mem_pos_size(self, chrm_lens):
         if 2 * sum(chrm_lens) > self.pos_mem_max:
+            if self.force_uint32:
+                LOGGER.warning('Forcing uint32')
+                return
             if len(self.pos_to_dbid) > 0:
                 raise mh.MegaError(POS_IDX_CHNG_ERR_MSG)
             self.pos_mem_dt = np.uint64
