@@ -98,12 +98,15 @@ def process_read(
         if signal_reversed:
             if mods_scores is not None:
                 mods_scores = mods_scores[::-1]
+            # convert seq_summ_info to tuple since namedtuples can't be
+            # pickled for passing through a queue.
             bc_q.put((
                 sig_info.read_id, r_seq[::-1], r_qual[::-1], mods_scores,
-                seq_summ_info))
+                tuple(seq_summ_info)))
         else:
             bc_q.put((
-                sig_info.read_id, r_seq, r_qual, mods_scores, seq_summ_info))
+                sig_info.read_id, r_seq, r_qual, mods_scores,
+                tuple(seq_summ_info)))
 
     # if no mapping connection return after basecalls are passed out
     if caller_conn is None:
@@ -193,10 +196,10 @@ def _get_bc_queue(
 
         # TODO fill out as many of these attributes as possible from this point
         """seq_summ_info = seq_summ_info._replace(
-        seq_summ_ passes_filtering, template_start, num_events_template,
-        template_duration, sequence_length_template, mean_qscore_template,
-        strand_score_template, median_template, mad_template,
-        scaling_median_template, scaling_mad_template)"""
+            passes_filtering, template_start, num_events_template,
+            template_duration, sequence_length_template, mean_qscore_template,
+            strand_score_template, median_template, mad_template,
+            scaling_median_template, scaling_mad_template)"""
         seq_summ_fp.write('\t'.join(map(str, seq_summ_info)) + '\n')
 
         if do_output_mods:
@@ -224,6 +227,9 @@ def _get_bc_queue(
         try:
             read_id, r_seq, r_qual, mods_scores, seq_summ_info = bc_q.get(
                 block=True, timeout=1)
+            # convert seq_summ_info back into namedtuple after passing through
+            # queue
+            seq_summ_info = mh.SEQ_SUMM_INFO(*seq_summ_info)
             write_read(read_id, r_seq, r_qual, mods_scores, seq_summ_info)
         except queue.Empty:
             if bc_conn.poll():
@@ -234,6 +240,7 @@ def _get_bc_queue(
     while not bc_q.empty():
         read_id, r_seq, r_qual, mods_scores, seq_summ_info = bc_q.get(
             block=False)
+        seq_summ_info = mh.SEQ_SUMM_INFO(*seq_summ_info)
         write_read(read_id, r_seq, r_qual, mods_scores, seq_summ_info)
 
     bc_fp.close()

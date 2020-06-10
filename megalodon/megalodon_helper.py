@@ -252,9 +252,15 @@ def log_prob_to_phred(log_prob, ignore_np_divide=True):
 def extract_seq_summary_info(read):
     channel_info = read.get_channel_info()
     read_info = read.status.read_info[0]
+    run_id = read.get_run_id()
+    try:
+        run_id = run_id.decode()
+    except AttributeError:
+        pass
+    run_id = str(run_id)
     return SEQ_SUMM_INFO(
         filename=read.filename, read_id=read.read_id,
-        run_id=str(read.get_run_id()), batch_id='NA',
+        run_id=str(), batch_id='NA',
         channel=channel_info[CHAN_INFO_CHANNEL_SLOT],
         mux=read_info.start_mux, start_time=read_info.start_time,
         duration=read_info.duration, num_events='NA')
