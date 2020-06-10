@@ -50,8 +50,8 @@ POS_IDX_CHNG_ERR_MSG = (
 
 OUT_BUFFER_LIMIT = 10000
 
-_PROFILE_MODS_QUEUE = False
-_PROFILE_MODS_AUX = False
+_PROFILE_MODS_QUEUE = True
+_PROFILE_MODS_AUX = True
 
 LOGGER = logging.get_logger()
 
@@ -1127,8 +1127,8 @@ def score_mod_seq(
 
 
 def call_read_mods(
-        r_ref_pos, r_ref_seq, ref_to_block, r_post, mods_info, mod_pos_conn,
-        mod_sig_map_q, sig_map_res, signal_reversed, uuid):
+        r_ref_pos, r_ref_seq, ref_to_block, r_post, mods_info, mod_data_size,
+        mod_pos_conn, mod_sig_map_q, sig_map_res, signal_reversed, uuid):
     def iter_motif_sites():
         search_ref_seq = r_ref_seq[::-1] if signal_reversed else r_ref_seq
         ref_seq_len = len(r_ref_seq)
@@ -1278,6 +1278,12 @@ def call_read_mods(
                     can_lp, mod_base, '{}:{}'.format(raw_motif, rel_pos))
                 for mod_lp, mod_base in zip(mod_lps, mod_bases))) + '\n'
 
+    with mod_data_size.get_lock():
+        mod_data_size.value += 1
+        mds = mod_data_size.value
+    # enforce artificial queue max size with dulplex pipes
+    if mds >= mh._MAX_QUEUE_SIZE:
+        sleep(1)
     return r_insert_data, all_mods_seq, per_mod_seqs, mod_out_text
 
 
@@ -1305,9 +1311,9 @@ def init_mods_db(mods_db_fn, db_safety, ref_names_and_lens, mods_info):
 
 
 def _get_mods_queue(
-        mods_q, mods_conn, mods_db_fn, db_safety, ref_names_and_lens, ref_fn,
-        mods_txt_fn, pr_refs_fn, ref_out_info, mod_map_fns, map_fmt,
-        mods_info):
+        mod_data_db_conns, mod_data_size, mods_db_fn, db_safety,
+        ref_names_and_lens, ref_fn, mods_txt_fn, pr_refs_fn, ref_out_info,
+        mod_map_fns, map_fmt, mods_info):
     def write_mod_alignment(
             read_id, mod_seq, mod_quals, chrm, strand, r_st, fp):
         a = pysam.AlignedSegment()
@@ -1389,16 +1395,18 @@ def _get_mods_queue(
 
     LOGGER.debug('mod_getter: init complete')
 
-    while True:
-        try:
-            # note strand is +1 for fwd or -1 for rev
-            (r_mod_scores, all_mods_seq, per_mod_seqs, mod_out_text), (
-                read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
-                cigar) = mods_q.get(block=True, timeout=1)
-        except queue.Empty:
-            if mods_conn.poll():
-                break
-            continue
+    while mod_data_db_conns:
+        for r in wait(mod_data_db_conns):
+            try:
+                mod_res = r.recv()
+                with mod_data_size.get_lock():
+                    mod_data_size.value -= 1
+            except EOFError:
+                mod_data_db_conns.remove(r)
+                continue
+        (r_mod_scores, all_mods_seq, per_mod_seqs, mod_out_text), (
+            read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
+            cigar) = mod_res
         try:
             been_warned = store_mod_call(
                 r_mod_scores, mod_out_text, all_mods_seq, per_mod_seqs,

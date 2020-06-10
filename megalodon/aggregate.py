@@ -31,7 +31,7 @@ def _agg_vars_worker(
 
     while True:
         try:
-            var_loc = locs_q.get(block=True, timeout=1)
+            var_loc = locs_q.get(block=True, timeout=0.01)
         except queue.Empty:
             continue
         if var_loc is None:
@@ -60,7 +60,7 @@ def _get_var_stats_queue(
 
     while True:
         try:
-            var_var = var_stats_q.get(block=True, timeout=1)
+            var_var = var_stats_q.get(block=True, timeout=0.01)
             if var_var is None:
                 continue
             agg_var_fp.write_variant(var_var)
@@ -81,7 +81,7 @@ def _agg_mods_worker(
         valid_read_ids, write_mod_lp):
     # functions for profiling purposes
     def get_pos_data():
-        return pos_q.get(block=True, timeout=1)
+        return pos_q.get(block=True, timeout=0.01)
 
     def put_mod_site(mod_site):
         mod_stats_q.put(mod_site)
@@ -122,7 +122,7 @@ def _get_mod_stats_queue(
         out_suffix, write_mod_lp, mod_output_fmts):
     def get_mod_site():
         # function for profiling purposes
-        return mod_stats_q.get(block=True, timeout=1)
+        return mod_stats_q.get(block=True, timeout=0.01)
 
     agg_mod_bn = mh.get_megalodon_fn(out_dir, mh.MOD_NAME)
     if out_suffix is not None:
