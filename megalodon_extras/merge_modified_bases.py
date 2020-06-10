@@ -37,7 +37,7 @@ def extract_data_worker(
         force_uint32_pos_to_dbid=force_uint32, db_safety=db_safety)
     while True:
         try:
-            in_mod_db_fn = in_db_fns_q.get(block=False)
+            in_mod_db_fn = in_db_fns_q.get(block=True, timeout=1)
         except queue.Empty:
             sleep(0.001)
             continue
@@ -90,7 +90,7 @@ def insert_data_mp(
                smoothing=0, dynamic_ncols=True)
     while any(p.is_alive() for p in data_ps):
         try:
-            batch_data = data_q.get(block=False)
+            batch_data = data_q.get(block=True, timeout=1)
         except queue.Empty:
             sleep(0.001)
             continue
@@ -178,7 +178,7 @@ def insert_pos_mp(in_mod_db_fns, out_mods_db, batch_size):
                smoothing=0, dynamic_ncols=True)
     while any(p.is_alive() for p in pos_ps):
         try:
-            pos_batch = pos_q.get(block=False)
+            pos_batch = pos_q.get(block=True, timeout=1)
         except queue.Empty:
             sleep(0.001)
             continue
@@ -249,7 +249,7 @@ def insert_reads_mp(in_mod_db_fns, out_mods_db, batch_size):
                smoothing=0, dynamic_ncols=True)
     while any(p.is_alive() for p in uuids_ps):
         try:
-            uuids_batch = uuids_q.get(block=False)
+            uuids_batch = uuids_q.get(block=True, timeout=1)
         except queue.Empty:
             sleep(0.001)
             continue
