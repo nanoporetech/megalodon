@@ -104,7 +104,7 @@ def write_signal_mappings(sig_map_q, sig_map_conn, sig_map_fn, alphabet_info):
     def iter_mappings():
         while True:
             try:
-                read_mapping = sig_map_q.get(block=False)
+                read_mapping = sig_map_q.get(block=True, timeout=1)
                 yield read_mapping
             except queue.Empty:
                 if sig_map_conn.poll():

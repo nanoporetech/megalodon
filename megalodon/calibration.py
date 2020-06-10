@@ -99,7 +99,7 @@ def _compute_smooth_density_worker(llr_q, smooth_llr_q, smooth_bw, smooth_ls):
 
     while True:
         try:
-            batch_llrs = llr_q.get(block=False)
+            batch_llrs = llr_q.get(block=True, timeout=1)
         except queue.Empty:
             sleep(0.001)
             continue
@@ -139,7 +139,7 @@ def compute_smooth_density_mp(
     total_nvals = 0
     while any(p.is_alive() for p in smooth_ps):
         try:
-            batch_smooth_vals, nvals = smooth_llr_q.get(block=False)
+            batch_smooth_vals, nvals = smooth_llr_q.get(block=True, timeout=1)
         except queue.Empty:
             sleep(0.001)
             continue
