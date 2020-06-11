@@ -287,13 +287,6 @@ def _process_reads_worker(
                 traceback.format_exc(), 0))
             LOGGER.debug('Unexpected error for read {}'.format(read_id))
 
-    if mod_data_conn is not None:
-        mod_data_conn.close()
-        mod_pos_conn.close()
-    if mods_q is not None:
-        # indicate the queue is exhausted from this process
-        mods_q.put(None)
-
 
 if _DO_PROFILE:
     _process_reads_wrapper = _process_reads_worker
@@ -597,8 +590,6 @@ def process_all_reads(
             mh.BC_NAME, mh.MAP_NAME, mh.SIG_MAP_NAME, mh.PR_VAR_NAME))
     # handle mods more efficiently via list of pipes
     mod_res_p = mod_pos_p = mod_data_size = None
-    mod_pos_proc_conns = [None, ] * model_info.num_proc
-    mod_data_proc_conns = [None, ] * model_info.num_proc
     if mh.BC_NAME in outputs or mh.BC_MODS_NAME in outputs:
         if mh.BC_NAME not in outputs:
             outputs.append(mh.BC_NAME)
@@ -643,32 +634,7 @@ def process_all_reads(
             mods_db_fn, db_safety, aligner.ref_names_and_lens, mods_info)
         # multiprocessing int to count current queue size
         mod_data_size = mp.Value('i', 0)
-        mod_data_proc_conns, mod_data_db_conns = [], []
-        for _ in range(model_info.num_proc):
-            mod_data_db_conn, mod_data_proc_conn = mp.Pipe(duplex=False)
-            mod_data_db_conns.append(mod_data_db_conn)
-            mod_data_proc_conns.append(mod_data_proc_conn)
-
-        # extract and enter modified base position and mod_base database ids in
-        # separate processes in order to get around bottleneck in
-        # single threaded mod base database data entry
-        mod_pos_proc_conns, mod_pos_db_conns = [], []
-        for _ in range(model_info.num_proc):
-            mod_pos_db_conn, mod_pos_proc_conn = mp.Pipe()
-            mod_pos_db_conns.append(mod_pos_db_conn)
-            mod_pos_proc_conns.append(mod_pos_proc_conn)
-        mod_pos_p = mp.Process(
-            target=mods._mod_aux_table_inserts, args=(
-                mods_db_fn, db_safety, mods_info.pos_index_in_memory,
-                mod_pos_db_conns), daemon=True)
-        mod_pos_p.start()
-        mod_res_p = mp.Process(
-            target=mods._get_mods_queue, daemon=True, args=(
-                mod_data_db_conns, mod_data_size, mods_db_fn, db_safety,
-                aligner.ref_names_and_lens, aligner.ref_fn, mods_txt_fn,
-                pr_refs_fn, ref_out_info, mod_map_fns, aligner.out_fmt,
-                mods_info))
-        mod_res_p.start()
+        mod_data_db_conns, mod_pos_db_conns = [], []
     if mh.SIG_MAP_NAME in outputs:
         alphabet_info = signal_mapping.get_alphabet_info(
             ref_out_info.alphabet, ref_out_info.collapse_alphabet,
@@ -686,9 +652,13 @@ def process_all_reads(
         max_size=None)
 
     proc_reads_ps, map_conns = [], []
-    for device, mod_data_proc_conn, mod_pos_proc_conn in zip(
-            model_info.process_devices, mod_data_proc_conns,
-            mod_pos_proc_conns):
+    for device in model_info.process_devices:
+        mod_data_proc_conn = mod_pos_proc_conn = None
+        if mh.PR_MOD_NAME in outputs:
+            mod_data_db_conn, mod_data_proc_conn = mp.Pipe(duplex=False)
+            mod_data_db_conns.append(mod_data_db_conn)
+            mod_pos_db_conn, mod_pos_proc_conn = mp.Pipe()
+            mod_pos_db_conns.append(mod_pos_db_conn)
         if aligner is None:
             map_conn, caller_conn = None, None
         else:
@@ -704,9 +674,23 @@ def process_all_reads(
         p.daemon = True
         p.start()
         proc_reads_ps.append(p)
-        if mod_data_proc_conn is not None:
+        if mh.PR_MOD_NAME in outputs:
             mod_data_proc_conn.close()
             mod_pos_proc_conn.close()
+
+    if mh.PR_MOD_NAME in outputs:
+        mod_pos_p = mp.Process(
+            target=mods._mod_aux_table_inserts, args=(
+                mods_db_fn, db_safety, mods_info.pos_index_in_memory,
+                mod_pos_db_conns), daemon=True)
+        mod_pos_p.start()
+        mod_res_p = mp.Process(
+            target=mods._get_mods_queue, daemon=True, args=(
+                mod_data_db_conns, mod_data_size, mods_db_fn, db_safety,
+                aligner.ref_names_and_lens, aligner.ref_fn, mods_txt_fn,
+                pr_refs_fn, ref_out_info, mod_map_fns, aligner.out_fmt,
+                mods_info))
+        mod_res_p.start()
 
     # ensure process all start up before initializing mapping threads
     sleep(0.1)
@@ -726,6 +710,7 @@ def process_all_reads(
             t.start()
             map_read_ts.append(t)
 
+    # join worker/getter processes
     try:
         files_p.join()
         for proc_reads_p in proc_reads_ps:

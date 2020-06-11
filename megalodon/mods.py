@@ -2,10 +2,11 @@ import os
 import re
 import sys
 import pysam
-import queue
 import sqlite3
 import datetime
+from time import sleep
 from array import array
+import multiprocessing as mp
 from multiprocessing.connection import wait
 from collections import defaultdict, namedtuple, OrderedDict
 
@@ -1280,9 +1281,10 @@ def call_read_mods(
 
     with mod_data_size.get_lock():
         mod_data_size.value += 1
-        mds = mod_data_size.value
     # enforce artificial queue max size with dulplex pipes
-    if mds >= mh._MAX_QUEUE_SIZE:
+    if mod_data_size.value >= mh._MAX_QUEUE_SIZE:
+        LOGGER.debug('Throttling {} for mods queue'.format(
+            mp.current_process()))
         sleep(1)
     return r_insert_data, all_mods_seq, per_mod_seqs, mod_out_text
 
@@ -1403,31 +1405,18 @@ def _get_mods_queue(
                     mod_data_size.value -= 1
             except EOFError:
                 mod_data_db_conns.remove(r)
-                continue
-        (r_mod_scores, all_mods_seq, per_mod_seqs, mod_out_text), (
-            read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
-            cigar) = mod_res
-        try:
-            been_warned = store_mod_call(
-                r_mod_scores, mod_out_text, all_mods_seq, per_mod_seqs,
-                read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
-                cigar, been_warned)
-        except Exception as e:
-            LOGGER.debug('Error processing mods output for read: ' +
-                         '{}\nError type: {}'.format(read_id, str(e)))
-
-    while not mods_q.empty():
-        (r_mod_scores, all_mods_seq, per_mod_seqs, mod_out_text), (
-            read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
-            cigar) = mods_q.get(block=False)
-        try:
-            been_warned = store_mod_call(
-                r_mod_scores, mod_out_text, all_mods_seq, per_mod_seqs,
-                read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
-                cigar, been_warned)
-        except Exception as e:
-            LOGGER.debug('Error processing mods output for read: ' +
-                         '{}\nError type: {}'.format(read_id, str(e)))
+            else:
+                (r_mod_scores, all_mods_seq, per_mod_seqs, mod_out_text), (
+                    read_id, chrm, strand, r_start, ref_seq, read_len,
+                    q_st, q_en, cigar) = mod_res
+                try:
+                    been_warned = store_mod_call(
+                        r_mod_scores, mod_out_text, all_mods_seq, per_mod_seqs,
+                        read_id, chrm, strand, r_start, ref_seq, read_len,
+                        q_st, q_en, cigar, been_warned)
+                except Exception as e:
+                    LOGGER.debug('Error processing mods output for read: ' +
+                                 '{}\nError type: {}'.format(read_id, str(e)))
 
     if mods_txt_fp is not None:
         mods_txt_fp.close()
