@@ -558,6 +558,7 @@ class ModsDb(object):
                 self.pos_to_dbid[(chrm_dbid, strand)] = np.full(
                     self.pos_to_dbid[(chrm_dbid, strand)],
                     self.pos_mem_max, self.pos_mem_dt)
+                cs_pos_to_dbid = self.pos_to_dbid[(chrm_dbid, strand)]
                 pos_to_add = r_uniq_pos
             else:
                 cs_pos_to_dbid = self.pos_to_dbid[(chrm_dbid, strand)]
@@ -1210,8 +1211,14 @@ def call_read_mods(
             blk_start, blk_end = (ref_to_block[pos - pos_bb],
                                   ref_to_block[pos + pos_ab])
             if blk_end - blk_start < (mods_info.mod_context_bases * 2) + 1:
-                # no valid mapping over large inserted query bases
-                # i.e. need as many "events/strides" as bases for valid mapping
+                # need as many "events/strides" as bases for valid mapping
+                ref_pos = (r_ref_pos.start + pos if r_ref_pos.strand == 1 else
+                           r_ref_pos.start + len(r_ref_seq) - pos - 1)
+                LOGGER.debug(
+                    'Insufficient blocks to compute mod score at ' +
+                    '{}:{}\tgot {} and need {}'.format(
+                        r_ref_pos.chrm, ref_pos, blk_end - blk_start,
+                        (mods_info.mod_context_bases * 2) + 1))
                 continue
 
             loc_can_score = score_mod_seq(
