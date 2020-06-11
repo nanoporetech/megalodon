@@ -415,12 +415,18 @@ class ModsDb(object):
             # position to database id is stored as a dictionary of numpy arrays
             # this was done since standard dictionaries cause memory errors
             # for large genomes potentially toward the end of a long run.
+            # initialize with chromosome size and allocate numpy array as
+            # needed
             self.pos_to_dbid = dict(
-                ((chrm_dbid, strand),
-                 np.full(chrm_len, self.pos_mem_max, self.pos_mem_dt))
+                ((chrm_dbid, strand), int(chrm_len))
                 for chrm_dbid, _, chrm_len in self.iter_chrms()
                 for strand in (1, -1))
             for dbid, chrm_dbid, strand, pos in dbid_pos:
+                # check if chrm/strand has been initialized
+                if isinstance(self.pos_to_dbid[(chrm_dbid, strand)], int):
+                    self.pos_to_dbid[(chrm_dbid, strand)] = np.full(
+                        self.pos_to_dbid[(chrm_dbid, strand)],
+                        self.pos_mem_max, self.pos_mem_dt)
                 self.pos_to_dbid[(chrm_dbid, strand)][pos] = dbid
         if self.in_mem_dbid_to_pos:
             self.dbid_to_pos = dict(
@@ -470,10 +476,9 @@ class ModsDb(object):
                 if sum(chrm_len for _, _, chrm_len in
                        self.iter_chrms()) * 2 > self.pos_mem_max:
                     raise mh.MegaError(POS_IDX_CHNG_ERR_MSG)
-                self.pos_to_dbid[(chrm_dbid, 1)] = np.full(
-                    chrm_len, self.pos_mem_max, self.pos_mem_dt)
-                self.pos_to_dbid[(chrm_dbid, -1)] = np.full(
-                    chrm_len, self.pos_mem_max, self.pos_mem_dt)
+                # initialize with chromosome length stub
+                self.pos_to_dbid[(chrm_dbid, 1)] = int(chrm_len)
+                self.pos_to_dbid[(chrm_dbid, -1)] = int(chrm_len)
         return chrm_dbid
 
     def insert_chrms(self, ref_names_and_lens):
@@ -491,15 +496,22 @@ class ModsDb(object):
         # Add position index numpy arrays for new chromosomes if stored in mem
         if self.in_mem_pos_to_dbid:
             self.check_in_mem_pos_size(ref_names_and_lens[1])
+            # initialize with chromosome length stub
             self.pos_to_dbid.update(
-                ((chrm_i + next_chrm_id, strand), np.full(
-                    chrm_len, self.pos_mem_max, self.pos_mem_dt))
+                ((chrm_i + next_chrm_id, strand), int(chrm_len))
                 for chrm_i, chrm_len in enumerate(ref_names_and_lens[1])
                 for strand in (1, -1))
 
     def get_pos_dbid_or_insert(self, chrm_dbid, strand, pos):
         try:
             if self.in_mem_pos_to_dbid:
+                # if chomosome/strand has not been added initialize array and
+                # trigger insertion of position
+                if isinstance(self.pos_to_dbid[(chrm_dbid, strand)], int):
+                    self.pos_to_dbid[(chrm_dbid, strand)] = np.full(
+                        self.pos_to_dbid[(chrm_dbid, strand)],
+                        self.pos_mem_max, self.pos_mem_dt)
+                    raise TypeError
                 pos_dbid = int(self.pos_to_dbid[(chrm_dbid, strand)][pos])
                 if pos_dbid == self.pos_mem_max:
                     raise TypeError
@@ -540,11 +552,19 @@ class ModsDb(object):
             return []
 
         if self.in_mem_pos_to_dbid:
-            cs_pos_to_dbid = self.pos_to_dbid[(chrm_dbid, strand)]
-            # extract positions that have not yet been observed
-            pos_to_add = [
-                r_uniq_pos[to_add_idx] for to_add_idx in np.where(np.equal(
-                    cs_pos_to_dbid[r_uniq_pos], self.pos_mem_max))[0]]
+            # if chomosome/strand has not been added, initialize array and
+            # insert all positions
+            if isinstance(self.pos_to_dbid[(chrm_dbid, strand)], int):
+                self.pos_to_dbid[(chrm_dbid, strand)] = np.full(
+                    self.pos_to_dbid[(chrm_dbid, strand)],
+                    self.pos_mem_max, self.pos_mem_dt)
+                pos_to_add = r_uniq_pos
+            else:
+                cs_pos_to_dbid = self.pos_to_dbid[(chrm_dbid, strand)]
+                # extract positions that have not yet been observed
+                pos_to_add = [
+                    r_uniq_pos[to_add_idx] for to_add_idx in np.where(np.equal(
+                        cs_pos_to_dbid[r_uniq_pos], self.pos_mem_max))[0]]
         else:
             cs_pos_to_dbid = dict(
                 pos_and_dbid for pos in r_uniq_pos
@@ -888,6 +908,9 @@ class ModsDb(object):
                 yield pos_dbid, chrm_dbid, strand, pos
         elif self.in_mem_pos_to_dbid:
             for (chrm_dbid, strand), cs_pos in self.pos_to_dbid.items():
+                # if chromosome/strand has not been initialized, skip it
+                if isinstance(cs_pos, int):
+                    continue
                 valid_cs_pos = np.where(np.not_equal(
                     cs_pos, self.pos_mem_max))[0]
                 for pos, pos_dbid in zip(valid_cs_pos, cs_pos[valid_cs_pos]):
