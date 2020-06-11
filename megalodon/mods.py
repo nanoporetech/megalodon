@@ -269,7 +269,7 @@ class ModsDb(object):
             UUID (int): Universal read identifier
         """
         try:
-            if self.in_mem:
+            if self.in_mem_dbid_to_uuid:
                 uuid = self.dbid_to_uuid[read_dbid]
             else:
                 uuid = self.cur.execute(
