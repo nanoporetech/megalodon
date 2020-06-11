@@ -1901,7 +1901,7 @@ class ModWigWriter(object):
                     wig_fp.write(
                         'variableStep chrom={} span=1\n'.format(chrom))
                     wig_fp.write('\n'.join((
-                        '{} {}'.format(pos, mod_prop)
+                        '{} {}'.format(pos + 1, mod_prop)
                         for pos, mod_prop in sorted(cs_mod_sites))) + '\n')
 
 
