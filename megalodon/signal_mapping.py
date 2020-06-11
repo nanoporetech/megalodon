@@ -1,6 +1,5 @@
 import sys
 import queue
-from time import sleep
 from collections import namedtuple
 
 import numpy as np
@@ -99,12 +98,11 @@ def write_signal_mappings(sig_map_q, sig_map_conn, sig_map_fn, alphabet_info):
     def iter_mappings():
         while True:
             try:
-                read_mapping = sig_map_q.get(block=True, timeout=1)
+                read_mapping = sig_map_q.get(block=True, timeout=0.01)
                 yield read_mapping
             except queue.Empty:
                 if sig_map_conn.poll():
                     break
-                sleep(0.001)
                 continue
 
         while not sig_map_q.empty():

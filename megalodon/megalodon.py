@@ -39,7 +39,10 @@ LOGGER = logging.get_logger()
 
 def handle_errors(func, args, r_vals, out_q, fast5_fn, failed_reads_q):
     try:
-        out_q.put((func(*args), r_vals))
+        if isinstance(out_q, mp.queues.Queue):
+            out_q.put((func(*args), r_vals))
+        else:
+            out_q.send((func(*args), r_vals))
     except KeyboardInterrupt:
         failed_reads_q.put(
             (True, False, 'Keyboard interrupt', fast5_fn, None, 0))
@@ -82,15 +85,14 @@ def interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum):
 
 def process_read(
         sig_info, seq_summ_info, model_info, bc_q, caller_conn, sig_map_q,
-        ref_out_info, vars_data, vars_q, mods_q, mod_pos_conn, mods_info,
-        failed_reads_q,
-        signal_reversed):
+        ref_out_info, vars_data, vars_q, mod_data_size, mod_data_conn,
+        mod_pos_conn, mods_info, failed_reads_q, signal_reversed):
     """ Workhorse per-read megalodon function (connects all the parts)
     """
     # perform basecalling using loaded backend
     (r_seq, r_qual, rl_cumsum, can_post, sig_info, post_w_mods,
      mods_scores) = model_info.basecall_read(
-         sig_info, return_post_w_mods=mods_q is not None,
+         sig_info, return_post_w_mods=mod_data_conn is not None,
          return_mod_scores=mods_info.do_output_mods,
          update_sig_info=sig_map_q is not None,
          signal_reversed=signal_reversed)
@@ -164,18 +166,18 @@ def process_read(
             out_q=vars_q,
             fast5_fn=sig_info.fast5_fn + ':::' + sig_info.read_id,
             failed_reads_q=failed_reads_q)
-    if mods_q is not None:
+    if mod_data_conn is not None:
         mapped_post_w_mods = post_w_mods[post_mapped_start:post_mapped_end]
         mod_sig_map_q = sig_map_q if ref_out_info.annotate_mods else None
         handle_errors(
             func=mods.call_read_mods,
             args=(r_ref_pos, r_ref_seq, ref_to_block, mapped_post_w_mods,
-                  mods_info, mod_pos_conn, mod_sig_map_q, sig_map_res,
-                  signal_reversed, sig_info.read_id),
+                  mods_info, mod_data_size, mod_pos_conn, mod_sig_map_q,
+                  sig_map_res, signal_reversed, sig_info.read_id),
             r_vals=(sig_info.read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
-            out_q=mods_q,
+            out_q=mod_data_conn,
             fast5_fn=sig_info.fast5_fn + ':::' + sig_info.read_id,
             failed_reads_q=failed_reads_q)
 
@@ -226,7 +228,7 @@ def _get_bc_queue(
     while True:
         try:
             read_id, r_seq, r_qual, mods_scores, seq_summ_info = bc_q.get(
-                block=True, timeout=1)
+                block=True, timeout=0.01)
             # convert seq_summ_info back into namedtuple after passing through
             # queue
             seq_summ_info = mh.SEQ_SUMM_INFO(*seq_summ_info)
@@ -234,7 +236,6 @@ def _get_bc_queue(
         except queue.Empty:
             if bc_conn.poll():
                 break
-            sleep(0.001)
             continue
 
     while not bc_q.empty():
@@ -249,9 +250,9 @@ def _get_bc_queue(
 
 
 def _process_reads_worker(
-        read_file_q, bc_q, vars_q, failed_reads_q, mods_q, mod_pos_conn,
-        caller_conn, sig_map_q, ref_out_info, model_info, vars_data, mods_info,
-        device, signal_reversed):
+        read_file_q, bc_q, vars_q, failed_reads_q, mod_data_conn,
+        mod_data_size, mod_pos_conn, caller_conn, sig_map_q, ref_out_info,
+        model_info, vars_data, mods_info, device, signal_reversed):
     # wrap process prep in try loop to avoid stalled command
     try:
         model_info.prep_model_worker(device)
@@ -268,9 +269,8 @@ def _process_reads_worker(
     while True:
         try:
             try:
-                fast5_fn, read_id = read_file_q.get(block=True, timeout=1)
+                fast5_fn, read_id = read_file_q.get(block=True, timeout=0.01)
             except queue.Empty:
-                sleep(0.001)
                 continue
 
             if fast5_fn is None:
@@ -284,8 +284,9 @@ def _process_reads_worker(
                 fast5_fn, read_id, sig_map_q is not None)
             process_read(
                 sig_info, seq_summ_info, model_info, bc_q, caller_conn,
-                sig_map_q, ref_out_info, vars_data, vars_q, mods_q,
-                mod_pos_conn, mods_info, failed_reads_q, signal_reversed)
+                sig_map_q, ref_out_info, vars_data, vars_q, mod_data_size,
+                mod_data_conn, mod_pos_conn, mods_info, failed_reads_q,
+                signal_reversed)
             failed_reads_q.put((
                 False, True, None, None, None, sig_info.raw_len))
             LOGGER.debug('Successfully processed read {}'.format(read_id))
@@ -305,9 +306,6 @@ def _process_reads_worker(
                 True, True, _UNEXPECTED_ERROR_CODE, fast5_fn + ':::' + read_id,
                 traceback.format_exc(), 0))
             LOGGER.debug('Unexpected error for read {}'.format(read_id))
-
-    if mod_pos_conn is not None:
-        mod_pos_conn.close()
 
 
 if _DO_PROFILE:
@@ -330,7 +328,6 @@ def post_process_mapping(map_bn, map_fmt, ref_fn):
         target=mapping.sort_and_index_mapping,
         args=(map_fn, map_sort_fn, ref_fn, True), daemon=True)
     map_p.start()
-    sleep(0.001)
 
     return map_p, map_sort_fn
 
@@ -359,8 +356,7 @@ def get_map_procs(
     if var_map_p is not None:
         if var_map_p.is_alive():
             LOGGER.info('Waiting for variant mappings sort')
-            while var_map_p.is_alive():
-                sleep(0.001)
+            var_map_p.join()
         if index_variant_fn is not None and var_sort_fn is not None:
             LOGGER.info(variants.get_whatshap_command(
                 index_variant_fn, var_sort_fn,
@@ -368,13 +364,12 @@ def get_map_procs(
     if mod_map_ps is not None:
         if any(mod_map_p.is_alive() for mod_map_p in mod_map_ps):
             LOGGER.info('Waiting for modified base mappings sort')
-            while any(mod_map_p.is_alive() for mod_map_p in mod_map_ps):
-                sleep(0.001)
+            for mod_map_p in mod_map_ps:
+                mod_map_p.join()
     if map_p is not None:
         if map_p.is_alive():
             LOGGER.info('Waiting for mappings sort')
-            while map_p.is_alive():
-                sleep(0.001)
+            map_p.join()
 
 
 ##########################
@@ -429,11 +424,13 @@ def format_fail_summ(header, fail_summ=[], reads_called=0, num_errs=None):
 
 def prep_errors_bar(
         num_update_errors, tot_reads, suppress_progress, do_show_qs, getter_qs,
-        curr_num_reads=0, start_time=None):
+        mod_data_size, curr_num_reads=0, start_time=None):
     num_qs = 0
     if do_show_qs:
         valid_q_names = [q_name for q_name, q_vals in getter_qs.items()
                          if q_vals.queue is not None]
+        if mod_data_size is not None:
+            valid_q_names.append(mh.PR_MOD_NAME)
         num_qs = len(valid_q_names)
     if num_update_errors > 0 and not suppress_progress:
         # add lines for dynamic error messages
@@ -477,7 +474,7 @@ def prep_errors_bar(
 
 def _get_fail_queue(
         failed_reads_q, f_conn, getter_num_reads_conn, num_update_errors,
-        suppress_progress, do_show_qs, getter_qs):
+        suppress_progress, do_show_qs, getter_qs, mod_data_size):
     def update_prog(reads_called, sig_called, unexp_err_fp, last_err_write,
                     read_called=True):
         if is_err:
@@ -504,7 +501,12 @@ def _get_fail_queue(
                     pass
                 if q_bars is not None:
                     for q_name, q_bar in q_bars.items():
-                        q_bar.n = getter_qs[q_name].queue.qsize()
+                        if q_name == mh.PR_MOD_NAME:
+                            # clip value for potential mp issues
+                            q_bar.n = max(0, min(
+                                mod_data_size.value, mh._MAX_QUEUE_SIZE))
+                        else:
+                            q_bar.n = getter_qs[q_name].queue.qsize()
                         # trigger display refresh
                         q_bar.update(0)
                 if read_called:
@@ -528,12 +530,13 @@ def _get_fail_queue(
     unexp_err_fp = None
     failed_reads = defaultdict(list)
     bar, q_bars, prog_prefix, bar_header = prep_errors_bar(
-        num_update_errors, None, suppress_progress, do_show_qs, getter_qs)
+        num_update_errors, None, suppress_progress, do_show_qs, getter_qs,
+        mod_data_size)
     while True:
         try:
             try:
                 (is_err, do_update_prog, err_type, fast5_fn,
-                 err_tb, n_sig) = failed_reads_q.get(block=True, timeout=1)
+                 err_tb, n_sig) = failed_reads_q.get(block=True, timeout=0.01)
                 sig_called += n_sig
                 reads_called += 1
                 unexp_err_fp, last_err_write = update_prog(
@@ -547,14 +550,14 @@ def _get_fail_queue(
                     # if all reads are done signal was sent from main thread
                     if f_conn.poll():
                         break
-                sleep(0.001)
                 continue
         except KeyboardInterrupt:
             # exit gracefully on keyboard inturrupt
             return
     if not suppress_progress:
         if q_bars is not None:
-            while any(not getter_qs[q_name].queue.empty()
+            while any(mod_data_size.value > 0 if q_name == mh.PR_MOD_NAME else
+                      not getter_qs[q_name].queue.empty()
                       for q_name in q_bars.keys()):
                 unexp_err_fp, last_err_write = update_prog(
                     reads_called, 0, unexp_err_fp, last_err_write, False)
@@ -604,8 +607,9 @@ def process_all_reads(
     # start output type getters/writers
     getter_qs = OrderedDict(
         (out_name, mh.GETTER_PROC(None, None, None)) for out_name in (
-            mh.BC_NAME, mh.MAP_NAME, mh.SIG_MAP_NAME, mh.PR_VAR_NAME,
-            mh.PR_MOD_NAME))
+            mh.BC_NAME, mh.MAP_NAME, mh.SIG_MAP_NAME, mh.PR_VAR_NAME))
+    # handle mods more efficiently via list of pipes
+    mod_res_p = mod_pos_p = mod_data_size = None
     if mh.BC_NAME in outputs or mh.BC_MODS_NAME in outputs:
         if mh.BC_NAME not in outputs:
             outputs.append(mh.BC_NAME)
@@ -645,14 +649,12 @@ def process_all_reads(
         mods_txt_fn = (mh.get_megalodon_fn(out_dir, mh.PR_MOD_TXT_NAME)
                        if mods_info.write_mods_txt else None)
         mods_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME)
+        # TODO handle on-disk index creation
         mods.init_mods_db(
             mods_db_fn, db_safety, aligner.ref_names_and_lens, mods_info)
-        # TODO handle on-disk index creation
-        getter_qs[mh.PR_MOD_NAME] = mh.create_getter_q(
-            mods._get_mods_queue, (
-                mods_db_fn, db_safety, aligner.ref_names_and_lens,
-                aligner.ref_fn, mods_txt_fn, pr_refs_fn, ref_out_info,
-                mod_map_fns, aligner.out_fmt, mods_info))
+        # multiprocessing int to count current queue size
+        mod_data_size = mp.Value('i', 0)
+        mod_data_db_conns, mod_pos_db_conns = [], []
     if mh.SIG_MAP_NAME in outputs:
         alphabet_info = signal_mapping.get_alphabet_info(
             ref_out_info.alphabet, ref_out_info.collapse_alphabet,
@@ -665,43 +667,52 @@ def process_all_reads(
     # in case error occurs there, don't halt run
     fr_prog_getter = mh.create_getter_q(
         _get_fail_queue, (getter_num_reads_conn, num_update_errors,
-                          suppress_progress, do_show_qs, getter_qs),
+                          suppress_progress, do_show_qs, getter_qs,
+                          mod_data_size),
         max_size=None)
 
-    proc_reads_ps, map_conns, mod_pos_conns = [], [], []
+    proc_reads_ps, map_conns = [], []
     for device in model_info.process_devices:
+        mod_data_proc_conn = mod_pos_proc_conn = None
+        if mh.PR_MOD_NAME in outputs:
+            mod_data_db_conn, mod_data_proc_conn = mp.Pipe(duplex=False)
+            mod_data_db_conns.append(mod_data_db_conn)
+            mod_pos_db_conn, mod_pos_proc_conn = mp.Pipe()
+            mod_pos_db_conns.append(mod_pos_db_conn)
         if aligner is None:
             map_conn, caller_conn = None, None
         else:
             map_conn, caller_conn = mp.Pipe()
         map_conns.append(map_conn)
-        if mh.PR_MOD_NAME in outputs:
-            mod_pos_conn, mod_pos_db_conn = mp.Pipe()
-        else:
-            mod_pos_conn, mod_pos_db_conn = None, None
-        mod_pos_conns.append(mod_pos_db_conn)
         p = mp.Process(
             target=_process_reads_worker, args=(
                 read_file_q, getter_qs[mh.BC_NAME].queue,
                 getter_qs[mh.PR_VAR_NAME].queue, fr_prog_getter.queue,
-                getter_qs[mh.PR_MOD_NAME].queue, mod_pos_conn, caller_conn,
-                getter_qs[mh.SIG_MAP_NAME].queue, ref_out_info, model_info,
-                vars_data, mods_info, device, signal_reversed))
+                mod_data_proc_conn, mod_data_size, mod_pos_proc_conn,
+                caller_conn, getter_qs[mh.SIG_MAP_NAME].queue, ref_out_info,
+                model_info, vars_data, mods_info, device, signal_reversed))
         p.daemon = True
         p.start()
         proc_reads_ps.append(p)
-        mod_pos_conn.close()
+        if mh.PR_MOD_NAME in outputs:
+            mod_data_proc_conn.close()
+            mod_pos_proc_conn.close()
 
-    # extract and enter modified base position and mod_base database ids in
-    # separate processes in order to get around bottleneck in
-    # single threaded mod base database data entry
-    mod_pos_p = None
     if mh.PR_MOD_NAME in outputs:
+        # start mod getter processes after read processing since processing
+        # connections must be closed immediately after creation
         mod_pos_p = mp.Process(
             target=mods._mod_aux_table_inserts, args=(
                 mods_db_fn, db_safety, mods_info.pos_index_in_memory,
-                mod_pos_conns), daemon=True)
+                mod_pos_db_conns), daemon=True)
         mod_pos_p.start()
+        mod_res_p = mp.Process(
+            target=mods._get_mods_queue, daemon=True, args=(
+                mod_data_db_conns, mod_data_size, mods_db_fn, db_safety,
+                aligner.ref_names_and_lens, aligner.ref_fn, mods_txt_fn,
+                pr_refs_fn, ref_out_info, mod_map_fns, aligner.out_fmt,
+                mods_info))
+        mod_res_p.start()
 
     # ensure process all start up before initializing mapping threads
     sleep(0.1)
@@ -721,6 +732,7 @@ def process_all_reads(
             t.start()
             map_read_ts.append(t)
 
+    # join worker/getter processes
     try:
         files_p.join()
         for proc_reads_p in proc_reads_ps:
@@ -732,17 +744,19 @@ def process_all_reads(
         if fr_prog_getter.proc.is_alive():
             fr_prog_getter.conn.send(True)
             fr_prog_getter.proc.join()
-        mod_pos_p.join()
+        if mod_pos_p is not None:
+            mod_pos_p.join()
         for out_name, getter_q in getter_qs.items():
             if out_name in outputs and getter_q.proc.is_alive():
                 getter_q.conn.send(True)
                 if out_name == mh.PR_VAR_NAME:
                     LOGGER.info(
                         'Waiting for variants database to complete indexing.')
-                elif out_name == mh.PR_MOD_NAME:
-                    LOGGER.info(
-                        'Waiting for mods database to complete indexing.')
                 getter_q.proc.join()
+        if mod_res_p.is_alive():
+            LOGGER.info('Waiting for mods database to complete indexing.')
+        mod_res_p.join()
+
     except KeyboardInterrupt:
         LOGGER.error('Exiting due to keyboard interrupt.')
         sys.exit(1)
