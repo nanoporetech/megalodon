@@ -1094,7 +1094,7 @@ def _get_variants_queue(
         try:
             r_var_calls, (read_id, chrm, strand, r_start, ref_seq, read_len,
                           q_st, q_en, cigar) = vars_q.get(
-                              block=True, timeout=1)
+                              block=True, timeout=0.01)
         except queue.Empty:
             if vars_conn.poll():
                 break
