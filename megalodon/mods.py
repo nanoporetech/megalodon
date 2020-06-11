@@ -43,6 +43,7 @@ FORMAT_LOG_PROB_MI = (
 
 SAMPLE_NAME = 'SAMPLE'
 MOD_MAP_RG_ID = '1'
+MOD_MAP_INVALID_BASE_LP = -2
 MOD_MAP_MAX_QUAL = 40
 
 POS_IDX_CHNG_ERR_MSG = (
@@ -1032,7 +1033,7 @@ def annotate_all_mods(r_start, ref_seq, r_mod_scores, strand, mods_info):
         ref_seq = ref_seq[::-1]
     for mod_pos, mod_lps, mod_bases, _, _, _ in sorted(r_mod_scores):
         if mod_lps is None:
-            base_lp = 0
+            base_lp = MOD_MAP_INVALID_BASE_LP
             base = ref_seq[mod_pos - r_start]
         else:
             can_lp = np.log1p(-np.exp(mod_lps).sum())
@@ -1091,11 +1092,12 @@ def annotate_mods_per_mod(r_start, ref_seq, r_mod_scores, strand, mods_info):
     if strand == -1:
         ref_seq = ref_seq[::-1]
     for mod_pos, mod_lps, mod_bases, _, _, _ in sorted(r_mod_scores):
-        can_lp = np.log1p(-np.exp(mod_lps).sum())
+        if mod_lps is not None:
+            can_lp = np.log1p(-np.exp(mod_lps).sum())
         # annotate per-mod sequences and qualities
         for mod_idx, mod_base in enumerate(mod_bases):
             if mod_lps is None:
-                base_lp = 0
+                base_lp = MOD_MAP_INVALID_BASE_LP
                 base = ref_seq[mod_pos - r_start]
             else:
                 # called canonical
