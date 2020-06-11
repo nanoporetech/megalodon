@@ -130,14 +130,14 @@ class ModsDb(object):
         self.force_uint32 = force_uint32_pos_to_dbid
 
         if self.read_only:
-            if not os.path.exists(fn):
+            if not os.path.exists(self.fn):
                 LOGGER.error((
                     'Modified base per-read database file ({}) does ' +
-                    'not exist.').format(fn))
+                    'not exist.').format(self.fn))
                 raise mh.MegaError('Invalid mods DB filename.')
-            self.db = sqlite3.connect('file:' + fn + '?mode=ro', uri=True)
+            self.db = sqlite3.connect('file:' + self.fn + '?mode=ro', uri=True)
         else:
-            self.db = sqlite3.connect(fn, timeout=mh.SQLITE_TIMEOUT)
+            self.db = sqlite3.connect(self.fn, timeout=mh.SQLITE_TIMEOUT)
 
         # initialize main cursor
         self.cur = self.db.cursor()
