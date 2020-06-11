@@ -115,7 +115,11 @@ class ModsDb(object):
                  force_uint32_pos_to_dbid=False):
         """ Interface to database containing modified base statistics.
 
-        Default settings are for optimal read_only performance.
+        Default settings are for read_only performance without any in-memory
+        indices. If a particular database id (dbid) is to be accessed
+        repeatedly it is strongly suggested that this value be loaded at
+        database initialization by setting the appropriate in_mem_*
+        arguments to True.
         """
         self.fn = mh.resolve_path(fn)
         self.init_db_tables = init_db_tables
@@ -1434,6 +1438,8 @@ def _get_mods_queue(
                 with mod_data_size.get_lock():
                     mod_data_size.value -= 1
             except EOFError:
+                # when connection is closed in worker process EOFError is
+                # triggered, so remove that connection
                 mod_data_db_conns.remove(r)
             else:
                 (r_mod_scores, all_mods_seq, per_mod_seqs, mod_out_text), (

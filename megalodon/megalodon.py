@@ -679,6 +679,8 @@ def process_all_reads(
             mod_pos_proc_conn.close()
 
     if mh.PR_MOD_NAME in outputs:
+        # start mod getter processes after read processing since processing
+        # connections must be closed immediately after creation
         mod_pos_p = mp.Process(
             target=mods._mod_aux_table_inserts, args=(
                 mods_db_fn, db_safety, mods_info.pos_index_in_memory,
