@@ -1031,14 +1031,18 @@ def annotate_all_mods(r_start, ref_seq, r_mod_scores, strand, mods_info):
     if strand == -1:
         ref_seq = ref_seq[::-1]
     for mod_pos, mod_lps, mod_bases, _, _, _ in sorted(r_mod_scores):
-        can_lp = np.log1p(-np.exp(mod_lps).sum())
-        if can_lp - mod_lps.max() > mods_info.mod_thresh:
-            base_lp = can_lp
+        if mod_lps is None:
+            base_lp = 0
             base = ref_seq[mod_pos - r_start]
         else:
-            most_prob_mod = np.argmax(mod_lps)
-            base_lp = mod_lps[most_prob_mod]
-            base = mod_bases[most_prob_mod]
+            can_lp = np.log1p(-np.exp(mod_lps).sum())
+            if can_lp - mod_lps.max() > mods_info.mod_thresh:
+                base_lp = can_lp
+                base = ref_seq[mod_pos - r_start]
+            else:
+                most_prob_mod = np.argmax(mod_lps)
+                base_lp = mod_lps[most_prob_mod]
+                base = mod_bases[most_prob_mod]
         if mods_info.map_base_conv is not None:
             # convert base for bisulfite-like output
             base = base.translate(mods_info.map_base_conv)
@@ -1090,13 +1094,17 @@ def annotate_mods_per_mod(r_start, ref_seq, r_mod_scores, strand, mods_info):
         can_lp = np.log1p(-np.exp(mod_lps).sum())
         # annotate per-mod sequences and qualities
         for mod_idx, mod_base in enumerate(mod_bases):
-            # called canonical
-            if can_lp - mod_lps[mod_idx] > mods_info.mod_thresh:
-                base_lp = can_lp
+            if mod_lps is None:
+                base_lp = 0
                 base = ref_seq[mod_pos - r_start]
             else:
-                base_lp = mod_lps[mod_idx]
-                base = mod_base
+                # called canonical
+                if can_lp - mod_lps[mod_idx] > mods_info.mod_thresh:
+                    base_lp = can_lp
+                    base = ref_seq[mod_pos - r_start]
+                else:
+                    base_lp = mod_lps[mod_idx]
+                    base = mod_base
             if mods_info.map_base_conv is not None:
                 # convert base for bisulfite-like output
                 base = base.translate(mods_info.map_base_conv)
@@ -1160,18 +1168,19 @@ def call_read_mods(
         mod_pos_conn, mod_sig_map_q, sig_map_res, signal_reversed, uuid):
     def iter_motif_sites():
         search_ref_seq = r_ref_seq[::-1] if signal_reversed else r_ref_seq
-        ref_seq_len = len(r_ref_seq)
-        max_pos = ref_seq_len - mods_info.edge_buffer
         for motif, rel_pos, mod_bases, raw_motif in mods_info.all_mod_motifs:
             for motif_match in motif.finditer(search_ref_seq):
                 m_pos = motif_match.start() + rel_pos
                 if signal_reversed:
-                    m_pos = ref_seq_len - m_pos - 1
-                if m_pos < mods_info.edge_buffer:
-                    continue
-                if m_pos > max_pos:
-                    break
+                    m_pos = len(r_ref_seq) - m_pos - 1
                 yield m_pos, mod_bases, motif_match.group(), rel_pos, raw_motif
+
+    def filter_mod_score(r_mod_scores):
+        # remove uncalled sites and sites too close to the edge of a read
+        return [pms for pms in r_mod_scores
+                if pms[1] is not None and
+                r_ref_pos.start + mods_info.edge_buffer < pms[0] <
+                r_ref_pos.end - mods_info.edge_buffer]
 
     def get_pos_mod_read_dbids(r_mod_scores):
         # send unique positions and mod bases to connection to extract
@@ -1198,17 +1207,23 @@ def call_read_mods(
     with np.errstate(divide='ignore', over='ignore'):
         for (pos, mod_bases, ref_motif, rel_pos,
              raw_motif) in iter_motif_sites():
+            if (r_ref_pos.strand == 1 and not signal_reversed) or (
+                    r_ref_pos.strand == -1 and signal_reversed):
+                mod_ref_pos = r_ref_pos.start + pos
+            else:
+                mod_ref_pos = r_ref_pos.end - pos - 1
             pos_bb, pos_ab = min(mods_info.mod_context_bases, pos), min(
                 mods_info.mod_context_bases, len(r_ref_seq) - pos - 1)
             try:
                 pos_ref_seq = mh.seq_to_int(
                     r_ref_seq[pos - pos_bb:pos + pos_ab + 1])
             except mh.MegaError:
-                ref_pos = (r_ref_pos.start + pos if r_ref_pos.strand == 1 else
-                           r_ref_pos.start + len(r_ref_seq) - pos - 1)
+                # Add None score for per-read annotation (to be filtered)
+                r_mod_scores.append((mod_ref_pos, None, mod_bases, ref_motif,
+                                     rel_pos, raw_motif))
                 LOGGER.debug(
                     'Invalid sequence encountered calling modified base ' +
-                    'at {}:{}'.format(r_ref_pos.chrm, ref_pos))
+                    'at {}:{}'.format(r_ref_pos.chrm, mod_ref_pos))
                 continue
             pos_can_mods = np.zeros_like(pos_ref_seq)
 
@@ -1216,12 +1231,13 @@ def call_read_mods(
                                   ref_to_block[pos + pos_ab])
             if blk_end - blk_start < (mods_info.mod_context_bases * 2) + 1:
                 # need as many "events/strides" as bases for valid mapping
-                ref_pos = (r_ref_pos.start + pos if r_ref_pos.strand == 1 else
-                           r_ref_pos.start + len(r_ref_seq) - pos - 1)
+                # Add None scores for per-read annotation (to be filtered)
+                r_mod_scores.append((mod_ref_pos, None, mod_bases, ref_motif,
+                                     rel_pos, raw_motif))
                 LOGGER.debug(
                     'Insufficient blocks to compute mod score at ' +
                     '{}:{}\tgot {} and need {}'.format(
-                        r_ref_pos.chrm, ref_pos, blk_end - blk_start,
+                        r_ref_pos.chrm, mod_ref_pos, blk_end - blk_start,
                         (mods_info.mod_context_bases * 2) + 1))
                 continue
 
@@ -1252,11 +1268,6 @@ def call_read_mods(
             # inferred negative reference likelihood, so re-normalize here
             loc_mod_lps = calibration.compute_log_probs(np.array(calib_llrs))
 
-            if (r_ref_pos.strand == 1 and not signal_reversed) or (
-                    r_ref_pos.strand == -1 and signal_reversed):
-                mod_ref_pos = r_ref_pos.start + pos
-            else:
-                mod_ref_pos = r_ref_pos.end - pos - 1
             r_mod_scores.append((
                 mod_ref_pos, loc_mod_lps, mod_bases, ref_motif, rel_pos,
                 raw_motif))
@@ -1274,6 +1285,8 @@ def call_read_mods(
             per_mod_seqs = annotate_mods_per_mod(
                 r_ref_pos.start, r_ref_seq, r_mod_scores,
                 r_ref_pos.strand, mods_info)
+
+    r_mod_scores = filter_mod_score(r_mod_scores)
 
     # send mod annotated seqs to signal mapping queue if requested
     if mod_sig_map_q is not None and sig_map_res.pass_filts:
