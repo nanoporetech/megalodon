@@ -23,7 +23,7 @@ from megalodon import (
 os.environ['OMP_NUM_THREADS'] = '1'
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
-_DO_PROFILE = True
+_DO_PROFILE = False
 _UNEXPECTED_ERROR_CODE = 'Unexpected error'
 _UNEXPECTED_ERROR_FN = 'unexpected_megalodon_errors.{}.err'
 _MAX_NUM_UNEXP_ERRORS = 50
