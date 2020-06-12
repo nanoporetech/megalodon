@@ -622,14 +622,14 @@ class ModelInfo(object):
                 called_read.qual))
             med = '{:.6f}'.format(called_read.scaling[PYGUPPY_SHIFT_NAME])
             mad = '{:.6f}'.format(called_read.scaling[PYGUPPY_SCALE_NAME])
+            seq_summ_info = seq_summ_info._replace(
+                template_start=tmplt_start, template_duration=tmplt_dur,
+                sequence_length_template=seq_len,
+                mean_qscore_template=mean_q_score, median_template=med,
+                mad_template=mad)
         except Exception:
-            # if anything goes wrong set all avlues to NA
-            tmplt_start = tmplt_dur = seq_len = mean_q_score = med = mad = 'NA'
-        seq_summ_info = seq_summ_info._replace(
-            template_start=tmplt_start, template_duration=tmplt_dur,
-            sequence_length_template=seq_len,
-            mean_qscore_template=mean_q_score, median_template=med,
-            mad_template=mad)
+            # if anything goes wrong don't let it fail the read
+            pass
 
         return (called_read.seq, called_read.qual, rl_cumsum, can_post,
                 sig_info, post_w_mods, mods_scores, seq_summ_info)
@@ -690,11 +690,19 @@ class ModelInfo(object):
         # and add mean_qscore_template to seq summary
         r_qual = None
 
-        # update seq summary info with basecalling info
-        seq_summ_info = seq_summ_info._replace(
-            sequence_length_template=len(r_seq),
-            median_template='{:.4f}'.format(sig_info.scale_params[0]),
-            mad_template='{:.4f}'.format(sig_info.scale_params[1]))
+        if seq_summ_info is not None:
+            try:
+                # update seq summary info with basecalling info
+                seq_summ_info = seq_summ_info._replace(
+                    template_start=seq_summ_info.start_time,
+                    template_duration='{:.6f}'.format(
+                        sig_info.dacs.shape[0] /
+                        sig_info.channel_info[mh.CHAN_INFO_SAMP_RATE]),
+                    sequence_length_template=len(r_seq),
+                    median_template='{:.4f}'.format(sig_info.scale_params[0]),
+                    mad_template='{:.4f}'.format(sig_info.scale_params[1]))
+            except Exception:
+                pass
 
         return (r_seq, r_qual, rl_cumsum, can_post, sig_info, post_w_mods,
                 mods_scores, seq_summ_info)
