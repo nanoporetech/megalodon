@@ -1902,15 +1902,13 @@ class ModWigWriter(object):
     """
     def __init__(
             self, basename, mods, mode='w',
-            strands={'+': 'fwd_strand', '-': 'rev_strand'},
-            strand_factor={'+': 1, '-': -1}):
+            strands={'+': 'fwd_strand', '-': 'rev_strand'}):
         self.basename = basename
         self.mods = mods
         self.mods_lookup = dict(mods)
         self.mod_short_names, self.mod_long_names = zip(*self.mods)
         self.mode = mode
         self.strands = strands
-        self.strand_factor = strand_factor
 
         self.mod_sites_data = dict(
             ((mod_short_name, strand), defaultdict(list))
@@ -1927,9 +1925,7 @@ class ModWigWriter(object):
                            'wiggle output.')
                 continue
             self.mod_sites_data[(mod_base, mod_site.strand)][
-                mod_site.chrom].append((
-                    mod_site.pos,
-                    mod_prop * self.strand_factor[mod_site.strand]))
+                mod_site.chrom].append((mod_site.pos, mod_prop))
 
     def close(self):
         # write all data on close since all data is required to write
