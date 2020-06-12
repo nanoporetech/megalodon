@@ -52,6 +52,13 @@ SINGLE_LETTER_CODE = {
     'A': 'A', 'C': 'C', 'G': 'G', 'T': 'T', 'B': 'CGT', 'D': 'AGT', 'H': 'ACT',
     'K': 'GT', 'M': 'AC', 'N': 'ACGT', 'R': 'AG', 'S': 'CG', 'V': 'ACG',
     'W': 'AT', 'Y': 'CT'}
+PHRED_BASE = 33
+
+CHAN_INFO_CHANNEL_SLOT = 'channel_number'
+CHAN_INFO_OFFSET = 'offset'
+CHAN_INFO_RANGE = 'range'
+CHAN_INFO_DIGI = 'digitisation'
+CHAN_INFO_SAMP_RATE = 'sampling_rate'
 
 _MAX_QUEUE_SIZE = 10000
 
@@ -171,7 +178,6 @@ SEQ_SUMM_INFO = namedtuple('seq_summ_info', (
 # set default value of None for ref, alts, ref_start and strand;
 # false for has_context_base
 SEQ_SUMM_INFO.__new__.__defaults__ = tuple(['NA', ] * 11)
-CHAN_INFO_CHANNEL_SLOT = 'channel_number'
 
 # default guppy settings
 DEFAULT_GUPPY_SERVER_PATH = './ont-guppy/bin/guppy_basecall_server'
@@ -236,6 +242,13 @@ def int_to_seq(np_seq, alphabet=ALPHABET):
     return ''.join(alphabet[b] for b in np_seq)
 
 
+def get_mean_q_score(read_q):
+    """ Extract mean q-score from FASTQ quality string
+    """
+    return np.mean([q_val - PHRED_BASE
+                    for q_val in read_q.encode('ASCII')])
+
+
 def rolling_window(a, size):
     shape = a.shape[:-1] + (a.shape[-1] - size + 1, size)
     strides = a.strides + (a. strides[-1],)
@@ -250,20 +263,35 @@ def log_prob_to_phred(log_prob, ignore_np_divide=True):
 
 
 def extract_seq_summary_info(read):
-    channel_info = read.get_channel_info()
-    read_info = read.status.read_info[0]
-    run_id = read.get_run_id()
+    """ Extract non-basecalling sequencing summary information from
+    ont_fast5_api read object
+    """
     try:
-        run_id = run_id.decode()
-    except AttributeError:
-        pass
-    run_id = str(run_id)
+        fn = read.filename
+        read_id = read.read_id
+        channel_info = read.get_channel_info()
+        read_info = read.status.read_info[0]
+        run_id = read.get_run_id()
+        try:
+            run_id = run_id.decode()
+        except AttributeError:
+            pass
+        batch_id = 'NA'
+        chan = channel_info[CHAN_INFO_CHANNEL_SLOT]
+        mux = read_info.start_mux
+        samp_rate = channel_info[CHAN_INFO_SAMP_RATE]
+        start_time = '{:.6f}'.format(read_info.start_time / samp_rate)
+        dur = '{:.6f}'.format(read_info.duration / samp_rate)
+        num_events = str(read_info.event_data_count
+                         if read_info.has_event_data else 'NA')
+    except Exception:
+        # if anything goes wrong set all avlues to NA
+        fn = read_id = run_id = batch_id = chan = mux = start_time = dur = \
+                       num_events = 'NA'
     return SEQ_SUMM_INFO(
-        filename=read.filename, read_id=read.read_id,
-        run_id=str(), batch_id='NA',
-        channel=channel_info[CHAN_INFO_CHANNEL_SLOT],
-        mux=read_info.start_mux, start_time=read_info.start_time,
-        duration=read_info.duration, num_events='NA')
+        filename=fn, read_id=read_id, run_id=run_id, batch_id=batch_id,
+        channel=chan, mux=mux, start_time=start_time, duration=dur,
+        num_events=num_events)
 
 
 #######################

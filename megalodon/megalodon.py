@@ -91,11 +91,11 @@ def process_read(
     """
     # perform basecalling using loaded backend
     (r_seq, r_qual, rl_cumsum, can_post, sig_info, post_w_mods,
-     mods_scores) = model_info.basecall_read(
+     mods_scores, seq_summ_info) = model_info.basecall_read(
          sig_info, return_post_w_mods=mod_data_conn is not None,
          return_mod_scores=mods_info.do_output_mods,
          update_sig_info=sig_map_q is not None,
-         signal_reversed=signal_reversed)
+         signal_reversed=signal_reversed, seq_summ_info=seq_summ_info)
     if bc_q is not None:
         if signal_reversed:
             if mods_scores is not None:
@@ -195,13 +195,6 @@ def _get_bc_queue(
             bc_fp.write('@{}\n{}\n+\n{}\n'.format(read_id, r_seq, r_qual))
         else:
             bc_fp.write('>{}\n{}\n'.format(read_id, r_seq))
-
-        # TODO fill out as many of these attributes as possible from this point
-        """seq_summ_info = seq_summ_info._replace(
-            passes_filtering, template_start, num_events_template,
-            template_duration, sequence_length_template, mean_qscore_template,
-            strand_score_template, median_template, mad_template,
-            scaling_median_template, scaling_mad_template)"""
         seq_summ_fp.write('\t'.join(map(str, seq_summ_info)) + '\n')
 
         if do_output_mods:
