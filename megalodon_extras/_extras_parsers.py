@@ -548,8 +548,9 @@ def get_parser_validate_results():
     mod_grp.add_argument(
         '--control-megalodon-results-dirs', nargs='+',
         help='Megalodon output directories for modified base control ' +
-        'sample. Could be a PCR or IVT sample. These samples will be ' +
-        'matched in order with the main results directories.')
+        'sample(s). Could be a PCR or IVT sample. Either a single control ' +
+        'for all modified samples or one control sample for each modified ' +
+        'sample should be provided.')
     mod_grp.add_argument(
         '--ground-truth-data',
         help='Ground truth csv with (chrm, strand, pos, is_mod) values.')

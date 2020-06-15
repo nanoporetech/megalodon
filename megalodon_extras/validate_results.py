@@ -167,8 +167,14 @@ def report_mod_metrics(
         all_ctrl_data = [
             mod_samp_data.ctrl_data for mod_samp_data in mod_samps_data]
     else:
-        all_ctrl_data = [
-            ctrl_samp_data.mod_data for ctrl_samp_data in ctrl_samps_data]
+        # handle case where single control sample is provided for all mod
+        # samples
+        if len(ctrl_samps_data) == 1:
+            all_ctrl_data = [
+                ctrl_samps_data[0].mod_data for _ in mod_samps_data]
+        else:
+            all_ctrl_data = [
+                ctrl_samp_data.mod_data for ctrl_samp_data in ctrl_samps_data]
 
     # extract all modified bases from all samples and all valid sites
     all_mod_bases = set((
@@ -345,6 +351,14 @@ def _main(args):
         LOGGER.warning('Cannot provide both control results and ground ' +
                        'truth file. Ignoring ground truth file.')
         args.ground_truth_data = None
+    if len(args.control_megalodon_results_dirs) > 1 and \
+       len(args.control_megalodon_results_dirs) \
+       != len(args.megalodon_results_dirs):
+        LOGGER.error(
+            'Must provide either one control results directory for all ' +
+            'modified results directories or a control directory for each ' +
+            'modified base results directory.')
+        sys.exit(1)
     valid_sites, vs_labs, ctrl_sites = parse_valid_sites(
         args.valid_sites, args.ground_truth_data, args.strand_specific_sites)
 
@@ -368,13 +382,21 @@ def _main(args):
     # dir was provided parse control data
     if args.control_megalodon_results_dirs is not None:
         LOGGER.info('Reading Megalodon control data results')
-        ctrl_samps_data = [
-            parse_mod_data(
-                mega_dir, out_fp, valid_sites, args.strand_specific_sites,
-                '{} Control'.format(samp_lab))
-            for samp_lab, mega_dir in
-            zip(samp_labs, args.control_megalodon_results_dirs)]
-        plot_acc(pdf_fp, mod_samps_data + ctrl_samps_data)
+        if len(args.control_megalodon_results_dirs) > 1:
+            if len(args.control_megalodon_results_dirs) > 1:
+                ctrl_samps_data = [
+                    parse_mod_data(
+                        mega_dir, out_fp, valid_sites,
+                        args.strand_specific_sites,
+                        '{} Control'.format(samp_lab))
+                    for samp_lab, mega_dir in
+                    zip(samp_labs, args.control_megalodon_results_dirs)]
+            else:
+                # handle case with a single control for all mod dirs
+                ctrl_samps_data = [parse_mod_data(
+                    args.control_megalodon_results_dirs[0], out_fp,
+                    valid_sites, args.strand_specific_sites, 'Control'), ]
+            plot_acc(pdf_fp, mod_samps_data + ctrl_samps_data)
     else:
         plot_acc(pdf_fp, mod_samps_data)
 
