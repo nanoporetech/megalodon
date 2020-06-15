@@ -383,19 +383,18 @@ def _main(args):
     if args.control_megalodon_results_dirs is not None:
         LOGGER.info('Reading Megalodon control data results')
         if len(args.control_megalodon_results_dirs) > 1:
-            if len(args.control_megalodon_results_dirs) > 1:
-                ctrl_samps_data = [
-                    parse_mod_data(
-                        mega_dir, out_fp, valid_sites,
-                        args.strand_specific_sites,
-                        '{} Control'.format(samp_lab))
-                    for samp_lab, mega_dir in
-                    zip(samp_labs, args.control_megalodon_results_dirs)]
-            else:
-                # handle case with a single control for all mod dirs
-                ctrl_samps_data = [parse_mod_data(
-                    args.control_megalodon_results_dirs[0], out_fp,
-                    valid_sites, args.strand_specific_sites, 'Control'), ]
+            ctrl_samps_data = [
+                parse_mod_data(
+                    mega_dir, out_fp, valid_sites,
+                    args.strand_specific_sites,
+                    '{} Control'.format(samp_lab))
+                for samp_lab, mega_dir in
+                zip(samp_labs, args.control_megalodon_results_dirs)]
+        else:
+            # handle case with a single control for all mod dirs
+            ctrl_samps_data = [parse_mod_data(
+                args.control_megalodon_results_dirs[0], out_fp,
+                valid_sites, args.strand_specific_sites, 'Control'), ]
             plot_acc(pdf_fp, mod_samps_data + ctrl_samps_data)
     else:
         plot_acc(pdf_fp, mod_samps_data)
