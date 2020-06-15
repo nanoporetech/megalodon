@@ -2,7 +2,7 @@
 Welcome to Megalodon's documentation!
 *************************************
 
-Megalodon is a research command line tool to extract high accuracy modified base and sequence variant calls from raw nanopore reads by anchoring the information rich basecalling neural network output to a reference genome/transriptome.
+Megalodon is a research command line tool to extract high accuracy modified base and sequence variant calls from raw nanopore reads by anchoring the information rich basecalling neural network output to a reference genome/transcriptome.
 
 Raw nanopore reads are processed by a single command to produce basecalls (FASTA/Q), reference mappings (SAM/BAM/CRAM), sequence variant calls (per-read and VCF) and modified base calls (per-read and bedgraph/bedmethyl/modVCF).
 
@@ -21,7 +21,7 @@ Required python packages are: ``cython``, ``h5py``, ``mappy``, ``numpy``, ``ont_
 
    `Taiyaki <https://github.com/nanoporetech/taiyaki>`_ is no longer required to run megalodon, but installation is required for two specific run modes:
    1) output mapped signal files (for basecall models training)
-   2) runing the taiyaki basecalling backend (for neural network designs including experimental layers)
+   2) running the taiyaki basecalling backend (for neural network designs including experimental layers)
 
 ------------
 Installation
@@ -62,7 +62,7 @@ Use the ``--guppy-server-path`` argument to specify a different path.
 
 This command produces the ``megalodon_results`` output directory containing all requested output files and logs.
 
-The majority of megalodon's functionality is accessed via the ``megalodon`` command (exemplified above), though a number of additional operations are made available via the ``megalodon_extras`` command.
+The majority of Megalodon's functionality is accessed via the ``megalodon`` command (exemplified above), though a number of additional operations are made available via the ``megalodon_extras`` command.
 These operations include modified base or variant aggregation (much faster than re-computing per-read calls), modified base result validation, and model statistic calibration.
 Helper commands to perform sequence variant phasing (details here :doc:`variant_phasing`) are also included in ``megalodon_extras``.
 In the future these script will move to a dedicated command line interface (likely ``megalodon_extras``).
