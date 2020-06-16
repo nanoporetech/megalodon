@@ -650,7 +650,7 @@ def get_parser_validate_compare_modified_bases():
         help='Only include sites with sufficient coverage. ' +
         'Default: 1 (= All sites)')
     parser.add_argument(
-        '--heatmap-num-bins', type=int, default=50,
+        '--heatmap-num-bins', type=int, default=31,
         help='Number of bins for heatmap plotting. ' +
         'Default: %(default)d')
     parser.add_argument(

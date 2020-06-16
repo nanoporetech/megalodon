@@ -61,7 +61,60 @@ Below are example graphical representations produced for per-read modified base 
 ``megalodon_extras validate aggregated_modified_bases``
 -------------------------------------------------------
 
+Compute validation metrics and visualizations from aggregated modified base calls.
+
+Similar to the ``megalodon_extras validate results`` command, modified base results are compared to a ground truth provided either by 1) a control sample or 2) a ground truth positions CSV file.
+A set of metrics are also reported and stored as described by the ``--out-filename`` argument (default ``stdout``).
+These metrics include the optimal F1-score, mean average precision and ROC AUC.
+This command outputs several visualizations similar to the per-read modified base validation including modified base percent distributions as well as precision-recall and ROC curves.
+
+----
+
+.. figure::  _images/mod_agg_dist_results.png
+   :align: center
+   :width: 600
+
+   Example ``validate aggregated_modified_bases`` modified base percentage distribution plot.
+
+----
 
 ----------------------------------------------------
 ``megalodon_extras validate compare_modified_bases``
 ----------------------------------------------------
+
+Compare two sets of bedmethyl files and report a standard set of metrics and visualizations.
+
+The two sets or individual bedmethyl files provided will be compared at all overlapping sites with sufficient coverage (defined by ``--coverage-threshold``; default all sites).
+To aggregate forward and reverse strand methylation calls set the ``--strand-offset`` argument.
+For example to aggregate CpG calls add the ``--strand-offset 1`` argument to the command.
+
+The first metrics reported concern the coverage over the two samples before and after the overlap and coverage filters have been applied along with the number of overlapping valid sites observed.
+Overlapping percent modified values are then compared to produce the correlation coefficient, R^2 and RMSE (for the model y=x).
+The correlation coefficient has previously been reported as the standard metric for modified base detection performance, but the RMSE is recommended for purposes of model selection or general modified base detection performance.
+This is due to potential modified base model issues resulting in low accuracy, but high precision, which can result in high correlation.
+Specifically, some models have a tendency to call some low portion of ground truth modified sites as canonical, likely due to training set imbalance.
+
+This command also produces a standard set of visualizations for the comparison of these aggregated results.
+Shown below are plots comparing the percent modified bases between nanopore and ENCODE bisulfite runs (on log and linear scales shading) as well as a comparison of the coverage for the two samples.
+
+----
+
+.. figure::  _images/mod_agg_comp_log.png
+   :align: center
+   :width: 600
+
+   Example ``validate compare_modified_bases`` percent modified comparison with log-10 scaled shading.
+
+.. figure::  _images/mod_agg_comp_linear.png
+   :align: center
+   :width: 600
+
+   Example ``validate compare_modified_bases`` percent modified comparison with clipped linear scaled shading.
+
+.. figure::  _images/mod_agg_comp_cov.png
+   :align: center
+   :width: 600
+
+   Example ``validate compare_modified_bases`` modified base sample read coverage comparison.
+
+----
