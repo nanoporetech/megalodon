@@ -49,6 +49,13 @@ MOD_MAP_MAX_QUAL = 40
 POS_IDX_CHNG_ERR_MSG = (
     'Inserting chromosomes forces change in in-memory index size. Please ' +
     'insert all chromosomes at database initialization.')
+# trailing newlines allow message to be seen even after dynamic progress output
+DB_TIMEOUT_ERR_MSG = (
+    'Modified base database {} insert failed, likely due to timeout.\n' +
+    'Potential fixes: move output to fast disk, increase ' +
+    '--mod-database-timeout.\nFuture failures will be logged without ' +
+    'warnings, but will trigger re-establishment of database connection so ' +
+    'the source issue should be resolved.\n{}' + ('\n' * 6))
 
 OUT_BUFFER_LIMIT = 10000
 
@@ -126,6 +133,7 @@ class ModsDb(object):
         self.fn = mh.resolve_path(fn)
         self.init_db_tables = init_db_tables
         self.read_only = read_only
+        self.db_safety = db_safety
         self.in_mem_chrm_to_dbid = in_mem_chrm_to_dbid or in_mem_pos_to_dbid
         self.in_mem_pos_to_dbid = in_mem_pos_to_dbid
         self.in_mem_mod_to_dbid = in_mem_mod_to_dbid
@@ -135,26 +143,11 @@ class ModsDb(object):
         self.in_mem_dbid_to_mod = in_mem_dbid_to_mod
         self.in_mem_dbid_to_uuid = in_mem_dbid_to_uuid
         self.force_uint32 = force_uint32_pos_to_dbid
+        self.db_timeout = mod_db_timeout
 
-        if self.read_only:
-            if not os.path.exists(self.fn):
-                LOGGER.error((
-                    'Modified base per-read database file ({}) does ' +
-                    'not exist.').format(self.fn))
-                raise mh.MegaError('Invalid mods DB filename.')
-            self.db = sqlite3.connect('file:' + self.fn + '?mode=ro', uri=True)
-        else:
-            self.db = sqlite3.connect(self.fn, timeout=mod_db_timeout)
-            self.db.execute('PRAGMA page_size = {}'.format(
-                mh.SQLITE_PAGE_SIZE))
-            self.db.execute('PRAGMA max_page_count = {}'.format(
-                mh.SQLITE_MAX_PAGE_COUNT))
-        self.db.execute('PRAGMA temp_store = 2')
-        self.db.execute('PRAGMA cache_size = {}'.format(-mh.SQLITE_CACHE_SIZE))
-        self.db.execute('PRAGMA threads = {}'.format(mh.SQLITE_THREADS))
-
-        # initialize main cursor
-        self.cur = self.db.cursor()
+        # establish connection and initialize main cursor
+        self.establish_db_conn()
+        self.set_cursor()
 
         if self.init_db_tables:
             # create tables
@@ -171,23 +164,44 @@ class ModsDb(object):
         else:
             self.check_tables_init()
 
-        if self.read_only:
-            # use memory mapped file access
-            self.cur.execute('PRAGMA mmap_size = {}'.format(
-                mh.MEMORY_MAP_LIMIT))
-        else:
-            if db_safety < 2:
-                # set asynchronous mode to off for max speed
-                self.cur.execute('PRAGMA synchronous = OFF')
-            if db_safety < 1:
-                # set no rollback mode
-                self.cur.execute('PRAGMA journal_mode = OFF')
-
         # load requested in memory indices
         self.load_in_mem_chrm()
         self.load_in_mem_pos()
         self.load_in_mem_mod()
         self.load_in_mem_uuid()
+
+    def establish_db_conn(self):
+        if self.read_only:
+            if not os.path.exists(self.fn):
+                LOGGER.error((
+                    'Modified base per-read database file ({}) does ' +
+                    'not exist.').format(self.fn))
+                raise mh.MegaError('Invalid mods DB filename.')
+            self.db = sqlite3.connect('file:' + self.fn + '?mode=ro', uri=True)
+            # use memory mapped file access
+            self.db.execute('PRAGMA mmap_size = {}'.format(
+                mh.MEMORY_MAP_LIMIT))
+        else:
+            self.db = sqlite3.connect(self.fn, timeout=self.db_timeout)
+            self.db.execute('PRAGMA page_size = {}'.format(
+                mh.SQLITE_PAGE_SIZE))
+            self.db.execute('PRAGMA max_page_count = {}'.format(
+                mh.SQLITE_MAX_PAGE_COUNT))
+            if self.db_safety < 2:
+                # set asynchronous mode to off for max speed
+                self.db.execute('PRAGMA synchronous = OFF')
+            if self.db_safety < 1:
+                # set no rollback mode
+                self.db.execute('PRAGMA journal_mode = OFF')
+        self.db.execute('PRAGMA temp_store = 2')
+        self.db.execute('PRAGMA cache_size = {}'.format(-mh.SQLITE_CACHE_SIZE))
+        self.db.execute('PRAGMA threads = {}'.format(mh.SQLITE_THREADS))
+
+    def set_cursor(self):
+        self.cur = self.db.cursor()
+
+    def commit(self):
+        self.db.commit()
 
     def check_tables_init(self):
         missing_tables = []
@@ -207,9 +221,6 @@ class ModsDb(object):
                 'SELECT name FROM sqlite_master WHERE type="index" AND name=?',
                 ('data_cov_idx', )).fetchall()) == 0:
             raise mh.MegaError('Data covering index does not exist.')
-
-    def reset_cursor(self):
-        self.cur = self.db.cursor()
 
     #########################
     # getter data functions #
@@ -1358,7 +1369,7 @@ def init_mods_db(mods_db_fn, db_safety, ref_names_and_lens, mods_info):
         mods_db_fn, db_safety=db_safety, read_only=False, init_db_tables=True)
     mods_db.insert_chrms(ref_names_and_lens)
     mods_db.insert_mod_long_names(mods_info.mod_long_names)
-    mods_db.db.commit()
+    mods_db.commit()
     LOGGER.debug((
         'mod_getter: in_mem_indices:\n\t' +
         'chrm -> dbid : {}\n\tdbid -> chrm : {}\n\t' +
@@ -1405,20 +1416,17 @@ def _get_mods_queue(
             while not data_commited:
                 try:
                     mods_db.insert_read_data(r_insert_data)
-                    mods_db.db.commit()
+                    mods_db.commit()
                     data_commited = True
                 except sqlite3.OperationalError as e:
                     if not been_warned_timeout:
                         LOGGER.warning(
-                            'Modified base database data insert failed, ' +
-                            'likely due to timeout. Consider increasing ' +
-                            '--mod-database-timeout. Future failures will ' +
-                            'be logged without warnings.\n' + str(e) +
-                            ('\n' * 6))
+                            DB_TIMEOUT_ERR_MSG.format('data', str(e)))
                         been_warned_timeout = True
                     LOGGER.debug('Modified base database data insert ' +
                                  'timeout: ' + str(e))
-                    mods_db.reset_cursor()
+                    mods_db.establish_db_conn()
+                    mods_db.set_cursor()
         except Exception as e:
             if not been_warned_other:
                 LOGGER.warning(
@@ -1529,17 +1537,15 @@ def _mod_aux_table_inserts(mod_db_fn, db_safety, mods_info, mod_pos_conns):
                 r_uniq_pos, chrm_dbid, strand)
             r_mod_dbids = mods_db.get_mod_base_ids_or_insert(r_uniq_mod_bases)
             read_dbid = mods_db.insert_read_uuid(uuid)
-            mods_db.db.commit()
-        except sqlite3.OperationalError:
+            mods_db.commit()
+        except sqlite3.OperationalError as e:
             if not been_warned_timeout:
                 LOGGER.warning(
-                    'Modified base database pos/mod/read insert failed, ' +
-                    'likely due to timeout. Consider increasing ' +
-                    '--mod-database-timeout. Future failures will be ' +
-                    'logged without warnings.' + ('\n' * 6))
+                    DB_TIMEOUT_ERR_MSG.format('pos/mod/read', str(e)))
                 been_warned_timeout = True
             LOGGER.debug('Modified base database aux insert timeout.')
-            mods_db.reset_cursor()
+            mods_db.establish_db_conn()
+            mods_db.set_cursor()
             return False, been_warned_timeout, None, None, None
         return True, been_warned_timeout, r_pos_dbids, r_mod_dbids, read_dbid
 
