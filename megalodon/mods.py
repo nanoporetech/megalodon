@@ -144,6 +144,13 @@ class ModsDb(object):
             self.db = sqlite3.connect('file:' + self.fn + '?mode=ro', uri=True)
         else:
             self.db = sqlite3.connect(self.fn, timeout=mh.SQLITE_TIMEOUT)
+            self.db.execute('PRAGMA page_size = {}'.format(
+                mh.SQLITE_PAGE_SIZE))
+            self.db.execute('PRAGMA max_page_count = {}'.format(
+                mh.SQLITE_MAX_PAGE_COUNT))
+        self.db.execute('PRAGMA temp_store = 2')
+        self.db.execute('PRAGMA cache_size = {}'.format(-mh.SQLITE_CACHE_SIZE))
+        self.db.execute('PRAGMA threads = {}'.format(mh.SQLITE_THREADS))
 
         # initialize main cursor
         self.cur = self.db.cursor()

@@ -65,6 +65,11 @@ _MAX_QUEUE_SIZE = 10000
 # allow 64GB for memory mapped sqlite file access
 MEMORY_MAP_LIMIT = 64000000000
 SQLITE_TIMEOUT = 5
+# default cache size in kilobytes
+SQLITE_CACHE_SIZE = 10000
+SQLITE_PAGE_SIZE = 65536
+SQLITE_MAX_PAGE_COUNT = 2147483646
+SQLITE_THREADS = 8
 
 # VCF spec text
 MIN_GL_VALUE = -999
