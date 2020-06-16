@@ -128,6 +128,10 @@ Modified Base Arguments
 
     - Sites where no canonical or modified base acheives this level of confidence will be ignored in aggregation.
   - Default: 0.75
+- ``--mod-database-timeout``
+
+  - Timeout in seconds for modified base database operations.
+  - Default: 5 seconds
 - ``--mod-context-bases``
 
   - Context bases for modified base calling.
