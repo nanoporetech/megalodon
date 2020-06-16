@@ -2,7 +2,7 @@
 ``megalodon_extras modified_bases``
 ***********************************
 
-The ``megalodon_extras merge`` command group contains various commands related to modified base processing within Megalodon.
+The ``megalodon_extras modified_bases`` command group contains various commands related to modified base processing within Megalodon.
 
 ------------------------------------------------------
 ``megalodon_extras modified_bases estimate_threshold``
