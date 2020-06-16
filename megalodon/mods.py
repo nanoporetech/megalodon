@@ -113,7 +113,8 @@ class ModsDb(object):
                  in_mem_pos_to_dbid=False, in_mem_dbid_to_pos=False,
                  in_mem_mod_to_dbid=False, in_mem_dbid_to_mod=False,
                  in_mem_uuid_to_dbid=False, in_mem_dbid_to_uuid=False,
-                 force_uint32_pos_to_dbid=False):
+                 force_uint32_pos_to_dbid=False,
+                 mod_db_timeout=mh.DEFAULT_MOD_DATABASE_TIMEOUT):
         """ Interface to database containing modified base statistics.
 
         Default settings are for read_only performance without any in-memory
@@ -143,7 +144,7 @@ class ModsDb(object):
                 raise mh.MegaError('Invalid mods DB filename.')
             self.db = sqlite3.connect('file:' + self.fn + '?mode=ro', uri=True)
         else:
-            self.db = sqlite3.connect(self.fn, timeout=mh.SQLITE_TIMEOUT)
+            self.db = sqlite3.connect(self.fn, timeout=mod_db_timeout)
             self.db.execute('PRAGMA page_size = {}'.format(
                 mh.SQLITE_PAGE_SIZE))
             self.db.execute('PRAGMA max_page_count = {}'.format(
@@ -1395,16 +1396,31 @@ def _get_mods_queue(
     def store_mod_call(
             r_insert_data, mod_out_text, all_mods_seq, per_mod_seqs, read_id,
             chrm, strand, r_start, ref_seq, read_len, q_st, q_en, cigar,
-            been_warned):
+            been_warned_timeout, been_warned_other):
         try:
-            mods_db.insert_read_data(r_insert_data)
-            mods_db.db.commit()
+            data_commited = False
+            while not data_commited:
+                try:
+                    mods_db.insert_read_data(r_insert_data)
+                    mods_db.db.commit()
+                    data_commited = True
+                except sqlite3.OperationalError as e:
+                    if not been_warned_timeout:
+                        LOGGER.warning(
+                            'Modified base database data insert failed, ' +
+                            'likely due to timeout. Consider increasing ' +
+                            '--mod-database-timeout. Future failures will ' +
+                            'be logged without warnings.\n' + str(e) +
+                            ('\n' * 6))
+                        been_warned_timeout = True
+                    LOGGER.debug('Modified base database data insert ' +
+                                 'timout: ' + str(e))
         except Exception as e:
-            if not been_warned:
+            if not been_warned_other:
                 LOGGER.warning(
                     'Error inserting modified base scores into database. ' +
                     'See log debug output for error details.')
-                been_warned = True
+                been_warned_other = True
             import traceback
             LOGGER.debug(
                 'Error inserting modified base scores into database: ' +
@@ -1422,11 +1438,14 @@ def _get_mods_queue(
                     read_id, mod_seq, mod_qual, chrm, strand, r_start,
                     mod_map_fps[mod_base])
 
-        return been_warned
+        return been_warned_timeout, been_warned_other
 
-    been_warned = False
+    been_warned_timeout = been_warned_other = False
 
-    mods_db = ModsDb(mods_db_fn, db_safety=db_safety, read_only=False)
+    mods_db = ModsDb(
+        mods_db_fn, db_safety=db_safety, read_only=False,
+        mod_db_timeout=mods_info.mod_db_timeout)
+    LOGGER.debug('timeout: {}'.format(mods_info.mod_db_timeout))
 
     if mods_txt_fn is None:
         mods_txt_fp = None
@@ -1468,10 +1487,11 @@ def _get_mods_queue(
                     read_id, chrm, strand, r_start, ref_seq, read_len,
                     q_st, q_en, cigar) = mod_res
                 try:
-                    been_warned = store_mod_call(
+                    been_warned_timeout, been_warned_other = store_mod_call(
                         r_mod_scores, mod_out_text, all_mods_seq, per_mod_seqs,
                         read_id, chrm, strand, r_start, ref_seq, read_len,
-                        q_st, q_en, cigar, been_warned)
+                        q_st, q_en, cigar, been_warned_timeout,
+                        been_warned_other)
                 except Exception as e:
                     LOGGER.debug('Error processing mods output for read: ' +
                                  '{}\nError type: {}'.format(read_id, str(e)))
@@ -1497,10 +1517,35 @@ if _PROFILE_MODS_QUEUE:
                         filename='mods_getter_queue.prof')
 
 
-def _mod_aux_table_inserts(mod_db_fn, db_safety, pos_in_mem, mod_pos_conns):
+def _mod_aux_table_inserts(mod_db_fn, db_safety, mods_info, mod_pos_conns):
+    def commit_data(
+            r_uniq_pos, chrm_dbid, strand, r_uniq_mod_bases, uuid,
+            been_warned_timeout):
+        try:
+            r_pos_dbids = mods_db.get_pos_dbids_or_insert(
+                r_uniq_pos, chrm_dbid, strand)
+            r_mod_dbids = mods_db.get_mod_base_ids_or_insert(r_uniq_mod_bases)
+            read_dbid = mods_db.insert_read_uuid(uuid)
+            mods_db.db.commit()
+        except sqlite3.OperationalError:
+            if not been_warned_timeout:
+                LOGGER.warning(
+                    'Modified base database pos/mod/read insert failed, ' +
+                    'likely due to timeout. Consider increasing ' +
+                    '--mod-database-timeout. Future failures will be ' +
+                    'logged without warnings.' + ('\n' * 6))
+                been_warned_timeout = True
+            LOGGER.debug('Modified base database aux insert timout.')
+            return False, been_warned_timeout, None, None, None
+        return True, been_warned_timeout, r_pos_dbids, r_mod_dbids, read_dbid
+
+    been_warned_timeout = False
     mods_db = ModsDb(
-        mod_db_fn, db_safety=db_safety, in_mem_pos_to_dbid=pos_in_mem,
-        in_mem_dbid_to_chrm=True, in_mem_mod_to_dbid=True, read_only=False)
+        mod_db_fn, db_safety=db_safety,
+        in_mem_pos_to_dbid=mods_info.pos_index_in_memory,
+        in_mem_dbid_to_chrm=True, in_mem_mod_to_dbid=True, read_only=False,
+        mod_db_timeout=mods_info.mod_db_timeout)
+    LOGGER.debug('timeout: {}'.format(mods_info.mod_db_timeout))
     # loop over connections to read worker processes until all have been
     # exhausted
     while mod_pos_conns:
@@ -1512,12 +1557,12 @@ def _mod_aux_table_inserts(mod_db_fn, db_safety, pos_in_mem, mod_pos_conns):
             else:
                 r_uniq_pos, r_uniq_mod_bases, chrm, strand, uuid = conn_res
                 chrm_dbid = mods_db.get_chrm_dbid(chrm)
-                r_pos_dbids = mods_db.get_pos_dbids_or_insert(
-                    r_uniq_pos, chrm_dbid, strand)
-                r_mod_dbids = mods_db.get_mod_base_ids_or_insert(
-                    r_uniq_mod_bases)
-                read_dbid = mods_db.insert_read_uuid(uuid)
-                mods_db.db.commit()
+                data_commited = False
+                while not data_commited:
+                    (data_commited, been_warned_timeout, r_pos_dbids,
+                     r_mod_dbids, read_dbid) = commit_data(
+                         r_uniq_pos, chrm_dbid, strand, r_uniq_mod_bases, uuid,
+                         been_warned_timeout)
                 r.send((r_pos_dbids, r_mod_dbids, read_dbid))
 
     mods_db.close()
@@ -1607,7 +1652,8 @@ class ModInfo(object):
             mod_output_fmts=[mh.MOD_BEDMETHYL_NAME],
             edge_buffer=mh.DEFAULT_EDGE_BUFFER, pos_index_in_memory=True,
             agg_info=DEFAULT_AGG_INFO, mod_thresh=0.0, do_ann_all_mods=False,
-            do_ann_per_mod=False, map_base_conv=None):
+            do_ann_per_mod=False, map_base_conv=None,
+            mod_db_timeout=mh.DEFAULT_MOD_DATABASE_TIMEOUT):
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other modbase info
         # don't want to pass all of these parameters around individually though
@@ -1626,6 +1672,7 @@ class ModInfo(object):
         self.do_ann_all_mods = do_ann_all_mods
         self.do_ann_per_mod = do_ann_per_mod
         self.map_base_conv_raw = map_base_conv
+        self.mod_db_timeout = mod_db_timeout
 
         self.alphabet = model_info.can_alphabet
         self.ncan_base = len(self.alphabet)

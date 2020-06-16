@@ -208,6 +208,11 @@ def get_parser():
                          'Only applicable for "--mod-aggregate-method ' +
                          'binary_threshold". Default: %(default)s'))
     mod_grp.add_argument(
+        '--mod-database-timeout', type=float,
+        default=mh.DEFAULT_MOD_DATABASE_TIMEOUT,
+        help=hidden_help('Timeout in seconds for modified base database ' +
+                         'operations. Default: %(default)f'))
+    mod_grp.add_argument(
         '--mod-context-bases', type=int, default=mh.DEFAULT_MOD_CONTEXT,
         help=hidden_help('Context bases for modified base calling. ' +
                          'Default: %(default)d'))
