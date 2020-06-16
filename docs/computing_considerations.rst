@@ -2,7 +2,7 @@
 Computing Considerations
 ************************
 
-This page aims to describe the megalodon processing workflow, highlighting relevant computing considerations.
+This page aims to describe the Megalodon processing workflow, highlighting relevant computing considerations.
 
 ------------------
 Raw Signal Loading
