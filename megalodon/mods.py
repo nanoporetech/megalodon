@@ -208,6 +208,9 @@ class ModsDb(object):
                 ('data_cov_idx', )).fetchall()) == 0:
             raise mh.MegaError('Data covering index does not exist.')
 
+    def reset_cursor(self):
+        self.cur = self.db.cursor()
+
     #########################
     # getter data functions #
     #########################
@@ -1414,7 +1417,8 @@ def _get_mods_queue(
                             ('\n' * 6))
                         been_warned_timeout = True
                     LOGGER.debug('Modified base database data insert ' +
-                                 'timout: ' + str(e))
+                                 'timeout: ' + str(e))
+                    mods_db.reset_cursor()
         except Exception as e:
             if not been_warned_other:
                 LOGGER.warning(
@@ -1445,7 +1449,6 @@ def _get_mods_queue(
     mods_db = ModsDb(
         mods_db_fn, db_safety=db_safety, read_only=False,
         mod_db_timeout=mods_info.mod_db_timeout)
-    LOGGER.debug('timeout: {}'.format(mods_info.mod_db_timeout))
 
     if mods_txt_fn is None:
         mods_txt_fp = None
@@ -1535,7 +1538,8 @@ def _mod_aux_table_inserts(mod_db_fn, db_safety, mods_info, mod_pos_conns):
                     '--mod-database-timeout. Future failures will be ' +
                     'logged without warnings.' + ('\n' * 6))
                 been_warned_timeout = True
-            LOGGER.debug('Modified base database aux insert timout.')
+            LOGGER.debug('Modified base database aux insert timeout.')
+            mods_db.reset_cursor()
             return False, been_warned_timeout, None, None, None
         return True, been_warned_timeout, r_pos_dbids, r_mod_dbids, read_dbid
 
@@ -1545,7 +1549,6 @@ def _mod_aux_table_inserts(mod_db_fn, db_safety, mods_info, mod_pos_conns):
         in_mem_pos_to_dbid=mods_info.pos_index_in_memory,
         in_mem_dbid_to_chrm=True, in_mem_mod_to_dbid=True, read_only=False,
         mod_db_timeout=mods_info.mod_db_timeout)
-    LOGGER.debug('timeout: {}'.format(mods_info.mod_db_timeout))
     # loop over connections to read worker processes until all have been
     # exhausted
     while mod_pos_conns:
