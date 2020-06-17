@@ -9,6 +9,8 @@ Without a calibration file the ``--disable-mod-calibration`` or ``--disable-vari
 Calibration file estimation is broken down into two step, 1) ground truth statistic generation (``megalodon_extras calibrate generate_*`` commands and 2) calibration estimation.
 Detail of these steps for both modified base and sequence variants can be found below.
 
+Note that the plots produced by the calibration procedure (with examples shown below) are stored in the repository for each released model in the GitHub repository (``megalodon/model_data/``).
+
 ---------------------------------------------
 ``megalodon_extras calibrate modified_bases``
 ---------------------------------------------
