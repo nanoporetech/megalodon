@@ -52,10 +52,10 @@ POS_IDX_CHNG_ERR_MSG = (
 # trailing newlines allow message to be seen even after dynamic progress output
 DB_TIMEOUT_ERR_MSG = (
     'Modified base database {} insert failed, likely due to timeout.\n' +
-    'Potential fixes: move output to fast disk, increase ' +
-    '--mod-database-timeout.\nFuture failures will be logged without ' +
-    'warnings, but will trigger re-establishment of database connection so ' +
-    'the source issue should be resolved.\n{}' + ('\n' * 6))
+    'Potential fixes: move output to fast disk, set `--database-safety 0`, ' +
+    'increase --mod-database-timeout.\nFuture failures will be logged ' +
+    'without warnings, but will trigger re-establishment of database ' +
+    'connection so the source issue should be resolved.\n{}' + ('\n' * 6))
 
 OUT_BUFFER_LIMIT = 10000
 

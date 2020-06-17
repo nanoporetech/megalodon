@@ -4,6 +4,19 @@
 
 The ``megalodon_extras modified_bases`` command group contains various commands related to modified base processing within Megalodon.
 
+-----------------------------------------------------
+``megalodon_extras modified_bases describe_alphabet``
+-----------------------------------------------------
+
+Describe the alphabet, including modified bases, found in a given model.
+
+This command is useful to determine the syntax for specifying arguments related to modified base detection.
+
+Note that originally modified bases were specified by arbitrary values, but recent and future models will attempt to follow single letter codes specified by `samtools hts-spec (currently an open issue) <https://github.com/samtools/hts-specs/pull/418>`_.
+
+A minimal subset of the model specifications from the main ``megalodon`` command are available to specify the model exactly as in the main command.
+The model will be loaded as normal and the alphabet used will be printed.
+
 ------------------------------------------------------
 ``megalodon_extras modified_bases estimate_threshold``
 ------------------------------------------------------
