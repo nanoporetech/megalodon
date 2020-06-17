@@ -21,7 +21,7 @@ See the `community page for download/installation instructions <https://communit
 All other requirements are handled by ``pip`` or ``conda`` installation.
 If installing from source, ``numpy`` must be installed before running installation for cython optimizations.
 
-.. note::
+..
 
    `Taiyaki <https://github.com/nanoporetech/taiyaki>`_ is no longer required to run megalodon, but installation is required for two specific run modes:
    1) output mapped signal files (for basecall models training)
