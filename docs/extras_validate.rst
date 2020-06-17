@@ -88,7 +88,7 @@ The two sets or individual bedmethyl files provided will be compared at all over
 To aggregate forward and reverse strand methylation calls set the ``--strand-offset`` argument.
 For example to aggregate CpG calls add the ``--strand-offset 1`` argument to the command.
 
-The first metrics reported concern the coverage over the two samples before and after the overlap and coverage filters have been applied along with the number of overlapping valid sites observed.
+The first metrics reported concern the coverage over the two samples before and after the overlap and coverage filters have been applied.
 Overlapping percent modified values are then compared to produce the correlation coefficient, R^2 and RMSE (for the model y=x).
 The correlation coefficient has previously been reported as the standard metric for modified base detection performance, but the RMSE is recommended for purposes of model selection or general modified base detection performance.
 This is due to potential modified base model issues resulting in low accuracy, but high precision, which can result in high correlation.

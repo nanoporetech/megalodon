@@ -10,14 +10,14 @@ The ``megalodon_extras phase_variants`` command group contains commands to assis
 
 `WhatsHap <https://whatshap.readthedocs.io/en/latest/>`_ (as of version ``0.18``) cannot process some complex variants.
 Providing such variants causes WhatsHap to exit with an error.
-This command is provided to remove these complex variants and allow procesing to proceed without error.
+This command is provided to remove these complex variants and allow processing to proceed without error.
 Note that these variants are still considered outside of the WhatsHap phasing step of the Megalodon phasing pipeline.
 
 -----------------------------------------------------------
 ``megalodon_extras phase_variants extract_haplotype_reads``
 -----------------------------------------------------------
 
-From alignment files produced by ``whatshap haplotag``, extract read ids for read assigned to one of the two haplotypes.
+From alignment files produced by ``whatshap haplotag``, extract read ids for reads assigned to one of the two haplotypes.
 One file will be produced for each haplotype value in the alignment file (two for standard diploid processing).
 
 ----------------------------------------------------------
