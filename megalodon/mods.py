@@ -1690,12 +1690,16 @@ class ModInfo(object):
         except AttributeError:
             pass
         if model_info.is_cat_mod:
-            # TODO also output "(alt to C)" for each mod
+            can_bs = [
+                can_b for mod_b, _ in model_info.mod_long_names
+                for can_b, can_mod_bs in model_info.can_base_mods.items()
+                if mod_b in can_mod_bs]
             LOGGER.info(
                 'Using canonical alphabet {} and modified bases {}.'.format(
-                    self.alphabet, ' '.join(
-                        '{}={}'.format(*mod_b)
-                        for mod_b in model_info.mod_long_names)))
+                    self.alphabet, '; '.join(
+                        '{}={} (alt to {})'.format(mod_b, mln, can_b)
+                        for (mod_b, mln), can_b in zip(
+                                model_info.mod_long_names, can_bs))))
         else:
             LOGGER.info(
                 'Using canonical alphabet {}.'.format(self.alphabet))
