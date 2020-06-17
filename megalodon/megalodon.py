@@ -696,8 +696,8 @@ def process_all_reads(
         # connections must be closed immediately after creation
         mod_pos_p = mp.Process(
             target=mods._mod_aux_table_inserts, args=(
-                mods_db_fn, db_safety, mods_info.pos_index_in_memory,
-                mod_pos_db_conns), daemon=True)
+                mods_db_fn, db_safety, mods_info, mod_pos_db_conns),
+            daemon=True)
         mod_pos_p.start()
         mod_res_p = mp.Process(
             target=mods._get_mods_queue, daemon=True, args=(
@@ -914,7 +914,8 @@ def parse_mod_args(args, model_info):
         mod_thresh=args.ref_mod_threshold,
         do_ann_all_mods=args.ref_include_mods,
         do_ann_per_mod=mh.MOD_MAP_NAME in args.outputs,
-        map_base_conv=args.mod_map_base_conv)
+        map_base_conv=args.mod_map_base_conv,
+        mod_db_timeout=args.mod_database_timeout)
     return args, mods_info
 
 
