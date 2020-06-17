@@ -23,6 +23,13 @@ IS_MOD_VALS = set(('true', 't', 'on', 'yes', 'y', '1'))
 
 MOD_SAMPLE = namedtuple('MOD_SAMPLE', ('cov', 'mod_cov', 'test_sites'))
 
+MOD_VAL_METRICS_HEADER = (
+    '{: <12}{: <19}{: <20}{: <9}{: <20}{: <19}{}\n'.format(
+        'Optimal_F1', 'Optimal_Threshold', 'Mean_Avg_Precision', 'ROC_AUC',
+        'Num_Modified_Stats', 'Num_Control_Stats', 'Sample'))
+MOD_VAL_METRICS_TMPLT = (
+    '{: <12.6f}{: <19.4f}{: <20.6f}{: <9.6f}{: <20d}{: <19d}{}\n')
+
 
 def parse_mod_sample(bm_files, strand_offset, cov_thresh, samp_name):
     cov, mod_cov = mh.parse_bed_methyls(
@@ -132,11 +139,10 @@ def compute_val_metrics(
     fpr, tpr, _ = roc_curve(is_mod, all_pct_mod)
     roc_auc = auc(fpr, tpr)
 
-    out_fp.write((
-        'Modified base metrics for {}:\t{:.6f} (at {:.4f} )\t' +
-        '{:.6f}\t{:.6f}\t{}\t{}\n').format(
-            samp_name, optim_f1, optim_thresh, avg_prcn, roc_auc,
-            mod_pct_mod.shape[0], ctrl_pct_mod.shape[0]))
+    out_fp.write(
+        MOD_VAL_METRICS_TMPLT.format(
+            optim_f1, optim_thresh, avg_prcn, roc_auc, mod_pct_mod.shape[0],
+            ctrl_pct_mod.shape[0], samp_name))
 
     LOGGER.info('Plotting {}'.format(samp_name))
     plt.figure(figsize=(11, 7))
@@ -178,6 +184,7 @@ def _main(args):
     pdf_fp = PdfPages(args.out_pdf)
     out_fp = (sys.stdout if args.out_filename is None else
               open(args.out_filename, 'w'))
+    out_fp.write(MOD_VAL_METRICS_HEADER)
 
     mod_samp = parse_mod_sample(
         args.modified_bed_methyl_files, args.strand_offset,

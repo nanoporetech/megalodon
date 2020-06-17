@@ -585,8 +585,9 @@ def get_parser_validate_results():
     mod_grp.add_argument(
         '--control-megalodon-results-dirs', nargs='+',
         help='Megalodon output directories for modified base control ' +
-        'sample. Could be a PCR or IVT sample. These samples will be ' +
-        'matched in order with the main results directories.')
+        'sample(s). Could be a PCR or IVT sample. Either a single control ' +
+        'for all modified samples or one control sample for each modified ' +
+        'sample should be provided.')
     mod_grp.add_argument(
         '--ground-truth-data',
         help='Ground truth csv with (chrm, strand, pos, is_mod) values.')
@@ -686,7 +687,7 @@ def get_parser_validate_compare_modified_bases():
         help='Only include sites with sufficient coverage. ' +
         'Default: 1 (= All sites)')
     parser.add_argument(
-        '--heatmap-num-bins', type=int, default=50,
+        '--heatmap-num-bins', type=int, default=31,
         help='Number of bins for heatmap plotting. ' +
         'Default: %(default)d')
     parser.add_argument(

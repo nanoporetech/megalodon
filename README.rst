@@ -6,7 +6,7 @@
 Megalodon
 """""""""
 
-Megalodon is a research command line tool to extract high accuracy modified base and sequence variant calls from raw nanopore reads by anchoring the information rich basecalling neural network output to a reference genome/transriptome.
+Megalodon is a research command line tool to extract high accuracy modified base and sequence variant calls from raw nanopore reads by anchoring the information rich basecalling neural network output to a reference genome/transcriptome.
 
 Raw nanopore reads are processed by a single command to produce basecalls (FASTA/Q), reference mappings (SAM/BAM/CRAM), sequence variant calls (per-read and VCF) and modified base calls (per-read and bedgraph/bedmethyl/modVCF).
 
@@ -25,7 +25,7 @@ If installing from source, ``numpy`` must be installed before running installati
 
    `Taiyaki <https://github.com/nanoporetech/taiyaki>`_ is no longer required to run megalodon, but installation is required for two specific run modes:
    1) output mapped signal files (for basecall models training)
-   2) runing the taiyaki basecalling backend (for neural network designs including experimental layers)
+   2) running the taiyaki basecalling backend (for neural network designs including experimental layers)
 
 Installation
 ------------
@@ -135,7 +135,7 @@ In addition to the ``--guppy-config`` and ``--guppy-server-path`` options, a num
 An alternative server port can be specified with the ``--guppy-server-port`` argument (useful when multiple megalodon/guppy_server are active on the same machine).
 The ``--guppy-params`` argument will pass arguments directly to the ``guppy_basecall_server`` initialization call.
 These arguments must be valid arguments for the provided guppy server executable.
-For example to optimize GPU usage for an nvidia V100 GPU, the following option might be specified: ``--guppy-parmas "--num_callers 5 --ipc_threads 6"``
+For example to optimize GPU usage for an nvidia V100 GPU, the following option might be specified: ``--guppy-params "--num_callers 5 --ipc_threads 6"``
 
 Finally the ``--guppy-timeout`` arguments ensures that a run will not stall on a small number of reads taking a very long time (default 5 seconds).
 
@@ -149,7 +149,7 @@ The default diploid variant settings are optimized for the full phasing pipeline
 High-Density Variants
 ---------------------
 
-When running megalodon with a high density of variants (more than 1 variant per 100 reference bases), certain steps can be taken to increase performace.
+When running megalodon with a high density of variants (more than 1 variant per 100 reference bases), certain steps can be taken to increase performance.
 In particular, megalodon requires variants to be atomized first.
 In order to improve performance, this step can be carried out as a pre-processing step.
 
@@ -162,7 +162,7 @@ In a second round of processing, each variant is inspected in the context of nea
 By default, all variants are considered in this second round of processing.
 For high density variants it is recommended that variants be filtered before this second round considering context variants.
 Set the ``--context-min-alt-prob`` argument in order to activate this filter (recommended values in the range ``0.01-0.05``).
-Note that this may adversely effect the calling of multiple variants in close proximity (e.g. multiple adgacent SNPs, even if they are encoded as a single variant in the provided VCF).
+Note that this may adversely effect the calling of multiple variants in close proximity (e.g. multiple adjacent SNPs, even if they are encoded as a single variant in the provided VCF).
 
 Disk Performance Considerations
 -------------------------------
@@ -170,7 +170,7 @@ Disk Performance Considerations
 Per-read modified base and variant statistics are stored in an on-disk sqlite database.
 As of version 2.0, the status of output queues is displayed by default.
 If any of these status bars indicate a full queue, megalodon will stall waiting on that process to write data to disk.
-Moving the  ``--output-directory`` to a location with faster disk I/O performance should imporove performance.
+Moving the  ``--output-directory`` to a location with faster disk I/O performance should improve performance.
 
 For the aggregation stage of processing the disk read speed has a magnified effect.
 During aggregation binary searches for results grouped per-site must be performed over the on-disk database.
@@ -192,7 +192,7 @@ Megalodon does not currently support variant detection from direct RNA data, but
    Megalodon does not currently perform checking that a set of reads agree with the provided model or options specified (e.g. ``--rna``).
    Users should take care to ensure that the correct options are specified for each sample processed.
 
-Licence and Copyright
+License and Copyright
 ---------------------
 
 |copy| 2019-20 Oxford Nanopore Technologies Ltd.
