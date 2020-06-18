@@ -410,7 +410,7 @@ def get_supported_configs_message():
     out_msg = ('Megalodon support for guppy configs (basecalling and ' +
                'mapping supported for flip-flop configs):\n' +
                'Variant Support    Modbase Support    Config\n')
-    for config in configs:
+    for config in sorted(configs):
         config_files = os.listdir(resolve_path(
             pkg_resources.resource_filename('megalodon', os.path.join(
                 MODEL_DATA_DIR_NAME, config))))

@@ -125,8 +125,8 @@ By default, megalodon uses the ``dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg`
 This config is compatible with DNA, R9.4.1, MinION/GridION reads and allows output of 5mC and 6mA calls in biological contexts (CpG, dcm and dam sites).
 Use the ``--guppy-config`` option to specify a different guppy model config.
 
-All configs can be used to output basecalls and mappings (as well as signal mapping files for basecall training; see ``--output-signal-mappings`` in ``--help-long``).
-Modified base and sequence variant outputs require megalodon calibration files.
+All configs can be used to output basecalls and mappings (as well as signal mappings for basecall training; see ``--output signal_mappings``).
+Modified base and sequence variant outputs require Megalodon calibration files.
 To list configs with default calibration files, run ``megalodon --list-supported-guppy-configs``.
 
 Only flip-flop configs/models are currently supported by megalodon (this excludes k-mer based and RLE model types).
