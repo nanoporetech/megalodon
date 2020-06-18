@@ -128,7 +128,8 @@ class VarsDb(object):
                 raise mh.MegaError('Invalid variant DB filename.')
             self.db = sqlite3.connect('file:' + fn + '?mode=ro', uri=True)
         else:
-            self.db = sqlite3.connect(fn, timeout=mh.SQLITE_TIMEOUT)
+            self.db = sqlite3.connect(
+                fn, timeout=mh.DEFAULT_VAR_DATABASE_TIMEOUT)
 
         self.cur = self.db.cursor()
         if self.read_only:
@@ -1094,7 +1095,7 @@ def _get_variants_queue(
         try:
             r_var_calls, (read_id, chrm, strand, r_start, ref_seq, read_len,
                           q_st, q_en, cigar) = vars_q.get(
-                              block=True, timeout=1)
+                              block=True, timeout=0.01)
         except queue.Empty:
             if vars_conn.poll():
                 break

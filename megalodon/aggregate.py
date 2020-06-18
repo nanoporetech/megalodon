@@ -2,7 +2,6 @@
 import os
 import sys
 import queue
-from time import sleep
 import multiprocessing as mp
 
 from tqdm import tqdm
@@ -32,9 +31,8 @@ def _agg_vars_worker(
 
     while True:
         try:
-            var_loc = locs_q.get(block=True, timeout=1)
+            var_loc = locs_q.get(block=True, timeout=0.01)
         except queue.Empty:
-            sleep(0.001)
             continue
         if var_loc is None:
             break
@@ -62,14 +60,13 @@ def _get_var_stats_queue(
 
     while True:
         try:
-            var_var = var_stats_q.get(block=True, timeout=1)
+            var_var = var_stats_q.get(block=True, timeout=0.01)
             if var_var is None:
                 continue
             agg_var_fp.write_variant(var_var)
         except queue.Empty:
             if var_conn.poll():
                 break
-            sleep(0.001)
             continue
 
     while not var_stats_q.empty():
@@ -84,13 +81,10 @@ def _agg_mods_worker(
         valid_read_ids, write_mod_lp):
     # functions for profiling purposes
     def get_pos_data():
-        return pos_q.get(block=True, timeout=1)
+        return pos_q.get(block=True, timeout=0.01)
 
     def put_mod_site(mod_site):
         mod_stats_q.put(mod_site)
-
-    def do_sleep():
-        sleep(0.0001)
 
     agg_mods = mods.AggMods(
         mods_db_fn, mod_agg_info, write_mod_lp,
@@ -100,7 +94,6 @@ def _agg_mods_worker(
         try:
             pos_data = get_pos_data()
         except queue.Empty:
-            do_sleep()
             continue
         if pos_data is None:
             break
@@ -129,11 +122,7 @@ def _get_mod_stats_queue(
         out_suffix, write_mod_lp, mod_output_fmts):
     def get_mod_site():
         # function for profiling purposes
-        return mod_stats_q.get(block=True, timeout=1)
-
-    def do_sleep():
-        # function for profiling purposes
-        sleep(0.001)
+        return mod_stats_q.get(block=True, timeout=0.01)
 
     agg_mod_bn = mh.get_megalodon_fn(out_dir, mh.MOD_NAME)
     if out_suffix is not None:
@@ -158,7 +147,6 @@ def _get_mod_stats_queue(
         except queue.Empty:
             if mod_conn.poll():
                 break
-            do_sleep()
             continue
 
     while not mod_stats_q.empty():
@@ -182,55 +170,71 @@ if _DO_PROFILE_GET_MODS:
 def _agg_prog_worker(
         var_prog_q, mod_prog_q, num_vars, num_mods, prog_conn,
         suppress_progress):
+    if suppress_progress:
+        # if no progressbar requested just drain the queues and return
+        check_var = True
+        while True:
+            try:
+                if check_var:
+                    check_var = False
+                    var_prog_q.get(block=False)
+                else:
+                    check_var = True
+                    mod_prog_q.get(block=False)
+            except queue.Empty:
+                if prog_conn.poll():
+                    break
+        while not var_prog_q.empty():
+            var_prog_q.get(block=False)
+        while not mod_prog_q.empty():
+            mod_prog_q.get(block=False)
+        return
+
+    # else manage progressbar(s)
     var_bar, mod_bar = None, None
     if num_vars > 0:
-        if num_mods > 0 and not suppress_progress:
+        if num_mods > 0:
             mod_bar = tqdm(desc='Mods', unit=' sites', total=num_mods,
                            position=1, smoothing=0, dynamic_ncols=True)
             var_bar = tqdm(desc='Variants', unit=' sites', total=num_vars,
                            position=0, smoothing=0, dynamic_ncols=True)
-        elif not suppress_progress:
+        else:
             var_bar = tqdm(desc='Variants', unit=' sites', total=num_vars,
                            position=0, smoothing=0, dynamic_ncols=True)
-    elif num_mods > 0 and not suppress_progress:
+    elif num_mods > 0:
         mod_bar = tqdm(desc='Mods', unit=' sites', total=num_mods,
                        position=0, smoothing=0, dynamic_ncols=True)
 
+    check_var = True
     while True:
         try:
-            var_prog_q.get(block=True, timeout=1)
-            if not suppress_progress:
-                if var_bar is not None:
-                    var_bar.update(1)
+            if check_var:
+                check_var = False
+                var_prog_q.get(block=False)
+                var_bar.update()
                 if mod_bar is not None:
                     mod_bar.update(0)
+            else:
+                check_var = True
+                mod_prog_q.get(block=False)
+                mod_bar.update()
+                if var_bar is not None:
+                    var_bar.update(0)
         except queue.Empty:
-            try:
-                mod_prog_q.get(block=True, timeout=1)
-                if not suppress_progress:
-                    if var_bar is not None:
-                        var_bar.update(0)
-                    if mod_bar is not None:
-                        mod_bar.update(1)
-            except queue.Empty:
-                sleep(0.001)
-                if prog_conn.poll():
-                    break
-                continue
+            if prog_conn.poll():
+                break
 
     while not var_prog_q.empty():
         var_prog_q.get(block=False)
-        if not suppress_progress:
-            var_bar.update(1)
+        var_bar.update()
     while not mod_prog_q.empty():
         mod_prog_q.get(block=False)
-        if not suppress_progress:
-            mod_bar.update(1)
+        mod_bar.update()
     if var_bar is not None:
         var_bar.close()
     if mod_bar is not None:
         mod_bar.close()
-    if num_mods > 0 and num_vars > 0 and not suppress_progress:
+    if num_mods > 0 and num_vars > 0:
         # print newlines to move past progress bars.
         sys.stderr.write('\n\n')
 
@@ -326,13 +330,24 @@ def aggregate_stats(
             p.start()
             agg_mods_ps.append(p)
 
+    if num_vars == 0 and num_mods == 0:
+        LOGGER.warning('No per-read variants or modified base statistics ' +
+                       'found for aggregation.')
+        return
+    if num_vars == 0:
+        LOGGER.info('Aggregating {} modified base sites.'.format(num_mods))
+    elif num_mods == 0:
+        LOGGER.info('Aggregating {} variants.'.format(num_vars))
+    else:
+        LOGGER.info(
+            'Aggregating {} variants and {} modified base sites.'.format(
+                num_vars, num_mods))
+    LOGGER.info(
+        'NOTE: If this step is very slow, ensure the output directory is ' +
+        'located on a fast read disk (e.g. local SSD). Aggregation can be ' +
+        'restarted using the `megalodon_extras aggregate run` command.')
+
     # create progress process
-    LOGGER.info((
-        'Aggregating {} variants and {} modified base sites over reads.\n' +
-        '\t\tNOTE: If this step is very slow, ensure the output directory ' +
-        'is located on a fast read disk (e.g. local SSD). Aggregation can ' +
-        'be restarted using the `megalodon_extras aggregate run` ' +
-        'command.').format(num_vars, num_mods))
     main_prog_conn, prog_conn = mp.Pipe()
     prog_p = mp.Process(
         target=_agg_prog_worker,

@@ -30,9 +30,9 @@ This constitutes the reference anchoring used for modified base and sequence var
 Sequence Variant Calling
 ------------------------
 
-Megalodon currently filters alleles over a certain maximum size (default 50) as performance on larger indels has not currenty been validated.
+Megalodon currently filters alleles over a certain maximum size (default 50) as performance on larger indels has not currently been validated.
 Note also that variants are converted into an "atomic" form (containing minimal unique variant sequence for indels).
-Thus atomic variants do not contain context sequence and are expanded to include regions of ambiguity (indel within a repetative region).
+Thus atomic variants do not contain context sequence and are expanded to include regions of ambiguity (indel within a repetitive region).
 
 At each valid variant a region of context sequence around the variant is extracted.
 The context sequence allows the scoring algorithm to traverse slightly different paths through the local neural network output.
@@ -46,8 +46,8 @@ The difference between these two scores is the assigned score for the proposed v
 Lower (negative) score are evidence for the alternative sequence and higher (positive) scores are evidence for the reference sequence.
 
 These raw scores are softmax values over potential states, to match characteristics of a probability distribution.
-In practice, these scores do not match emperical probabilities for a variant given a truth dataset.
-Thus a calibration step is applied to convert these scores to estimated emperical probabilities.
+In practice, these scores do not match empirical probabilities for a variant given a truth data set.
+Thus a calibration step is applied to convert these scores to estimated empirical probabilities.
 This enables more accurate aggregation across reads.
 
 As of version 1.0.0, megalodon now performs a second round of variant detection taking nearby variants into account.
@@ -69,7 +69,7 @@ These probabilities are then normalized given by Bayes' theorem.
 Modified Base Calling
 ---------------------
 
-Modified base calling is performed largely in the same manner as variant calling above in terms of sequence and associated nueral network output extraction.
+Modified base calling is performed largely in the same manner as variant calling above in terms of sequence and associated neural network output extraction.
 The main difference is that instead of proposing alternative bases in the sequence, a modification is proposed.
 This means that in order to identify a particular modification the model must be aware of this modification.
 Training models for particular modifications of interest is described in the taiyaki software documentation.

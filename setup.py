@@ -10,7 +10,8 @@ __pkg_name__ = 'megalodon'
 
 # Get the version number from _version.py, and exe_path
 verstrline = open(
-    os.path.join('megalodon', '_version.py'), 'r').readlines()[-1]
+    os.path.join(os.path.dirname(__file__), 'megalodon', '_version.py'),
+    'r').readlines()[-1]
 vsre = r"^MEGALODON_VERSION = ['\"]([^'\"]*)['\"]"
 mo = re.search(vsre, verstrline)
 if mo:

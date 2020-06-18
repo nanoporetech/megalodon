@@ -94,7 +94,7 @@ Note that these distributions often differ quite significantly.
 The theoretical/raw scores are what would be used given the ``--disable-mod-calibration`` option.
 This underscores the importance of the calibration step.
 
-The final panel shows the conversion from theoretical log likelihood ratio to emperical log likelihood ratio to be saved in the calibration file.
+The final panel shows the conversion from theoretical log likelihood ratio to empirical log likelihood ratio to be saved in the calibration file.
 Note that monotonic smoothing is applied to this function as well.
 
 The vertical bars on these plots, show the effect of common threshold choices on the ground truth data.
@@ -111,7 +111,7 @@ Once a modified base model is trained and calibration file computed, further mod
 .. warning::
 
   Great care should be taken when training a modified base basecalling model, especially with this method.
-  The accuracy of refernce modified base markup is strongly indicative of the final modified base detection performance for a trained model.
+  The accuracy of reference modified base markup is strongly indicative of the final modified base detection performance for a trained model.
 
 In order to annotate modified bases using a modified base model the following command would be run:
 
@@ -130,6 +130,6 @@ In this example 5mC calls are limited to CpG sites while 6mA calls are made at a
 Thus no 5mC sites will be marked in the output signal mapping file outside of the ``CG`` context.
 
 The ``--ref-mod-threshold`` argument is provided to adjust the annotation based on modeling results.
-By default the threshold to annotate a base as modified is a log likelihood ratio of ``0`` (i.e. the modified base is more likely than the canonical base based on emperically calibrated statistics).
+By default the threshold to annotate a base as modified is a log likelihood ratio of ``0`` (i.e. the modified base is more likely than the canonical base based on empirically calibrated statistics).
 In some samples this value may not be optimal.
 The ``scripts/compute_mod_thresh_score.py`` command is provided for assistance in determining a reasonable value for this parameter.

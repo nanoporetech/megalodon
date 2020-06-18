@@ -2,11 +2,11 @@ import os
 import re
 import sys
 import pysam
-import queue
 import sqlite3
 import datetime
 from time import sleep
 from array import array
+import multiprocessing as mp
 from multiprocessing.connection import wait
 from collections import defaultdict, namedtuple, OrderedDict
 
@@ -43,11 +43,19 @@ FORMAT_LOG_PROB_MI = (
 
 SAMPLE_NAME = 'SAMPLE'
 MOD_MAP_RG_ID = '1'
+MOD_MAP_INVALID_BASE_LP = -2
 MOD_MAP_MAX_QUAL = 40
 
 POS_IDX_CHNG_ERR_MSG = (
     'Inserting chromosomes forces change in in-memory index size. Please ' +
     'insert all chromosomes at database initialization.')
+# trailing newlines allow message to be seen even after dynamic progress output
+DB_TIMEOUT_ERR_MSG = (
+    'Modified base database {} insert failed, likely due to timeout.\n' +
+    'Potential fixes: move output to fast disk, set `--database-safety 0`, ' +
+    'increase --mod-database-timeout.\nFuture failures will be logged ' +
+    'without warnings, but will trigger re-establishment of database ' +
+    'connection so the source issue should be resolved.\n{}' + ('\n' * 6))
 
 OUT_BUFFER_LIMIT = 10000
 
@@ -112,14 +120,20 @@ class ModsDb(object):
                  in_mem_pos_to_dbid=False, in_mem_dbid_to_pos=False,
                  in_mem_mod_to_dbid=False, in_mem_dbid_to_mod=False,
                  in_mem_uuid_to_dbid=False, in_mem_dbid_to_uuid=False,
-                 force_uint32_pos_to_dbid=False):
+                 force_uint32_pos_to_dbid=False,
+                 mod_db_timeout=mh.DEFAULT_MOD_DATABASE_TIMEOUT):
         """ Interface to database containing modified base statistics.
 
-        Default settings are for optimal read_only performance.
+        Default settings are for read_only performance without any in-memory
+        indices. If a particular database id (dbid) is to be accessed
+        repeatedly it is strongly suggested that this value be loaded at
+        database initialization by setting the appropriate in_mem_*
+        arguments to True.
         """
         self.fn = mh.resolve_path(fn)
         self.init_db_tables = init_db_tables
         self.read_only = read_only
+        self.db_safety = db_safety
         self.in_mem_chrm_to_dbid = in_mem_chrm_to_dbid or in_mem_pos_to_dbid
         self.in_mem_pos_to_dbid = in_mem_pos_to_dbid
         self.in_mem_mod_to_dbid = in_mem_mod_to_dbid
@@ -129,19 +143,11 @@ class ModsDb(object):
         self.in_mem_dbid_to_mod = in_mem_dbid_to_mod
         self.in_mem_dbid_to_uuid = in_mem_dbid_to_uuid
         self.force_uint32 = force_uint32_pos_to_dbid
+        self.db_timeout = mod_db_timeout
 
-        if self.read_only:
-            if not os.path.exists(fn):
-                LOGGER.error((
-                    'Modified base per-read database file ({}) does ' +
-                    'not exist.').format(fn))
-                raise mh.MegaError('Invalid mods DB filename.')
-            self.db = sqlite3.connect('file:' + fn + '?mode=ro', uri=True)
-        else:
-            self.db = sqlite3.connect(fn, timeout=mh.SQLITE_TIMEOUT)
-
-        # initialize main cursor
-        self.cur = self.db.cursor()
+        # establish connection and initialize main cursor
+        self.establish_db_conn()
+        self.set_cursor()
 
         if self.init_db_tables:
             # create tables
@@ -158,23 +164,44 @@ class ModsDb(object):
         else:
             self.check_tables_init()
 
-        if self.read_only:
-            # use memory mapped file access
-            self.cur.execute('PRAGMA mmap_size = {}'.format(
-                mh.MEMORY_MAP_LIMIT))
-        else:
-            if db_safety < 2:
-                # set asynchronous mode to off for max speed
-                self.cur.execute('PRAGMA synchronous = OFF')
-            if db_safety < 1:
-                # set no rollback mode
-                self.cur.execute('PRAGMA journal_mode = OFF')
-
         # load requested in memory indices
         self.load_in_mem_chrm()
         self.load_in_mem_pos()
         self.load_in_mem_mod()
         self.load_in_mem_uuid()
+
+    def establish_db_conn(self):
+        if self.read_only:
+            if not os.path.exists(self.fn):
+                LOGGER.error((
+                    'Modified base per-read database file ({}) does ' +
+                    'not exist.').format(self.fn))
+                raise mh.MegaError('Invalid mods DB filename.')
+            self.db = sqlite3.connect('file:' + self.fn + '?mode=ro', uri=True)
+            # use memory mapped file access
+            self.db.execute('PRAGMA mmap_size = {}'.format(
+                mh.MEMORY_MAP_LIMIT))
+        else:
+            self.db = sqlite3.connect(self.fn, timeout=self.db_timeout)
+            self.db.execute('PRAGMA page_size = {}'.format(
+                mh.SQLITE_PAGE_SIZE))
+            self.db.execute('PRAGMA max_page_count = {}'.format(
+                mh.SQLITE_MAX_PAGE_COUNT))
+            if self.db_safety < 2:
+                # set asynchronous mode to off for max speed
+                self.db.execute('PRAGMA synchronous = OFF')
+            if self.db_safety < 1:
+                # set no rollback mode
+                self.db.execute('PRAGMA journal_mode = OFF')
+        self.db.execute('PRAGMA temp_store = 2')
+        self.db.execute('PRAGMA cache_size = {}'.format(-mh.SQLITE_CACHE_SIZE))
+        self.db.execute('PRAGMA threads = {}'.format(mh.SQLITE_THREADS))
+
+    def set_cursor(self):
+        self.cur = self.db.cursor()
+
+    def commit(self):
+        self.db.commit()
 
     def check_tables_init(self):
         missing_tables = []
@@ -269,7 +296,7 @@ class ModsDb(object):
             UUID (int): Universal read identifier
         """
         try:
-            if self.in_mem:
+            if self.in_mem_dbid_to_uuid:
                 uuid = self.dbid_to_uuid[read_dbid]
             else:
                 uuid = self.cur.execute(
@@ -415,12 +442,18 @@ class ModsDb(object):
             # position to database id is stored as a dictionary of numpy arrays
             # this was done since standard dictionaries cause memory errors
             # for large genomes potentially toward the end of a long run.
+            # initialize with chromosome size and allocate numpy array as
+            # needed
             self.pos_to_dbid = dict(
-                ((chrm_dbid, strand),
-                 np.full(chrm_len, self.pos_mem_max, self.pos_mem_dt))
+                ((chrm_dbid, strand), int(chrm_len))
                 for chrm_dbid, _, chrm_len in self.iter_chrms()
                 for strand in (1, -1))
             for dbid, chrm_dbid, strand, pos in dbid_pos:
+                # check if chrm/strand has been initialized
+                if isinstance(self.pos_to_dbid[(chrm_dbid, strand)], int):
+                    self.pos_to_dbid[(chrm_dbid, strand)] = np.full(
+                        self.pos_to_dbid[(chrm_dbid, strand)],
+                        self.pos_mem_max, self.pos_mem_dt)
                 self.pos_to_dbid[(chrm_dbid, strand)][pos] = dbid
         if self.in_mem_dbid_to_pos:
             self.dbid_to_pos = dict(
@@ -470,10 +503,9 @@ class ModsDb(object):
                 if sum(chrm_len for _, _, chrm_len in
                        self.iter_chrms()) * 2 > self.pos_mem_max:
                     raise mh.MegaError(POS_IDX_CHNG_ERR_MSG)
-                self.pos_to_dbid[(chrm_dbid, 1)] = np.full(
-                    chrm_len, self.pos_mem_max, self.pos_mem_dt)
-                self.pos_to_dbid[(chrm_dbid, -1)] = np.full(
-                    chrm_len, self.pos_mem_max, self.pos_mem_dt)
+                # initialize with chromosome length stub
+                self.pos_to_dbid[(chrm_dbid, 1)] = int(chrm_len)
+                self.pos_to_dbid[(chrm_dbid, -1)] = int(chrm_len)
         return chrm_dbid
 
     def insert_chrms(self, ref_names_and_lens):
@@ -491,15 +523,22 @@ class ModsDb(object):
         # Add position index numpy arrays for new chromosomes if stored in mem
         if self.in_mem_pos_to_dbid:
             self.check_in_mem_pos_size(ref_names_and_lens[1])
+            # initialize with chromosome length stub
             self.pos_to_dbid.update(
-                ((chrm_i + next_chrm_id, strand), np.full(
-                    chrm_len, self.pos_mem_max, self.pos_mem_dt))
+                ((chrm_i + next_chrm_id, strand), int(chrm_len))
                 for chrm_i, chrm_len in enumerate(ref_names_and_lens[1])
                 for strand in (1, -1))
 
     def get_pos_dbid_or_insert(self, chrm_dbid, strand, pos):
         try:
             if self.in_mem_pos_to_dbid:
+                # if chomosome/strand has not been added initialize array and
+                # trigger insertion of position
+                if isinstance(self.pos_to_dbid[(chrm_dbid, strand)], int):
+                    self.pos_to_dbid[(chrm_dbid, strand)] = np.full(
+                        self.pos_to_dbid[(chrm_dbid, strand)],
+                        self.pos_mem_max, self.pos_mem_dt)
+                    raise TypeError
                 pos_dbid = int(self.pos_to_dbid[(chrm_dbid, strand)][pos])
                 if pos_dbid == self.pos_mem_max:
                     raise TypeError
@@ -540,11 +579,20 @@ class ModsDb(object):
             return []
 
         if self.in_mem_pos_to_dbid:
-            cs_pos_to_dbid = self.pos_to_dbid[(chrm_dbid, strand)]
-            # extract positions that have not yet been observed
-            pos_to_add = [
-                r_uniq_pos[to_add_idx] for to_add_idx in np.where(np.equal(
-                    cs_pos_to_dbid[r_uniq_pos], self.pos_mem_max))[0]]
+            # if chomosome/strand has not been added, initialize array and
+            # insert all positions
+            if isinstance(self.pos_to_dbid[(chrm_dbid, strand)], int):
+                self.pos_to_dbid[(chrm_dbid, strand)] = np.full(
+                    self.pos_to_dbid[(chrm_dbid, strand)],
+                    self.pos_mem_max, self.pos_mem_dt)
+                cs_pos_to_dbid = self.pos_to_dbid[(chrm_dbid, strand)]
+                pos_to_add = r_uniq_pos
+            else:
+                cs_pos_to_dbid = self.pos_to_dbid[(chrm_dbid, strand)]
+                # extract positions that have not yet been observed
+                pos_to_add = [
+                    r_uniq_pos[to_add_idx] for to_add_idx in np.where(np.equal(
+                        cs_pos_to_dbid[r_uniq_pos], self.pos_mem_max))[0]]
         else:
             cs_pos_to_dbid = dict(
                 pos_and_dbid for pos in r_uniq_pos
@@ -887,8 +935,14 @@ class ModsDb(object):
             for pos_dbid, (chrm_dbid, strand, pos) in self.dbid_to_pos.items():
                 yield pos_dbid, chrm_dbid, strand, pos
         elif self.in_mem_pos_to_dbid:
-            for (chrm_dbid, strand, pos), pos_dbid in self.pos_to_dbid.items():
-                yield pos_dbid, chrm_dbid, strand, pos
+            for (chrm_dbid, strand), cs_pos in self.pos_to_dbid.items():
+                # if chromosome/strand has not been initialized, skip it
+                if isinstance(cs_pos, int):
+                    continue
+                valid_cs_pos = np.where(np.not_equal(
+                    cs_pos, self.pos_mem_max))[0]
+                for pos, pos_dbid in zip(valid_cs_pos, cs_pos[valid_cs_pos]):
+                    yield pos_dbid, chrm_dbid, strand, pos
         else:
             # use local cursor since other processing might use class cursor
             local_cursor = self.db.cursor()
@@ -1000,14 +1054,18 @@ def annotate_all_mods(r_start, ref_seq, r_mod_scores, strand, mods_info):
     if strand == -1:
         ref_seq = ref_seq[::-1]
     for mod_pos, mod_lps, mod_bases, _, _, _ in sorted(r_mod_scores):
-        can_lp = np.log1p(-np.exp(mod_lps).sum())
-        if can_lp - mod_lps.max() > mods_info.mod_thresh:
-            base_lp = can_lp
+        if mod_lps is None:
+            base_lp = MOD_MAP_INVALID_BASE_LP
             base = ref_seq[mod_pos - r_start]
         else:
-            most_prob_mod = np.argmax(mod_lps)
-            base_lp = mod_lps[most_prob_mod]
-            base = mod_bases[most_prob_mod]
+            can_lp = np.log1p(-np.exp(mod_lps).sum())
+            if can_lp - mod_lps.max() > mods_info.mod_thresh:
+                base_lp = can_lp
+                base = ref_seq[mod_pos - r_start]
+            else:
+                most_prob_mod = np.argmax(mod_lps)
+                base_lp = mod_lps[most_prob_mod]
+                base = mod_bases[most_prob_mod]
         if mods_info.map_base_conv is not None:
             # convert base for bisulfite-like output
             base = base.translate(mods_info.map_base_conv)
@@ -1056,16 +1114,21 @@ def annotate_mods_per_mod(r_start, ref_seq, r_mod_scores, strand, mods_info):
     if strand == -1:
         ref_seq = ref_seq[::-1]
     for mod_pos, mod_lps, mod_bases, _, _, _ in sorted(r_mod_scores):
-        can_lp = np.log1p(-np.exp(mod_lps).sum())
+        if mod_lps is not None:
+            can_lp = np.log1p(-np.exp(mod_lps).sum())
         # annotate per-mod sequences and qualities
         for mod_idx, mod_base in enumerate(mod_bases):
-            # called canonical
-            if can_lp - mod_lps[mod_idx] > mods_info.mod_thresh:
-                base_lp = can_lp
+            if mod_lps is None:
+                base_lp = MOD_MAP_INVALID_BASE_LP
                 base = ref_seq[mod_pos - r_start]
             else:
-                base_lp = mod_lps[mod_idx]
-                base = mod_base
+                # called canonical
+                if can_lp - mod_lps[mod_idx] > mods_info.mod_thresh:
+                    base_lp = can_lp
+                    base = ref_seq[mod_pos - r_start]
+                else:
+                    base_lp = mod_lps[mod_idx]
+                    base = mod_base
             if mods_info.map_base_conv is not None:
                 # convert base for bisulfite-like output
                 base = base.translate(mods_info.map_base_conv)
@@ -1125,22 +1188,23 @@ def score_mod_seq(
 
 
 def call_read_mods(
-        r_ref_pos, r_ref_seq, ref_to_block, r_post, mods_info, mod_pos_conn,
-        mod_sig_map_q, sig_map_res, signal_reversed, uuid):
+        r_ref_pos, r_ref_seq, ref_to_block, r_post, mods_info, mod_data_size,
+        mod_pos_conn, mod_sig_map_q, sig_map_res, signal_reversed, uuid):
     def iter_motif_sites():
         search_ref_seq = r_ref_seq[::-1] if signal_reversed else r_ref_seq
-        ref_seq_len = len(r_ref_seq)
-        max_pos = ref_seq_len - mods_info.edge_buffer
         for motif, rel_pos, mod_bases, raw_motif in mods_info.all_mod_motifs:
             for motif_match in motif.finditer(search_ref_seq):
                 m_pos = motif_match.start() + rel_pos
                 if signal_reversed:
-                    m_pos = ref_seq_len - m_pos - 1
-                if m_pos < mods_info.edge_buffer:
-                    continue
-                if m_pos > max_pos:
-                    break
+                    m_pos = len(r_ref_seq) - m_pos - 1
                 yield m_pos, mod_bases, motif_match.group(), rel_pos, raw_motif
+
+    def filter_mod_score(r_mod_scores):
+        # remove uncalled sites and sites too close to the edge of a read
+        return [pms for pms in r_mod_scores
+                if pms[1] is not None and
+                r_ref_pos.start + mods_info.edge_buffer < pms[0] <
+                r_ref_pos.end - mods_info.edge_buffer]
 
     def get_pos_mod_read_dbids(r_mod_scores):
         # send unique positions and mod bases to connection to extract
@@ -1167,25 +1231,38 @@ def call_read_mods(
     with np.errstate(divide='ignore', over='ignore'):
         for (pos, mod_bases, ref_motif, rel_pos,
              raw_motif) in iter_motif_sites():
+            if (r_ref_pos.strand == 1 and not signal_reversed) or (
+                    r_ref_pos.strand == -1 and signal_reversed):
+                mod_ref_pos = r_ref_pos.start + pos
+            else:
+                mod_ref_pos = r_ref_pos.end - pos - 1
             pos_bb, pos_ab = min(mods_info.mod_context_bases, pos), min(
                 mods_info.mod_context_bases, len(r_ref_seq) - pos - 1)
             try:
                 pos_ref_seq = mh.seq_to_int(
                     r_ref_seq[pos - pos_bb:pos + pos_ab + 1])
             except mh.MegaError:
-                ref_pos = (r_ref_pos.start + pos if r_ref_pos.strand == 1 else
-                           r_ref_pos.start + len(r_ref_seq) - pos - 1)
+                # Add None score for per-read annotation (to be filtered)
+                r_mod_scores.append((mod_ref_pos, None, mod_bases, ref_motif,
+                                     rel_pos, raw_motif))
                 LOGGER.debug(
                     'Invalid sequence encountered calling modified base ' +
-                    'at {}:{}'.format(r_ref_pos.chrm, ref_pos))
+                    'at {}:{}'.format(r_ref_pos.chrm, mod_ref_pos))
                 continue
             pos_can_mods = np.zeros_like(pos_ref_seq)
 
             blk_start, blk_end = (ref_to_block[pos - pos_bb],
                                   ref_to_block[pos + pos_ab])
             if blk_end - blk_start < (mods_info.mod_context_bases * 2) + 1:
-                # no valid mapping over large inserted query bases
-                # i.e. need as many "events/strides" as bases for valid mapping
+                # need as many "events/strides" as bases for valid mapping
+                # Add None scores for per-read annotation (to be filtered)
+                r_mod_scores.append((mod_ref_pos, None, mod_bases, ref_motif,
+                                     rel_pos, raw_motif))
+                LOGGER.debug(
+                    'Insufficient blocks to compute mod score at ' +
+                    '{}:{}\tgot {} and need {}'.format(
+                        r_ref_pos.chrm, mod_ref_pos, blk_end - blk_start,
+                        (mods_info.mod_context_bases * 2) + 1))
                 continue
 
             loc_can_score = score_mod_seq(
@@ -1215,11 +1292,6 @@ def call_read_mods(
             # inferred negative reference likelihood, so re-normalize here
             loc_mod_lps = calibration.compute_log_probs(np.array(calib_llrs))
 
-            if (r_ref_pos.strand == 1 and not signal_reversed) or (
-                    r_ref_pos.strand == -1 and signal_reversed):
-                mod_ref_pos = r_ref_pos.start + pos
-            else:
-                mod_ref_pos = r_ref_pos.end - pos - 1
             r_mod_scores.append((
                 mod_ref_pos, loc_mod_lps, mod_bases, ref_motif, rel_pos,
                 raw_motif))
@@ -1237,6 +1309,8 @@ def call_read_mods(
             per_mod_seqs = annotate_mods_per_mod(
                 r_ref_pos.start, r_ref_seq, r_mod_scores,
                 r_ref_pos.strand, mods_info)
+
+    r_mod_scores = filter_mod_score(r_mod_scores)
 
     # send mod annotated seqs to signal mapping queue if requested
     if mod_sig_map_q is not None and sig_map_res.pass_filts:
@@ -1276,6 +1350,13 @@ def call_read_mods(
                     can_lp, mod_base, '{}:{}'.format(raw_motif, rel_pos))
                 for mod_lp, mod_base in zip(mod_lps, mod_bases))) + '\n'
 
+    with mod_data_size.get_lock():
+        mod_data_size.value += 1
+    # enforce artificial queue max size with dulplex pipes
+    if mod_data_size.value >= mh._MAX_QUEUE_SIZE:
+        LOGGER.debug('Throttling {} for mods queue'.format(
+            mp.current_process()))
+        sleep(1)
     return r_insert_data, all_mods_seq, per_mod_seqs, mod_out_text
 
 
@@ -1288,7 +1369,7 @@ def init_mods_db(mods_db_fn, db_safety, ref_names_and_lens, mods_info):
         mods_db_fn, db_safety=db_safety, read_only=False, init_db_tables=True)
     mods_db.insert_chrms(ref_names_and_lens)
     mods_db.insert_mod_long_names(mods_info.mod_long_names)
-    mods_db.db.commit()
+    mods_db.commit()
     LOGGER.debug((
         'mod_getter: in_mem_indices:\n\t' +
         'chrm -> dbid : {}\n\tdbid -> chrm : {}\n\t' +
@@ -1303,9 +1384,9 @@ def init_mods_db(mods_db_fn, db_safety, ref_names_and_lens, mods_info):
 
 
 def _get_mods_queue(
-        mods_q, mods_conn, mods_db_fn, db_safety, ref_names_and_lens, ref_fn,
-        mods_txt_fn, pr_refs_fn, ref_out_info, mod_map_fns, map_fmt,
-        mods_info):
+        mod_data_db_conns, mod_data_size, mods_db_fn, db_safety,
+        ref_names_and_lens, ref_fn, mods_txt_fn, pr_refs_fn, ref_out_info,
+        mod_map_fns, map_fmt, mods_info):
     def write_mod_alignment(
             read_id, mod_seq, mod_quals, chrm, strand, r_st, fp):
         a = pysam.AlignedSegment()
@@ -1329,16 +1410,29 @@ def _get_mods_queue(
     def store_mod_call(
             r_insert_data, mod_out_text, all_mods_seq, per_mod_seqs, read_id,
             chrm, strand, r_start, ref_seq, read_len, q_st, q_en, cigar,
-            been_warned):
+            been_warned_timeout, been_warned_other):
         try:
-            mods_db.insert_read_data(r_insert_data)
-            mods_db.db.commit()
+            data_commited = False
+            while not data_commited:
+                try:
+                    mods_db.insert_read_data(r_insert_data)
+                    mods_db.commit()
+                    data_commited = True
+                except sqlite3.OperationalError as e:
+                    if not been_warned_timeout:
+                        LOGGER.warning(
+                            DB_TIMEOUT_ERR_MSG.format('data', str(e)))
+                        been_warned_timeout = True
+                    LOGGER.debug('Modified base database data insert ' +
+                                 'timeout: ' + str(e))
+                    mods_db.establish_db_conn()
+                    mods_db.set_cursor()
         except Exception as e:
-            if not been_warned:
+            if not been_warned_other:
                 LOGGER.warning(
                     'Error inserting modified base scores into database. ' +
                     'See log debug output for error details.')
-                been_warned = True
+                been_warned_other = True
             import traceback
             LOGGER.debug(
                 'Error inserting modified base scores into database: ' +
@@ -1356,16 +1450,13 @@ def _get_mods_queue(
                     read_id, mod_seq, mod_qual, chrm, strand, r_start,
                     mod_map_fps[mod_base])
 
-        return been_warned
+        return been_warned_timeout, been_warned_other
 
-    def do_sleep():
-        """ Sleep in a function for profiling
-        """
-        sleep(0.001)
+    been_warned_timeout = been_warned_other = False
 
-    been_warned = False
-
-    mods_db = ModsDb(mods_db_fn, db_safety=db_safety, read_only=False)
+    mods_db = ModsDb(
+        mods_db_fn, db_safety=db_safety, read_only=False,
+        mod_db_timeout=mods_info.mod_db_timeout)
 
     if mods_txt_fn is None:
         mods_txt_fp = None
@@ -1392,38 +1483,29 @@ def _get_mods_queue(
 
     LOGGER.debug('mod_getter: init complete')
 
-    while True:
-        try:
-            # note strand is +1 for fwd or -1 for rev
-            (r_mod_scores, all_mods_seq, per_mod_seqs, mod_out_text), (
-                read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
-                cigar) = mods_q.get(block=True, timeout=1)
-        except queue.Empty:
-            if mods_conn.poll():
-                break
-            do_sleep()
-            continue
-        try:
-            been_warned = store_mod_call(
-                r_mod_scores, mod_out_text, all_mods_seq, per_mod_seqs,
-                read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
-                cigar, been_warned)
-        except Exception as e:
-            LOGGER.debug('Error processing mods output for read: ' +
-                         '{}\nError type: {}'.format(read_id, str(e)))
-
-    while not mods_q.empty():
-        (r_mod_scores, all_mods_seq, per_mod_seqs, mod_out_text), (
-            read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
-            cigar) = mods_q.get(block=True, timeout=1)
-        try:
-            been_warned = store_mod_call(
-                r_mod_scores, mod_out_text, all_mods_seq, per_mod_seqs,
-                read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
-                cigar, been_warned)
-        except Exception as e:
-            LOGGER.debug('Error processing mods output for read: ' +
-                         '{}\nError type: {}'.format(read_id, str(e)))
+    while mod_data_db_conns:
+        for r in wait(mod_data_db_conns):
+            try:
+                mod_res = r.recv()
+                with mod_data_size.get_lock():
+                    mod_data_size.value -= 1
+            except EOFError:
+                # when connection is closed in worker process EOFError is
+                # triggered, so remove that connection
+                mod_data_db_conns.remove(r)
+            else:
+                (r_mod_scores, all_mods_seq, per_mod_seqs, mod_out_text), (
+                    read_id, chrm, strand, r_start, ref_seq, read_len,
+                    q_st, q_en, cigar) = mod_res
+                try:
+                    been_warned_timeout, been_warned_other = store_mod_call(
+                        r_mod_scores, mod_out_text, all_mods_seq, per_mod_seqs,
+                        read_id, chrm, strand, r_start, ref_seq, read_len,
+                        q_st, q_en, cigar, been_warned_timeout,
+                        been_warned_other)
+                except Exception as e:
+                    LOGGER.debug('Error processing mods output for read: ' +
+                                 '{}\nError type: {}'.format(read_id, str(e)))
 
     if mods_txt_fp is not None:
         mods_txt_fp.close()
@@ -1446,10 +1528,33 @@ if _PROFILE_MODS_QUEUE:
                         filename='mods_getter_queue.prof')
 
 
-def _mod_aux_table_inserts(mod_db_fn, db_safety, pos_in_mem, mod_pos_conns):
+def _mod_aux_table_inserts(mod_db_fn, db_safety, mods_info, mod_pos_conns):
+    def commit_data(
+            r_uniq_pos, chrm_dbid, strand, r_uniq_mod_bases, uuid,
+            been_warned_timeout):
+        try:
+            r_pos_dbids = mods_db.get_pos_dbids_or_insert(
+                r_uniq_pos, chrm_dbid, strand)
+            r_mod_dbids = mods_db.get_mod_base_ids_or_insert(r_uniq_mod_bases)
+            read_dbid = mods_db.insert_read_uuid(uuid)
+            mods_db.commit()
+        except sqlite3.OperationalError as e:
+            if not been_warned_timeout:
+                LOGGER.warning(
+                    DB_TIMEOUT_ERR_MSG.format('pos/mod/read', str(e)))
+                been_warned_timeout = True
+            LOGGER.debug('Modified base database aux insert timeout.')
+            mods_db.establish_db_conn()
+            mods_db.set_cursor()
+            return False, been_warned_timeout, None, None, None
+        return True, been_warned_timeout, r_pos_dbids, r_mod_dbids, read_dbid
+
+    been_warned_timeout = False
     mods_db = ModsDb(
-        mod_db_fn, db_safety=db_safety, in_mem_pos_to_dbid=pos_in_mem,
-        in_mem_dbid_to_chrm=True, in_mem_mod_to_dbid=True, read_only=False)
+        mod_db_fn, db_safety=db_safety,
+        in_mem_pos_to_dbid=mods_info.pos_index_in_memory,
+        in_mem_dbid_to_chrm=True, in_mem_mod_to_dbid=True, read_only=False,
+        mod_db_timeout=mods_info.mod_db_timeout)
     # loop over connections to read worker processes until all have been
     # exhausted
     while mod_pos_conns:
@@ -1461,12 +1566,12 @@ def _mod_aux_table_inserts(mod_db_fn, db_safety, pos_in_mem, mod_pos_conns):
             else:
                 r_uniq_pos, r_uniq_mod_bases, chrm, strand, uuid = conn_res
                 chrm_dbid = mods_db.get_chrm_dbid(chrm)
-                r_pos_dbids = mods_db.get_pos_dbids_or_insert(
-                    r_uniq_pos, chrm_dbid, strand)
-                r_mod_dbids = mods_db.get_mod_base_ids_or_insert(
-                    r_uniq_mod_bases)
-                read_dbid = mods_db.insert_read_uuid(uuid)
-                mods_db.db.commit()
+                data_commited = False
+                while not data_commited:
+                    (data_commited, been_warned_timeout, r_pos_dbids,
+                     r_mod_dbids, read_dbid) = commit_data(
+                         r_uniq_pos, chrm_dbid, strand, r_uniq_mod_bases, uuid,
+                         been_warned_timeout)
                 r.send((r_pos_dbids, r_mod_dbids, read_dbid))
 
     mods_db.close()
@@ -1556,7 +1661,8 @@ class ModInfo(object):
             mod_output_fmts=[mh.MOD_BEDMETHYL_NAME],
             edge_buffer=mh.DEFAULT_EDGE_BUFFER, pos_index_in_memory=True,
             agg_info=DEFAULT_AGG_INFO, mod_thresh=0.0, do_ann_all_mods=False,
-            do_ann_per_mod=False, map_base_conv=None):
+            do_ann_per_mod=False, map_base_conv=None,
+            mod_db_timeout=mh.DEFAULT_MOD_DATABASE_TIMEOUT):
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other modbase info
         # don't want to pass all of these parameters around individually though
@@ -1575,6 +1681,7 @@ class ModInfo(object):
         self.do_ann_all_mods = do_ann_all_mods
         self.do_ann_per_mod = do_ann_per_mod
         self.map_base_conv_raw = map_base_conv
+        self.mod_db_timeout = mod_db_timeout
 
         self.alphabet = model_info.can_alphabet
         self.ncan_base = len(self.alphabet)
@@ -1583,12 +1690,16 @@ class ModInfo(object):
         except AttributeError:
             pass
         if model_info.is_cat_mod:
-            # TODO also output "(alt to C)" for each mod
+            can_bs = [
+                can_b for mod_b, _ in model_info.mod_long_names
+                for can_b, can_mod_bs in model_info.can_base_mods.items()
+                if mod_b in can_mod_bs]
             LOGGER.info(
                 'Using canonical alphabet {} and modified bases {}.'.format(
-                    self.alphabet, ' '.join(
-                        '{}={}'.format(*mod_b)
-                        for mod_b in model_info.mod_long_names)))
+                    self.alphabet, '; '.join(
+                        '{}={} (alt to {})'.format(mod_b, mln, can_b)
+                        for (mod_b, mln), can_b in zip(
+                                model_info.mod_long_names, can_bs))))
         else:
             LOGGER.info(
                 'Using canonical alphabet {}.'.format(self.alphabet))
@@ -1905,7 +2016,7 @@ class ModWigWriter(object):
                     wig_fp.write(
                         'variableStep chrom={} span=1\n'.format(chrom))
                     wig_fp.write('\n'.join((
-                        '{} {}'.format(pos, mod_prop)
+                        '{} {}'.format(pos + 1, mod_prop)
                         for pos, mod_prop in sorted(cs_mod_sites))) + '\n')
 
 

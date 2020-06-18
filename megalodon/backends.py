@@ -35,13 +35,11 @@ GUPPY_HOST = 'localhost'
 PYGUPPY_PER_TRY_TIMEOUT = 0.01
 GUPPY_LOG_BASE = 'guppy_log'
 GUPPY_PORT_PAT = re.compile(r'Starting server on port:\W+(\d+)')
+
 PYGUPPY_CLIENT_KWARGS = {
     'move_and_trace_enabled': True,
     'state_data_enabled': True
 }
-OFST_STR = 'offset'
-RNG_STR = 'range'
-DIGI_STR = 'digitisation'
 
 # maximum time (in seconds) to wait before assigning device
 # over different processes. Actual time choosen randomly
@@ -133,8 +131,9 @@ def get_pyguppy_read(read_id, raw_data, channel_info):
         'read_tag': np.random.randint(0, int(2**32 - 1)),
         'read_id': read_id,
         'raw_data': raw_data,
-        'daq_offset': float(channel_info[OFST_STR]),
-        'daq_scaling': float(channel_info[RNG_STR]) / channel_info[DIGI_STR]}
+        'daq_offset': float(channel_info[mh.CHAN_INFO_OFFSET]),
+        'daq_scaling': float(channel_info[mh.CHAN_INFO_RANGE]) / channel_info[
+            mh.CHAN_INFO_DIGI]}
 
 
 class PyguppyCalledRead(object):
@@ -416,7 +415,8 @@ class ModelInfo(object):
                     str(e))
             init_read = get_pyguppy_read(
                 'a', np.zeros(init_sig_len, dtype=np.int16),
-                {OFST_STR: 0, RNG_STR: 1, DIGI_STR: 1})
+                {mh.CHAN_INFO_OFFSET: 0, mh.CHAN_INFO_RANGE: 1,
+                 mh.CHAN_INFO_DIGI: 1})
             try:
                 init_called_read = self.pyguppy_basecall(
                     init_client, init_read)
@@ -500,6 +500,7 @@ class ModelInfo(object):
 
     def extract_signal_info(self, fast5_fn, read_id, extract_dacs=False):
         read = fast5_io.get_read(fast5_fn, read_id)
+        seq_summ_info = mh.extract_seq_summary_info(read)
         dacs = scale_params = raw_sig = None
         if extract_dacs:
             # if not processing signal mappings, don't save dacs
@@ -512,27 +513,30 @@ class ModelInfo(object):
         if self.model_type == TAI_NAME:
             if raw_sig is None:
                 raw_sig = fast5_io.get_signal(read, scale=True)
-            return SIGNAL_DATA(
+            sig_data = SIGNAL_DATA(
                 raw_signal=raw_sig, dacs=dacs, scale_params=scale_params,
                 raw_len=raw_sig.shape[0], fast5_fn=fast5_fn, read_id=read_id,
                 stride=self.stride)
+            return sig_data, seq_summ_info
         elif self.model_type == FAST5_NAME:
             bc_mod_post = fast5_io.get_posteriors(read)
             if extract_dacs:
                 trim_start, trim_len = fast5_io.get_signal_trim_coordiates(
                     read)
                 dacs = dacs[trim_start:trim_start + trim_len]
-            return SIGNAL_DATA(
+            sig_data = SIGNAL_DATA(
                 raw_len=bc_mod_post.shape[0] * self.stride, dacs=dacs,
                 fast5_fn=fast5_fn, read_id=read_id, stride=self.stride,
                 posteriors=bc_mod_post)
+            return sig_data, seq_summ_info
         elif self.model_type == PYGUPPY_NAME:
             if dacs is None:
                 dacs = fast5_io.get_signal(read, scale=False)
-            return SIGNAL_DATA(
+            sig_data = SIGNAL_DATA(
                 dacs=dacs, raw_len=dacs.shape[0], fast5_fn=fast5_fn,
                 read_id=read_id, stride=self.stride,
                 channel_info=read.get_channel_info())
+            return sig_data, seq_summ_info
 
         raise mh.MegaError('Invalid model type')
 
@@ -610,7 +614,7 @@ class ModelInfo(object):
 
     def run_pyguppy_model(
             self, sig_info, return_post_w_mods, return_mod_scores,
-            update_sig_info, signal_reversed):
+            update_sig_info, signal_reversed, seq_summ_info):
         if self.model_type != PYGUPPY_NAME:
             raise mh.MegaError(
                 'Attempted to run pyguppy model with non-pyguppy ' +
@@ -670,12 +674,35 @@ class ModelInfo(object):
             called_read.seq = called_read.seq[::-1]
             called_read.qual = called_read.qual[::-1]
 
-        return (called_read.seq, called_read.qual, rl_cumsum,
-                can_post, sig_info, post_w_mods, mods_scores)
+        # update seq summary info with basecalling info
+        try:
+            samp_rate = sig_info.channel_info[mh.CHAN_INFO_SAMP_RATE]
+            tmplt_start = '{:.6f}'.format(float(seq_summ_info.start_time) + (
+                called_read.trimmed_samples / samp_rate))
+            tmplt_dur = '{:.6f}'.format(
+                (sig_info.dacs.shape[0] - called_read.trimmed_samples) /
+                samp_rate)
+            seq_len = len(called_read.seq)
+            mean_q_score = '{:.6f}'.format(mh.get_mean_q_score(
+                called_read.qual))
+            med = '{:.6f}'.format(called_read.scaling_shift)
+            mad = '{:.6f}'.format(called_read.scaling_scale)
+            seq_summ_info = seq_summ_info._replace(
+                template_start=tmplt_start, template_duration=tmplt_dur,
+                sequence_length_template=seq_len,
+                mean_qscore_template=mean_q_score, median_template=med,
+                mad_template=mad)
+        except Exception:
+            # if anything goes wrong don't let it fail the read
+            pass
+
+        return (called_read.seq, called_read.qual, rl_cumsum, can_post,
+                sig_info, post_w_mods, mods_scores, seq_summ_info)
 
     def basecall_read(
             self, sig_info, return_post_w_mods=True, return_mod_scores=False,
-            update_sig_info=False, signal_reversed=False):
+            update_sig_info=False, signal_reversed=False,
+            seq_summ_info=None):
         if self.model_type not in (TAI_NAME, FAST5_NAME, PYGUPPY_NAME):
             raise mh.MegaError('Invalid model backend')
 
@@ -684,7 +711,7 @@ class ModelInfo(object):
         if self.model_type == PYGUPPY_NAME:
             return self.run_pyguppy_model(
                 sig_info, return_post_w_mods, return_mod_scores,
-                update_sig_info, signal_reversed)
+                update_sig_info, signal_reversed, seq_summ_info)
 
         post_w_mods = mod_weights = None
         if self.model_type == TAI_NAME:
@@ -725,10 +752,25 @@ class ModelInfo(object):
         r_seq, _, rl_cumsum, mods_scores = decode.decode_post(
             can_post, self.can_alphabet, mod_weights, self.can_nmods)
         # TODO implement quality extraction for taiyaki and fast5 modes
+        # and add mean_qscore_template to seq summary
         r_qual = None
 
+        if seq_summ_info is not None:
+            try:
+                # update seq summary info with basecalling info
+                seq_summ_info = seq_summ_info._replace(
+                    template_start=seq_summ_info.start_time,
+                    template_duration='{:.6f}'.format(
+                        sig_info.dacs.shape[0] /
+                        sig_info.channel_info[mh.CHAN_INFO_SAMP_RATE]),
+                    sequence_length_template=len(r_seq),
+                    median_template='{:.4f}'.format(sig_info.scale_params[0]),
+                    mad_template='{:.4f}'.format(sig_info.scale_params[1]))
+            except Exception:
+                pass
+
         return (r_seq, r_qual, rl_cumsum, can_post, sig_info, post_w_mods,
-                mods_scores)
+                mods_scores, seq_summ_info)
 
     def close(self):
         if self.model_type == PYGUPPY_NAME:

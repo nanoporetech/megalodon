@@ -380,6 +380,43 @@ def get_parser_merge_variants():
 # Modified Base Parsers #
 #########################
 
+def get_parser_modified_bases_describe_alphabet():
+    parser = argparse.ArgumentParser()
+
+    pyg_grp = parser.add_argument_group('Guppy Backend Arguments')
+    pyg_grp.add_argument(
+        '--guppy-config', default=mh.DEFAULT_GUPPY_CFG,
+        help='Guppy config. Default: %(default)s')
+    pyg_grp.add_argument(
+        '--guppy-server-path', default=mh.DEFAULT_GUPPY_SERVER_PATH,
+        help='Path to guppy server executable. Default: %(default)s')
+    pyg_grp.add_argument(
+        '--guppy-logs-output-directory', default='guppy_logs',
+        help='Directory to output guppy logs. Default: %(default)s')
+    pyg_grp.add_argument(
+        '--do-not-use-guppy-server', action='store_true',
+        help='Use alternative basecalling backend. Either FAST5 ' +
+        '(default; requires --post_out when running guppy) or taiyaki ' +
+        '(set `--taiyaki-model-filename` to use taiyaki backend).')
+    pyg_grp.add_argument(
+        '--guppy-params',
+        help='Extra guppy server parameters. Main purpose for ' +
+        'optimal performance based on compute environment. ' +
+        'Quote parameters to avoid them being parsed by megalodon.')
+
+    f5_grp = parser.add_argument_group('FAST5 Backend Arguments')
+    f5_grp.add_argument(
+        '--fast5s_dir',
+        help='Directory containing raw fast5.')
+
+    tai_grp = parser.add_argument_group('Taiyaki Backend Arguments')
+    tai_grp.add_argument(
+        '--taiyaki-model-filename',
+        help='Taiyaki basecalling model checkpoint file.')
+
+    return parser
+
+
 def get_parser_modified_bases_estimate_threshold():
     parser = argparse.ArgumentParser(
         description='Estimate ideal threshold for marking up modified bases.')
@@ -548,8 +585,9 @@ def get_parser_validate_results():
     mod_grp.add_argument(
         '--control-megalodon-results-dirs', nargs='+',
         help='Megalodon output directories for modified base control ' +
-        'sample. Could be a PCR or IVT sample. These samples will be ' +
-        'matched in order with the main results directories.')
+        'sample(s). Could be a PCR or IVT sample. Either a single control ' +
+        'for all modified samples or one control sample for each modified ' +
+        'sample should be provided.')
     mod_grp.add_argument(
         '--ground-truth-data',
         help='Ground truth csv with (chrm, strand, pos, is_mod) values.')
@@ -649,7 +687,7 @@ def get_parser_validate_compare_modified_bases():
         help='Only include sites with sufficient coverage. ' +
         'Default: 1 (= All sites)')
     parser.add_argument(
-        '--heatmap-num-bins', type=int, default=50,
+        '--heatmap-num-bins', type=int, default=31,
         help='Number of bins for heatmap plotting. ' +
         'Default: %(default)d')
     parser.add_argument(
@@ -782,6 +820,7 @@ CMD_MERGE_MODS = 'modified_bases'
 CMD_MERGE_VARS = 'variants'
 
 GRP_MODS = 'modified_bases'
+CMD_MODS_ALPHABET = 'describe_alphabet'
 CMD_MODS_EST_THRESH = 'estimate_threshold'
 CMD_MODS_UPDATE_DB = 'update_database'
 CMD_MODS_GT = 'create_ground_truth'
@@ -818,6 +857,7 @@ PARSERS = {
         CMD_MERGE_MODS: get_parser_merge_modified_bases,
         CMD_MERGE_VARS: get_parser_merge_variants},
     GRP_MODS: {
+        CMD_MODS_ALPHABET: get_parser_modified_bases_describe_alphabet,
         CMD_MODS_EST_THRESH: get_parser_modified_bases_estimate_threshold,
         CMD_MODS_UPDATE_DB: get_parser_modified_bases_update_database,
         CMD_MODS_GT: get_parser_modified_bases_create_ground_truth},

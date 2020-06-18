@@ -51,13 +51,13 @@ Several options are available to control the behavior of the ``signal_mappings``
   - Only allow reads with a reference mapping length within this range into the output.
 - ``--ref-percent-identity-threshold``
 
-  - Only include reads with higher mappig percent identity in signal_mappings output.
+  - Only include reads with higher mapping percent identity in signal_mappings output.
 - ``--ref-percent-coverage-threshold``
 
   - Only include reads with higher read alignment coverage in signal_mappings output.
 - ``--ref-include-variants``
 
-  - This option replaces the reference sequence with more likley proposed alternative sequences as called in the ``per_read_variants`` output.
+  - This option replaces the reference sequence with more likely proposed alternative sequences as called in the ``per_read_variants`` output.
   - Cannot specify both this option and ``--ref-include-mods``.
 
 
@@ -65,11 +65,11 @@ Several options are available to control the behavior of the ``signal_mappings``
 Megalodon Calibration
 ---------------------
 
-When a new model is trained, the produced scores must be calibrated to acheive optimal aggregated results (over reads).
+When a new model is trained, the produced scores must be calibrated to achieve optimal aggregated results (over reads).
 Once produced, calibration files can be passed to Megalodon via the ``--variant-calibration-filename`` and ``--mod-calibration-filename`` arguments.
 
 Sequence variant calibration requires a ground truth against which to compute scores.
 For sequence variants, a high quality reference for a set of reads will suffice for this requirement.
 Random sequence variants are proposed and scored in order to create distributions over which to calibrate the produced scores.
-In order to create a sequence variant calbration file, run ``megalodon/scripts/generate_ground_truth_variant_llr_scores.py`` followed by ``megalodon/scripts/calibrate_variant_llr_scores.py``.
+In order to create a sequence variant calibration file, run ``megalodon/scripts/generate_ground_truth_variant_llr_scores.py`` followed by ``megalodon/scripts/calibrate_variant_llr_scores.py``.
 The optional ``--out-pdf`` provides visualization of the likelihood ratio score correction.
