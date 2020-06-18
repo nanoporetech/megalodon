@@ -68,7 +68,7 @@ Sequence Variant Arguments
 - ``--heterozygous-factors``
 
   - Bayes factor used when computing heterozygous probabilities in diploid variant calling mode.
-  - Two factors must be provided for single base subsititution variants and indels.
+  - Two factors must be provided for single base substitution variants and indels.
 - ``--max-indel-size``
 
   - Maximum indel size to include in testing. Default: 50
@@ -93,7 +93,7 @@ Sequence Variant Arguments
     - Output includes columns: ``read_id``, ``chrm``, ``strand``, ``pos``, ``ref_log_prob``, ``alt_log_prob``, ``var_ref_seq``, ``var_alt_seq``, ``var_id``
     - Log probabilities are calibrated to match observed log-likelihood ratios from ground truth samples.
 
-      - Reference log probabilities are included to make processing mutliple alternative allele sites easier to process.
+      - Reference log probabilities are included to make processing multiple alternative allele sites easier to process.
     - Position is 0-based
 - ``--write-vcf-log-probs``
 
@@ -126,8 +126,12 @@ Modified Base Arguments
 
   - Hard threshold for modified base aggregation (probability of modified/canonical base).
 
-    - Sites where no canonical or modified base acheives this level of confidence will be ignored in aggregation.
+    - Sites where no canonical or modified base achieves this level of confidence will be ignored in aggregation.
   - Default: 0.75
+- ``--mod-database-timeout``
+
+  - Timeout in seconds for modified base database operations.
+  - Default: 5 seconds
 - ``--mod-context-bases``
 
   - Context bases for modified base calling.
@@ -147,7 +151,7 @@ Modified Base Arguments
       - This format produces a single file containing all modifications.
       - The format adds a ``SN`` info field as modified bases occur in a stranded manner unlike sequence variants (e.g. hemi-methylation).
       - A genotype field ``VALID_DP`` indicates the number of reads included in the proportion modified calculation.
-      - Modified base proportion estimates are stored in genotype fields specified by the single letter modified base encodings (definied in the model file).
+      - Modified base proportion estimates are stored in genotype fields specified by the single letter modified base encodings (defined in the model file).
 
 - ``--mod-positions-on-disk``
 
@@ -167,7 +171,7 @@ Modified Base Arguments
     - Output includes columns: ``read_id``, ``chrm``, ``strand``, ``pos``, ``mod_log_probs``, ``can_log_prob``, ``mod_bases``, ``motif``
     - Log probabilities are calibrated to match observed log-likelihood ratios from ground truth samples.
 
-      - Canonical log probabilities are included to make processing mutliple modification sites easier to process.
+      - Canonical log probabilities are included to make processing multiple modification sites easier to process.
 
         - Megalodon is capable of handling multiple modified bases per site with appropriate model (e.g. testing for 5mC and 5hmC simultaneously is supported given a basecalling model).
     - ``motif`` includes the searched motif (via ``--mod-motif``) as well as the relative modified base position within that motif (e.g. ``CG:0`` for provided ``--mod-motif Z CG 0``).
@@ -183,7 +187,7 @@ Taiyaki Backend Arguments
   - Smaller size will result in faster basecalling, but may reduce accuracy.
 - ``--chunk-overlap``
 
-  - Overlap between adjacent chunks fed to baescalling neural network.
+  - Overlap between adjacent chunks fed to basecalling neural network.
   - Smaller size will result in faster basecalling, but may reduce accuracy.
 - ``--max-concurrent-chunks``
 
@@ -222,7 +226,7 @@ This output category is intended for use in generating reference sequences or si
   -  Only include reads with higher read alignment coverage in per-read reference output.
 - ``--ref-mods-all-motifs``
 
-  - Annotate all ``--mod-motif`` occurences as modified.
+  - Annotate all ``--mod-motif`` occurrences as modified.
   - Requires that `--ref-include-mods`` is set.
 - ``--ref-mod-threshold``
 

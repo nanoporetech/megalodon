@@ -34,7 +34,9 @@ NESTED_COMMANDS = [
 
     (ep.GRP_MODS,
      'Miscellaneous modified base operations',
-     [(ep.CMD_MODS_EST_THRESH,
+     [(ep.CMD_MODS_ALPHABET,
+       'Print the alphabet for a choosen model'),
+      (ep.CMD_MODS_EST_THRESH,
        'Estimate optimal global modified base threshold for sequence markup'),
       (ep.CMD_MODS_UPDATE_DB,
        'Update modified base database from older versions of Megalodon'),

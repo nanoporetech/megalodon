@@ -2,7 +2,7 @@
 Computing Considerations
 ************************
 
-This page aims to describe the megalodon processing workflow, highlighting relevant computing considerations.
+This page aims to describe the Megalodon processing workflow, highlighting relevant computing considerations.
 
 ------------------
 Raw Signal Loading
@@ -39,7 +39,7 @@ Variant and Modified Base Calling
 ---------------------------------
 
 Sequence variant and modified base calling is computed within the per-read processing workers using CPU resources.
-Generally, this portion of processing will comsume a minority of the compute resources.
+Generally, this portion of processing will consume a minority of the compute resources.
 Proposing many variants (e.g. all possible 2+ base indels) or modified bases in all contexts may show a bottle neck at this portion of processing.
 Internal testing shows that proposal of all possible single base substitutions shows minimal processing at this portion of per-read processing.
 
@@ -49,4 +49,4 @@ Writing to Disk
 
 As of version 2.0, the status of output queues is displayed by default.
 If any of these status bars indicate a full queue, megalodon will stall waiting on that process to write data to disk.
-Moving the  ``--output-directory`` to a location with faster disk I/O performance should imporove performance.
+Moving the  ``--output-directory`` to a location with faster disk I/O performance should improve performance.

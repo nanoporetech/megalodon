@@ -128,7 +128,8 @@ class VarsDb(object):
                 raise mh.MegaError('Invalid variant DB filename.')
             self.db = sqlite3.connect('file:' + fn + '?mode=ro', uri=True)
         else:
-            self.db = sqlite3.connect(fn, timeout=mh.SQLITE_TIMEOUT)
+            self.db = sqlite3.connect(
+                fn, timeout=mh.DEFAULT_VAR_DATABASE_TIMEOUT)
 
         self.cur = self.db.cursor()
         if self.read_only:
