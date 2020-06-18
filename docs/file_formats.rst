@@ -52,7 +52,7 @@ The quality score for each called base (whether called as modified or canonical)
 Bases without a proposed modified base will contain a quality score of ``40``.
 
 In addition, the ``--mod-map-base-conv`` is provided to modulate the bases output by this format.
-This is option useful since the BAM format does support modified bases and will convert all alternative bases to ``N``s for storage in BAM/CRAM format.
+This is option useful since the BAM format does support modified bases and will convert all alternative bases to ``N`` for storage in BAM/CRAM format.
 For example, to mimic bisulfite output use: ``--mod-map-base-conv C T --mod-map-base-conv Z C``
 This can then be visualized by a genome browser as with standard bisulfite data.
 
