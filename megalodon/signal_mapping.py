@@ -6,9 +6,17 @@ import numpy as np
 
 from ont_fast5_api import fast5_interface
 from megalodon import megalodon_helper as mh, logging
-from taiyaki import (
-    alphabet, fast5utils, mapping as tai_mapping, prepare_mapping_funcs,
-    signal as tai_signal)
+try:
+    from taiyaki import (
+        alphabet, fast5utils, signal_mapping as tai_mapping,
+        prepare_mapping_funcs, signal as tai_signal)
+except ModuleNotFoundError:
+    raise mh.MegaError(
+        'Taiyaki installation required for signal mapping not found.')
+except ImportError:
+    raise mh.MegaError(
+        'Taiyaki modules required for signal mapping not found. Signal ' +
+        'mappings require Taiyaki version >= 5.2')
 
 
 LOGGER = logging.get_logger()
@@ -35,17 +43,13 @@ def get_remapping(
     read = fast5_interface.get_fast5_file(sig_fn, 'r').get_read(read_id)
     channel_info = dict(fast5utils.get_channel_info(read).items())
     rd_factor = channel_info['range'] / channel_info['digitisation']
-    shift_from_pA = (scale_params[0] + channel_info['offset']) * rd_factor
-    scale_from_pA = scale_params[1] * rd_factor
-    read_attrs = dict(fast5utils.get_read_attributes(read).items())
-
-    # prepare taiyaki signal object
-    sig = tai_signal.Signal(dacs=dacs)
-    sig.channel_info = channel_info
-    sig.read_attributes = read_attrs
-    sig.offset = channel_info['offset']
-    sig.range = channel_info['range']
-    sig.digitisation = channel_info['digitisation']
+    read_params = {
+        'trim_start': 0, 'trim_end': 0,
+        'shift': (scale_params[0] + channel_info['offset']) * rd_factor,
+        'scale': scale_params[1] * rd_factor}
+    sig = tai_signal.Signal(
+        dacs=dacs, channel_info=channel_info, read_id=read_id,
+        read_params=read_params)
 
     path = np.full((dacs.shape[0] // stride) + 1, -1)
     # skip last value since this is where the two seqs end
@@ -54,24 +58,25 @@ def get_remapping(
         if rl_cumsum[q_pos + r_ref_pos.q_trim_start] >= path.shape[0]:
             continue
         path[rl_cumsum[q_pos + r_ref_pos.q_trim_start]] = ref_pos
-    remapping = tai_mapping.Mapping.from_remapping_path(
-        sig, path, ref_seq, stride)
+
     try:
-        remapping.add_integer_reference(ref_out_info.alphabet)
+        int_ref = tai_mapping.SignalMapping.get_integer_reference(
+            ref_seq, ref_out_info.alphabet)
     except Exception:
         raise mh.MegaError('Invalid reference sequence encountered')
+    sig_mapping = tai_mapping.SignalMapping.from_remapping_path(
+        path, int_ref, stride, sig)
 
-    # annotate and/or apply mod diffs
+    # annotate mod motifs
     if ref_out_info.ref_mods_all_motifs is not None:
         # annotate all mod base motif positions with alts
         int_ref = set_all_motif_mods(
-            remapping.integer_reference, ref_out_info.ref_mods_all_motifs,
+            int_ref, ref_out_info.ref_mods_all_motifs,
             ref_out_info.collapse_alphabet)
         # set new Reference with mods annotated
-        remapping.integer_reference = int_ref
+        sig_mapping.Reference = int_ref
 
-    return (remapping.get_read_dictionary(
-        shift_from_pA, scale_from_pA, read_id),
+    return (sig_mapping.get_read_dictionary(),
             prepare_mapping_funcs.RemapResult.SUCCESS)
 
 
