@@ -351,7 +351,8 @@ def _main(args):
         LOGGER.warning('Cannot provide both control results and ground ' +
                        'truth file. Ignoring ground truth file.')
         args.ground_truth_data = None
-    if len(args.control_megalodon_results_dirs) > 1 and \
+    if args.control_megalodon_results_dirs is not None and \
+       len(args.control_megalodon_results_dirs) > 1 and \
        len(args.control_megalodon_results_dirs) \
        != len(args.megalodon_results_dirs):
         LOGGER.error(
@@ -395,7 +396,7 @@ def _main(args):
             ctrl_samps_data = [parse_mod_data(
                 args.control_megalodon_results_dirs[0], out_fp,
                 valid_sites, args.strand_specific_sites, 'Control'), ]
-            plot_acc(pdf_fp, mod_samps_data + ctrl_samps_data)
+        plot_acc(pdf_fp, mod_samps_data + ctrl_samps_data)
     else:
         plot_acc(pdf_fp, mod_samps_data)
 
