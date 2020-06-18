@@ -87,7 +87,7 @@ class SubcommandHelpFormatter(argparse.RawDescriptionHelpFormatter):
         return parts
 
 
-def _main():
+def __main():
     """ The main routine.
     """
     desc = ('Megalodon extras command groups (additional help available ' +
@@ -147,4 +147,4 @@ def _main():
 
 
 if __name__ == '__main__':
-    _main()
+    __main()
