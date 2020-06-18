@@ -354,7 +354,7 @@ def get_parser():
     return parser
 
 
-def __main():
+def _main():
     args = get_parser().parse_args()
     # only import megalodon if actually processing (not just printing help)
     from megalodon import megalodon
@@ -362,4 +362,4 @@ def __main():
 
 
 if __name__ == '__main__':
-    __main()
+    _main()
