@@ -86,7 +86,7 @@ def interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum):
 def process_read(
         sig_info, seq_summ_info, model_info, bc_q, caller_conn, sig_map_q,
         ref_out_info, vars_data, vars_q, mod_data_size, mod_data_conn,
-        mod_pos_conn, mods_info, failed_reads_q, signal_reversed):
+        mods_info, failed_reads_q, signal_reversed):
     """ Workhorse per-read megalodon function (connects all the parts)
     """
     # perform basecalling using loaded backend
@@ -172,8 +172,8 @@ def process_read(
         handle_errors(
             func=mods.call_read_mods,
             args=(r_ref_pos, r_ref_seq, ref_to_block, mapped_post_w_mods,
-                  mods_info, mod_data_size, mod_pos_conn, mod_sig_map_q,
-                  sig_map_res, signal_reversed, sig_info.read_id),
+                  mods_info, mod_data_size, mod_sig_map_q, sig_map_res,
+                  signal_reversed, sig_info.read_id),
             r_vals=(sig_info.read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
@@ -244,8 +244,8 @@ def _get_bc_queue(
 
 def _process_reads_worker(
         read_file_q, bc_q, vars_q, failed_reads_q, mod_data_conn,
-        mod_data_size, mod_pos_conn, caller_conn, sig_map_q, ref_out_info,
-        model_info, vars_data, mods_info, device, signal_reversed):
+        mod_data_size, caller_conn, sig_map_q, ref_out_info, model_info,
+        vars_data, mods_info, device, signal_reversed):
     # wrap process prep in try loop to avoid stalled command
     try:
         model_info.prep_model_worker(device)
@@ -278,8 +278,7 @@ def _process_reads_worker(
             process_read(
                 sig_info, seq_summ_info, model_info, bc_q, caller_conn,
                 sig_map_q, ref_out_info, vars_data, vars_q, mod_data_size,
-                mod_data_conn, mod_pos_conn, mods_info, failed_reads_q,
-                signal_reversed)
+                mod_data_conn, mods_info, failed_reads_q, signal_reversed)
             failed_reads_q.put((
                 False, True, None, None, None, sig_info.raw_len))
             LOGGER.debug('Successfully processed read {}'.format(read_id))
@@ -641,13 +640,10 @@ def process_all_reads(
                            for mod_base, mln in mods_info.mod_long_names]
         mods_txt_fn = (mh.get_megalodon_fn(out_dir, mh.PR_MOD_TXT_NAME)
                        if mods_info.write_mods_txt else None)
-        mods_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME)
-        # TODO handle on-disk index creation
-        mods.init_mods_db(
-            mods_db_fn, db_safety, aligner.ref_names_and_lens, mods_info)
+        mods.init_mods_db(mods_info, db_safety, aligner.ref_names_and_lens)
         # multiprocessing int to count current queue size
         mod_data_size = mp.Value('i', 0)
-        mod_data_db_conns, mod_pos_db_conns = [], []
+        mod_data_db_conns = []
     if mh.SIG_MAP_NAME in outputs:
         alphabet_info = signal_mapping.get_alphabet_info(
             ref_out_info.alphabet, ref_out_info.collapse_alphabet,
@@ -666,12 +662,10 @@ def process_all_reads(
 
     proc_reads_ps, map_conns = [], []
     for device in model_info.process_devices:
-        mod_data_proc_conn = mod_pos_proc_conn = None
+        mod_data_proc_conn = None
         if mh.PR_MOD_NAME in outputs:
             mod_data_db_conn, mod_data_proc_conn = mp.Pipe(duplex=False)
             mod_data_db_conns.append(mod_data_db_conn)
-            mod_pos_db_conn, mod_pos_proc_conn = mp.Pipe()
-            mod_pos_db_conns.append(mod_pos_db_conn)
         if aligner is None:
             map_conn, caller_conn = None, None
         else:
@@ -681,27 +675,19 @@ def process_all_reads(
             target=_process_reads_worker, args=(
                 read_file_q, getter_qs[mh.BC_NAME].queue,
                 getter_qs[mh.PR_VAR_NAME].queue, fr_prog_getter.queue,
-                mod_data_proc_conn, mod_data_size, mod_pos_proc_conn,
-                caller_conn, getter_qs[mh.SIG_MAP_NAME].queue, ref_out_info,
-                model_info, vars_data, mods_info, device, signal_reversed))
+                mod_data_proc_conn, mod_data_size, caller_conn,
+                getter_qs[mh.SIG_MAP_NAME].queue, ref_out_info, model_info,
+                vars_data, mods_info, device, signal_reversed))
         p.daemon = True
         p.start()
         proc_reads_ps.append(p)
         if mh.PR_MOD_NAME in outputs:
             mod_data_proc_conn.close()
-            mod_pos_proc_conn.close()
 
     if mh.PR_MOD_NAME in outputs:
-        # start mod getter processes after read processing since processing
-        # connections must be closed immediately after creation
-        mod_pos_p = mp.Process(
-            target=mods._mod_aux_table_inserts, args=(
-                mods_db_fn, db_safety, mods_info, mod_pos_db_conns),
-            daemon=True)
-        mod_pos_p.start()
         mod_res_p = mp.Process(
             target=mods._get_mods_queue, daemon=True, args=(
-                mod_data_db_conns, mod_data_size, mods_db_fn, db_safety,
+                mod_data_db_conns, mod_data_size, db_safety,
                 aligner.ref_names_and_lens, aligner.ref_fn, mods_txt_fn,
                 pr_refs_fn, ref_out_info, mod_map_fns, aligner.out_fmt,
                 mods_info))
@@ -894,6 +880,7 @@ def parse_mod_args(args, model_info):
                         'Ignoring --mod-motif.').format(mh.PR_MOD_NAME))
         args.mod_motif = None
 
+    mods_db_fn = mh.get_megalodon_fn(args.output_directory, mh.PR_MOD_NAME)
     mod_calib_fn = (mh.get_mod_calibration_fn(
         model_info.params.pyguppy.config, args.mod_calibration_filename,
         args.disable_mod_calibration)
@@ -907,7 +894,7 @@ def parse_mod_args(args, model_info):
         model_info=model_info, all_mod_motifs_raw=args.mod_motif,
         mod_all_paths=args.mod_all_paths, write_mods_txt=args.write_mods_text,
         mod_context_bases=args.mod_context_bases,
-        do_output_mods=mh.BC_MODS_NAME in args.outputs,
+        do_output_mods=mh.BC_MODS_NAME in args.outputs, mods_db_fn=mods_db_fn,
         mods_calib_fn=mod_calib_fn, mod_output_fmts=args.mod_output_formats,
         edge_buffer=args.edge_buffer,
         pos_index_in_memory=not args.mod_positions_on_disk, agg_info=agg_info,

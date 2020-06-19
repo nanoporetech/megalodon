@@ -7,6 +7,7 @@ import datetime
 from time import sleep
 from array import array
 import multiprocessing as mp
+from distutils.version import LooseVersion
 from multiprocessing.connection import wait
 from collections import defaultdict, namedtuple, OrderedDict
 
@@ -81,18 +82,8 @@ class ModsDb(object):
             ('chrm_id', 'INTEGER PRIMARY KEY'),
             ('chrm', 'TEXT'),
             ('chrm_len', 'INTEGER')))),
-        ('pos', OrderedDict((
-            ('pos_id', 'INTEGER PRIMARY KEY'),
-            ('pos_chrm', 'INTEGER'),
-            ('strand', 'INTEGER'),
-            ('pos', 'INTEGER')))),
-        ('mod', OrderedDict((
-            ('mod_id', 'INTEGER PRIMARY KEY'),
-            ('mod_base', 'TEXT'),
-            ('motif', 'TEXT'),
-            ('motif_pos', 'INTEGER'),
-            ('raw_motif', 'TEXT')))),
         ('mod_long_names', OrderedDict((
+            ('mod_id', 'INTEGER PRIMARY KEY'),
             ('mod_base', 'TEXT'),
             ('mod_long_name', 'TEXT')))),
         ('read', OrderedDict((
@@ -104,23 +95,15 @@ class ModsDb(object):
             ('score_mod', 'INTEGER'),
             ('score_read', 'INTEGER'))))))
 
-    pos_mem_dt = np.uint32
-    pos_mem_max = np.iinfo(pos_mem_dt).max
-
     # namedtuple for returning mods from a single position
     mod_data = namedtuple('mod_data', [
-        'read_id', 'chrm', 'strand', 'pos', 'score', 'mod_base', 'motif',
-        'motif_pos', 'raw_motif'])
+        'read_id', 'chrm', 'strand', 'pos', 'score', 'mod_base'])
     text_field_names = (
         'read_id', 'chrm', 'strand', 'pos', 'mod_log_prob',
-        'can_log_prob', 'mod_base', 'motif')
+        'can_log_prob', 'mod_base')
 
     def __init__(self, fn, init_db_tables=False, read_only=True, db_safety=1,
-                 in_mem_chrm_to_dbid=False, in_mem_dbid_to_chrm=False,
-                 in_mem_pos_to_dbid=False, in_mem_dbid_to_pos=False,
-                 in_mem_mod_to_dbid=False, in_mem_dbid_to_mod=False,
                  in_mem_uuid_to_dbid=False, in_mem_dbid_to_uuid=False,
-                 force_uint32_pos_to_dbid=False,
                  mod_db_timeout=mh.DEFAULT_MOD_DATABASE_TIMEOUT):
         """ Interface to database containing modified base statistics.
 
@@ -134,15 +117,8 @@ class ModsDb(object):
         self.init_db_tables = init_db_tables
         self.read_only = read_only
         self.db_safety = db_safety
-        self.in_mem_chrm_to_dbid = in_mem_chrm_to_dbid or in_mem_pos_to_dbid
-        self.in_mem_pos_to_dbid = in_mem_pos_to_dbid
-        self.in_mem_mod_to_dbid = in_mem_mod_to_dbid
         self.in_mem_uuid_to_dbid = in_mem_uuid_to_dbid
-        self.in_mem_dbid_to_chrm = in_mem_dbid_to_chrm or in_mem_dbid_to_pos
-        self.in_mem_dbid_to_pos = in_mem_dbid_to_pos
-        self.in_mem_dbid_to_mod = in_mem_dbid_to_mod
         self.in_mem_dbid_to_uuid = in_mem_dbid_to_uuid
-        self.force_uint32 = force_uint32_pos_to_dbid
         self.db_timeout = mod_db_timeout
 
         # establish connection and initialize main cursor
@@ -164,11 +140,11 @@ class ModsDb(object):
         else:
             self.check_tables_init()
 
-        # load requested in memory indices
-        self.load_in_mem_chrm()
-        self.load_in_mem_pos()
-        self.load_in_mem_mod()
-        self.load_in_mem_uuid()
+        if not self.init_db_tables:
+            # load requested in memory indices
+            self.load_in_mem_chrm()
+            self.load_in_mem_mod()
+            self.load_in_mem_uuid()
 
     def establish_db_conn(self):
         if self.read_only:
@@ -222,69 +198,115 @@ class ModsDb(object):
                 ('data_cov_idx', )).fetchall()) == 0:
             raise mh.MegaError('Data covering index does not exist.')
 
+    ##################################
+    # load in-memory index functions #
+    ##################################
+
+    def _load_cs_offsets(self, ref_names_and_lens):
+        self.chrm_names = ref_names_and_lens[0]
+        self.chrm_lens = ref_names_and_lens[1]
+        self.num_chrms = len(self.chrm_names)
+        # create data structures to convert (chrm, strand, pos) <--> pos_dbid
+        # Store ordered c/s combinations
+        self._cs_values = [(chrm, strand) for chrm in ref_names_and_lens[0]
+                           for strand in (1, -1)]
+        self._cs_offsets = np.insert(
+            np.repeat(ref_names_and_lens[1], 2)[:-1], 0, 0)
+        # dictionary from (chrm, strand) to dbid offsets
+        self._cs_offset_lookup = dict(zip(self._cs_values, self._cs_offsets))
+        # store dict from chrm to chrm_len
+        self._chrm_lens = dict(zip(*ref_names_and_lens))
+
+    def load_in_mem_chrm(self):
+        ref_names_and_lens = list(zip(self.cur.execute(
+            'SELECT chrm, chrm_len FROM chrm').fetchall()))
+        self._load_cs_offsets(ref_names_and_lens)
+
+    def load_in_mem_mod(self):
+        dbid_mod = self.cur.execute(
+            'SELECT mod_id, mod_base FROM mod').fetchall()
+        self.dbid_to_mod = dict(dbid_mod)
+        self.mod_to_dbid = dict(
+            (mod_base, dbid) for dbid, mod_base in dbid_mod)
+
+    def load_in_mem_uuid(self):
+        if not (self.in_mem_uuid_to_dbid or self.in_mem_dbid_to_uuid):
+            return
+        dbid_uuid = self.cur.execute(
+            'SELECT read_id, uuid FROM read').fetchall()
+        if self.in_mem_uuid_to_dbid:
+            self.uuid_to_dbid = dict((uuid, dbid) for dbid, uuid in dbid_uuid)
+        if self.in_mem_dbid_to_uuid:
+            self.dbid_to_uuid = dict(dbid_uuid)
+
     #########################
     # getter data functions #
     #########################
-    def get_chrm_dbid(self, chrm):
-        """ Get database ID.
+
+    def get_pos_dbid(self, chrm, strand, pos):
+        """ Compute database ID for position
+        """
+        if pos >= self._chrm_lens[chrm]:
+            raise mh.MegaError((
+                'Attempt to extract position past the end of a chromosome.' +
+                ' {}:{}').format(chrm, pos))
+        return self._cs_offsets[(chrm, strand)] + pos
+
+    def get_pos_dbids(self, r_uniq_pos, chrm, strand):
+        """ Get position database IDs. If positions are not found in the
+        database they will be inserted.
 
         Args:
-            chrm (str): Chromosome name
+            r_uniq_pos (list): Unique positions (int).
+            chrm (str): Chromosome name.
+            strand (int): +1 = forward strandl -1 = reverse strand
 
         Returns:
-            Database ID (int).
+            List of position database IDs for each entry in r_uniq_pos.
         """
-        try:
-            if self.in_mem_chrm_to_dbid:
-                dbid = self.chrm_to_dbid[chrm]
-            else:
-                dbid = self.cur.execute(
-                    'SELECT chrm_id FROM chrm WHERE chrm=?',
-                    (chrm,)).fetchone()[0]
-        except (TypeError, KeyError):
-            raise mh.MegaError('chrm "{}" not found in database.'.format(chrm))
-        return dbid
+        if max(r_uniq_pos) >= self._chrm_lens[chrm]:
+            raise mh.MegaError((
+                'Attempt to extract position past the end of a chromosome.' +
+                ' {}:{}').format(chrm, max(r_uniq_pos)))
+        cs_offset = self._cs_offsets[(chrm, strand)]
+        return [pos + cs_offset for pos in r_uniq_pos]
 
-    def get_chrm(self, chrm_dbid):
-        """ Get chromosome name and length
+    def get_pos(self, pos_dbid):
+        """ Get position from database ID
 
         Args:
-            chrm_dbid (int): Chromosome database ID
+            pos_dbid (int): Position database ID
 
         Returns:
-            Chromosome name (str) and length (int)
+            Chromosome name (str), strand (int; +1=forward strand, -1=reverse
+                strand), position (int; 0-based)
         """
-        try:
-            if self.in_mem_dbid_to_chrm:
-                return self.dbid_to_chrm[chrm_dbid]
-            return self.cur.execute(
-                'SELECT chrm, chrm_len FROM chrm WHERE chrm_id=?',
-                (chrm_dbid, )).fetchall()[0]
-        except (TypeError, KeyError):
-            raise mh.MegaError('Reference record (chromosome ID) not found ' +
-                               'in mods database.')
+        cs_idx = np.searchsorted(self._cs_offsets, pos_dbid, 'right') - 1
+        chrm, strand = self._cs_values[cs_idx]
+        pos = pos_dbid - self._cs_offsets[cs_idx]
+        return chrm, strand, pos
 
-    def get_mod_base_data(self, mod_dbid):
-        """ Get modified base information from database
+    def get_mod_base(self, mod_dbid):
+        """ Get modified base from database ID.
 
         Args:
             mod_dbid (int): Modified base database ID
 
         Returns:
-            Modified base single letter code (str), motif searched pattern
-                (str), relative modified base position in motif (int; 0-based),
-                raw motif observed from reference (str)
+            Modified base single letter code (str)
         """
         try:
-            if self.in_mem_dbid_to_mod:
-                mod_base_data = self.dbid_to_mod[mod_dbid]
-            else:
-                mod_base_data = self.cur.execute(
-                    'SELECT mod_base, motif, motif_pos, raw_motif FROM mod ' +
-                    'WHERE mod_id=?', (mod_dbid,)).fetchall()[0]
-        except (TypeError, KeyError):
-            raise mh.MegaError('Modified base not found in mods database.')
-        return mod_base_data
+            return self.dbid_to_mod[mod_dbid]
+        except KeyError:
+            raise mh.MegaError(
+                'Modified base ID not found in database: {}'.format(mod_dbid))
+
+    def get_mod_base_dbid(self, mod_base):
+        try:
+            return self.mod_to_dbid[mod_base]
+        except KeyError:
+            raise mh.MegaError(
+                'Modified base not found in database: {}'.format(mod_base))
 
     def get_uuid(self, read_dbid):
         """ Get read UUID from database.
@@ -303,40 +325,17 @@ class ModsDb(object):
                     'SELECT uuid FROM read WHERE read_id=?',
                     (read_dbid, )).fetchall()[0][0]
         except (TypeError, KeyError):
-            raise mh.MegaError('Read ID not found in vars database.')
+            raise mh.MegaError(
+                'Read ID not found in database: {}'.format(read_dbid))
         return uuid
 
-    def get_pos(self, pos_dbid):
-        """ Get position information from database
-
-        Args:
-            pos_dbid (int): Position database ID
-
-        Returns:
-            Chromosome name (str), strand (int; +1=forward strand, -1=reverse
-                strand), position (int; 0-based)
-        """
-        try:
-            if self.in_mem_dbid_to_pos:
-                chrm_dbid, strand, pos = self.dbid_to_pos[pos_dbid]
-            else:
-                chrm_dbid, strand, pos = self.cur.execute(
-                    'SELECT pos_chrm, strand, pos FROM pos WHERE pos_id=?',
-                    (pos_dbid,)).fetchone()
-        except (TypeError, KeyError):
-            raise mh.MegaError('Position not found in database.')
-        chrm, _ = self.get_chrm(chrm_dbid)
-        return chrm, strand, pos
-
-    def get_pos_stats(self, pos_data, return_uuids=False):
+    def get_pos_stats(self, pos_dbid, return_uuids=False):
         """ Get all statistics mapped to a reference position. The data
         covering index should be created to increase the access speed for
         this function.
 
         Args:
-            pos_data (tuple): Positon database ID (int), chromosome database id
-                (int), strand (int; +1=forward strand, -1=reverse strand),
-                position 0-based (int)
+            pos_dbid (int): Positon database ID (int)
             return_uuids (bool): Whether to return database read ids (defalt)
                 or UUIDs.
 
@@ -345,15 +344,14 @@ class ModsDb(object):
                 specified reference position.
         """
         read_id_conv = self.get_uuid if return_uuids else lambda x: x
-        # these attributes are specified in self.iter_pos
-        pos_dbid, chrm_dbid, strand, pos = pos_data
-        chrm, _ = self.get_chrm(chrm_dbid)
+        self.cur.execute(
+            'SELECT score_read, score, score_mod FROM data WHERE score_pos=?',
+            (pos_dbid, ))
+        chrm, strand, pos = self.get_pos(pos_dbid)
         return [
             self.mod_data(read_id_conv(read_dbid), chrm, strand, pos, score,
-                          *self.get_mod_base_data(mod_dbid))
-            for read_dbid, score, mod_dbid in self.cur.execute(
-                    'SELECT score_read, score, score_mod FROM data ' +
-                    'WHERE score_pos=?', (pos_dbid, )).fetchall()]
+                          self.get_mod_base(mod_dbid))
+            for read_dbid, score, mod_dbid in self.cur]
 
     def get_num_uniq_chrms(self):
         """ Get number of chromosomes/contigs stored in the database
@@ -369,7 +367,7 @@ class ModsDb(object):
         searched and observed motif.
         """
         num_mod_bases = self.cur.execute(
-            'SELECT MAX(mod_id) FROM mod').fetchone()[0]
+            'SELECT MAX(mod_id) FROM mod_long_names').fetchone()[0]
         if num_mod_bases is None:
             return 0
         return num_mod_bases
@@ -383,14 +381,6 @@ class ModsDb(object):
             return 0
         return num_reads
 
-    def get_num_uniq_mod_pos(self):
-        """ Get number of unique positions in database
-        """
-        num_pos = self.cur.execute('SELECT MAX(pos_id) FROM pos').fetchone()[0]
-        if num_pos is None:
-            return 0
-        return num_pos
-
     def get_num_uniq_stats(self):
         """ Get number of per-read modified base statistics stored in database
         """
@@ -400,297 +390,34 @@ class ModsDb(object):
             return 0
         return num_stats
 
-    ##################################
-    # load in-memory index functions #
-    ##################################
-    def load_in_mem_chrm(self):
-        if not (self.in_mem_chrm_to_dbid or self.in_mem_dbid_to_chrm):
-            return
-        dbid_chrm = self.cur.execute(
-            'SELECT chrm_id, chrm, chrm_len FROM chrm').fetchall()
-        if self.in_mem_chrm_to_dbid:
-            self.chrm_to_dbid = dict(
-                (chrm, dbid) for dbid, chrm, _ in dbid_chrm)
-        if self.in_mem_dbid_to_chrm:
-            self.dbid_to_chrm = dict(
-                (dbid, (chrm, chrm_len)) for dbid, chrm, chrm_len in dbid_chrm)
-
-    def check_in_mem_pos_size(self, chrm_lens):
-        if 2 * sum(chrm_lens) > self.pos_mem_max:
-            if self.force_uint32:
-                LOGGER.warning('Forcing uint32')
-                return
-            if len(self.pos_to_dbid) > 0:
-                raise mh.MegaError(POS_IDX_CHNG_ERR_MSG)
-            self.pos_mem_dt = np.uint64
-            self.pos_mem_max = np.iinfo(self.pos_mem_dt).max
-            if 2 * sum(chrm_lens) > self.pos_mem_max:
-                raise mh.MegaError(
-                    'Cannot store modified base positions in memory for ' +
-                    'a genome this size. Please specify ' +
-                    '--mod-positions-on-disk.')
-
-    def load_in_mem_pos(self):
-        if not (self.in_mem_pos_to_dbid or self.in_mem_dbid_to_pos):
-            return
-        dbid_pos = self.cur.execute(
-            'SELECT pos_id, pos_chrm, strand, pos FROM pos').fetchall()
-        if self.in_mem_pos_to_dbid:
-            self.pos_to_dbid = {}
-            self.check_in_mem_pos_size([
-                chrm_len for _, _, chrm_len in self.iter_chrms()])
-            # position to database id is stored as a dictionary of numpy arrays
-            # this was done since standard dictionaries cause memory errors
-            # for large genomes potentially toward the end of a long run.
-            # initialize with chromosome size and allocate numpy array as
-            # needed
-            self.pos_to_dbid = dict(
-                ((chrm_dbid, strand), int(chrm_len))
-                for chrm_dbid, _, chrm_len in self.iter_chrms()
-                for strand in (1, -1))
-            for dbid, chrm_dbid, strand, pos in dbid_pos:
-                # check if chrm/strand has been initialized
-                if isinstance(self.pos_to_dbid[(chrm_dbid, strand)], int):
-                    self.pos_to_dbid[(chrm_dbid, strand)] = np.full(
-                        self.pos_to_dbid[(chrm_dbid, strand)],
-                        self.pos_mem_max, self.pos_mem_dt)
-                self.pos_to_dbid[(chrm_dbid, strand)][pos] = dbid
-        if self.in_mem_dbid_to_pos:
-            self.dbid_to_pos = dict(
-                (dbid, (chrm_dbid, strand, pos))
-                for dbid, chrm_dbid, strand, pos in dbid_pos)
-
-    def load_in_mem_mod(self):
-        if not (self.in_mem_mod_to_dbid or self.in_mem_dbid_to_mod):
-            return
-        dbid_mod = self.cur.execute(
-            'SELECT mod_id, mod_base, motif, motif_pos, raw_motif ' +
-            'FROM mod').fetchall()
-        if self.in_mem_mod_to_dbid:
-            self.mod_to_dbid = dict(
-                ((mod_base, motif, motif_pos, raw_motif), dbid)
-                for dbid, mod_base, motif, motif_pos, raw_motif in dbid_mod)
-        if self.in_mem_dbid_to_mod:
-            self.dbid_to_mod = dict(
-                (dbid, (mod_base, motif, motif_pos, raw_motif))
-                for dbid, mod_base, motif, motif_pos, raw_motif in dbid_mod)
-
-    def load_in_mem_uuid(self):
-        if not (self.in_mem_uuid_to_dbid or self.in_mem_dbid_to_uuid):
-            return
-        dbid_uuid = self.cur.execute(
-            'SELECT read_id, uuid FROM read').fetchall()
-        if self.in_mem_uuid_to_dbid:
-            self.uuid_to_dbid = dict((uuid, dbid) for dbid, uuid in dbid_uuid)
-        if self.in_mem_dbid_to_uuid:
-            self.dbid_to_uuid = dict(dbid_uuid)
-
     #########################
     # insert data functions #
     #########################
-    def get_chrm_dbid_or_insert(self, chrm, chrm_len):
-        try:
-            chrm_dbid = self.get_chrm_dbid(chrm)
-        except mh.MegaError:
-            self.cur.execute('INSERT INTO chrm (chrm, chrm_len) VALUES (?,?)',
-                             (chrm, chrm_len))
-            chrm_dbid = self.cur.lastrowid
-            if self.in_mem_chrm_to_dbid:
-                self.chrm_to_dbid[chrm] = chrm_dbid
-            if self.in_mem_dbid_to_chrm:
-                self.dbid_to_chrm[chrm_dbid] = (chrm, chrm_len)
-            if self.in_mem_pos_to_dbid:
-                if sum(chrm_len for _, _, chrm_len in
-                       self.iter_chrms()) * 2 > self.pos_mem_max:
-                    raise mh.MegaError(POS_IDX_CHNG_ERR_MSG)
-                # initialize with chromosome length stub
-                self.pos_to_dbid[(chrm_dbid, 1)] = int(chrm_len)
-                self.pos_to_dbid[(chrm_dbid, -1)] = int(chrm_len)
-        return chrm_dbid
 
     def insert_chrms(self, ref_names_and_lens):
-        next_chrm_id = self.get_num_uniq_chrms() + 1
+        # chromosomes must be entered only once for a database
+        if len(self.cur.execute('SELECT * FROM chrm').fetchall()) > 0:
+            raise mh.MegaError(
+                'Chromosomes/contigs have already been set for this database.')
+        # use version sort for chromosomes/contigs
+        s_ref_names_and_lens = list(zip(*sorted(
+            list(zip(*ref_names_and_lens)), key=lambda x: LooseVersion(x[0]))))
+        # save chrms to database
         self.cur.executemany('INSERT INTO chrm (chrm, chrm_len) VALUES (?,?)',
-                             zip(*ref_names_and_lens))
-        chrm_dbids = list(range(next_chrm_id,
-                                next_chrm_id + len(ref_names_and_lens[0])))
-        if self.in_mem_chrm_to_dbid:
-            self.chrm_to_dbid.update(zip(
-                ref_names_and_lens[0], chrm_dbids))
-        if self.in_mem_dbid_to_chrm:
-            self.dbid_to_chrm.update(zip(chrm_dbids, zip(*ref_names_and_lens)))
-
-        # Add position index numpy arrays for new chromosomes if stored in mem
-        if self.in_mem_pos_to_dbid:
-            self.check_in_mem_pos_size(ref_names_and_lens[1])
-            # initialize with chromosome length stub
-            self.pos_to_dbid.update(
-                ((chrm_i + next_chrm_id, strand), int(chrm_len))
-                for chrm_i, chrm_len in enumerate(ref_names_and_lens[1])
-                for strand in (1, -1))
-
-    def get_pos_dbid_or_insert(self, chrm_dbid, strand, pos):
-        try:
-            if self.in_mem_pos_to_dbid:
-                # if chomosome/strand has not been added initialize array and
-                # trigger insertion of position
-                if isinstance(self.pos_to_dbid[(chrm_dbid, strand)], int):
-                    self.pos_to_dbid[(chrm_dbid, strand)] = np.full(
-                        self.pos_to_dbid[(chrm_dbid, strand)],
-                        self.pos_mem_max, self.pos_mem_dt)
-                    raise TypeError
-                pos_dbid = int(self.pos_to_dbid[(chrm_dbid, strand)][pos])
-                if pos_dbid == self.pos_mem_max:
-                    raise TypeError
-            else:
-                pos_dbid = self.cur.execute(
-                    'SELECT pos_id FROM pos WHERE pos_chrm=? AND strand=? ' +
-                    'AND pos=?', (chrm_dbid, strand, pos)).fetchall()[0][0]
-        except TypeError:
-            self.cur.execute(
-                'INSERT INTO pos (pos_chrm, strand, pos) VALUES (?,?,?)',
-                (chrm_dbid, strand, pos))
-            pos_dbid = self.cur.lastrowid
-            if self.in_mem_pos_to_dbid:
-                self.pos_to_dbid[(chrm_dbid, strand)][pos] = pos_dbid
-            if self.in_mem_dbid_to_pos:
-                self.dbid_to_pos[pos_dbid] = (chrm_dbid, strand, pos)
-        return pos_dbid
-
-    def get_pos_dbids_or_insert(self, r_uniq_pos, chrm_dbid, strand):
-        """ Get position database IDs. If positions are not found in the
-        database they will be inserted.
-
-        Args:
-            r_uniq_pos (list): Unique positions (int).
-            chrm_dbid (int): Chromosome database ID.
-            strand (int): +1 = forward strandl -1 = reverse strand
-
-        Returns:
-            List of position database IDs for each entry in r_uniq_pos.
-        """
-        def add_pos_to_db(pos_to_add):
-            # separate function for profiling
-            self.cur.executemany(
-                'INSERT INTO pos (pos_chrm, strand, pos) VALUES (?,?,?)',
-                ((chrm_dbid, strand, int(pos)) for pos in pos_to_add))
-
-        if len(r_uniq_pos) == 0:
-            return []
-
-        if self.in_mem_pos_to_dbid:
-            # if chomosome/strand has not been added, initialize array and
-            # insert all positions
-            if isinstance(self.pos_to_dbid[(chrm_dbid, strand)], int):
-                self.pos_to_dbid[(chrm_dbid, strand)] = np.full(
-                    self.pos_to_dbid[(chrm_dbid, strand)],
-                    self.pos_mem_max, self.pos_mem_dt)
-                cs_pos_to_dbid = self.pos_to_dbid[(chrm_dbid, strand)]
-                pos_to_add = r_uniq_pos
-            else:
-                cs_pos_to_dbid = self.pos_to_dbid[(chrm_dbid, strand)]
-                # extract positions that have not yet been observed
-                pos_to_add = [
-                    r_uniq_pos[to_add_idx] for to_add_idx in np.where(np.equal(
-                        cs_pos_to_dbid[r_uniq_pos], self.pos_mem_max))[0]]
-        else:
-            cs_pos_to_dbid = dict(
-                pos_and_dbid for pos in r_uniq_pos
-                for pos_and_dbid in self.cur.execute(
-                        'SELECT pos, pos_id FROM pos ' +
-                        'WHERE pos_chrm=? AND strand=? AND pos=?',
-                        (chrm_dbid, strand, pos)).fetchall())
-            pos_to_add = tuple(r_uniq_pos.difference(cs_pos_to_dbid))
-
-        # insert positions and update in memory indices
-        if len(pos_to_add) > 0:
-            next_pos_id = self.get_num_uniq_mod_pos() + 1
-            add_pos_to_db(pos_to_add)
-            pos_dbids = list(range(next_pos_id, next_pos_id + len(pos_to_add)))
-            if self.in_mem_pos_to_dbid:
-                cs_pos_to_dbid[pos_to_add] = np.array(
-                    pos_dbids, dtype=self.pos_mem_dt)
-            else:
-                cs_pos_to_dbid.update(zip(pos_to_add, pos_dbids))
-            if self.in_mem_dbid_to_pos:
-                self.dbid_to_pos.update(
-                    (pos_dbid, (chrm_dbid, strand, pos))
-                    for pos_dbid, pos in zip(pos_dbids, pos_to_add))
-
-        # return pos_id for each entry in r_uniq_pos
-        return [int(cs_pos_to_dbid[pos]) for pos in r_uniq_pos]
+                             s_ref_names_and_lens)
+        # add save to internal data structure to determine database ids for
+        # positions
+        self._load_cs_offsets(s_ref_names_and_lens)
 
     def insert_mod_long_names(self, mod_long_names):
+        # modified bases must be entered only once for a database
+        if len(self.cur.execute(
+                'SELECT * FROM mod_long_names').fetchall()) > 0:
+            raise mh.MegaError(
+                'Modified bases have already been set for this database.')
         self.cur.executemany(
             'INSERT INTO mod_long_names (mod_base, mod_long_name) ' +
             'VALUES (?,?)', mod_long_names)
-
-    def get_mod_base_dbid_or_insert(
-            self, mod_base, motif, motif_pos, raw_motif):
-        try:
-            if self.in_mem_mod_to_dbid:
-                mod_dbid = self.mod_to_dbid[
-                    (mod_base, motif, motif_pos, raw_motif)]
-            else:
-                mod_dbid = self.cur.execute(
-                    'SELECT mod_id FROM mod WHERE mod_base=? AND motif=? ' +
-                    'AND motif_pos=? AND raw_motif=?',
-                    (mod_base, motif, motif_pos, raw_motif)).fetchall()[0][0]
-        except (TypeError, KeyError):
-            self.cur.execute(
-                'INSERT INTO mod (mod_base, motif, motif_pos, raw_motif) ' +
-                'VALUES (?,?,?,?)', (mod_base, motif, motif_pos, raw_motif))
-            mod_dbid = self.cur.lastrowid
-            if self.in_mem_mod_to_dbid:
-                self.mod_to_dbid[
-                    (mod_base, motif, motif_pos, raw_motif)] = mod_dbid
-            if self.in_mem_dbid_to_mod:
-                self.dbid_to_mod[mod_dbid] = (
-                    mod_base, motif, motif_pos, raw_motif)
-        return mod_dbid
-
-    def get_mod_base_ids_or_insert(self, r_uniq_mod_bases):
-        """ Get modified base database IDs. If modified bases are not found in
-        the database they will be inserted.
-
-        Args:
-            r_uniq_mod_bases (list): List of modified base descriptions. Each
-                entry must be composed of 1) modified base single letter code
-                (str), 2) motif searched pattern (str), 3) relative modified
-                base position in motif (int; 0-based), and 4) raw motif
-                observed from reference (str)
-
-        Returns:
-            List with modified base ID for each entry in r_uniq_mod_bases
-        """
-        if len(r_uniq_mod_bases) == 0:
-            return []
-
-        if self.in_mem_mod_to_dbid:
-            mod_to_dbid = self.mod_to_dbid
-        else:
-            mod_to_dbid = dict(
-                (mod_data, mod_dbid[0])
-                for mod_data in r_uniq_mod_bases for mod_dbid in
-                self.cur.execute(
-                    'SELECT mod_id FROM mod WHERE mod_base=? AND motif=? ' +
-                    'AND motif_pos=? AND raw_motif=?', mod_data).fetchall())
-
-        mod_bases_to_add = tuple(set(r_uniq_mod_bases).difference(mod_to_dbid))
-
-        if len(mod_bases_to_add) > 0:
-            next_mod_base_id = self.get_num_uniq_mods() + 1
-            self.cur.executemany(
-                'INSERT INTO mod (mod_base, motif, motif_pos, raw_motif) ' +
-                'VALUES (?,?,?,?)', mod_bases_to_add)
-            mod_dbids = list(range(next_mod_base_id,
-                                   next_mod_base_id + len(mod_bases_to_add)))
-            # update either extracted entries from DB or in memory index
-            mod_to_dbid.update(zip(mod_bases_to_add, mod_dbids))
-            if self.in_mem_dbid_to_mod:
-                self.dbid_to_mod.update(zip(mod_dbids, mod_bases_to_add))
-
-        return [mod_to_dbid[mod_data] for mod_data in r_uniq_mod_bases]
 
     def get_read_dbid_or_insert(self, uuid):
         """ Get database ID for a read uuid. If value is not found in the
@@ -762,8 +489,21 @@ class ModsDb(object):
         self.cur.execute('INSERT INTO read (uuid) VALUES (?)', (uuid,))
         return self.cur.lastrowid
 
-    def insert_read_data(self, r_insert_data):
+    def insert_read_data(self, r_insert_data, read_dbid):
         """ Insert data from a single read.
+
+        Args:
+            r_insert_data (list): Each entry should contain 4 elements:
+                1) modified base log probability (float), 2) position database
+                ID, and 3) modified base database ID.
+            read_dbid (int): Read database ID
+        """
+        self.cur.executemany(
+            'INSERT INTO data VALUES (?,?,?,?)',
+            ((*score_pos_mod, read_dbid) for score_pos_mod in r_insert_data))
+
+    def insert_batch_data(self, b_insert_data):
+        """ Insert batch data
 
         Args:
             r_insert_data (list): Each entry should contain 4 elements:
@@ -771,7 +511,7 @@ class ModsDb(object):
                 ID 3) modified base database ID, and 4) read database ID.
         """
         self.cur.executemany('INSERT INTO data VALUES (?,?,?,?)',
-                             r_insert_data)
+                             b_insert_data)
 
     def insert_data(self, score, pos_id, mod_base_id, read_id):
         self.cur.execute(
@@ -782,6 +522,7 @@ class ModsDb(object):
     #########################
     # table index functions #
     #########################
+
     def create_chrm_index(self):
         self.cur.execute('CREATE UNIQUE INDEX chrm_idx ON chrm(chrm)')
 
@@ -801,31 +542,52 @@ class ModsDb(object):
     ##################
     # data iterators #
     ##################
-    def iter_pos_scores(self, return_pos=False):
-        """ Iterate log likelihood ratios (log(P_can / P_mod)) by position.
-        Yield tuples of position (either id or converted genomic coordiante)
-        and dictionary with mod base single letter keys pointing to list of
-        log likelihood ratios.
+
+    def iter_pos_scores(self, convert_pos=False, compute_llrs=False):
+        """ Iterate over scores grouped by position. Default arguments iterate
+        over raw database values for maximal speed. Yeilds a tuple of
+        1) position and 2) statistics
+
+        If convert_pos it False (default), yield position database id, if
+        convert_pos is True yield (chrm, strand, pos)
+
+        If compute_llrs is False (default), yield lists containing tuples of
+        1) read_id, 2) mod database ID and 3) log probability
+        If compute_llrs is True, yield dictionary of mod_base keys to list log
+        likelihood ratios.
 
         Note this function iterates over the index created by
         create_data_covering_index, so should be very fast.
-
-        If return_pos is set to True, position data will be returned in format
-        (chrm, strand, pos); else database position id will be returned
         """
         def extract_pos_llrs(pos_lps):
-            mod_llrs = defaultdict(list)
-            for read_pos_lps in pos_lps.values():
-                mt_lps = np.array([lp for _, lp in read_pos_lps])
-                with np.errstate(divide='ignore'):
-                    can_lp = np.log1p(-np.exp(mt_lps).sum())
-                for mod_dbid, lp in read_pos_lps:
-                    mod_llrs[mod_dbid].append(can_lp - lp)
-            return dict(mod_llrs)
+            mod_llrs = dict((self.get_mod_base(mod_dbid), [])
+                            for mod_dbid in set((zip(*pos_lps))[1]))
+            prev_rid = None
+            mod_bs, r_lps = [], []
+            for read_id, mod_dbid, lp in sorted(pos_lps):
+                if prev_rid != read_id and prev_rid is not None:
+                    # compute and store log likelihood ratios
+                    with np.errstate(divide='ignore'):
+                        can_lp = np.log1p(-np.exp(np.array(r_lps)).sum())
+                    for mod_b, r_lp in zip(mod_bs, r_lps):
+                        mod_llrs[mod_b].append(can_lp - r_lp)
+                    mod_bs, r_lps = [], []
+                prev_rid = read_id
+                mod_bs.append(self.get_mod_base(mod_dbid))
+                r_lps.append(lp)
+            with np.errstate(divide='ignore'):
+                can_lp = np.log1p(-np.exp(np.array(r_lps)).sum())
+            for mod_b, r_lp in zip(mod_bs, r_lps):
+                mod_llrs[mod_b].append(can_lp - r_lp)
+
+            return mod_llrs
 
         self.check_data_covering_index_exists()
-        # set function to transform pos_id
-        extract_pos = self.get_pos if return_pos else lambda x: x
+
+        pos_func = self.get_pos if convert_pos else lambda x: x
+        stat_func = extract_pos_llrs if compute_llrs else lambda x: x
+
+        pos_lps = list()
         # use local cursor since extracting pos or mod might use class cursor
         local_cursor = self.db.cursor()
         local_cursor.execute(
@@ -833,14 +595,14 @@ class ModsDb(object):
             'ORDER BY score_pos')
         # initialize variables with first value
         prev_pos, mod_dbid, read_id, lp = local_cursor.fetchone()
-        pos_lps = defaultdict(list)
+        pos_lps.append((read_id, mod_dbid, lp))
         for curr_pos, mod_dbid, read_id, lp in local_cursor:
             if curr_pos != prev_pos:
-                yield extract_pos(prev_pos), extract_pos_llrs(pos_lps)
-                pos_lps = defaultdict(list)
-            pos_lps[read_id].append((self.get_mod_base_data(mod_dbid)[0], lp))
+                yield pos_func(prev_pos), stat_func(pos_lps)
+                pos_lps = list()
+            pos_lps.append((read_id, mod_dbid, lp))
             prev_pos = curr_pos
-        yield extract_pos(prev_pos), extract_pos_llrs(pos_lps)
+        yield pos_func(prev_pos), stat_func(pos_lps)
 
     def get_all_chrm_and_lens(self):
         """ Get chromosome names and lengths
@@ -864,42 +626,19 @@ class ModsDb(object):
             Tuple containing 1) database ID (int), 2) chromosome name
                 (str), and 3) length (int)
         """
-        if self.in_mem_dbid_to_chrm:
-            for chrm_dbid, (chrm, chrm_len) in self.dbid_to_chrm.items():
-                yield chrm_dbid, chrm, chrm_len
-        else:
-            # use local cursor since other processing might use class cursor
-            local_cursor = self.db.cursor()
-            local_cursor.execute('SELECT chrm_id, chrm, chrm_len FROM chrm')
-            for chrm_dbid, chrm, chrm_len in local_cursor:
-                yield chrm_dbid, chrm, chrm_len
+        for chrm_dbid, chrm, chrm_len in zip(
+                range(self.num_chrms), self.chrm_names, self.chrm_lens):
+            yield chrm_dbid, chrm, chrm_len
 
     def iter_mod_bases(self):
         """ Iterate over modified base information from database
 
         Yields:
-            Tuple containing 1) database ID, 2) modified base single letter
-                code (str), 3) motif searched pattern (str), 4) relative
-                modified base position in motif (int; 0-based), 5) raw motif
-                observed from reference (str)
+            Tuple containing 1) database ID, and 2) modified base single letter
+                code (str)
         """
-        if self.in_mem_dbid_to_mod:
-            for mod_dbid, (mod_base, motif, motif_pos,
-                           raw_motif) in self.dbid_to_mod.items():
-                yield mod_dbid, mod_base, motif, motif_pos, raw_motif
-        elif self.in_mem_mod_to_dbid:
-            for (mod_base, motif, motif_pos,
-                 raw_motif), mod_dbid in self.mod_to_dbid.items():
-                yield mod_dbid, mod_base, motif, motif_pos, raw_motif
-        else:
-            # use local cursor since other processing might use class cursor
-            local_cursor = self.db.cursor()
-            local_cursor.execute(
-                'SELECT mod_id, mod_base, motif, motif_pos, raw_motif ' +
-                'FROM mod')
-            for (mod_dbid, mod_base, motif, motif_pos,
-                 raw_motif) in local_cursor:
-                yield mod_dbid, mod_base, motif, motif_pos, raw_motif
+        for mod_dbid, mod_base in self.dbid_to_mod.items():
+            yield mod_dbid, mod_base
 
     def get_mod_long_names(self):
         """ Get modified base long names
@@ -930,38 +669,13 @@ class ModsDb(object):
             for read_dbid, uuid in local_cursor:
                 yield read_dbid, uuid
 
-    def iter_pos(self):
-        if self.in_mem_dbid_to_pos:
-            for pos_dbid, (chrm_dbid, strand, pos) in self.dbid_to_pos.items():
-                yield pos_dbid, chrm_dbid, strand, pos
-        elif self.in_mem_pos_to_dbid:
-            for (chrm_dbid, strand), cs_pos in self.pos_to_dbid.items():
-                # if chromosome/strand has not been initialized, skip it
-                if isinstance(cs_pos, int):
-                    continue
-                valid_cs_pos = np.where(np.not_equal(
-                    cs_pos, self.pos_mem_max))[0]
-                for pos, pos_dbid in zip(valid_cs_pos, cs_pos[valid_cs_pos]):
-                    yield pos_dbid, chrm_dbid, strand, pos
-        else:
-            # use local cursor since other processing might use class cursor
-            local_cursor = self.db.cursor()
-            local_cursor.execute(
-                'SELECT pos_id, pos_chrm, strand, pos FROM pos')
-            for pos_dbid, chrm_dbid, strand, pos in local_cursor:
-                yield pos_dbid, chrm_dbid, strand, pos
-
     def iter_data(self):
         # use local cursor since other processing might use class cursor
         local_cursor = self.db.cursor()
         local_cursor.execute(
-            'SELECT score, uuid, mod_base, motif, motif_pos, raw_motif, ' +
-            'strand, pos, chrm, chrm_len ' +
-            'FROM data ' +
+            'SELECT score, uuid, mod_base, score_pos FROM data ' +
             'INNER JOIN read ON data.score_read = read.read_id ' +
-            'INNER JOIN mod ON data.score_mod = mod.mod_id ' +
-            'INNER JOIN pos ON data.score_pos = pos.pos_id ' +
-            'INNER JOIN chrm ON pos.pos_chrm = chrm.chrm_id')
+            'INNER JOIN mod ON data.score_mod = mod.mod_id')
         for data in local_cursor:
             yield data
 
@@ -984,7 +698,7 @@ def extract_all_stats(mods_db_fn):
     """
     all_llrs = defaultdict(list)
     mods_db = ModsDb(mods_db_fn)
-    for _, mods_pos_llrs in mods_db.iter_pos_scores():
+    for _, mods_pos_llrs in mods_db.iter_pos_scores(compute_llrs=True):
         for mod_base, mod_pos_llrs in mods_pos_llrs.items():
             all_llrs[mod_base].append(mod_pos_llrs)
     all_llrs = dict((mod_base, np.concatenate(mod_llrs))
@@ -1011,9 +725,9 @@ def extract_stats_at_valid_sites(
     """
     all_stats = [defaultdict(list) for _ in valid_sites_sets]
     # load database with positions in memory to avoid disk reads
-    mods_db = ModsDb(mods_db_fn, in_mem_dbid_to_pos=True)
+    mods_db = ModsDb(mods_db_fn)
     for (chrm, strand, pos), mods_pos_llrs in mods_db.iter_pos_scores(
-            return_pos=True):
+            convert_pos=True, compute_llrs=True):
         site_key = (chrm, strand, pos) if include_strand else (chrm, pos)
         for sites_i, valid_sites in enumerate(valid_sites_sets):
             if site_key in valid_sites:
@@ -1189,7 +903,11 @@ def score_mod_seq(
 
 def call_read_mods(
         r_ref_pos, r_ref_seq, ref_to_block, r_post, mods_info, mod_data_size,
-        mod_pos_conn, mod_sig_map_q, sig_map_res, signal_reversed, uuid):
+        mod_sig_map_q, sig_map_res, signal_reversed, uuid):
+    # load indices and close connection
+    mods_db = ModsDb(mods_info.mods_db_fn, read_only=True)
+    mods_db.close()
+
     def iter_motif_sites():
         search_ref_seq = r_ref_seq[::-1] if signal_reversed else r_ref_seq
         for motif, rel_pos, mod_bases, raw_motif in mods_info.all_mod_motifs:
@@ -1205,23 +923,6 @@ def call_read_mods(
                 if pms[1] is not None and
                 r_ref_pos.start + mods_info.edge_buffer < pms[0] <
                 r_ref_pos.end - mods_info.edge_buffer]
-
-    def get_pos_mod_read_dbids(r_mod_scores):
-        # send unique positions and mod bases to connection to extract
-        # database ids
-        r_uniq_pos = sorted(set(pms[0] for pms in r_mod_scores))
-        r_uniq_mod_bases = sorted(set(
-            (mod_base, motif, motif_pos, raw_motif)
-            for _, _, mod_bases, motif, motif_pos, raw_motif in r_mod_scores
-            for mod_base in mod_bases))
-        mod_pos_conn.send((
-            r_uniq_pos, r_uniq_mod_bases, r_ref_pos.chrm, r_ref_pos.strand,
-            uuid))
-        r_pos_dbids, r_mod_dbids, read_dbid = mod_pos_conn.recv()
-        # enumerate data to be added to main data table
-        r_pos_dbids = dict(zip(r_uniq_pos, r_pos_dbids))
-        r_mod_dbids = dict(zip(r_uniq_mod_bases, r_mod_dbids))
-        return r_pos_dbids, r_mod_dbids, read_dbid
 
     # call all mods overlapping this read
     r_mod_scores = []
@@ -1329,10 +1030,10 @@ def call_read_mods(
 
         mod_sig_map_q.put(signal_mapping.get_remapping(*sig_map_res[1:]))
 
-    r_pos_dbids, r_mod_dbids, read_dbid = get_pos_mod_read_dbids(r_mod_scores)
     r_insert_data = [
-        (mod_lp, r_pos_dbids[mod_pos],
-         r_mod_dbids[(mod_base, ref_motif, rel_pos, raw_motif)], read_dbid)
+        (mod_lp, mods_db.get_pos_dbid(
+            r_ref_pos.chrm, r_ref_pos.strand, mod_pos),
+         mods_db.get_mod_base_dbid(mod_base))
         for mod_pos, mod_lps, mod_bases, ref_motif, rel_pos, raw_motif in
         r_mod_scores for mod_lp, mod_base in zip(mod_lps, mod_bases)]
 
@@ -1364,29 +1065,20 @@ def call_read_mods(
 # Per-read Mod Output #
 #######################
 
-def init_mods_db(mods_db_fn, db_safety, ref_names_and_lens, mods_info):
+def init_mods_db(mods_info, db_safety, ref_names_and_lens):
     mods_db = ModsDb(
-        mods_db_fn, db_safety=db_safety, read_only=False, init_db_tables=True)
+        mods_info.mods_db_fn, db_safety=db_safety, read_only=False,
+        init_db_tables=True)
     mods_db.insert_chrms(ref_names_and_lens)
     mods_db.insert_mod_long_names(mods_info.mod_long_names)
     mods_db.commit()
-    LOGGER.debug((
-        'mod_getter: in_mem_indices:\n\t' +
-        'chrm -> dbid : {}\n\tdbid -> chrm : {}\n\t' +
-        'pos  -> dbid : {}\n\tdbid -> pos  : {}\n\t' +
-        'mod  -> dbid : {}\n\tdbid -> mod  : {}\n\t' +
-        'uuid -> dbid : {}\n\tdbid -> uuid : {}').format(
-            mods_db.in_mem_chrm_to_dbid, mods_db.in_mem_dbid_to_chrm,
-            mods_db.in_mem_pos_to_dbid, mods_db.in_mem_dbid_to_pos,
-            mods_db.in_mem_mod_to_dbid, mods_db.in_mem_dbid_to_mod,
-            mods_db.in_mem_uuid_to_dbid, mods_db.in_mem_dbid_to_uuid))
     mods_db.close()
 
 
 def _get_mods_queue(
-        mod_data_db_conns, mod_data_size, mods_db_fn, db_safety,
-        ref_names_and_lens, ref_fn, mods_txt_fn, pr_refs_fn, ref_out_info,
-        mod_map_fns, map_fmt, mods_info):
+        mod_data_db_conns, mod_data_size, db_safety, ref_names_and_lens,
+        ref_fn, mods_txt_fn, pr_refs_fn, ref_out_info, mod_map_fns, map_fmt,
+        mods_info):
     def write_mod_alignment(
             read_id, mod_seq, mod_quals, chrm, strand, r_st, fp):
         a = pysam.AlignedSegment()
@@ -1412,10 +1104,11 @@ def _get_mods_queue(
             chrm, strand, r_start, ref_seq, read_len, q_st, q_en, cigar,
             been_warned_timeout, been_warned_other):
         try:
+            read_dbid = mods_db.insert_read_uuid(read_id)
             data_commited = False
             while not data_commited:
                 try:
-                    mods_db.insert_read_data(r_insert_data)
+                    mods_db.insert_read_data(r_insert_data, read_dbid)
                     mods_db.commit()
                     data_commited = True
                 except sqlite3.OperationalError as e:
@@ -1455,7 +1148,7 @@ def _get_mods_queue(
     been_warned_timeout = been_warned_other = False
 
     mods_db = ModsDb(
-        mods_db_fn, db_safety=db_safety, read_only=False,
+        mods_info.mods_db_fn, db_safety=db_safety, read_only=False,
         mod_db_timeout=mods_info.mod_db_timeout)
 
     if mods_txt_fn is None:
@@ -1494,14 +1187,14 @@ def _get_mods_queue(
                 # triggered, so remove that connection
                 mod_data_db_conns.remove(r)
             else:
-                (r_mod_scores, all_mods_seq, per_mod_seqs, mod_out_text), (
+                r_mod_scores, all_mods_seq, per_mod_seqs, mod_out_text, (
                     read_id, chrm, strand, r_start, ref_seq, read_len,
                     q_st, q_en, cigar) = mod_res
                 try:
                     been_warned_timeout, been_warned_other = store_mod_call(
-                        r_mod_scores, mod_out_text, all_mods_seq, per_mod_seqs,
-                        read_id, chrm, strand, r_start, ref_seq, read_len,
-                        q_st, q_en, cigar, been_warned_timeout,
+                        r_mod_scores, mod_out_text, all_mods_seq,
+                        per_mod_seqs, read_id, chrm, strand, r_start, ref_seq,
+                        read_len, q_st, q_en, cigar, been_warned_timeout,
                         been_warned_other)
                 except Exception as e:
                     LOGGER.debug('Error processing mods output for read: ' +
@@ -1526,65 +1219,6 @@ if _PROFILE_MODS_QUEUE:
         import cProfile
         cProfile.runctx('_get_mods_queue_wrapper(*args)', globals(), locals(),
                         filename='mods_getter_queue.prof')
-
-
-def _mod_aux_table_inserts(mod_db_fn, db_safety, mods_info, mod_pos_conns):
-    def commit_data(
-            r_uniq_pos, chrm_dbid, strand, r_uniq_mod_bases, uuid,
-            been_warned_timeout):
-        try:
-            r_pos_dbids = mods_db.get_pos_dbids_or_insert(
-                r_uniq_pos, chrm_dbid, strand)
-            r_mod_dbids = mods_db.get_mod_base_ids_or_insert(r_uniq_mod_bases)
-            read_dbid = mods_db.insert_read_uuid(uuid)
-            mods_db.commit()
-        except sqlite3.OperationalError as e:
-            if not been_warned_timeout:
-                LOGGER.warning(
-                    DB_TIMEOUT_ERR_MSG.format('pos/mod/read', str(e)))
-                been_warned_timeout = True
-            LOGGER.debug('Modified base database aux insert timeout.')
-            mods_db.establish_db_conn()
-            mods_db.set_cursor()
-            return False, been_warned_timeout, None, None, None
-        return True, been_warned_timeout, r_pos_dbids, r_mod_dbids, read_dbid
-
-    been_warned_timeout = False
-    mods_db = ModsDb(
-        mod_db_fn, db_safety=db_safety,
-        in_mem_pos_to_dbid=mods_info.pos_index_in_memory,
-        in_mem_dbid_to_chrm=True, in_mem_mod_to_dbid=True, read_only=False,
-        mod_db_timeout=mods_info.mod_db_timeout)
-    # loop over connections to read worker processes until all have been
-    # exhausted
-    while mod_pos_conns:
-        for r in wait(mod_pos_conns):
-            try:
-                conn_res = r.recv()
-            except EOFError:
-                mod_pos_conns.remove(r)
-            else:
-                r_uniq_pos, r_uniq_mod_bases, chrm, strand, uuid = conn_res
-                chrm_dbid = mods_db.get_chrm_dbid(chrm)
-                data_commited = False
-                while not data_commited:
-                    (data_commited, been_warned_timeout, r_pos_dbids,
-                     r_mod_dbids, read_dbid) = commit_data(
-                         r_uniq_pos, chrm_dbid, strand, r_uniq_mod_bases, uuid,
-                         been_warned_timeout)
-                r.send((r_pos_dbids, r_mod_dbids, read_dbid))
-
-    mods_db.close()
-
-
-if _PROFILE_MODS_AUX:
-    _mod_aux_table_inserts_wrapper = _mod_aux_table_inserts
-
-    def _mod_aux_table_inserts(*args):
-        import cProfile
-        cProfile.runctx('_mod_aux_table_inserts_wrapper(*args)',
-                        globals(), locals(),
-                        filename='mods_aux_inserts.prof')
 
 
 ############
@@ -1657,7 +1291,7 @@ class ModInfo(object):
     def __init__(
             self, model_info, all_mod_motifs_raw=None, mod_all_paths=False,
             write_mods_txt=None, mod_context_bases=None,
-            do_output_mods=False, mods_calib_fn=None,
+            do_output_mods=False, mods_db_fn=None, mods_calib_fn=None,
             mod_output_fmts=[mh.MOD_BEDMETHYL_NAME],
             edge_buffer=mh.DEFAULT_EDGE_BUFFER, pos_index_in_memory=True,
             agg_info=DEFAULT_AGG_INFO, mod_thresh=0.0, do_ann_all_mods=False,
@@ -1672,6 +1306,7 @@ class ModInfo(object):
         self.mod_context_bases = mod_context_bases
         self.do_output_mods = do_output_mods
         self.mod_long_names = model_info.mod_long_names
+        self.mods_db_fn = mods_db_fn
         self.calib_table = calibration.ModCalibrator(mods_calib_fn)
         self.mod_output_fmts = mod_output_fmts
         self.edge_buffer = edge_buffer
@@ -2033,18 +1668,11 @@ class AggMods(mh.AbstractAggregationClass):
     CpG sites).
     """
     def __init__(self, mods_db_fn, agg_info=DEFAULT_AGG_INFO,
-                 write_mod_lp=False, load_uuid_index_in_memory=False,
-                 no_indices_in_mem=False):
-        # open as read only database (default)
-        if no_indices_in_mem:
-            self.mods_db = ModsDb(mods_db_fn)
+                 write_mod_lp=False, load_uuid_index_in_memory=False):
         if load_uuid_index_in_memory:
-            self.mods_db = ModsDb(
-                mods_db_fn, in_mem_dbid_to_chrm=True, in_mem_dbid_to_mod=True,
-                in_mem_dbid_to_uuid=True)
+            self.mods_db = ModsDb(mods_db_fn, in_mem_dbid_to_uuid=True)
         else:
-            self.mods_db = ModsDb(
-                mods_db_fn, in_mem_dbid_to_chrm=True, in_mem_dbid_to_mod=True)
+            self.mods_db = ModsDb(mods_db_fn)
         self.n_uniq_mods = None
         assert agg_info.method in mh.MOD_AGG_METHOD_NAMES
         self.agg_method = agg_info.method
@@ -2058,14 +1686,13 @@ class AggMods(mh.AbstractAggregationClass):
         return self._mod_long_names
 
     def num_uniq(self):
-        if self.n_uniq_mods is None:
-            self.n_uniq_mods = self.mods_db.get_num_uniq_mod_pos()
-        return self.n_uniq_mods
+        if self.n_uniq_stats is None:
+            self.n_uniq_stats = self.mods_db.get_num_uniq_stats()
+        return self.n_uniq_stats
 
     def iter_uniq(self):
-        # fill queue with full position information to make
-        # workers avoid the ordered pos data extraction
-        for q_val in self.mods_db.iter_pos():
+        # fill queue with all stats from each position
+        for q_val in self.mods_db.iter_pos_scores():
             yield q_val
 
     def est_binary_thresh(self, pos_scores):
