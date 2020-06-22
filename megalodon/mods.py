@@ -85,6 +85,7 @@ class ModsDb(object):
         ('mod_long_names', OrderedDict((
             ('mod_id', 'INTEGER PRIMARY KEY'),
             ('mod_base', 'TEXT'),
+            ('can_base', 'TEXT'),
             ('mod_long_name', 'TEXT')))),
         ('read', OrderedDict((
             ('read_id', 'INTEGER PRIMARY KEY'),
@@ -203,31 +204,41 @@ class ModsDb(object):
     ##################################
 
     def _load_cs_offsets(self, ref_names_and_lens):
+        # store dict from chrm to chrm_len
+        self._chrm_lens = dict(zip(*ref_names_and_lens))
         self.chrm_names = ref_names_and_lens[0]
         self.chrm_lens = ref_names_and_lens[1]
+
         self.num_chrms = len(self.chrm_names)
         # create data structures to convert (chrm, strand, pos) <--> pos_dbid
         # Store ordered c/s combinations
-        self._cs_values = [(chrm, strand) for chrm in ref_names_and_lens[0]
-                           for strand in (1, -1)]
-        self._cs_offsets = np.insert(
-            np.repeat(ref_names_and_lens[1], 2)[:-1], 0, 0)
+        self._cs_values = [
+            (chrm, strand) for chrm in self.chrm_names for strand in (1, -1)]
+        self._cs_offsets = np.insert(np.repeat(self.chrm_lens, 2)[:-1], 0, 0)
         # dictionary from (chrm, strand) to dbid offsets
-        self._cs_offset_lookup = dict(zip(self._cs_values, self._cs_offsets))
-        # store dict from chrm to chrm_len
-        self._chrm_lens = dict(zip(*ref_names_and_lens))
+        self._cs_offset_lookup = dict(zip(
+            self._cs_values, map(int, self._cs_offsets)))
 
     def load_in_mem_chrm(self):
-        ref_names_and_lens = list(zip(self.cur.execute(
+        ref_names_and_lens = list(zip(*self.cur.execute(
             'SELECT chrm, chrm_len FROM chrm').fetchall()))
         self._load_cs_offsets(ref_names_and_lens)
 
-    def load_in_mem_mod(self):
-        dbid_mod = self.cur.execute(
-            'SELECT mod_id, mod_base FROM mod').fetchall()
-        self.dbid_to_mod = dict(dbid_mod)
+    def _create_mod_lookups(self, mod_db_info):
+        self.dbid_to_mod = dict(
+            (dbid, mod_base) for dbid, mod_base, _, _ in mod_db_info)
         self.mod_to_dbid = dict(
-            (mod_base, dbid) for dbid, mod_base in dbid_mod)
+            (mod_base, dbid) for dbid, mod_base, _, _ in mod_db_info)
+        self.mod_to_can = dict(
+            (mod_base, can_base) for _, mod_base, can_base, _ in mod_db_info)
+        self.mod_to_long_name = dict(
+            (mod_base, mln) for _, mod_base, _, mln in mod_db_info)
+
+    def load_in_mem_mod(self):
+        mod_db_info = self.cur.execute(
+            'SELECT mod_id, mod_base, can_base, mod_long_name ' +
+            'FROM mod_long_names').fetchall()
+        self._create_mod_lookups(mod_db_info)
 
     def load_in_mem_uuid(self):
         if not (self.in_mem_uuid_to_dbid or self.in_mem_dbid_to_uuid):
@@ -250,7 +261,7 @@ class ModsDb(object):
             raise mh.MegaError((
                 'Attempt to extract position past the end of a chromosome.' +
                 ' {}:{}').format(chrm, pos))
-        return self._cs_offsets[(chrm, strand)] + pos
+        return int(self._cs_offset_lookup[(chrm, strand)]) + pos
 
     def get_pos_dbids(self, r_uniq_pos, chrm, strand):
         """ Get position database IDs. If positions are not found in the
@@ -268,7 +279,7 @@ class ModsDb(object):
             raise mh.MegaError((
                 'Attempt to extract position past the end of a chromosome.' +
                 ' {}:{}').format(chrm, max(r_uniq_pos)))
-        cs_offset = self._cs_offsets[(chrm, strand)]
+        cs_offset = int(self._cs_offset_lookup[(chrm, strand)])
         return [pos + cs_offset for pos in r_uniq_pos]
 
     def get_pos(self, pos_dbid):
@@ -283,7 +294,7 @@ class ModsDb(object):
         """
         cs_idx = np.searchsorted(self._cs_offsets, pos_dbid, 'right') - 1
         chrm, strand = self._cs_values[cs_idx]
-        pos = pos_dbid - self._cs_offsets[cs_idx]
+        pos = pos_dbid - int(self._cs_offsets[cs_idx])
         return chrm, strand, pos
 
     def get_mod_base(self, mod_dbid):
@@ -404,20 +415,25 @@ class ModsDb(object):
             list(zip(*ref_names_and_lens)), key=lambda x: LooseVersion(x[0]))))
         # save chrms to database
         self.cur.executemany('INSERT INTO chrm (chrm, chrm_len) VALUES (?,?)',
-                             s_ref_names_and_lens)
+                             zip(*s_ref_names_and_lens))
         # add save to internal data structure to determine database ids for
         # positions
         self._load_cs_offsets(s_ref_names_and_lens)
 
-    def insert_mod_long_names(self, mod_long_names):
+    def insert_mod_long_names(self, mod_long_names, mod_base_to_can):
         # modified bases must be entered only once for a database
         if len(self.cur.execute(
                 'SELECT * FROM mod_long_names').fetchall()) > 0:
             raise mh.MegaError(
                 'Modified bases have already been set for this database.')
+        insert_mod_info = [(mod_base, mod_base_to_can[mod_base], mln)
+                           for mod_base, mln in mod_long_names]
         self.cur.executemany(
-            'INSERT INTO mod_long_names (mod_base, mod_long_name) ' +
-            'VALUES (?,?)', mod_long_names)
+            'INSERT INTO mod_long_names (mod_base, can_base, mod_long_name) ' +
+            'VALUES (?,?,?)', insert_mod_info)
+        self._create_mod_lookups([
+            (mod_dbid, *mb_info)
+            for mod_dbid, mb_info in enumerate(insert_mod_info)])
 
     def get_read_dbid_or_insert(self, uuid):
         """ Get database ID for a read uuid. If value is not found in the
@@ -562,17 +578,17 @@ class ModsDb(object):
         def extract_pos_llrs(pos_lps):
             mod_llrs = dict((self.get_mod_base(mod_dbid), [])
                             for mod_dbid in set((zip(*pos_lps))[1]))
-            prev_rid = None
+            prev_dbid = None
             mod_bs, r_lps = [], []
-            for read_id, mod_dbid, lp in sorted(pos_lps):
-                if prev_rid != read_id and prev_rid is not None:
+            for read_dbid, mod_dbid, lp in sorted(pos_lps):
+                if prev_dbid != read_dbid and prev_dbid is not None:
                     # compute and store log likelihood ratios
                     with np.errstate(divide='ignore'):
                         can_lp = np.log1p(-np.exp(np.array(r_lps)).sum())
                     for mod_b, r_lp in zip(mod_bs, r_lps):
                         mod_llrs[mod_b].append(can_lp - r_lp)
                     mod_bs, r_lps = [], []
-                prev_rid = read_id
+                prev_dbid = read_dbid
                 mod_bs.append(self.get_mod_base(mod_dbid))
                 r_lps.append(lp)
             with np.errstate(divide='ignore'):
@@ -594,13 +610,13 @@ class ModsDb(object):
             'SELECT score_pos, score_mod, score_read, score FROM data ' +
             'ORDER BY score_pos')
         # initialize variables with first value
-        prev_pos, mod_dbid, read_id, lp = local_cursor.fetchone()
-        pos_lps.append((read_id, mod_dbid, lp))
-        for curr_pos, mod_dbid, read_id, lp in local_cursor:
+        prev_pos, mod_dbid, read_dbid, lp = local_cursor.fetchone()
+        pos_lps.append((read_dbid, mod_dbid, lp))
+        for curr_pos, mod_dbid, read_dbid, lp in local_cursor:
             if curr_pos != prev_pos:
                 yield pos_func(prev_pos), stat_func(pos_lps)
                 pos_lps = list()
-            pos_lps.append((read_id, mod_dbid, lp))
+            pos_lps.append((read_dbid, mod_dbid, lp))
             prev_pos = curr_pos
         yield pos_func(prev_pos), stat_func(pos_lps)
 
@@ -1070,7 +1086,8 @@ def init_mods_db(mods_info, db_safety, ref_names_and_lens):
         mods_info.mods_db_fn, db_safety=db_safety, read_only=False,
         init_db_tables=True)
     mods_db.insert_chrms(ref_names_and_lens)
-    mods_db.insert_mod_long_names(mods_info.mod_long_names)
+    mods_db.insert_mod_long_names(
+        mods_info.mod_long_names, mods_info.mod_base_to_can)
     mods_db.commit()
     mods_db.close()
 
@@ -1187,7 +1204,7 @@ def _get_mods_queue(
                 # triggered, so remove that connection
                 mod_data_db_conns.remove(r)
             else:
-                r_mod_scores, all_mods_seq, per_mod_seqs, mod_out_text, (
+                (r_mod_scores, all_mods_seq, per_mod_seqs, mod_out_text), (
                     read_id, chrm, strand, r_start, ref_seq, read_len,
                     q_st, q_en, cigar) = mod_res
                 try:
@@ -1325,16 +1342,12 @@ class ModInfo(object):
         except AttributeError:
             pass
         if model_info.is_cat_mod:
-            can_bs = [
-                can_b for mod_b, _ in model_info.mod_long_names
-                for can_b, can_mod_bs in model_info.can_base_mods.items()
-                if mod_b in can_mod_bs]
             LOGGER.info(
                 'Using canonical alphabet {} and modified bases {}.'.format(
                     self.alphabet, '; '.join(
-                        '{}={} (alt to {})'.format(mod_b, mln, can_b)
-                        for (mod_b, mln), can_b in zip(
-                                model_info.mod_long_names, can_bs))))
+                        '{}={} (alt to {})'.format(
+                            mod_b, mln, model_info.mod_base_to_can[mod_b])
+                        for mod_b, mln in model_info.mod_long_names)))
         else:
             LOGGER.info(
                 'Using canonical alphabet {}.'.format(self.alphabet))
@@ -1345,6 +1358,7 @@ class ModInfo(object):
         if model_info.is_cat_mod:
             self.nmod_base = model_info.n_mods
             self.can_base_mods = model_info.can_base_mods
+            self.mod_base_to_can = model_info.mod_base_to_can
             self.can_mods_offsets = model_info.can_indices
             self.str_to_int_mod_labels = model_info.str_to_int_mod_labels
             assert (
@@ -1673,7 +1687,7 @@ class AggMods(mh.AbstractAggregationClass):
             self.mods_db = ModsDb(mods_db_fn, in_mem_dbid_to_uuid=True)
         else:
             self.mods_db = ModsDb(mods_db_fn)
-        self.n_uniq_mods = None
+        self.n_uniq_stats = None
         assert agg_info.method in mh.MOD_AGG_METHOD_NAMES
         self.agg_method = agg_info.method
         self.binary_thresh = agg_info.binary_threshold
@@ -1701,7 +1715,8 @@ class AggMods(mh.AbstractAggregationClass):
                         for mt in read_mods.keys())
         mods_cov = dict((mt, 0) for mt in mod_types)
         for read_pos_lps in pos_scores.values():
-            mt_lps = np.array(list(read_pos_lps.values()))
+            r_mod_types, mt_lps = zip(*read_pos_lps.items())
+            mt_lps = np.array(mt_lps)
             with np.errstate(divide='ignore'):
                 can_lp = np.log1p(-np.exp(mt_lps).sum())
             if can_lp > mt_lps.max():
@@ -1710,7 +1725,7 @@ class AggMods(mh.AbstractAggregationClass):
             else:
                 if np.exp(mt_lps.max()) > self.binary_thresh:
                     valid_cov += 1
-                    mods_cov[list(read_pos_lps.keys())[np.argmax(mt_lps)]] += 1
+                    mods_cov[r_mod_types[np.argmax(mt_lps)]] += 1
 
         if valid_cov == 0:
             return mods_cov, valid_cov
@@ -1782,7 +1797,8 @@ class AggMods(mh.AbstractAggregationClass):
         mods_props = OrderedDict(zip(mod_types, unclip(curr_mix_props)[1:]))
         return mods_props, len(pos_scores)
 
-    def compute_mod_stats(self, mod_pos, agg_method=None, valid_read_ids=None):
+    def compute_mod_stats(
+            self, pos_data, agg_method=None, valid_read_ids=None):
         if agg_method is None:
             agg_method = self.agg_method
         if agg_method not in mh.MOD_AGG_METHOD_NAMES:
@@ -1790,14 +1806,15 @@ class AggMods(mh.AbstractAggregationClass):
                 'No modified base proportion estimation method: {}'.format(
                     agg_method))
 
-        pr_mod_stats = self.mods_db.get_pos_stats(
-            mod_pos, return_uuids=valid_read_ids is not None)
+        pos_dbid, pos_mod_data = pos_data
+        chrm, strand, pos = self.mods_db.get_pos(pos_dbid)
         mod_type_stats = defaultdict(dict)
-        for r_stats in pr_mod_stats:
-            if valid_read_ids is not None and \
-               r_stats.read_id not in valid_read_ids:
-                continue
-            mod_type_stats[r_stats.read_id][r_stats.mod_base] = r_stats.score
+        for read_dbid, mod_dbid, lp in pos_mod_data:
+            if valid_read_ids is not None:
+                uuid = self.mods_db.get_uuid(read_dbid)
+                if uuid not in valid_read_ids:
+                    continue
+            mod_type_stats[read_dbid][self.mods_db.get_mod_base(mod_dbid)] = lp
         total_cov = len(mod_type_stats)
         if total_cov == 0:
             raise mh.MegaError('No valid reads cover modified base location')
@@ -1806,12 +1823,12 @@ class AggMods(mh.AbstractAggregationClass):
         elif agg_method == mh.MOD_EM_NAME:
             mod_props, valid_cov = self.est_em_prop(mod_type_stats)
 
-        r0_stats = pr_mod_stats[0]
-        strand = mh.int_strand_to_str(r0_stats.strand)
+        strand = mh.int_strand_to_str(strand)
+        mod_bases = list(mod_props.keys())
+        can_base = self.mods_db.mod_to_can[mod_bases[0]]
         mod_site = ModSite(
-            chrom=r0_stats.chrm, pos=r0_stats.pos, strand=strand,
-            ref_seq=r0_stats.motif, ref_mod_pos=r0_stats.motif_pos,
-            mod_bases=list(mod_props.keys()), mod_props=mod_props)
+            chrom=chrm, pos=pos, strand=strand, ref_seq=can_base,
+            ref_mod_pos=0, mod_bases=mod_bases, mod_props=mod_props)
         mod_site.add_tag('DP', '{}'.format(total_cov))
         mod_site.add_sample_field('DP', '{}'.format(total_cov))
         mod_site.add_sample_field('VALID_DP', '{}'.format(int(valid_cov)))

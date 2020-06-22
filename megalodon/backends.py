@@ -129,6 +129,7 @@ class ModelInfo(object):
         self.can_alphabet = ''
         self.can_indices = []
         self.mod_long_names = []
+        self.mod_base_to_can = {}
         self.str_to_int_mod_labels = {}
         self.can_base_mods = defaultdict(list)
         curr_can_offset = 0
@@ -145,6 +146,7 @@ class ModelInfo(object):
                         curr_nmods + mod_i]))
                 self.str_to_int_mod_labels[mod_base] = mod_i + 1
                 self.can_base_mods[can_base].append(mod_base)
+                self.mod_base_to_can[mod_base] = can_base
 
             curr_can_offset += can_base_nmods + 1
             curr_nmods += can_base_nmods
