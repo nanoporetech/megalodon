@@ -268,7 +268,7 @@ def log_prob_to_phred(log_prob, ignore_np_divide=True):
     return -10 * np.log10(1 - np.exp(log_prob))
 
 
-def extract_seq_summary_info(read):
+def extract_seq_summary_info(read, na_str='NA'):
     """ Extract non-basecalling sequencing summary information from
     ont_fast5_api read object
     """
@@ -276,24 +276,27 @@ def extract_seq_summary_info(read):
         fn = read.filename
         read_id = read.read_id
         channel_info = read.get_channel_info()
-        read_info = read.status.read_info[0]
+        try:
+            read_info = read.status.read_info[0]
+            mux = read_info.start_mux
+            start_time = '{:.6f}'.format(read_info.start_time / samp_rate)
+            dur = '{:.6f}'.format(read_info.duration / samp_rate)
+            num_events = str(read_info.event_data_count
+                             if read_info.has_event_data else na_str)
+        except AttributeError:
+            mux = start_time = dur = num_events = na_str
         run_id = read.get_run_id()
         try:
             run_id = run_id.decode()
         except AttributeError:
             pass
-        batch_id = 'NA'
+        batch_id = na_str
         chan = channel_info[CHAN_INFO_CHANNEL_SLOT]
-        mux = read_info.start_mux
         samp_rate = channel_info[CHAN_INFO_SAMP_RATE]
-        start_time = '{:.6f}'.format(read_info.start_time / samp_rate)
-        dur = '{:.6f}'.format(read_info.duration / samp_rate)
-        num_events = str(read_info.event_data_count
-                         if read_info.has_event_data else 'NA')
     except Exception:
-        # if anything goes wrong set all avlues to NA
+        # if anything goes wrong set all values to na_str
         fn = read_id = run_id = batch_id = chan = mux = start_time = dur = \
-                       num_events = 'NA'
+                       num_events = na_str
     return SEQ_SUMM_INFO(
         filename=fn, read_id=read_id, run_id=run_id, batch_id=batch_id,
         channel=chan, mux=mux, start_time=start_time, duration=dur,
