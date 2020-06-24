@@ -276,15 +276,14 @@ def extract_seq_summary_info(read, na_str='NA'):
         fn = read.filename
         read_id = read.read_id
         channel_info = read.get_channel_info()
+        samp_rate = channel_info[CHAN_INFO_SAMP_RATE]
         try:
-            read_info = read.status.read_info[0]
-            mux = read_info.start_mux
-            start_time = '{:.6f}'.format(read_info.start_time / samp_rate)
-            dur = '{:.6f}'.format(read_info.duration / samp_rate)
-            num_events = str(read_info.event_data_count
-                             if read_info.has_event_data else na_str)
+            raw_attrs = read.handle[read.raw_dataset_group_name].attrs
+            mux = raw_attrs['start_mux']
+            start_time = '{:.6f}'.format(raw_attrs['start_time'] / samp_rate)
+            dur = '{:.6f}'.format(raw_attrs['duration'] / samp_rate)
         except AttributeError:
-            mux = start_time = dur = num_events = na_str
+            mux = start_time = dur = na_str
         run_id = read.get_run_id()
         try:
             run_id = run_id.decode()
@@ -292,15 +291,13 @@ def extract_seq_summary_info(read, na_str='NA'):
             pass
         batch_id = na_str
         chan = channel_info[CHAN_INFO_CHANNEL_SLOT]
-        samp_rate = channel_info[CHAN_INFO_SAMP_RATE]
     except Exception:
         # if anything goes wrong set all values to na_str
-        fn = read_id = run_id = batch_id = chan = mux = start_time = dur = \
-                       num_events = na_str
+        fn = read_id = run_id = batch_id = chan = mux = start_time = \
+                       dur = na_str
     return SEQ_SUMM_INFO(
         filename=fn, read_id=read_id, run_id=run_id, batch_id=batch_id,
-        channel=chan, mux=mux, start_time=start_time, duration=dur,
-        num_events=num_events)
+        channel=chan, mux=mux, start_time=start_time, duration=dur)
 
 
 #######################
