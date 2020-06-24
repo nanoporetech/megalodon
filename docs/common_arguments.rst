@@ -96,7 +96,15 @@ Modified Base Arguments
 - ``--mod-motif``
 
   - Restrict modified base results to the specified motifs.
+  - This argument takes 3 values representing:
+
+    1. Modified base single letter codes (see ``megalodon_extras modified_bases describe_alphabet`` command)
+    2. Canonical sequence motif (may contain `ambiguity codes <https://droog.gs.washington.edu/parc/images/iupac.html>`_)
+    3. Relative position (0-based) for the modified base within the canonical sequence motif
+  - Multiple ``--mod-motif`` arguments can be provided to a single ``megalodon`` command.
   - If not provided (and ``per_read_mods`` or ``mods`` outputs requested) all relevant sites are tested (e.g. all ``C`` bases for ``5mC``).
+
+    - Note that restricting to motifs of interest can save computationally expensive steps and is considered more than a simple post-processing filter.
 - ``--mod-calibration-filename``
 
   - File containing empirical calibration for modified base scores.
