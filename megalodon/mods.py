@@ -170,9 +170,10 @@ class ModsDb(object):
             if self.db_safety < 1:
                 # set no rollback mode
                 self.db.execute('PRAGMA journal_mode = OFF')
-        self.db.execute('PRAGMA temp_store = 2')
-        self.db.execute('PRAGMA cache_size = {}'.format(-mh.SQLITE_CACHE_SIZE))
-        self.db.execute('PRAGMA threads = {}'.format(mh.SQLITE_THREADS))
+            self.db.execute('PRAGMA cache_size = {}'.format(
+                -mh.SQLITE_CACHE_SIZE))
+            self.db.execute('PRAGMA threads = {}'.format(
+                mh.SQLITE_THREADS))
 
     def set_cursor(self):
         self.cur = self.db.cursor()
@@ -1688,6 +1689,7 @@ class AggMods(mh.AbstractAggregationClass):
         else:
             self.mods_db = ModsDb(mods_db_fn)
         self.n_uniq_stats = None
+        self.mods_db.check_data_covering_index_exists()
         assert agg_info.method in mh.MOD_AGG_METHOD_NAMES
         self.agg_method = agg_info.method
         self.binary_thresh = agg_info.binary_threshold
