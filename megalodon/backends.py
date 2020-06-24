@@ -677,8 +677,12 @@ class ModelInfo(object):
         # update seq summary info with basecalling info
         try:
             samp_rate = sig_info.channel_info[mh.CHAN_INFO_SAMP_RATE]
-            tmplt_start = '{:.6f}'.format(float(seq_summ_info.start_time) + (
-                called_read.trimmed_samples / samp_rate))
+            try:
+                tmplt_start = '{:.6f}'.format(
+                    float(seq_summ_info.start_time) + (
+                        called_read.trimmed_samples / samp_rate))
+            except ValueError:
+                tmplt_start = seq_summ_info.start_time
             tmplt_dur = '{:.6f}'.format(
                 (sig_info.dacs.shape[0] - called_read.trimmed_samples) /
                 samp_rate)

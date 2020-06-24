@@ -42,11 +42,9 @@ def get_remapping(
         rl_cumsum, r_ref_pos, ref_out_info):
     read = fast5_interface.get_fast5_file(sig_fn, 'r').get_read(read_id)
     channel_info = dict(fast5utils.get_channel_info(read).items())
-    rd_factor = channel_info['range'] / channel_info['digitisation']
     read_params = {
         'trim_start': 0, 'trim_end': 0,
-        'shift': (scale_params[0] + channel_info['offset']) * rd_factor,
-        'scale': scale_params[1] * rd_factor}
+        'shift': scale_params[0], 'scale': scale_params[1]}
     sig = tai_signal.Signal(
         dacs=dacs, channel_info=channel_info, read_id=read_id,
         read_params=read_params)
