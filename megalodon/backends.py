@@ -577,6 +577,10 @@ class ModelInfo(object):
         return np.concatenate(mod_layers, axis=1)
 
     def pyguppy_basecall(self, client, read):
+        def do_sleep():
+            # function for profiling purposes
+            sleep(PYGUPPY_PER_TRY_TIMEOUT)
+
         try:
             client.pass_read(read)
         except ValueError:
@@ -592,16 +596,16 @@ class ModelInfo(object):
                 'server response.')
 
         try:
-            while True:
-                num_tries = 0
+            call_failed = True
+            for _ in range(self.pyguppy_retries):
                 try:
-                    num_tries += 1
                     called_read = client.get_completed_reads()[0]
+                    call_failed = False
                     break
                 except IndexError:
-                    if num_tries >= self.pyguppy_retries:
-                        raise mh.MegaError('Guppy server timeout')
-                    sleep(PYGUPPY_PER_TRY_TIMEOUT)
+                    do_sleep()
+            if call_failed:
+                raise mh.MegaError('Guppy server timeout')
         except ConnectionError:
             raise mh.MegaError(
                 'Failed to retrieve read from guppy server. No guppy server ' +
