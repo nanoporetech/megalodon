@@ -341,6 +341,27 @@ class ModsDb(object):
                 'Read ID not found in database: {}'.format(read_dbid))
         return uuid
 
+    def get_read_dbid(self, uuid):
+        """ Get database ID given read UUID
+
+        Args:
+            uuid (int): Universal read identifier
+
+        Returns:
+            read_dbid (int): Database read UUID ID
+        """
+        try:
+            if self.in_mem_uuid_to_dbid:
+                read_dbid = self.uuid_to_dbid[uuid]
+            else:
+                read_dbid = self.cur.execute(
+                    'SELECT read_id FROM read WHERE uuid=?',
+                    (uuid, )).fetchall()[0][0]
+        except (TypeError, KeyError):
+            raise mh.MegaError(
+                'UUID not found in database: {}'.format(uuid))
+        return read_dbid
+
     def get_pos_stats(self, pos_dbid, return_uuids=False):
         """ Get all statistics mapped to a reference position. The data
         covering index should be created to increase the access speed for
@@ -458,6 +479,8 @@ class ModsDb(object):
             read_dbid = self.cur.lastrowid
             if self.in_mem_dbid_to_uuid:
                 self.uuid_to_dbid[uuid] = read_dbid
+            if self.in_mem_uuid_to_dbid:
+                self.dbid_to_uuid[read_dbid] = uuid
         return read_dbid
 
     def get_read_dbids_or_insert(self, uuids):
@@ -491,10 +514,11 @@ class ModsDb(object):
             uuid_to_dbid.update(zip(uuids_to_add, read_dbids))
             if self.in_mem_dbid_to_uuid:
                 self.dbid_to_uuid.update(zip(read_dbids, uuids_to_add))
+            # self.uuid_to_dbid updated automatically by assignment above
 
         return [uuid_to_dbid[uuid] for uuid in uuids]
 
-    def insert_read_uuid(self, uuid):
+    def insert_uuid(self, uuid):
         """ Insert unique read identifier into database.
 
         Args:
@@ -504,7 +528,32 @@ class ModsDb(object):
             Database ID.
         """
         self.cur.execute('INSERT INTO read (uuid) VALUES (?)', (uuid,))
-        return self.cur.lastrowid
+        read_dbid = self.cur.lastrowid
+        if self.in_mem_dbid_to_uuid:
+            self.uuid_to_dbid[uuid] = read_dbid
+        if self.in_mem_uuid_to_dbid:
+            self.dbid_to_uuid[read_dbid] = uuid
+        return read_dbid
+
+    def insert_uuids(self, uuids):
+        """ Insert unique read identifiers into database.
+
+        Args:
+            uuids (list): List of unique read identifiers
+
+        Returns:
+            Database IDs.
+        """
+        uuids = list(uuids)
+        next_read_dbid = self.get_num_uniq_reads() + 1
+        self.cur.executemany(
+            'INSERT INTO read (uuid) VALUES (?)', ((uuid, ) for uuid in uuids))
+        read_dbids = list(range(next_read_dbid, next_read_dbid + len(uuids)))
+        if self.in_mem_dbid_to_uuid:
+            self.dbid_to_uuid.update(zip(read_dbids, uuids))
+        if self.in_mem_uuid_to_dbid:
+            self.uuid_to_dbid.update(zip(uuids, read_dbids))
+        return read_dbids
 
     def insert_read_data(self, r_insert_data, read_dbid):
         """ Insert data from a single read.
@@ -666,6 +715,17 @@ class ModsDb(object):
         """
         return self.cur.execute(
             'SELECT mod_base, mod_long_name FROM mod_long_names').fetchall()
+
+    def get_full_mod_data(self):
+        """ Get all modified base data
+
+        Returns:
+            List of tuples containing 1) modified base single letter code,
+                2) canonical base and 3) modified base long name
+        """
+        return self.cur.execute(
+            'SELECT mod_base, can_base, mod_long_name ' +
+            'FROM mod_long_names').fetchall()
 
     def iter_uuids(self):
         """ Iterate over UUIDs from database
@@ -1122,7 +1182,7 @@ def _get_mods_queue(
             chrm, strand, r_start, ref_seq, read_len, q_st, q_en, cigar,
             been_warned_timeout, been_warned_other):
         try:
-            read_dbid = mods_db.insert_read_uuid(read_id)
+            read_dbid = mods_db.insert_uuid(read_id)
             data_commited = False
             while not data_commited:
                 try:
