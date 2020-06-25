@@ -336,12 +336,6 @@ def get_parser_merge_modified_bases():
         '--single-process', action='store_true',
         help='Do not use multiprocessing with one input database per process.')
     parser.add_argument(
-        '--force-uint32-pos-index', action='store_true',
-        help='Force position database index to use uint32. Default will ' +
-        'swap to uint64 (doubling memory use) for references > 2.1 ' +
-        'gigabases. If set, no more than 2.1 billion unique stranded ' +
-        'reference sites should contain modified base scores.')
-    parser.add_argument(
         '--database-safety', type=int, default=1,
         help='Setting for database performance versus corruption ' +
         'protection. Options: 0 (DB corruption on application crash), ' +

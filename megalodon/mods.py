@@ -71,12 +71,19 @@ LOGGER = logging.get_logger()
 ###########
 
 class ModsDb(object):
-    # note foreign key constraint is not applied here as this
-    # drastically reduces efficiency. Namely the search for pos_id
-    # when inserting into the data table forces a scan of a very
-    # large table or maintainance of a very large pos table index
-    # both of which slow data base speed
-    # thus foreign key constraint must be handled by the class
+    """ Interface to the SQLite database containing per-read modified base
+    statistics. When first creating a new modified base database it is highly
+    recommended to use the  `mods.init_mods_db` helper command.
+
+    Once a database is initialized the default object initialization opens a
+    read-only connection. Setting `read_only=False` opens the connection for
+    writing modified base statistics.
+    """
+    # TODO annotate available attributes/lookup tables after initialization
+
+    # Note foreign key constraint is not applied here as this
+    # drastically reduces efficiency. Thus foreign key constraint must be
+    # handled by the class.
     db_tables = OrderedDict((
         ('chrm', OrderedDict((
             ('chrm_id', 'INTEGER PRIMARY KEY'),
@@ -103,16 +110,18 @@ class ModsDb(object):
         'read_id', 'chrm', 'strand', 'pos', 'mod_log_prob',
         'can_log_prob', 'mod_base')
 
-    def __init__(self, fn, init_db_tables=False, read_only=True, db_safety=1,
+    def __init__(self, fn, init_db_tables=False, read_only=True, db_safety=0,
                  in_mem_uuid_to_dbid=False, in_mem_dbid_to_uuid=False,
                  mod_db_timeout=mh.DEFAULT_MOD_DATABASE_TIMEOUT):
         """ Interface to database containing modified base statistics.
 
-        Default settings are for read_only performance without any in-memory
-        indices. If a particular database id (dbid) is to be accessed
-        repeatedly it is strongly suggested that this value be loaded at
-        database initialization by setting the appropriate in_mem_*
-        arguments to True.
+        Default settings are for read_only performance with in-memory indices
+        for chromosomes, and modified bases. Reference position lookup is
+        computed from the in-memory chromosome index.
+
+        If read database IDs or read UUIDs are to be accessed repeatedly it is
+        strongly suggested that this value be loaded at database initialization
+        by setting in_mem_uuid_to_dbid or in_mem_dbid_to_uuid to True.
         """
         self.fn = mh.resolve_path(fn)
         self.init_db_tables = init_db_tables
@@ -258,6 +267,10 @@ class ModsDb(object):
     def get_pos_dbid(self, chrm, strand, pos):
         """ Compute database ID for position
         """
+        if self.init_db_tables:
+            raise mh.MegaError(
+                'Cannot extract position database ID from connection opened ' +
+                'for initialization.')
         if pos >= self._chrm_lens[chrm]:
             raise mh.MegaError((
                 'Attempt to extract position past the end of a chromosome.' +
@@ -276,6 +289,10 @@ class ModsDb(object):
         Returns:
             List of position database IDs for each entry in r_uniq_pos.
         """
+        if self.init_db_tables:
+            raise mh.MegaError(
+                'Cannot extract position database IDs from connection ' +
+                'opened for initialization.')
         if max(r_uniq_pos) >= self._chrm_lens[chrm]:
             raise mh.MegaError((
                 'Attempt to extract position past the end of a chromosome.' +
@@ -293,6 +310,10 @@ class ModsDb(object):
             Chromosome name (str), strand (int; +1=forward strand, -1=reverse
                 strand), position (int; 0-based)
         """
+        if self.init_db_tables:
+            raise mh.MegaError(
+                'Cannot extract position from connection opened for ' +
+                'initialization.')
         cs_idx = np.searchsorted(self._cs_offsets, pos_dbid, 'right') - 1
         chrm, strand = self._cs_values[cs_idx]
         pos = pos_dbid - int(self._cs_offsets[cs_idx])
@@ -307,6 +328,10 @@ class ModsDb(object):
         Returns:
             Modified base single letter code (str)
         """
+        if self.init_db_tables:
+            raise mh.MegaError(
+                'Cannot extract modified base from connection opened for ' +
+                'initialization.')
         try:
             return self.dbid_to_mod[mod_dbid]
         except KeyError:
@@ -314,6 +339,10 @@ class ModsDb(object):
                 'Modified base ID not found in database: {}'.format(mod_dbid))
 
     def get_mod_base_dbid(self, mod_base):
+        if self.init_db_tables:
+            raise mh.MegaError(
+                'Cannot extract modified base database ID from connection ' +
+                'opened for initialization.')
         try:
             return self.mod_to_dbid[mod_base]
         except KeyError:
@@ -362,7 +391,8 @@ class ModsDb(object):
                 'UUID not found in database: {}'.format(uuid))
         return read_dbid
 
-    def get_pos_stats(self, pos_dbid, return_uuids=False):
+    def get_pos_stats(
+            self, pos_dbid, return_uuids=False, get_without_index=False):
         """ Get all statistics mapped to a reference position. The data
         covering index should be created to increase the access speed for
         this function.
@@ -371,11 +401,16 @@ class ModsDb(object):
             pos_dbid (int): Positon database ID (int)
             return_uuids (bool): Whether to return database read ids (defalt)
                 or UUIDs.
+            get_without_index (bool): Force extraction without index. This
+                requires iterating through the entire data table.
 
         Returns:
             List containing megalodon.mods.ModsDb.mod_data objects mapped to
                 specified reference position.
         """
+        if (not get_without_index) and self.check_data_covering_index_exists():
+            raise mh.MegaError(
+                'Cannot extract position statistics without covering index.')
         read_id_conv = self.get_uuid if return_uuids else lambda x: x
         self.cur.execute(
             'SELECT score_read, score, score_mod FROM data WHERE score_pos=?',
@@ -572,7 +607,7 @@ class ModsDb(object):
         """ Insert batch data
 
         Args:
-            r_insert_data (list): Each entry should contain 4 elements:
+            b_insert_data (list): Each entry should contain 4 elements:
                 1) modified base log probability (float), 2) position database
                 ID 3) modified base database ID, and 4) read database ID.
         """
@@ -598,7 +633,7 @@ class ModsDb(object):
 
     def create_mod_index(self):
         self.cur.execute('CREATE UNIQUE INDEX mod_idx ON ' +
-                         'mod(mod_base, motif, motif_pos, raw_motif)')
+                         'mod_long_names(mod_base)')
 
     def create_data_covering_index(self):
         # TODO add progress info to this step.
@@ -703,6 +738,10 @@ class ModsDb(object):
             Tuple containing 1) database ID, and 2) modified base single letter
                 code (str)
         """
+        if self.init_db_tables:
+            raise mh.MegaError(
+                'Cannot iterate modified bases from connection ' +
+                'opened for initialization.')
         for mod_dbid, mod_base in self.dbid_to_mod.items():
             yield mod_dbid, mod_base
 
@@ -752,7 +791,8 @@ class ModsDb(object):
         local_cursor.execute(
             'SELECT score, uuid, mod_base, score_pos FROM data ' +
             'INNER JOIN read ON data.score_read = read.read_id ' +
-            'INNER JOIN mod ON data.score_mod = mod.mod_id')
+            'INNER JOIN mod_long_names ' +
+            'ON data.score_mod = mod_long_names.mod_id')
         for data in local_cursor:
             yield data
 
@@ -828,8 +868,9 @@ def annotate_all_mods(r_start, ref_seq, r_mod_scores, strand, mods_info):
         r_start (int): Reference start position for this read.
         ref_seq (str): Read-centric reference sequence corresponding to
             this read.
-        r_mod_scores (list): Per-reference position modified base calls, as
-            returned from megalodon.mods.call_read_mods.
+        r_mod_scores (list): Per-reference position read modified base calls
+            including postiion (on chrm/strand), modbase log probs and modified
+            base single letter codes
         strand (int): 1 for forward strand -1 for reverse strand
         mods_info (mods.ModInfo): Object containing information about modified
             base processing
@@ -844,7 +885,7 @@ def annotate_all_mods(r_start, ref_seq, r_mod_scores, strand, mods_info):
     prev_pos = 0
     if strand == -1:
         ref_seq = ref_seq[::-1]
-    for mod_pos, mod_lps, mod_bases, _, _, _ in sorted(r_mod_scores):
+    for mod_pos, mod_lps, mod_bases in sorted(r_mod_scores):
         if mod_lps is None:
             base_lp = MOD_MAP_INVALID_BASE_LP
             base = ref_seq[mod_pos - r_start]
@@ -886,8 +927,9 @@ def annotate_mods_per_mod(r_start, ref_seq, r_mod_scores, strand, mods_info):
         r_start (int): Reference start position for this read.
         ref_seq (str): Read-centric reference sequence corresponding to
             this read.
-        r_mod_scores (list): Per-reference position modified base calls, as
-            returned from megalodon.mods.call_read_mods.
+        r_mod_scores (list): Per-reference position read modified base calls
+            including postiion (on chrm/strand), modbase log probs and modified
+            base single letter codes
         strand (int): 1 for forward strand -1 for reverse strand
         mods_info (mods.ModInfo): Object containing information about modified
             base processing
@@ -904,7 +946,7 @@ def annotate_mods_per_mod(r_start, ref_seq, r_mod_scores, strand, mods_info):
                         for mod_base, _ in mods_info.mod_long_names)
     if strand == -1:
         ref_seq = ref_seq[::-1]
-    for mod_pos, mod_lps, mod_bases, _, _, _ in sorted(r_mod_scores):
+    for mod_pos, mod_lps, mod_bases in sorted(r_mod_scores):
         if mod_lps is not None:
             can_lp = np.log1p(-np.exp(mod_lps).sum())
         # annotate per-mod sequences and qualities
@@ -1021,8 +1063,7 @@ def call_read_mods(
                     r_ref_seq[pos - pos_bb:pos + pos_ab + 1])
             except mh.MegaError:
                 # Add None score for per-read annotation (to be filtered)
-                r_mod_scores.append((mod_ref_pos, None, mod_bases, ref_motif,
-                                     rel_pos, raw_motif))
+                r_mod_scores.append((mod_ref_pos, None, mod_bases))
                 LOGGER.debug(
                     'Invalid sequence encountered calling modified base ' +
                     'at {}:{}'.format(r_ref_pos.chrm, mod_ref_pos))
@@ -1034,8 +1075,7 @@ def call_read_mods(
             if blk_end - blk_start < (mods_info.mod_context_bases * 2) + 1:
                 # need as many "events/strides" as bases for valid mapping
                 # Add None scores for per-read annotation (to be filtered)
-                r_mod_scores.append((mod_ref_pos, None, mod_bases, ref_motif,
-                                     rel_pos, raw_motif))
+                r_mod_scores.append((mod_ref_pos, None, mod_bases))
                 LOGGER.debug(
                     'Insufficient blocks to compute mod score at ' +
                     '{}:{}\tgot {} and need {}'.format(
@@ -1070,9 +1110,7 @@ def call_read_mods(
             # inferred negative reference likelihood, so re-normalize here
             loc_mod_lps = calibration.compute_log_probs(np.array(calib_llrs))
 
-            r_mod_scores.append((
-                mod_ref_pos, loc_mod_lps, mod_bases, ref_motif, rel_pos,
-                raw_motif))
+            r_mod_scores.append((mod_ref_pos, loc_mod_lps, mod_bases))
 
     all_mods_seq = per_mod_seqs = None
     if mods_info.do_ann_all_mods:
@@ -1111,21 +1149,20 @@ def call_read_mods(
         (mod_lp, mods_db.get_pos_dbid(
             r_ref_pos.chrm, r_ref_pos.strand, mod_pos),
          mods_db.get_mod_base_dbid(mod_base))
-        for mod_pos, mod_lps, mod_bases, ref_motif, rel_pos, raw_motif in
-        r_mod_scores for mod_lp, mod_base in zip(mod_lps, mod_bases)]
+        for mod_pos, mod_lps, mod_bases in r_mod_scores
+        for mod_lp, mod_base in zip(mod_lps, mod_bases)]
 
     mod_out_text = None
     if mods_info.write_mods_txt:
         txt_tmplt = '\t'.join('{}' for _ in ModsDb.text_field_names)
         mod_out_text = ''
-        for (pos, mod_lps, mod_bases, ref_motif, rel_pos,
-             raw_motif) in r_mod_scores:
+        for pos, mod_lps, mod_bases in r_mod_scores:
             with np.errstate(divide='ignore'):
                 can_lp = np.log1p(-np.exp(mod_lps).sum())
             mod_out_text += '\n'.join((
                 txt_tmplt.format(
                     uuid, r_ref_pos.chrm, r_ref_pos.strand, pos, mod_lp,
-                    can_lp, mod_base, '{}:{}'.format(raw_motif, rel_pos))
+                    can_lp, mod_base)
                 for mod_lp, mod_base in zip(mod_lps, mod_bases))) + '\n'
 
     with mod_data_size.get_lock():
@@ -1143,6 +1180,15 @@ def call_read_mods(
 #######################
 
 def init_mods_db(mods_info, db_safety, ref_names_and_lens):
+    """ Initialize a new modified bases database.
+
+    Args:
+        mods_info (mods.ModInfo): ModInfo object minimally containing
+            mods_db_fn, mod_long_names and mod_base_to_can attributes.
+        db_safety (int): Database safety value as defined in mods.ModsDb
+        ref_names_and_lens (list): List containing two lists of the same length
+            representing chromosome 1) names and 2) lengths.
+    """
     mods_db = ModsDb(
         mods_info.mods_db_fn, db_safety=db_safety, read_only=False,
         init_db_tables=True)
@@ -1209,7 +1255,7 @@ def _get_mods_queue(
                 'Error inserting modified base scores into database: ' +
                 str(e) + '\n' + traceback.format_exc())
 
-        if mods_txt_fp is not None and len(r_mod_scores) > 0:
+        if mods_txt_fp is not None and len(r_insert_data) > 0:
             mods_txt_fp.write(mod_out_text)
         if (pr_refs_fn is not None and mapping.read_passes_filters(
                 ref_out_info, read_len, q_st, q_en, cigar)):
@@ -1265,12 +1311,12 @@ def _get_mods_queue(
                 # triggered, so remove that connection
                 mod_data_db_conns.remove(r)
             else:
-                (r_mod_scores, all_mods_seq, per_mod_seqs, mod_out_text), (
+                (r_insert_data, all_mods_seq, per_mod_seqs, mod_out_text), (
                     read_id, chrm, strand, r_start, ref_seq, read_len,
                     q_st, q_en, cigar) = mod_res
                 try:
                     been_warned_timeout, been_warned_other = store_mod_call(
-                        r_mod_scores, mod_out_text, all_mods_seq,
+                        r_insert_data, mod_out_text, all_mods_seq,
                         per_mod_seqs, read_id, chrm, strand, r_start, ref_seq,
                         read_len, q_st, q_en, cigar, been_warned_timeout,
                         been_warned_other)

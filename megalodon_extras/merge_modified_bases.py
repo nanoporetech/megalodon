@@ -123,14 +123,14 @@ def extract_reads_worker(in_mod_db_fn, uuids_q):
     uuids_q.put(in_uuids)
 
 
-def insert_reads_mp(in_mod_db_fns, out_mods_db, batch_size):
+def insert_reads_mp(in_mod_db_fns, out_mods_db):
     LOGGER.info('Extracting read uuid tables using multiprocessing')
     uuids_q = mp.Queue()
     uuids_ps = []
     for in_mod_db_fn in in_mod_db_fns:
         p = mp.Process(
             target=extract_reads_worker,
-            args=(in_mod_db_fn, batch_size, uuids_q), daemon=True)
+            args=(in_mod_db_fn, uuids_q), daemon=True)
         p.start()
         uuids_ps.append(p)
 
@@ -175,11 +175,11 @@ def insert_mods(in_mod_db_fns, out_mods_db):
         mods_db = mods.ModsDb(in_mod_db_fn)
         for mod_base, can_base, mln in mods_db.get_full_mod_data():
             if mod_base in mod_base_to_can:
-                if can_base != mod_base_to_can[can_base]:
+                if can_base != mod_base_to_can[mod_base]:
                     raise mh.MegaError(
                         'Modified base associated with mutliple canonical ' +
                         'bases in different databases. {} != {}'.format(
-                            can_base, mod_base_to_can[can_base]))
+                            can_base, mod_base_to_can[mod_base]))
                 if (mod_base, mln) not in all_mod_long_names:
                     raise mh.MegaError(
                         'Modified base long names differ between databases. ' +
@@ -246,7 +246,7 @@ def _main(args):
     if args.single_process:
         insert_reads(in_mod_db_fns, out_mods_db)
     else:
-        insert_reads_mp(in_mod_db_fns, out_mods_db, args.data_batch_size)
+        insert_reads_mp(in_mod_db_fns, out_mods_db)
     # commit so read uuids are available to worker processes
     out_mods_db.commit()
     if args.single_process:
