@@ -662,7 +662,7 @@ class ModsDb(object):
         """
         def extract_pos_llrs(pos_lps):
             mod_llrs = dict((self.get_mod_base(mod_dbid), [])
-                            for mod_dbid in set((zip(*pos_lps))[1]))
+                            for mod_dbid in set(list(zip(*pos_lps))[1]))
             prev_dbid = None
             mod_bs, r_lps = [], []
             for read_dbid, mod_dbid, lp in sorted(pos_lps):
@@ -676,6 +676,7 @@ class ModsDb(object):
                 prev_dbid = read_dbid
                 mod_bs.append(self.get_mod_base(mod_dbid))
                 r_lps.append(lp)
+            # compute and store last log likelihood ratios
             with np.errstate(divide='ignore'):
                 can_lp = np.log1p(-np.exp(np.array(r_lps)).sum())
             for mod_b, r_lp in zip(mod_bs, r_lps):

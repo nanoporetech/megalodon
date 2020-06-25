@@ -419,8 +419,7 @@ def get_parser_modified_bases_estimate_threshold():
         'megalodon_results_dir',
         help='Output directory from megalodon with per_read_mods in output.')
     parser.add_argument(
-        'mod_base',
-        help='Single letter code for the modified base.')
+        'mod_base', help='Single letter code for the modified base.')
 
     parser.add_argument(
         '--fraction-modified', type=float,
@@ -431,9 +430,9 @@ def get_parser_modified_bases_estimate_threshold():
         help='Percentile of extreme scores to determine fraction of ' +
         'modified bases. Default: %(default)d')
     parser.add_argument(
-        '--num-positions', type=int,
-        help='Number of positions from which to select statistics. ' +
-        'Default: All positions')
+        '--num-statistics', type=int,
+        help='Number of per-read statistics to use in estimation. ' +
+        'Default: All statistics')
 
     return parser
 
