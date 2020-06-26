@@ -183,7 +183,7 @@ SEQ_SUMM_INFO = namedtuple('seq_summ_info', (
     'scaling_median_template', 'scaling_mad_template'))
 # set default value of None for ref, alts, ref_start and strand;
 # false for has_context_base
-SEQ_SUMM_INFO.__new__.__defaults__ = tuple(['NA', ] * 11)
+SEQ_SUMM_INFO.__new__.__defaults__ = tuple(['NA', ] * 12)
 
 # default guppy settings
 DEFAULT_GUPPY_SERVER_PATH = './ont-guppy/bin/guppy_basecall_server'
