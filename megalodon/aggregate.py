@@ -105,9 +105,7 @@ def _agg_mods_worker(
         except mh.MegaError:
             # no valid reads cover location
             pass
-        if 'DP' in mod_site.sample_dict:
-            mod_prog_q.put(int(mod_site.info_dict['DP']) *
-                           len(mod_site.mod_bases))
+        mod_prog_q.put(len(pos_data[1]))
 
 
 if _DO_PROFILE_AGG_MOD:
