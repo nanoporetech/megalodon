@@ -491,14 +491,16 @@ def med_mad(data, factor=None, axis=None, keepdims=False):
     """Compute the Median Absolute Deviation, i.e., the median
     of the absolute deviations from the median, and the median
 
-    :param data: A :class:`ndarray` object
-    :param factor: Factor to scale MAD by. Default (None) is to be consistent
-    with the standard deviation of a normal distribution
-    (i.e. mad( N(0, sigma^2) ) = sigma).
-    :param axis: For multidimensional arrays, which axis to calculate over
-    :param keepdims: If True, axis is kept as dimension of length 1
+    Args:
+        data (np.ndarray): Data to be scaled
+        factor (float): Factor to scale MAD by. Default (None) is to be
+            consistent with the standard deviation of a normal distribution
+            (i.e. mad( N(0, sigma^2) ) = sigma).
+        axis: For multidimensional arrays, which axis to calculate over
+        keepdims: If True, axis is kept as dimension of length 1
 
-    :returns: a tuple containing the median and MAD of the data
+    Returns:
+        A tuple containing the median and MAD of the data
     """
     if factor is None:
         factor = MED_NORM_FACTOR
@@ -542,9 +544,10 @@ def int_strand_to_str(strand_str):
 def parse_beds(bed_fns, ignore_strand=False, show_prog_bar=True):
     """ Parse bed files.
 
-    Arguments:
-        bed_fns: Iterable containing bed paths
-        ignore_strand: Set strand values to None
+    Args:
+        bed_fns (Iterable): Iterable containing bed paths
+        ignore_strand (bool): Set strand values to None
+        show_prog_bar (bool): Show twdm progress bar
 
     Returns:
         Dictionary with keys (chromosome, strand) and values with set of
@@ -568,16 +571,20 @@ def parse_beds(bed_fns, ignore_strand=False, show_prog_bar=True):
     return sites
 
 
-def parse_bed_methyls(bed_fns, strand_offset=None, show_prog_bar=True):
+def parse_bed_methyls(
+        bed_fns, strand_offset=None, show_prog_bar=True, valid_pos=None):
     """ Parse bedmethyl files and return two dictionaries containing
     total and methylated coverage. Both dictionaries have top level keys
     (chromosome, strand) and second level keys with 0-based position.
 
-    Arguments:
-        bed_fns: Iterable containing bed methyl paths
-        strand_offset: Set to aggregate negative strand along with positive
-            strand values. Positive indicates negative strand sites have higher
-            coordinate values.
+    Args:
+        bed_fns (Iterable): Bed methyl file paths
+        strand_offset (bool): Set to aggregate negative strand along with
+            positive strand values. Positive indicates negative strand sites
+            have higher coordinate values.
+        show_prog_bar (bool): Show twdm progress bar
+        valid_pos (dict): Filter to valid positions, as returned from
+            mh.parse_beds
     """
     cov = defaultdict(lambda: defaultdict(int))
     meth_cov = defaultdict(lambda: defaultdict(int))
@@ -597,6 +604,11 @@ def parse_bed_methyls(bed_fns, strand_offset=None, show_prog_bar=True):
                     # apply offset to reverse strand positions
                     if strand == '-':
                         start -= strand_offset
+                # skip any positions not found in valid_pos
+                if valid_pos is not None and (
+                        (chrm, store_strand) not in valid_pos or
+                        start not in valid_pos[(chrm, store_strand)]):
+                    continue
                 num_reads = int(num_reads)
                 if num_reads <= 0:
                     continue
