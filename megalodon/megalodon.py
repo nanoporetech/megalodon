@@ -732,9 +732,10 @@ def process_all_reads(
                     LOGGER.info(
                         'Waiting for variants database to complete indexing.')
                 getter_q.proc.join()
-        if mod_res_p.is_alive():
-            LOGGER.info('Waiting for mods database to complete indexing.')
-        mod_res_p.join()
+        if mod_res_p is not None:
+            if mod_res_p.is_alive():
+                LOGGER.info('Waiting for mods database to complete indexing.')
+            mod_res_p.join()
 
     except KeyboardInterrupt:
         LOGGER.error('Exiting due to keyboard interrupt.')

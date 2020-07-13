@@ -185,7 +185,7 @@ SEQ_SUMM_INFO = namedtuple('seq_summ_info', (
     'scaling_median_template', 'scaling_mad_template'))
 # set default value of None for ref, alts, ref_start and strand;
 # false for has_context_base
-SEQ_SUMM_INFO.__new__.__defaults__ = tuple(['NA', ] * 11)
+SEQ_SUMM_INFO.__new__.__defaults__ = tuple(['NA', ] * 12)
 
 # default guppy settings
 DEFAULT_GUPPY_SERVER_PATH = './ont-guppy/bin/guppy_basecall_server'
@@ -278,16 +278,14 @@ def extract_seq_summary_info(read, na_str='NA'):
         fn = read.filename
         read_id = read.read_id
         channel_info = read.get_channel_info()
+        samp_rate = channel_info[CHAN_INFO_SAMP_RATE]
         try:
-            read_info = read.status.read_info[0]
-            mux = read_info.start_mux
-            samp_rate = channel_info[CHAN_INFO_SAMP_RATE]
-            start_time = '{:.6f}'.format(read_info.start_time / samp_rate)
-            dur = '{:.6f}'.format(read_info.duration / samp_rate)
-            num_events = str(read_info.event_data_count
-                             if read_info.has_event_data else na_str)
+            raw_attrs = read.handle[read.raw_dataset_group_name].attrs
+            mux = raw_attrs['start_mux']
+            start_time = '{:.6f}'.format(raw_attrs['start_time'] / samp_rate)
+            dur = '{:.6f}'.format(raw_attrs['duration'] / samp_rate)
         except AttributeError:
-            mux = start_time = dur = num_events = na_str
+            mux = start_time = dur = na_str
         run_id = read.get_run_id()
         try:
             run_id = run_id.decode()
@@ -297,12 +295,11 @@ def extract_seq_summary_info(read, na_str='NA'):
         chan = channel_info[CHAN_INFO_CHANNEL_SLOT]
     except Exception:
         # if anything goes wrong set all values to na_str
-        fn = read_id = run_id = batch_id = chan = mux = start_time = dur = \
-                       num_events = na_str
+        fn = read_id = run_id = batch_id = chan = mux = start_time = \
+                       dur = na_str
     return SEQ_SUMM_INFO(
         filename=fn, read_id=read_id, run_id=run_id, batch_id=batch_id,
-        channel=chan, mux=mux, start_time=start_time, duration=dur,
-        num_events=num_events)
+        channel=chan, mux=mux, start_time=start_time, duration=dur)
 
 
 @total_ordering
@@ -517,14 +514,16 @@ def med_mad(data, factor=None, axis=None, keepdims=False):
     """Compute the Median Absolute Deviation, i.e., the median
     of the absolute deviations from the median, and the median
 
-    :param data: A :class:`ndarray` object
-    :param factor: Factor to scale MAD by. Default (None) is to be consistent
-    with the standard deviation of a normal distribution
-    (i.e. mad( N(0, sigma^2) ) = sigma).
-    :param axis: For multidimensional arrays, which axis to calculate over
-    :param keepdims: If True, axis is kept as dimension of length 1
+    Args:
+        data (np.ndarray): Data to be scaled
+        factor (float): Factor to scale MAD by. Default (None) is to be
+            consistent with the standard deviation of a normal distribution
+            (i.e. mad( N(0, sigma^2) ) = sigma).
+        axis: For multidimensional arrays, which axis to calculate over
+        keepdims: If True, axis is kept as dimension of length 1
 
-    :returns: a tuple containing the median and MAD of the data
+    Returns:
+        A tuple containing the median and MAD of the data
     """
     if factor is None:
         factor = MED_NORM_FACTOR
@@ -568,9 +567,10 @@ def int_strand_to_str(strand_str):
 def parse_beds(bed_fns, ignore_strand=False, show_prog_bar=True):
     """ Parse bed files.
 
-    Arguments:
-        bed_fns: Iterable containing bed paths
-        ignore_strand: Set strand values to None
+    Args:
+        bed_fns (Iterable): Iterable containing bed paths
+        ignore_strand (bool): Set strand values to None
+        show_prog_bar (bool): Show twdm progress bar
 
     Returns:
         Dictionary with keys (chromosome, strand) and values with set of
@@ -594,16 +594,20 @@ def parse_beds(bed_fns, ignore_strand=False, show_prog_bar=True):
     return sites
 
 
-def parse_bed_methyls(bed_fns, strand_offset=None, show_prog_bar=True):
+def parse_bed_methyls(
+        bed_fns, strand_offset=None, show_prog_bar=True, valid_pos=None):
     """ Parse bedmethyl files and return two dictionaries containing
     total and methylated coverage. Both dictionaries have top level keys
     (chromosome, strand) and second level keys with 0-based position.
 
-    Arguments:
-        bed_fns: Iterable containing bed methyl paths
-        strand_offset: Set to aggregate negative strand along with positive
-            strand values. Positive indicates negative strand sites have higher
-            coordinate values.
+    Args:
+        bed_fns (Iterable): Bed methyl file paths
+        strand_offset (bool): Set to aggregate negative strand along with
+            positive strand values. Positive indicates negative strand sites
+            have higher coordinate values.
+        show_prog_bar (bool): Show twdm progress bar
+        valid_pos (dict): Filter to valid positions, as returned from
+            mh.parse_beds
     """
     cov = defaultdict(lambda: defaultdict(int))
     meth_cov = defaultdict(lambda: defaultdict(int))
@@ -623,6 +627,11 @@ def parse_bed_methyls(bed_fns, strand_offset=None, show_prog_bar=True):
                     # apply offset to reverse strand positions
                     if strand == '-':
                         start -= strand_offset
+                # skip any positions not found in valid_pos
+                if valid_pos is not None and (
+                        (chrm, store_strand) not in valid_pos or
+                        start not in valid_pos[(chrm, store_strand)]):
+                    continue
                 num_reads = int(num_reads)
                 if num_reads <= 0:
                     continue

@@ -177,7 +177,10 @@ def get_parser():
     mod_grp.add_argument(
         '--mod-motif', action="append", nargs=3,
         metavar=('BASE', 'MOTIF', 'REL_POSITION'),
-        help='Restrict modified base calls to specified motif(s). For ' +
+        help='Restrict modified base calls to specified motif(s). Argument ' +
+        'takes 3 values representing 1) the single letter modified base(s), ' +
+        '2) sequence motif and 3) relative modified base position. Multiple ' +
+        '--mod-motif arguments may be provided to a single command. For ' +
         'example to restrict to CpG sites use "--mod-motif Z CG 0".')
     mod_grp.add_argument(
         '--mod-calibration-filename',
