@@ -303,7 +303,11 @@ def extract_seq_summary_info(read, na_str='NA'):
 
 
 @total_ordering
-class RefName:
+class RefName(str):
+    """ Class used to determine the order of reference/contig names.
+    This is roughly determined by distutils.version.LooseVersion, with handling
+    for mismatching derived types (int cannot compare to str).
+    """
     def __eq__(self, other):
         return (tuple(LooseVersion(self).version) ==
                 tuple(LooseVersion(other).version))
