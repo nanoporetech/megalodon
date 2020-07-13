@@ -5,6 +5,8 @@ import pkg_resources
 from tqdm import tqdm
 import multiprocessing as mp
 from abc import ABC, abstractmethod
+from functools import total_ordering
+from distutils.version import LooseVersion
 from multiprocessing.queues import Queue as mpQueue
 from collections import defaultdict, namedtuple, OrderedDict
 
@@ -279,6 +281,7 @@ def extract_seq_summary_info(read, na_str='NA'):
         try:
             read_info = read.status.read_info[0]
             mux = read_info.start_mux
+            samp_rate = channel_info[CHAN_INFO_SAMP_RATE]
             start_time = '{:.6f}'.format(read_info.start_time / samp_rate)
             dur = '{:.6f}'.format(read_info.duration / samp_rate)
             num_events = str(read_info.event_data_count
@@ -292,7 +295,6 @@ def extract_seq_summary_info(read, na_str='NA'):
             pass
         batch_id = na_str
         chan = channel_info[CHAN_INFO_CHANNEL_SLOT]
-        samp_rate = channel_info[CHAN_INFO_SAMP_RATE]
     except Exception:
         # if anything goes wrong set all values to na_str
         fn = read_id = run_id = batch_id = chan = mux = start_time = dur = \
@@ -301,6 +303,27 @@ def extract_seq_summary_info(read, na_str='NA'):
         filename=fn, read_id=read_id, run_id=run_id, batch_id=batch_id,
         channel=chan, mux=mux, start_time=start_time, duration=dur,
         num_events=num_events)
+
+
+@total_ordering
+class RefName:
+    def __eq__(self, other):
+        return (tuple(LooseVersion(self).version) ==
+                tuple(LooseVersion(other).version))
+
+    def __lt__(self, other):
+        sv = tuple(LooseVersion(self).version)
+        ov = tuple(LooseVersion(other).version)
+        try:
+            # try to compare LooseVersion tuples
+            sv < ov
+        except TypeError:
+            # if types don't match, sort by string representation of types
+            # This means ints come before strings
+            for svi, ovi in zip(sv, ov):
+                if type(svi) != type(ovi):
+                    return str(type(svi)) < str(type(ovi))
+            return len(svi) < len(ovi)
 
 
 #######################

@@ -7,7 +7,6 @@ import datetime
 from time import sleep
 from array import array
 import multiprocessing as mp
-from distutils.version import LooseVersion
 from multiprocessing.connection import wait
 from collections import defaultdict, namedtuple, OrderedDict
 
@@ -469,7 +468,7 @@ class ModsDb(object):
                 'Chromosomes/contigs have already been set for this database.')
         # use version sort for chromosomes/contigs
         s_ref_names_and_lens = list(zip(*sorted(
-            list(zip(*ref_names_and_lens)), key=lambda x: LooseVersion(x[0]))))
+            list(zip(*ref_names_and_lens)), key=lambda x: mh.RefName(x[0]))))
         # save chrms to database
         self.cur.executemany('INSERT INTO chrm (chrm, chrm_len) VALUES (?,?)',
                              zip(*s_ref_names_and_lens))
