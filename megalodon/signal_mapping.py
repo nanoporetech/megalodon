@@ -1,5 +1,6 @@
 import sys
-import queue
+import traceback
+import multiprocessing as mp
 from collections import namedtuple
 
 import numpy as np
@@ -59,7 +60,7 @@ def get_remapping(
 
     try:
         int_ref = tai_mapping.SignalMapping.get_integer_reference(
-            ref_seq, ref_out_info.alphabet)
+            ref_seq, ref_out_info.alphabet_info.alphabet)
     except Exception:
         raise mh.MegaError('Invalid reference sequence encountered')
     sig_mapping = tai_mapping.SignalMapping.from_remapping_path(
@@ -97,25 +98,23 @@ def get_alphabet_info(output_alphabet, collapse_alphabet, mod_long_names):
         output_alphabet, collapse_alphabet, mod_long_names, do_reorder=True)
 
 
-def write_signal_mappings(sig_map_q, sig_map_conn, sig_map_fn, alphabet_info):
+def write_signal_mappings(sig_map_q, ref_out_info, aux_failed_q):
     def iter_mappings():
-        while True:
-            try:
-                read_mapping = sig_map_q.get(block=True, timeout=0.01)
+        LOGGER.debug('GetterInitComplete')
+        while sig_map_q.has_valid_conns:
+            for read_mapping in sig_map_q.wait_recv():
                 yield read_mapping
-            except queue.Empty:
-                if sig_map_conn.poll():
-                    break
-                continue
 
-        while not sig_map_q.empty():
-            read_mapping = sig_map_q.get(block=False)
-            yield read_mapping
-
-    prepare_mapping_funcs.generate_output_from_results(
-        iter_mappings(), sig_map_fn, alphabet_info, verbose=False)
-
-    return
+    try:
+        LOGGER.debug('GetterStarting')
+        prepare_mapping_funcs.generate_output_from_results(
+            iter_mappings(), mh.get_megalodon_fn(
+                ref_out_info.out_dir, mh.SIG_MAP_NAME),
+            ref_out_info.alphabet_info, verbose=False)
+        LOGGER.debug('GetterClosing')
+    except Exception as e:
+        aux_failed_q.put((
+            'SigMapProcessingError', str(e), traceback.format_exc()))
 
 
 if __name__ == '__main__':
