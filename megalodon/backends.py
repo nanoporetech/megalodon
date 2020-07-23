@@ -467,8 +467,14 @@ class ModelInfo(object):
             dacs = fast5_io.get_signal(read, scale=False)
             # scale parameters and trimming computed by guppy
             if not self.model_type == PYGUPPY_NAME:
-                scale_params = mh.med_mad(dacs)
-                raw_sig = (dacs - scale_params[0]) / scale_params[1]
+                med, mad = mh.med_mad(dacs)
+                raw_sig = (dacs - med) / mad
+                # scale_params are relative to current
+                channel_info = read.get_channel_info()
+                rd_factor = channel_info['range'] / \
+                    channel_info['digitisation']
+                scale_params = ((med + channel_info['offset']) * rd_factor,
+                                mad * rd_factor)
 
         if self.model_type == TAI_NAME:
             if raw_sig is None:
@@ -486,8 +492,8 @@ class ModelInfo(object):
                 dacs = dacs[trim_start:trim_start + trim_len]
             sig_data = SIGNAL_DATA(
                 raw_len=bc_mod_post.shape[0] * self.stride, dacs=dacs,
-                fast5_fn=fast5_fn, read_id=read_id, stride=self.stride,
-                posteriors=bc_mod_post)
+                scale_params=scale_params, fast5_fn=fast5_fn, read_id=read_id,
+                stride=self.stride, posteriors=bc_mod_post)
             return sig_data, seq_summ_info
         elif self.model_type == PYGUPPY_NAME:
             if dacs is None:
@@ -599,8 +605,6 @@ class ModelInfo(object):
                 called_read.scaling[PYGUPPY_SCALE_NAME] * mh.MED_NORM_FACTOR)
             sig_info = sig_info._replace(
                 raw_len=trimmed_dacs.shape[0], dacs=trimmed_dacs,
-                raw_signal=((trimmed_dacs - scale_params[0]) /
-                            scale_params[1]).astype(np.float32),
                 scale_params=scale_params)
 
         if signal_reversed:
@@ -640,8 +644,7 @@ class ModelInfo(object):
 
     def basecall_read(
             self, sig_info, return_post_w_mods=True, return_mod_scores=False,
-            update_sig_info=False, signal_reversed=False,
-            seq_summ_info=None):
+            update_sig_info=False, signal_reversed=False, seq_summ_info=None):
         if self.model_type not in (TAI_NAME, FAST5_NAME, PYGUPPY_NAME):
             raise mh.MegaError('Invalid model backend')
 
