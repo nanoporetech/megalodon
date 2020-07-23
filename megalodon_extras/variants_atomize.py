@@ -21,9 +21,8 @@ def _main(args):
         str(args.reference), preset=str('map-ont'), best_n=1)
     aligner.add_ref_lens()
     LOGGER.info('Loading variants')
-    var_data = variants.VarData(
-        args.in_vcf, args.max_indel_size, keep_var_fp_open=True,
-        aligner=aligner)
+    var_data = variants.VarInfo(
+        args.in_vcf, aligner, args.max_indel_size, keep_var_fp_open=True)
     contigs = var_data.variants_idx.header.contigs.values()
     LOGGER.info('Atomizing variants')
     with open(args.out_vcf, 'w') as out_vars:

@@ -336,12 +336,6 @@ def get_parser_merge_modified_bases():
         '--single-process', action='store_true',
         help='Do not use multiprocessing with one input database per process.')
     parser.add_argument(
-        '--force-uint32-pos-index', action='store_true',
-        help='Force position database index to use uint32. Default will ' +
-        'swap to uint64 (doubling memory use) for references > 2.1 ' +
-        'gigabases. If set, no more than 2.1 billion unique stranded ' +
-        'reference sites should contain modified base scores.')
-    parser.add_argument(
         '--database-safety', type=int, default=1,
         help='Setting for database performance versus corruption ' +
         'protection. Options: 0 (DB corruption on application crash), ' +
@@ -425,8 +419,7 @@ def get_parser_modified_bases_estimate_threshold():
         'megalodon_results_dir',
         help='Output directory from megalodon with per_read_mods in output.')
     parser.add_argument(
-        'mod_base',
-        help='Single letter code for the modified base.')
+        'mod_base', help='Single letter code for the modified base.')
 
     parser.add_argument(
         '--fraction-modified', type=float,
@@ -437,9 +430,9 @@ def get_parser_modified_bases_estimate_threshold():
         help='Percentile of extreme scores to determine fraction of ' +
         'modified bases. Default: %(default)d')
     parser.add_argument(
-        '--num-positions', type=int,
-        help='Number of positions from which to select statistics. ' +
-        'Default: All positions')
+        '--num-statistics', type=int,
+        help='Number of per-read statistics to use in estimation. ' +
+        'Default: All statistics')
 
     return parser
 

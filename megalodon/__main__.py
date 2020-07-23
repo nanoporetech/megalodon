@@ -331,7 +331,7 @@ def get_parser():
         help='show megalodon version and exit.')
 
     misc_grp.add_argument(
-        '--database-safety', type=int, default=1,
+        '--database-safety', type=int, default=0,
         help=hidden_help('Setting for database performance versus ' +
                          'corruption protection. Options: 0 (DB corruption ' +
                          'on application crash), 1 (DB corruption on system ' +

@@ -6,7 +6,9 @@ import multiprocessing as mp
 
 from tqdm import tqdm
 
-from megalodon import logging, mods, variants, megalodon_helper as mh
+from megalodon import (
+    logging, mods, variants, megalodon_helper as mh,
+    megalodon_multiprocessing as mega_mp)
 
 _DO_PROFILE_AGG_MOD = False
 _DO_PROFILE_GET_MODS = False
@@ -105,7 +107,7 @@ def _agg_mods_worker(
         except mh.MegaError:
             # no valid reads cover location
             pass
-        mod_prog_q.put(1)
+        mod_prog_q.put(len(pos_data[1]))
 
 
 if _DO_PROFILE_AGG_MOD:
@@ -194,7 +196,7 @@ def _agg_prog_worker(
     var_bar, mod_bar = None, None
     if num_vars > 0:
         if num_mods > 0:
-            mod_bar = tqdm(desc='Mods', unit=' sites', total=num_mods,
+            mod_bar = tqdm(desc='Mods', unit=' per-read calls', total=num_mods,
                            position=1, smoothing=0, dynamic_ncols=True)
             var_bar = tqdm(desc='Variants', unit=' sites', total=num_vars,
                            position=0, smoothing=0, dynamic_ncols=True)
@@ -202,7 +204,7 @@ def _agg_prog_worker(
             var_bar = tqdm(desc='Variants', unit=' sites', total=num_vars,
                            position=0, smoothing=0, dynamic_ncols=True)
     elif num_mods > 0:
-        mod_bar = tqdm(desc='Mods', unit=' sites', total=num_mods,
+        mod_bar = tqdm(desc='Mods', unit=' per-read calls', total=num_mods,
                        position=0, smoothing=0, dynamic_ncols=True)
 
     check_var = True
@@ -216,8 +218,8 @@ def _agg_prog_worker(
                     mod_bar.update(0)
             else:
                 check_var = True
-                mod_prog_q.get(block=False)
-                mod_bar.update()
+                num_mod_stats = mod_prog_q.get(block=False)
+                mod_bar.update(num_mod_stats)
                 if var_bar is not None:
                     var_bar.update(0)
         except queue.Empty:
@@ -228,8 +230,8 @@ def _agg_prog_worker(
         var_prog_q.get(block=False)
         var_bar.update()
     while not mod_prog_q.empty():
-        mod_prog_q.get(block=False)
-        mod_bar.update()
+        num_mod_stats = mod_prog_q.get(block=False)
+        mod_bar.update(num_mod_stats)
     if var_bar is not None:
         var_bar.close()
     if mod_bar is not None:
@@ -240,7 +242,7 @@ def _agg_prog_worker(
 
 
 def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps, limit=None):
-    agg_db = agg_class(db_fn, no_indices_in_mem=True)
+    agg_db = agg_class(db_fn)
     for i, loc in enumerate(agg_db.iter_uniq()):
         locs_q.put(loc)
         if limit is not None and i >= limit:
@@ -275,7 +277,7 @@ def aggregate_stats(
         agg_vars.close()
         LOGGER.info('Spawning variant aggregation processes.')
         # create process to collect var stats from workers
-        var_stats_q, var_stats_p, main_var_stats_conn = mh.create_getter_q(
+        var_stats_q, var_stats_p, m_var_stats_conn = mega_mp.create_getter_q(
             _get_var_stats_queue, (
                 out_dir, ref_names_and_lens, out_suffix, write_vcf_lp))
         # create process to fill variant locs queue
@@ -299,14 +301,14 @@ def aggregate_stats(
 
     if mh.MOD_NAME in outputs:
         mods_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME)
-        agg_mods = mods.AggMods(mods_db_fn, no_indices_in_mem=True)
+        agg_mods = mods.AggMods(mods_db_fn)
         mod_long_names = agg_mods.get_mod_long_names()
         num_mods = agg_mods.num_uniq()
         ref_names_and_lens = agg_mods.mods_db.get_all_chrm_and_lens()
         agg_mods.close()
         LOGGER.info('Spawning modified base aggregation processes.')
         # create process to collect mods stats from workers
-        mod_stats_q, mod_stats_p, main_mod_stats_conn = mh.create_getter_q(
+        mod_stats_q, mod_stats_p, m_mod_stats_conn = mega_mp.create_getter_q(
             _get_mod_stats_queue, (
                 out_dir, mod_long_names, ref_names_and_lens, out_suffix,
                 write_mod_lp, mod_output_fmts))
@@ -335,13 +337,15 @@ def aggregate_stats(
                        'found for aggregation.')
         return
     if num_vars == 0:
-        LOGGER.info('Aggregating {} modified base sites.'.format(num_mods))
+        LOGGER.info(
+            'Aggregating {} per-read modified base statistics.'.format(
+                num_mods))
     elif num_mods == 0:
         LOGGER.info('Aggregating {} variants.'.format(num_vars))
     else:
-        LOGGER.info(
-            'Aggregating {} variants and {} modified base sites.'.format(
-                num_vars, num_mods))
+        LOGGER.info((
+            'Aggregating {} variants and {} per-read modified base ' +
+            'statistics.').format(num_vars, num_mods))
     LOGGER.info(
         'NOTE: If this step is very slow, ensure the output directory is ' +
         'located on a fast read disk (e.g. local SSD). Aggregation can be ' +
@@ -363,13 +367,13 @@ def aggregate_stats(
             agg_vars_p.join()
         # send to conn
         if var_stats_p.is_alive():
-            main_var_stats_conn.send(True)
+            m_var_stats_conn.send(True)
         var_stats_p.join()
     if mh.MOD_NAME in outputs:
         for agg_mods_p in agg_mods_ps:
             agg_mods_p.join()
         if mod_stats_p.is_alive():
-            main_mod_stats_conn.send(True)
+            m_mod_stats_conn.send(True)
         mod_stats_p.join()
     if prog_p.is_alive():
         main_prog_conn.send(True)
