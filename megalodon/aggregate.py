@@ -6,7 +6,9 @@ import multiprocessing as mp
 
 from tqdm import tqdm
 
-from megalodon import logging, mods, variants, megalodon_helper as mh
+from megalodon import (
+    logging, mods, variants, megalodon_helper as mh,
+    megalodon_multiprocessing as mega_mp)
 
 _DO_PROFILE_AGG_MOD = False
 _DO_PROFILE_GET_MODS = False
@@ -275,7 +277,7 @@ def aggregate_stats(
         agg_vars.close()
         LOGGER.info('Spawning variant aggregation processes.')
         # create process to collect var stats from workers
-        var_stats_q, var_stats_p, main_var_stats_conn = mh.create_getter_q(
+        var_stats_q, var_stats_p, m_var_stats_conn = mega_mp.create_getter_q(
             _get_var_stats_queue, (
                 out_dir, ref_names_and_lens, out_suffix, write_vcf_lp))
         # create process to fill variant locs queue
@@ -306,7 +308,7 @@ def aggregate_stats(
         agg_mods.close()
         LOGGER.info('Spawning modified base aggregation processes.')
         # create process to collect mods stats from workers
-        mod_stats_q, mod_stats_p, main_mod_stats_conn = mh.create_getter_q(
+        mod_stats_q, mod_stats_p, m_mod_stats_conn = mega_mp.create_getter_q(
             _get_mod_stats_queue, (
                 out_dir, mod_long_names, ref_names_and_lens, out_suffix,
                 write_mod_lp, mod_output_fmts))
@@ -365,13 +367,13 @@ def aggregate_stats(
             agg_vars_p.join()
         # send to conn
         if var_stats_p.is_alive():
-            main_var_stats_conn.send(True)
+            m_var_stats_conn.send(True)
         var_stats_p.join()
     if mh.MOD_NAME in outputs:
         for agg_mods_p in agg_mods_ps:
             agg_mods_p.join()
         if mod_stats_p.is_alive():
-            main_mod_stats_conn.send(True)
+            m_mod_stats_conn.send(True)
         mod_stats_p.join()
     if prog_p.is_alive():
         main_prog_conn.send(True)

@@ -10,6 +10,8 @@ import numpy as np
 from megalodon import decode, fast5_io, logging, megalodon_helper as mh
 
 
+LOGGER = logging.get_logger()
+
 # model type specific information
 TAI_NAME = 'taiyaki'
 FAST5_NAME = 'fast5'
@@ -49,8 +51,6 @@ SIGNAL_DATA = namedtuple('SIGNAL_DATA', (
     'scale_params', 'stride', 'posteriors', 'channel_info'))
 # set default value of None for ref, alts and ref_start
 SIGNAL_DATA.__new__.__defaults__ = tuple([None, ] * 6)
-
-LOGGER = logging.get_logger()
 
 
 def parse_device(device):
@@ -113,6 +113,38 @@ def parse_backend_params(args, num_fast5_startup_reads=5):
             'backends. Quality scores will be invalid.')
 
     return BACKEND_PARAMS(tai_params, fast5_params, pyguppy_params)
+
+
+def extract_seq_summary_info(read, na_str='NA'):
+    """ Extract non-basecalling sequencing summary information from
+    ont_fast5_api read object
+    """
+    try:
+        fn = read.filename
+        read_id = read.read_id
+        channel_info = read.get_channel_info()
+        samp_rate = channel_info[mh.CHAN_INFO_SAMP_RATE]
+        try:
+            raw_attrs = read.handle[read.raw_dataset_group_name].attrs
+            mux = raw_attrs['start_mux']
+            start_time = '{:.6f}'.format(raw_attrs['start_time'] / samp_rate)
+            dur = '{:.6f}'.format(raw_attrs['duration'] / samp_rate)
+        except AttributeError:
+            mux = start_time = dur = na_str
+        run_id = read.get_run_id()
+        try:
+            run_id = run_id.decode()
+        except AttributeError:
+            pass
+        batch_id = na_str
+        chan = channel_info[mh.CHAN_INFO_CHANNEL_SLOT]
+    except Exception:
+        # if anything goes wrong set all values to na_str
+        fn = read_id = run_id = batch_id = chan = mux = start_time = \
+                       dur = na_str
+    return mh.SEQ_SUMM_INFO(
+        filename=fn, read_id=read_id, run_id=run_id, batch_id=batch_id,
+        channel=chan, mux=mux, start_time=start_time, duration=dur)
 
 
 def _log_softmax_axis1(x):
@@ -462,7 +494,7 @@ class ModelInfo(object):
 
     def extract_signal_info(self, fast5_fn, read_id, extract_dacs=False):
         read = fast5_io.get_read(fast5_fn, read_id)
-        seq_summ_info = mh.extract_seq_summary_info(read)
+        seq_summ_info = extract_seq_summary_info(read)
         dacs = scale_params = raw_sig = None
         if extract_dacs:
             # if not processing signal mappings, don't save dacs

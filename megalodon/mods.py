@@ -4,10 +4,8 @@ import sys
 import pysam
 import sqlite3
 import datetime
-from time import sleep
+import traceback
 from array import array
-import multiprocessing as mp
-from multiprocessing.connection import wait
 from collections import defaultdict, namedtuple, OrderedDict
 
 import numpy as np
@@ -16,6 +14,8 @@ from megalodon import (
     calibration, decode, logging, mapping, megalodon_helper as mh)
 from megalodon._version import MEGALODON_VERSION
 
+
+LOGGER = logging.get_logger()
 
 AGG_INFO = namedtuple('AGG_INFO', ('method', 'binary_threshold'))
 DEFAULT_AGG_INFO = AGG_INFO(mh.MOD_BIN_THRESH_NAME, None)
@@ -62,14 +62,12 @@ OUT_BUFFER_LIMIT = 10000
 _PROFILE_MODS_QUEUE = False
 _PROFILE_MODS_AUX = False
 
-LOGGER = logging.get_logger()
-
 
 ###########
 # Mods DB #
 ###########
 
-class ModsDb(object):
+class ModsDb:
     """ Interface to the SQLite database containing per-read modified base
     statistics. When first creating a new modified base database it is highly
     recommended to use the  `mods.init_mods_db` helper command.
@@ -468,7 +466,8 @@ class ModsDb(object):
                 'Chromosomes/contigs have already been set for this database.')
         # use version sort for chromosomes/contigs
         s_ref_names_and_lens = list(zip(*sorted(
-            list(zip(*ref_names_and_lens)), key=lambda x: mh.RefName(x[0]))))
+            list(zip(*ref_names_and_lens)),
+            key=lambda x: mapping.RefName(x[0]))))
         # save chrms to database
         self.cur.executemany('INSERT INTO chrm (chrm, chrm_len) VALUES (?,?)',
                              zip(*s_ref_names_and_lens))
@@ -898,9 +897,6 @@ def annotate_all_mods(r_start, ref_seq, r_mod_scores, strand, mods_info):
                 most_prob_mod = np.argmax(mod_lps)
                 base_lp = mod_lps[most_prob_mod]
                 base = mod_bases[most_prob_mod]
-        if mods_info.map_base_conv is not None:
-            # convert base for bisulfite-like output
-            base = base.translate(mods_info.map_base_conv)
         all_mods_seq.append(
             ref_seq[prev_pos:mod_pos - r_start] + base)
         all_mods_qual.extend(
@@ -1021,8 +1017,8 @@ def score_mod_seq(
 
 
 def call_read_mods(
-        r_ref_pos, r_ref_seq, ref_to_block, r_post, mods_info, mod_data_size,
-        mod_sig_map_q, sig_map_res, signal_reversed, uuid):
+        r_ref_pos, r_ref_seq, ref_to_block, r_post, mods_info, mod_sig_map_q,
+        sig_map_res, signal_reversed, uuid, failed_reads_q, fast5_fn):
     # load indices and close connection
     mods_db = ModsDb(mods_info.mods_db_fn, read_only=True)
     mods_db.close()
@@ -1064,9 +1060,8 @@ def call_read_mods(
             except mh.MegaError:
                 # Add None score for per-read annotation (to be filtered)
                 r_mod_scores.append((mod_ref_pos, None, mod_bases))
-                LOGGER.debug(
-                    'Invalid sequence encountered calling modified base ' +
-                    'at {}:{}'.format(r_ref_pos.chrm, mod_ref_pos))
+                LOGGER.debug('InvalidSequence {}:{}'.format(
+                    r_ref_pos.chrm, mod_ref_pos))
                 continue
             pos_can_mods = np.zeros_like(pos_ref_seq)
 
@@ -1076,11 +1071,6 @@ def call_read_mods(
                 # need as many "events/strides" as bases for valid mapping
                 # Add None scores for per-read annotation (to be filtered)
                 r_mod_scores.append((mod_ref_pos, None, mod_bases))
-                LOGGER.debug(
-                    'Insufficient blocks to compute mod score at ' +
-                    '{}:{}\tgot {} and need {}'.format(
-                        r_ref_pos.chrm, mod_ref_pos, blk_end - blk_start,
-                        (mods_info.mod_context_bases * 2) + 1))
                 continue
 
             loc_can_score = score_mod_seq(
@@ -1120,7 +1110,7 @@ def call_read_mods(
             all_mods_seq = annotate_all_mods(
                 r_ref_pos.start, r_ref_seq, r_mod_scores,
                 r_ref_pos.strand, mods_info)
-    if mods_info.do_ann_per_mod:
+    if mods_info.do_output.mod_map:
         with np.errstate(divide='ignore'):
             per_mod_seqs = annotate_mods_per_mod(
                 r_ref_pos.start, r_ref_seq, r_mod_scores,
@@ -1130,20 +1120,29 @@ def call_read_mods(
 
     # send mod annotated seqs to signal mapping queue if requested
     if mod_sig_map_q is not None and sig_map_res.pass_filts:
+        is_valid_mapping = True
         # import locally so that import of mods module does not require
         # taiyaki install (required for signal_mapping module)
         from megalodon import signal_mapping
-        if sig_map_res.ref_out_info.annotate_mods:
+        if sig_map_res.ref_out_info.do_output.mod_sig_maps:
             invalid_chars = set(all_mods_seq.mod_seq).difference(
-                sig_map_res.ref_out_info.alphabet)
+                sig_map_res.ref_out_info.alphabet_info.alphabet)
             if len(invalid_chars) > 0:
-                raise mh.MegaError(
-                    'Inavlid charcters found in mapped signal sequence: ' +
-                    '({})'.format(''.join(invalid_chars)))
-            # replace reference sequence with mod annotated sequence
-            sig_map_res = sig_map_res._replace(ref_seq=all_mods_seq.mod_seq)
+                is_valid_mapping = False
+                if failed_reads_q is not None:
+                    fail_msg = (
+                        'Invalid charcters for signal mapping found in ' +
+                        'mapped sequence: ({})').format(''.join(invalid_chars))
+                    # Send invalid character code to failed reads queue
+                    failed_reads_q.put((
+                        True, False, fail_msg, fast5_fn, None, 0))
+            else:
+                # replace reference sequence with mod annotated sequence
+                sig_map_res = sig_map_res._replace(
+                    ref_seq=all_mods_seq.mod_seq)
 
-        mod_sig_map_q.put(signal_mapping.get_remapping(*sig_map_res[1:]))
+        if is_valid_mapping:
+            mod_sig_map_q.put(signal_mapping.get_remapping(*sig_map_res[1:]))
 
     r_insert_data = [
         (mod_lp, mods_db.get_pos_dbid(
@@ -1153,7 +1152,7 @@ def call_read_mods(
         for mod_lp, mod_base in zip(mod_lps, mod_bases)]
 
     mod_out_text = None
-    if mods_info.write_mods_txt:
+    if mods_info.do_output.text:
         txt_tmplt = '\t'.join('{}' for _ in ModsDb.text_field_names)
         mod_out_text = ''
         for pos, mod_lps, mod_bases in r_mod_scores:
@@ -1165,13 +1164,6 @@ def call_read_mods(
                     can_lp, mod_base)
                 for mod_lp, mod_base in zip(mod_lps, mod_bases))) + '\n'
 
-    with mod_data_size.get_lock():
-        mod_data_size.value += 1
-    # enforce artificial queue max size with dulplex pipes
-    if mod_data_size.value >= mh._MAX_QUEUE_SIZE:
-        LOGGER.debug('Throttling {} for mods queue'.format(
-            mp.current_process()))
-        sleep(1)
     return r_insert_data, all_mods_seq, per_mod_seqs, mod_out_text
 
 
@@ -1179,7 +1171,7 @@ def call_read_mods(
 # Per-read Mod Output #
 #######################
 
-def init_mods_db(mods_info, db_safety, ref_names_and_lens):
+def init_mods_db(mods_info, ref_names_and_lens):
     """ Initialize a new modified bases database.
 
     Args:
@@ -1190,7 +1182,7 @@ def init_mods_db(mods_info, db_safety, ref_names_and_lens):
             representing chromosome 1) names and 2) lengths.
     """
     mods_db = ModsDb(
-        mods_info.mods_db_fn, db_safety=db_safety, read_only=False,
+        mods_info.mods_db_fn, db_safety=mods_info.db_safety, read_only=False,
         init_db_tables=True)
     mods_db.insert_chrms(ref_names_and_lens)
     mods_db.insert_mod_long_names(
@@ -1199,10 +1191,7 @@ def init_mods_db(mods_info, db_safety, ref_names_and_lens):
     mods_db.close()
 
 
-def _get_mods_queue(
-        mod_data_db_conns, mod_data_size, db_safety, ref_names_and_lens,
-        ref_fn, mods_txt_fn, pr_refs_fn, ref_out_info, mod_map_fns, map_fmt,
-        mods_info):
+def _get_mods_queue(mods_q, mods_info, map_info, ref_out_info, aux_failed_q):
     def write_mod_alignment(
             read_id, mod_seq, mod_quals, chrm, strand, r_st, fp):
         a = pysam.AlignedSegment()
@@ -1223,10 +1212,10 @@ def _get_mods_queue(
         a.cigartuples = [(0, len(mod_seq)), ]
         fp.write(a)
 
-    def store_mod_call(
-            r_insert_data, mod_out_text, all_mods_seq, per_mod_seqs, read_id,
-            chrm, strand, r_start, ref_seq, read_len, q_st, q_en, cigar,
-            been_warned_timeout, been_warned_other):
+    def store_mod_call(mod_res, been_warned_timeout, been_warned_other):
+        (r_insert_data, all_mods_seq, per_mod_seqs, mod_out_text), (
+            read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
+            cigar) = mod_res
         try:
             read_dbid = mods_db.insert_uuid(read_id)
             data_commited = False
@@ -1240,8 +1229,7 @@ def _get_mods_queue(
                         LOGGER.warning(
                             DB_TIMEOUT_ERR_MSG.format('data', str(e)))
                         been_warned_timeout = True
-                    LOGGER.debug('Modified base database data insert ' +
-                                 'timeout: ' + str(e))
+                    LOGGER.debug('ModDBTimeout {}'.format(str(e)))
                     mods_db.establish_db_conn()
                     mods_db.set_cursor()
         except Exception as e:
@@ -1250,17 +1238,15 @@ def _get_mods_queue(
                     'Error inserting modified base scores into database. ' +
                     'See log debug output for error details.')
                 been_warned_other = True
-            import traceback
-            LOGGER.debug(
-                'Error inserting modified base scores into database: ' +
-                str(e) + '\n' + traceback.format_exc())
+            LOGGER.debug('ModDBInsertError {}\n{}'.format(
+                str(e), traceback.format_exc()))
 
-        if mods_txt_fp is not None and len(r_insert_data) > 0:
+        if mods_info.do_output.text and len(r_insert_data) > 0:
             mods_txt_fp.write(mod_out_text)
-        if (pr_refs_fn is not None and mapping.read_passes_filters(
-                ref_out_info, read_len, q_st, q_en, cigar)):
+        if ref_out_info.do_output.mod_pr_refs and mapping.read_passes_filters(
+                ref_out_info.filt_params, read_len, q_st, q_en, cigar):
             pr_refs_fp.write('>{}\n{}\n'.format(read_id, all_mods_seq.mod_seq))
-        if mod_map_fns is not None:
+        if mods_info.do_output.mod_map:
             for mod_base, _ in mods_info.mod_long_names:
                 mod_seq, mod_qual = per_mod_seqs[mod_base]
                 write_mod_alignment(
@@ -1269,71 +1255,70 @@ def _get_mods_queue(
 
         return been_warned_timeout, been_warned_other
 
-    been_warned_timeout = been_warned_other = False
-
-    mods_db = ModsDb(
-        mods_info.mods_db_fn, db_safety=db_safety, read_only=False,
-        mod_db_timeout=mods_info.mod_db_timeout)
-
-    if mods_txt_fn is None:
-        mods_txt_fp = None
-    else:
-        mods_txt_fp = open(mods_txt_fn, 'w')
-        mods_txt_fp.write('\t'.join(mods_db.text_field_names) + '\n')
-    if pr_refs_fn is not None:
-        pr_refs_fp = open(pr_refs_fn, 'w')
-    if mod_map_fns is not None:
-        try:
-            w_mode = mh.MAP_OUT_WRITE_MODES[map_fmt]
-        except KeyError:
-            raise mh.MegaError('Invalid mapping output format')
-        header = {
-            'HD': {'VN': '1.4'},
-            'SQ': [{'LN': ref_len, 'SN': ref_name}
-                   for ref_name, ref_len in sorted(zip(*ref_names_and_lens))],
-            'RG': [{'ID': MOD_MAP_RG_ID, 'SM': SAMPLE_NAME}, ]}
-        mod_map_fps = dict((
-            (mod_base, pysam.AlignmentFile(
-                mod_map_fn + map_fmt, w_mode, header=header,
-                reference_filename=ref_fn))
-            for mod_base, mod_map_fn in mod_map_fns))
-
-    LOGGER.debug('mod_getter: init complete')
-
-    while mod_data_db_conns:
-        for r in wait(mod_data_db_conns):
+    try:
+        LOGGER.debug('GetterStarting')
+        # initialize the database tables
+        init_mods_db(mods_info, map_info.ref_names_and_lens)
+        mods_db = ModsDb(
+            mods_info.mods_db_fn, db_safety=mods_info.db_safety,
+            read_only=False, mod_db_timeout=mods_info.mod_db_timeout)
+        if mods_info.do_output.text:
+            mods_txt_fp = open(mh.get_megalodon_fn(
+                mods_info.out_dir, mh.PR_MOD_TXT_NAME), 'w')
+            mods_txt_fp.write('\t'.join(mods_db.text_field_names) + '\n')
+        if ref_out_info.do_output.mod_pr_refs:
+            pr_refs_fp = open(mh.get_megalodon_fn(
+                mods_info.out_dir, mh.PR_REF_NAME), 'w')
+        if mods_info.do_output.mod_map:
             try:
-                mod_res = r.recv()
-                with mod_data_size.get_lock():
-                    mod_data_size.value -= 1
-            except EOFError:
-                # when connection is closed in worker process EOFError is
-                # triggered, so remove that connection
-                mod_data_db_conns.remove(r)
-            else:
-                (r_insert_data, all_mods_seq, per_mod_seqs, mod_out_text), (
-                    read_id, chrm, strand, r_start, ref_seq, read_len,
-                    q_st, q_en, cigar) = mod_res
-                try:
-                    been_warned_timeout, been_warned_other = store_mod_call(
-                        r_insert_data, mod_out_text, all_mods_seq,
-                        per_mod_seqs, read_id, chrm, strand, r_start, ref_seq,
-                        read_len, q_st, q_en, cigar, been_warned_timeout,
-                        been_warned_other)
-                except Exception as e:
-                    LOGGER.debug('Error processing mods output for read: ' +
-                                 '{}\nError type: {}'.format(read_id, str(e)))
+                w_mode = mh.MAP_OUT_WRITE_MODES[map_info.map_fmt]
+            except KeyError:
+                raise mh.MegaError('Invalid mapping output format')
+            header = {
+                'HD': {'VN': '1.4'},
+                'SQ': [{'LN': ref_len, 'SN': ref_name}
+                       for ref_name, ref_len in sorted(
+                               zip(*map_info.ref_names_and_lens))],
+                'RG': [{'ID': MOD_MAP_RG_ID, 'SM': SAMPLE_NAME}, ]}
+            mod_map_fns = [
+                (mod_base, '{}.{}.'.format(
+                    mh.get_megalodon_fn(mods_info.out_dir, mh.MOD_MAP_NAME),
+                    mln)) for mod_base, mln in mods_info.mod_long_names]
+            mod_map_fps = dict((
+                (mod_base, pysam.AlignmentFile(
+                    mod_map_fn + map_info.map_fmt, w_mode, header=header,
+                    reference_filename=map_info.ref_fn))
+                for mod_base, mod_map_fn in mod_map_fns))
+        been_warned_timeout = been_warned_other = False
+        LOGGER.debug('GetterInitComplete')
+    except Exception as e:
+        aux_failed_q.put(('ModsInitError', str(e), traceback.format_exc()))
+        return
 
-    if mods_txt_fp is not None:
-        mods_txt_fp.close()
-    if pr_refs_fn is not None:
-        pr_refs_fp.close()
-    if mod_map_fns is not None:
-        for mod_map_fp in mod_map_fps.values():
-            mod_map_fp.close()
-
-    mods_db.create_data_covering_index()
-    mods_db.close()
+    try:
+        while mods_q.has_valid_conns:
+            for mod_res in mods_q.wait_recv():
+                r_val = mh.log_errors(
+                    store_mod_call, mod_res, been_warned_timeout,
+                    been_warned_other)
+                if r_val is not None:
+                    been_warned_timeout, been_warned_other = r_val
+        LOGGER.debug('GetterClosing')
+    except Exception as e:
+        aux_failed_q.put((
+            'ModsProcessingError', str(e), traceback.format_exc()))
+    finally:
+        if mods_info.do_output.text:
+            mods_txt_fp.close()
+        if ref_out_info.do_output.mod_pr_refs:
+            pr_refs_fp.close()
+        if mods_info.do_output.mod_map:
+            for mod_map_fp in mod_map_fps.values():
+                mod_map_fp.close()
+        LOGGER.debug('CreatingIndex')
+        mods_db.create_data_covering_index()
+        LOGGER.debug('ClosingDB')
+        mods_db.close()
 
 
 if _PROFILE_MODS_QUEUE:
@@ -1349,7 +1334,7 @@ if _PROFILE_MODS_QUEUE:
 # Mod Info #
 ############
 
-class ModInfo(object):
+class ModInfo:
     def distinct_bases(self, b1, b2):
         return len(set(mh.SINGLE_LETTER_CODE[b1]).intersection(
             mh.SINGLE_LETTER_CODE[b2])) == 0
@@ -1414,23 +1399,19 @@ class ModInfo(object):
 
     def __init__(
             self, model_info, all_mod_motifs_raw=None, mod_all_paths=False,
-            write_mods_txt=None, mod_context_bases=None,
-            do_output_mods=False, mods_db_fn=None, mods_calib_fn=None,
+            mod_context_bases=None, mods_calib_fn=None,
             mod_output_fmts=[mh.MOD_BEDMETHYL_NAME],
             edge_buffer=mh.DEFAULT_EDGE_BUFFER, pos_index_in_memory=True,
             agg_info=DEFAULT_AGG_INFO, mod_thresh=0.0, do_ann_all_mods=False,
-            do_ann_per_mod=False, map_base_conv=None,
-            mod_db_timeout=mh.DEFAULT_MOD_DATABASE_TIMEOUT):
+            map_base_conv=None, mod_db_timeout=mh.DEFAULT_MOD_DATABASE_TIMEOUT,
+            db_safety=0, out_dir=None, do_output=None):
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other modbase info
         # don't want to pass all of these parameters around individually though
         # as this would make function signatures too complicated
         self.mod_all_paths = mod_all_paths
-        self.write_mods_txt = write_mods_txt
         self.mod_context_bases = mod_context_bases
-        self.do_output_mods = do_output_mods
         self.mod_long_names = model_info.mod_long_names
-        self.mods_db_fn = mods_db_fn
         self.calib_table = calibration.ModCalibrator(mods_calib_fn)
         self.mod_output_fmts = mod_output_fmts
         self.edge_buffer = edge_buffer
@@ -1438,9 +1419,13 @@ class ModInfo(object):
         self.agg_info = agg_info
         self.mod_thresh = mod_thresh
         self.do_ann_all_mods = do_ann_all_mods
-        self.do_ann_per_mod = do_ann_per_mod
         self.map_base_conv_raw = map_base_conv
         self.mod_db_timeout = mod_db_timeout
+        self.db_safety = db_safety
+        self.out_dir = out_dir
+        self.do_output = do_output
+
+        self.mods_db_fn = mh.get_megalodon_fn(self.out_dir, mh.PR_MOD_NAME)
 
         self.alphabet = model_info.can_alphabet
         self.ncan_base = len(self.alphabet)
@@ -1493,7 +1478,7 @@ class ModInfo(object):
 # modVCF Writer #
 #################
 
-class ModSite(object):
+class ModSite:
     """ Modified base site for entry into Mod Writers.
     Currently only handles a single sample.
     """
@@ -1610,7 +1595,7 @@ class ModSite(object):
             var2.chrm, var2.pos, var2.strand)
 
 
-class ModVcfWriter(object):
+class ModVcfWriter:
     """ modVCF writer class
     """
     version_options = set(['4.2', ])
@@ -1667,7 +1652,7 @@ class ModVcfWriter(object):
         self.handle.close()
 
 
-class ModBedMethylWriter(object):
+class ModBedMethylWriter:
     """ bedMethyl writer class
 
     Note that the bedMethyl format cannot store more than one modification
@@ -1716,7 +1701,7 @@ class ModBedMethylWriter(object):
             handle.close()
 
 
-class ModWigWriter(object):
+class ModWigWriter:
     """ Modified base wiggle variableStep writer class
 
     Note that the wiggle/bedgraph format cannot store more than one
