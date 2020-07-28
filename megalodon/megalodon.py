@@ -40,12 +40,13 @@ ERR_UPDATE_PROP = 0.1
 # Post Per-read Processing #
 ############################
 
-def post_process_mapping(map_bn, map_fmt, ref_fn):
+def post_process_mapping(map_bn, map_fmt, ref_fn, samtools_exec):
     map_fn = '{}.{}'.format(map_bn, map_fmt)
-    map_sort_fn = '{}.sorted.bam'.format(map_bn)
+    map_sort_fn = '{}.sorted.{}'.format(map_bn, map_fmt)
     map_p = mp.Process(
         target=mapping.sort_and_index_mapping,
-        args=(map_fn, map_sort_fn, ref_fn, True), daemon=True)
+        args=(samtools_exec, map_fn, map_sort_fn, map_fmt, ref_fn),
+        daemon=True)
     map_p.start()
 
     return map_p, map_sort_fn
@@ -53,23 +54,23 @@ def post_process_mapping(map_bn, map_fmt, ref_fn):
 
 def start_sort_mapping_procs(map_info, mods_info, vars_info):
     map_p = mod_map_ps = var_map_p = var_sort_fn = None
-    if map_info.do_output_mappings:
+    if map_info.do_output_mappings and map_info.do_sort_mappings:
         LOGGER.info('Spawning process to sort mappings')
         map_p, _ = post_process_mapping(
             mh.get_megalodon_fn(map_info.out_dir, mh.MAP_NAME),
-            map_info.map_fmt, map_info.ref_fn)
-    if mods_info.do_output.mod_map:
+            map_info.map_fmt, map_info.ref_fn, map_info.samtools_exec)
+    if mods_info.do_output.mod_map and map_info.do_sort_mappings:
         LOGGER.info('Spawning process to sort modified base mappings')
         mod_map_ps = [post_process_mapping(
             '{}.{}'.format(mh.get_megalodon_fn(
                 mods_info.out_dir, mh.MOD_MAP_NAME), mln),
-            map_info.map_fmt, map_info.ref_fn)[0]
+            map_info.map_fmt, map_info.ref_fn, map_info.samtools_exec)[0]
                       for _, mln in mods_info.mod_long_names]
-    if vars_info.do_output.var_map:
+    if vars_info.do_output.var_map and map_info.do_sort_mappings:
         LOGGER.info('Spawning process to sort variant mappings')
         var_map_p, var_sort_fn = post_process_mapping(
             mh.get_megalodon_fn(vars_info.out_dir, mh.VAR_MAP_NAME),
-            map_info.map_fmt, map_info.ref_fn)
+            map_info.map_fmt, map_info.ref_fn, map_info.samtools_exec)
     return map_p, mod_map_ps, var_map_p, var_sort_fn
 
 
@@ -877,9 +878,12 @@ def parse_aligner_args(args):
                 'alignment was requested. Argument will be ignored.')
     map_info = mapping.MapInfo(
         aligner, args.mappings_format, args.reference, args.output_directory,
-        mh.MAP_NAME in args.outputs)
+        mh.MAP_NAME in args.outputs, args.samtools_executable,
+        args.sort_mappings)
     if map_info.do_output_mappings:
         map_info.test_open_alignment_out_file()
+        if map_info.do_sort_mappings:
+            map_info.test_samtools()
     return aligner, map_info
 
 

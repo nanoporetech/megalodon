@@ -105,6 +105,15 @@ def get_parser():
         help='Reference FASTA or minimap2 index file used for mapping ' +
         'called reads.')
 
+    map_grp.add_argument(
+        '--samtools-executable', default='samtools',
+        help=hidden_help('Samtools executable or path. Default: %(default)s'))
+    map_grp.add_argument(
+        '--sort-mappings', action='store_true',
+        help=hidden_help('Perform sorting and indexing of mapping output ' +
+                         'files. This can take considerable time for larger ' +
+                         'runs.'))
+
     var_grp = parser.add_argument_group('Sequence Variant Arguments')
     var_grp.add_argument(
         '--haploid', action='store_true',

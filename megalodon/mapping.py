@@ -1,7 +1,7 @@
 import os
 import sys
 import traceback
-from time import sleep
+import subprocess
 from collections import namedtuple
 from functools import total_ordering
 from distutils.version import LooseVersion
@@ -67,7 +67,9 @@ def get_map_pos_from_res(map_res):
 
 
 class MapInfo:
-    def __init__(self, aligner, map_fmt, ref_fn, out_dir, do_output_mappings):
+    def __init__(
+            self, aligner, map_fmt, ref_fn, out_dir, do_output_mappings,
+            samtools_exec, do_sort_mappings):
         if aligner is None:
             self.ref_names_and_lens = None
         else:
@@ -81,6 +83,8 @@ class MapInfo:
         self.ref_fn = mh.resolve_path(ref_fn)
         self.out_dir = out_dir
         self.do_output_mappings = do_output_mappings
+        self.samtools_exec = samtools_exec
+        self.do_sort_mappings = do_sort_mappings
 
     def open_alignment_out_file(self):
         map_fn = '{}.{}'.format(
@@ -107,6 +111,34 @@ class MapInfo:
                 'reference file is compressed with bgzip for CRAM output.')
         map_fp.close()
         os.remove(map_fp.filename)
+
+    def test_samtools(self):
+        try:
+            test_sort_res = subprocess.run(
+                [self.samtools_exec, 'sort'],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            test_index_res = subprocess.run(
+                [self.samtools_exec, 'index'],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except FileNotFoundError:
+            LOGGER.warning('Samtools executable not found. Mappings will ' +
+                           'not be sorted or indexed.')
+            self.do_sort_mappings = False
+        # Note index returns non-zero exit status
+        if test_sort_res.returncode != 0:
+            LOGGER.warning('Samtools test commands return non-zero exit ' +
+                           'status. Mappings will not be sorted or indexed.')
+            LOGGER.debug(
+                ('MappingTestFail:   sort_returncode: {}   ' +
+                 'index_returncode: {}\nsort_call_stdout:\n{}\n' +
+                 'sort_call_stderr:\n{}\nindex_call_stdout:\n{}' +
+                 '\nindex_call_stderr:\n{}').format(
+                     test_sort_res.returncode, test_index_res.returncode,
+                     test_sort_res.stdout.decode(),
+                     test_sort_res.stderr.decode(),
+                     test_index_res.stdout.decode(),
+                     test_index_res.stderr.decode()))
+            self.do_sort_mappings = False
 
 
 def align_read(q_seq, aligner, map_thr_buf, read_id=None):
@@ -210,7 +242,7 @@ def map_read(caller_conn, mo_q, q_seq, read_id, signal_reversed=False):
         r_to_q_poss = parse_cigar(
             map_res.cigar, map_res.strand, map_res.r_en - map_res.r_st)
     except mh.MegaError as e:
-        LOGGER.debug('{} CigarParsingError {}'.format(read_id) + str(e))
+        LOGGER.debug('{} CigarParsingError'.format(read_id) + str(e))
         raise mh.MegaError('Invalid cigar string encountered.')
     map_pos = get_map_pos_from_res(map_res)
 
@@ -321,18 +353,33 @@ def _get_map_queue(mo_q, map_info, ref_out_info, aux_failed_q):
 # Samtools wrapper #
 ####################
 
-def sort_and_index_mapping(map_fn, out_fn, ref_fn=None, do_index=False):
-    sort_args = ['-O', 'BAM', '-o', out_fn, map_fn]
-    if ref_fn is not None:
+def sort_and_index_mapping(samtools_exec, map_fn, out_fn, map_fmt, ref_fn=None):
+    sort_args = [
+        samtools_exec, 'sort', '-O', map_fmt.upper(), '-o', out_fn, map_fn]
+    if map_fmt == mh.MAP_OUT_CRAM:
         sort_args.extend(('--reference', ref_fn))
     try:
-        sleep(0.1)
-        pysam.sort(*sort_args)
-        if do_index:
-            sleep(0.1)
-            pysam.index(out_fn, catch_stdout=False, catch_stderr=False)
-    except pysam.utils.SamtoolsError:
-        LOGGER.warning('Sorting and/or indexing mapping failed.')
+        sort_res = subprocess.run(
+            sort_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if sort_res.returncode != 0:
+            LOGGER.warning('Mapping sort failed. Full error text in log.')
+            LOGGER.debug(
+                'MappingSortFail:\ncall_stdout:\n{}\ncall_stderr:\n{}'.format(
+                    sort_res.stdout.decode(), sort_res.stderr.decode()))
+        if map_fmt == mh.MAP_OUT_BAM:
+            index_args = [samtools_exec, 'index', out_fn]
+            index_res = subprocess.run(
+                index_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if sort_res.returncode != 0:
+                LOGGER.warning('Mapping index failed. Full error text in log.')
+                LOGGER.debug(
+                    ('MappingIndexFail:\ncall_stdout:\n{}\ncall_stderr:' +
+                     '\n{}').format(
+                         index_res.stdout.decode(), index_res.stderr.decode()))
+    except Exception as e:
+        LOGGER.warning('Sorting and/or indexing mapping failed. Full error ' +
+                       'text in log.')
+        LOGGER.debug('MappingSortFail:\n{}'.format(str(e)))
 
 
 ##########################
