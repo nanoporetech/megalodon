@@ -28,6 +28,7 @@ os.environ['OPENBLAS_NUM_THREADS'] = '1'
 _DO_PROFILE = False
 _UNEXPECTED_ERROR_CODE = 'Unexpected error'
 _UNEXPECTED_ERROR_FN = 'unexpected_megalodon_errors.{}.err'
+_SIG_EXTRACT_GETTER_NAME = 'read_signal'
 _FAILED_READ_GETTER_NAME = 'failed_reads'
 _MAX_NUM_UNEXP_ERRORS = 50
 DO_INTERPOLATE_SIG_POS = False
@@ -246,7 +247,7 @@ def process_read(
 ########################
 
 def _process_reads_worker(
-        read_file_q, getter_conns, caller_conn, ref_out_info, model_info,
+        signal_q, getter_conns, caller_conn, ref_out_info, model_info,
         vars_info, mods_info, bc_info, device):
     fr_q = getter_conns[_FAILED_READ_GETTER_NAME]
     # wrap process prep in try loop to avoid stalled command
@@ -262,39 +263,43 @@ def _process_reads_worker(
     while True:
         try:
             try:
-                fast5_fn, read_id = read_file_q.get(block=True, timeout=0.01)
+                read_sig_data = signal_q.get(block=True, timeout=0.01)
             except queue.Empty:
                 continue
-
-            if fast5_fn is None:
+            if read_sig_data is None:
                 LOGGER.debug('Closing')
                 break
-            LOGGER.debug('{} Processing'.format(read_id))
-            sig_info, seq_summ_info = model_info.extract_signal_info(
-                fast5_fn, read_id, ref_out_info.do_output.sig_maps)
+
+            # convert tuples back to namedtuples after multiprocessing queue
+            sig_info, seq_summ_info = read_sig_data
+            sig_info = backends.SIGNAL_DATA(*sig_info)
+            seq_summ_info = mh.SEQ_SUMM_INFO(*seq_summ_info)
+            LOGGER.debug('{} Processing'.format(sig_info.read_id))
             process_read(
                 getter_conns, caller_conn, sig_info, seq_summ_info, model_info,
                 ref_out_info, vars_info, mods_info, bc_info)
             fr_q.put((False, True, None, None, None, sig_info.raw_len))
-            LOGGER.debug('{} Success'.format(read_id))
+            LOGGER.debug('{} Success'.format(sig_info.read_id))
         except KeyboardInterrupt:
-            fr_q.put((True, True, 'Keyboard interrupt', fast5_fn, None, 0))
-            LOGGER.debug('{} KeyboardInterrupt'.format(read_id))
+            fr_q.put(
+                (True, True, 'Keyboard interrupt', sig_info.fast5_fn, None, 0))
+            LOGGER.debug('{} KeyboardInterrupt'.format(sig_info.read_id))
             for getter_conn in getter_conns.values():
                 if getter_conn is not None:
                     getter_conn.close()
             return
         except mh.MegaError as e:
             raw_len = sig_info.raw_len if hasattr(sig_info, 'raw_len') else 0
-            fn_rid = '{}:::{}'.format(fast5_fn, read_id)
+            fn_rid = '{}:::{}'.format(sig_info.fast5_fn, sig_info.read_id)
             fr_q.put((True, True, str(e), fn_rid, None, raw_len))
-            LOGGER.debug('{} Failed {}'.format(read_id, str(e)))
+            LOGGER.debug('{} Failed {}'.format(sig_info.read_id, str(e)))
         except Exception as e:
-            fn_rid = '{}:::{}'.format(fast5_fn, read_id)
+            fn_rid = '{}:::{}'.format(sig_info.fast5_fn, sig_info.read_id)
             fr_q.put((
                 True, True, _UNEXPECTED_ERROR_CODE, fn_rid,
                 traceback.format_exc(), 0))
-            LOGGER.debug('{} UnexpectedFail {}'.format(read_id, str(e)))
+            LOGGER.debug(
+                '{} UnexpectedFail {}'.format(sig_info.read_id, str(e)))
     for getter_conn in getter_conns.values():
         if getter_conn is not None:
             getter_conn.close()
@@ -373,6 +378,54 @@ def _get_bc_queue(bc_q, bc_info, aux_failed_q):
             mods_fp.close()
 
 
+def _extract_signal(
+        read_file_q, signal_q, aux_failed_q, input_info, model_info,
+        extract_dacs):
+    try:
+        LOGGER.debug('Starting')
+        prev_fast5_fn = fast5_fp = None
+        LOGGER.debug('InitComplete')
+    except Exception as e:
+        aux_failed_q.put((
+            'SignalExtractorInitError', str(e), traceback.format_exc()))
+        return
+
+    def get_signal(prev_fast5_fn, fast5_fp, fast5_fn, read_id):
+        if prev_fast5_fn != fast5_fn:
+            if fast5_fp is not None:
+                fast5_fp.close()
+            # if new fast5 file, open new file
+            fast5_fp = fast5_io.get_fast5_file(fast5_fn)
+        sig_info, seq_summ_info = model_info.extract_signal_info(
+            fast5_fp, read_id, extract_dacs)
+        signal_q.put((tuple(sig_info), tuple(seq_summ_info)))
+        return fast5_fn, fast5_fp
+
+    try:
+        # while there are reads to process continue extracting signal
+        while True:
+            try:
+                fn_rid = read_file_q.get(block=True, timeout=0.01)
+            except queue.Empty:
+                continue
+            # None indicates end of enumerated reads
+            if fn_rid is None:
+                if fast5_fp is not None:
+                    fast5_fp.close()
+                LOGGER.debug('Closing')
+                break
+            log_err_res = mh.log_errors(
+                get_signal, prev_fast5_fn, fast5_fp, *fn_rid)
+            if log_err_res is not None:
+                prev_fast5_fn, fast5_fp = log_err_res
+    except Exception as e:
+        aux_failed_q.put((
+            'ExtractSignalProcessingError', str(e), traceback.format_exc()))
+    finally:
+        for _ in range(input_info.num_ps):
+            signal_q.put(None)
+
+
 def _fill_files_queue(input_info, read_file_q, num_reads_conn, aux_failed_q):
     try:
         LOGGER.debug('Starting')
@@ -414,10 +467,9 @@ def _fill_files_queue(input_info, read_file_q, num_reads_conn, aux_failed_q):
         aux_failed_q.put((
             'FillFilesProcessingError', str(e), traceback.format_exc()))
     finally:
-        # add None to indicate that read processes should return
+        # add None to indicate end of read enumeration
         num_reads_conn.send(len(used_read_ids))
-        for _ in range(input_info.num_ps):
-            read_file_q.put((None, None))
+        read_file_q.put(None)
 
 
 def format_fail_summ(header, fail_summ=[], reads_called=0, num_errs=None):
@@ -441,7 +493,8 @@ def prep_errors_bar(status_info, getter_qs):
     if not status_info.suppress_queues:
         valid_q_names = [
             q_name for q_name, q in getter_qs.items()
-            if q.return_conns and q_name != _FAILED_READ_GETTER_NAME]
+            if q_name == _SIG_EXTRACT_GETTER_NAME or (
+                    q.return_conns and q_name != _FAILED_READ_GETTER_NAME)]
         num_qs = len(valid_q_names)
     if status_info.num_prog_errs > 0 and not status_info.suppress_prog_bar:
         # TODO convert this to tqdm status only lines
@@ -480,7 +533,8 @@ def prep_errors_bar(status_info, getter_qs):
     return bar, q_bars, prog_prefix, bar_header
 
 
-def _get_fail_queue(failed_reads_q, status_info, gnr_conn, getter_qs):
+def _get_fail_queue(
+        failed_reads_q, status_info, gnr_conn, getter_qs, signal_q):
     def update_prog(reads_called, sig_called, unexp_err_fp, last_err_write,
                     read_called=True):
         if is_err:
@@ -507,7 +561,7 @@ def _get_fail_queue(failed_reads_q, status_info, gnr_conn, getter_qs):
                     pass
                 if q_bars is not None:
                     for q_name, q_bar in q_bars.items():
-                        q_bar.n = getter_qs[q_name].size
+                        q_bar.n = getter_qs[q_name].qsize()
                         # trigger display refresh
                         q_bar.update(0)
                 if read_called:
@@ -531,6 +585,9 @@ def _get_fail_queue(failed_reads_q, status_info, gnr_conn, getter_qs):
     reads_called = sig_called = last_err_write = 0
     unexp_err_fp = None
     failed_reads = defaultdict(list)
+    # add signal extraction queue to getter queues
+    getter_qs[_SIG_EXTRACT_GETTER_NAME] = signal_q
+    getter_qs.move_to_end(_SIG_EXTRACT_GETTER_NAME, last=False)
     bar, q_bars, prog_prefix, bar_header = prep_errors_bar(
         status_info, getter_qs)
     LOGGER.debug('GetterInitComplete')
@@ -585,8 +642,8 @@ def _get_fail_queue(failed_reads_q, status_info, gnr_conn, getter_qs):
 #######################
 
 def wait_for_completion(
-        files_p, read_file_q, proc_reads_ps, map_read_ts, getter_ps,
-        aux_failed_q):
+        files_p, extract_sig_p, signal_q, proc_reads_ps, map_read_ts,
+        getter_ps, aux_failed_q):
     def kill_all_proc():
         for p in [files_p, ] + proc_reads_ps + list(getter_ps.values()):
             if p.is_alive():
@@ -610,8 +667,24 @@ def wait_for_completion(
         files_p.join()
         LOGGER.debug('JoinedMain: FileFiller')
 
-        # wait for reads queue to be exhausted
-        while not read_file_q.empty():
+        # wait for signal extraction to finish next
+        while extract_sig_p.is_alive():
+            try:
+                aux_err = aux_failed_q.get(block=False)
+                kill_all_proc()
+                sleep(0.01)
+                for msg in aux_err:
+                    LOGGER.error(msg)
+                sys.exit(1)
+            except queue.Empty:
+                # TODO check for failed workers and create mechanism to restart
+                sleep(1)
+        LOGGER.debug('JoiningMain: SignalExtractor')
+        extract_sig_p.join()
+        LOGGER.debug('JoinedMain: SignalExtractor')
+
+        # wait for signal queue to be exhausted
+        while not signal_q.empty():
             try:
                 aux_err = aux_failed_q.get(block=False)
                 # if an auxiliary process fails exit megalodon
@@ -623,7 +696,7 @@ def wait_for_completion(
             except queue.Empty:
                 # check that a getter queue has not failed with a segfault
                 for g_name, getter_p in getter_ps.items():
-                    if not getter_p.is_alive() and not read_file_q.empty():
+                    if not getter_p.is_alive() and not signal_q.empty():
                         kill_all_proc()
                         sleep(0.01)
                         LOGGER.error((
@@ -680,6 +753,12 @@ def process_all_reads(
         target=_fill_files_queue, daemon=True, name='FileFiller',
         args=(input_info, read_file_q, nr_conn, aux_failed_q))
     files_p.start()
+    signal_q = mega_mp.CountingMPQueue(maxsize=mh._MAX_QUEUE_SIZE)
+    extract_sig_p = mp.Process(
+        target=_extract_signal, daemon=True, name='SignalExtractor',
+        args=(read_file_q, signal_q, aux_failed_q, input_info, model_info,
+              ref_out_info.do_output.sig_maps))
+    extract_sig_p.start()
 
     # collate information about the output/getter processes
     getters_info = [
@@ -710,7 +789,7 @@ def process_all_reads(
         for gi in getters_info)
     getters_info.append(mh.GETTER_INFO(
         name=_FAILED_READ_GETTER_NAME, do_output=True, func=_get_fail_queue,
-        args=(status_info, gnr_conn, getter_qs), max_size=None))
+        args=(status_info, gnr_conn, getter_qs, signal_q), max_size=None))
     # failed reads queue needs access to other getter queues
     getter_qs[_FAILED_READ_GETTER_NAME] = mega_mp.SimplexManyToOneQueue(
         True, None, name='FailedReads')
@@ -725,7 +804,7 @@ def process_all_reads(
         map_conns.append(map_conn)
         proc_reads_ps.append(mp.Process(
             target=_process_reads_worker, args=(
-                read_file_q, getter_conns, caller_conn, ref_out_info,
+                signal_q, getter_conns, caller_conn, ref_out_info,
                 model_info, vars_info, mods_info, bc_info, device),
             daemon=True, name='ReadWorker{:03d}'.format(pnum)))
         proc_reads_ps[-1].start()
@@ -758,8 +837,8 @@ def process_all_reads(
             map_read_ts[-1].start()
 
     wait_for_completion(
-        files_p, read_file_q, proc_reads_ps, map_read_ts, getter_ps,
-        aux_failed_q)
+        files_p, extract_sig_p, signal_q, proc_reads_ps, map_read_ts,
+        getter_ps, aux_failed_q)
 
 
 ############################

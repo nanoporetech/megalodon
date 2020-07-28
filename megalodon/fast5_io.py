@@ -3,7 +3,7 @@ import sys
 from glob import glob
 
 import numpy as np
-from ont_fast5_api.fast5_interface import get_fast5_file
+from ont_fast5_api.fast5_interface import get_fast5_file as ont_get_fast5_file
 
 from megalodon import megalodon_helper as mh
 
@@ -27,13 +27,14 @@ def iterate_fast5_reads(fast5s_dir, limit=None, recursive=True):
     Each read is specified by a tuple (filepath, read_id)
     Files may be single or multi-read fast5s
 
-    :param fast5s_dir: Directory containing fast5 files
-    :param limit: Limit number of reads to consider
-    :param recursive: Search path recursively for fast5 files.
+    Args:
+        fast5s_dir (str): Directory containing fast5 files
+        limit (int): Limit number of reads to consider
+        recursive (bool): Search path recursively for fast5 files.
     """
     nreads = 0
     for fast5_fn in iterate_fast5_filenames(fast5s_dir, recursive):
-        with get_fast5_file(fast5_fn, 'r') as fast5_fp:
+        with ont_get_fast5_file(fast5_fn, 'r') as fast5_fp:
             for read_id in fast5_fp.get_read_ids():
                 yield fast5_fn, read_id
                 nreads += 1
@@ -42,7 +43,11 @@ def iterate_fast5_reads(fast5s_dir, limit=None, recursive=True):
 
 
 def get_read(fast5_fn, read_id):
-    return get_fast5_file(fast5_fn, mode="r").get_read(read_id)
+    return ont_get_fast5_file(fast5_fn, mode="r").get_read(read_id)
+
+
+def get_fast5_file(fast5_fn):
+    return ont_get_fast5_file(fast5_fn, mode="r")
 
 
 def get_signal(read, scale=True):

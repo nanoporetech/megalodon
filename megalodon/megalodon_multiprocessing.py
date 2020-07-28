@@ -24,24 +24,24 @@ class CountingMPQueue(mpQueue):
     """
     def __init__(self, **kwargs):
         super().__init__(ctx=mp.get_context(), **kwargs)
-        self.size = mp.Value('i', 0)
+        self._size = mp.Value('i', 0)
         self.maxsize = None
         if 'maxsize' in kwargs:
             self.maxsize = kwargs['maxsize']
 
     def put(self, *args, **kwargs):
         super().put(*args, **kwargs)
-        with self.size.get_lock():
-            self.size.value += 1
+        with self._size.get_lock():
+            self._size.value += 1
 
     def get(self, *args, **kwargs):
         rval = super().get(*args, **kwargs)
-        with self.size.get_lock():
-            self.size.value -= 1
+        with self._size.get_lock():
+            self._size.value -= 1
         return rval
 
     def qsize(self):
-        qsize = max(0, self.size.value)
+        qsize = max(0, self._size.value)
         if self.maxsize is not None:
             return min(self.maxsize, qsize)
         return qsize
@@ -80,14 +80,13 @@ class ConnWithSize:
         self.full_sleep_time = full_sleep_time
         self.name = name
 
-    @property
-    def size(self):
+    def qsize(self):
         return max(min(self._size.value, mh._MAX_QUEUE_SIZE), 0)
 
     def full(self):
         if self.max_size is None:
             return False
-        return self.size >= self.max_size
+        return self.qsize() >= self.max_size
 
     def put(self, value):
         # enforce artificial queue max size with dulplex pipes
@@ -127,12 +126,11 @@ class SimplexManyToOneQueue:
         self._conns.append(_my_conn)
         return ConnWithSize(r_conn, self._size, self.max_size, self.name)
 
-    @property
-    def size(self):
+    def qsize(self):
         return max(min(self._size.value, mh._MAX_QUEUE_SIZE), 0)
 
     def empty(self):
-        return self.size <= 0
+        return self.qsize() <= 0
 
     @property
     def has_valid_conns(self):

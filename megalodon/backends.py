@@ -492,8 +492,19 @@ class ModelInfo(object):
 
         return
 
-    def extract_signal_info(self, fast5_fn, read_id, extract_dacs=False):
-        read = fast5_io.get_read(fast5_fn, read_id)
+    def extract_signal_info(self, fast5_fp, read_id, extract_dacs=False):
+        """ Extract signal information from fast5 file pointer.
+
+        Args:
+            fast5_fp (:ont_fast5_api.fast5_file:`Fast5File`): FAST5 file
+                pointer object.
+            read_id (str): Read identifier to extract.
+            extract_dacs (bool): Extract raw DAC values.
+
+        Returns:
+            backends.SIGNAL_DATA and backends.SEQ_SUMM_INFO namedtuples
+        """
+        read = fast5_fp.get_read(read_id)
         seq_summ_info = extract_seq_summary_info(read)
         dacs = scale_params = raw_sig = None
         if extract_dacs:
@@ -515,8 +526,8 @@ class ModelInfo(object):
                 raw_sig = fast5_io.get_signal(read, scale=True)
             sig_data = SIGNAL_DATA(
                 raw_signal=raw_sig, dacs=dacs, scale_params=scale_params,
-                raw_len=raw_sig.shape[0], fast5_fn=fast5_fn, read_id=read_id,
-                stride=self.stride)
+                raw_len=raw_sig.shape[0], fast5_fn=fast5_fp.filename,
+                read_id=read_id, stride=self.stride)
             return sig_data, seq_summ_info
         elif self.model_type == FAST5_NAME:
             bc_mod_post = fast5_io.get_posteriors(read)
@@ -526,14 +537,15 @@ class ModelInfo(object):
                 dacs = dacs[trim_start:trim_start + trim_len]
             sig_data = SIGNAL_DATA(
                 raw_len=bc_mod_post.shape[0] * self.stride, dacs=dacs,
-                scale_params=scale_params, fast5_fn=fast5_fn, read_id=read_id,
+                scale_params=scale_params, fast5_fn=fast5_fp.filename,
+                read_id=read_id,
                 stride=self.stride, posteriors=bc_mod_post)
             return sig_data, seq_summ_info
         elif self.model_type == PYGUPPY_NAME:
             if dacs is None:
                 dacs = fast5_io.get_signal(read, scale=False)
             sig_data = SIGNAL_DATA(
-                dacs=dacs, raw_len=dacs.shape[0], fast5_fn=fast5_fn,
+                dacs=dacs, raw_len=dacs.shape[0], fast5_fn=fast5_fp.filename,
                 read_id=read_id, stride=self.stride,
                 channel_info=read.get_channel_info())
             return sig_data, seq_summ_info
