@@ -26,7 +26,7 @@ SIG_MAP_RESULT = namedtuple('SIG_MAP_RESULT', (
     'read_id', 'r_to_q_poss', 'rl_cumsum', 'ref_pos', 'ref_out_info'))
 
 
-def set_all_motif_mods(int_ref, ref_mods_all_motifs, collapse_alphabet):
+def set_all_motif_mods(int_ref, ref_mods_all_motifs):
     ref_mod_pos, ref_mods = [], []
     for mod_base, int_mod_base, mln, int_motif, rel_pos in ref_mods_all_motifs:
         for pos in np.where(np.all(mh.rolling_window(
@@ -69,9 +69,7 @@ def get_remapping(
     # annotate mod motifs
     if ref_out_info.ref_mods_all_motifs is not None:
         # annotate all mod base motif positions with alts
-        int_ref = set_all_motif_mods(
-            int_ref, ref_out_info.ref_mods_all_motifs,
-            ref_out_info.collapse_alphabet)
+        int_ref = set_all_motif_mods(int_ref, ref_out_info.ref_mods_all_motifs)
         # set new Reference with mods annotated
         sig_mapping.Reference = int_ref
 
