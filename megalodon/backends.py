@@ -34,7 +34,7 @@ BACKEND_PARAMS = namedtuple('BACKEND_PARAMS', (
 
 COMPAT_GUPPY_MODEL_TYPES = set(('flipflop',))
 GUPPY_HOST = 'localhost'
-PYGUPPY_PER_TRY_TIMEOUT = 0.01
+PYGUPPY_PER_TRY_TIMEOUT = 0.0001
 GUPPY_LOG_BASE = 'guppy_log'
 GUPPY_PORT_PAT = re.compile(r'Starting server on port:\W+(\d+)')
 PYGUPPY_SHIFT_NAME = 'median'
