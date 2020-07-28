@@ -28,7 +28,7 @@ os.environ['OPENBLAS_NUM_THREADS'] = '1'
 _DO_PROFILE = False
 _UNEXPECTED_ERROR_CODE = 'Unexpected error'
 _UNEXPECTED_ERROR_FN = 'unexpected_megalodon_errors.{}.err'
-_SIG_EXTRACT_GETTER_NAME = 'read_signal'
+_SIG_EXTRACT_GETTER_NAME = 'extract_signal'
 _FAILED_READ_GETTER_NAME = 'failed_reads'
 _MAX_NUM_UNEXP_ERRORS = 50
 DO_INTERPOLATE_SIG_POS = False
@@ -249,6 +249,20 @@ def process_read(
 def _process_reads_worker(
         signal_q, getter_conns, caller_conn, ref_out_info, model_info,
         vars_info, mods_info, bc_info, device):
+    def iter_sig_data():
+        while True:
+            try:
+                read_sig_data = signal_q.get(block=True, timeout=0.01)
+            except queue.Empty:
+                continue
+            if read_sig_data is None:
+                LOGGER.debug('Closing')
+                break
+            sig_info, seq_summ_info = read_sig_data
+            # convert tuples back to namedtuples after multiprocessing queue
+            yield (backends.SIGNAL_DATA(*sig_info),
+                   mh.SEQ_SUMM_INFO(*seq_summ_info))
+
     fr_q = getter_conns[_FAILED_READ_GETTER_NAME]
     # wrap process prep in try loop to avoid stalled command
     try:
@@ -260,20 +274,8 @@ def _process_reads_worker(
         LOGGER.debug('InitFailed traceback: {}'.format(traceback.format_exc()))
         return
 
-    while True:
+    for sig_info, seq_summ_info in iter_sig_data():
         try:
-            try:
-                read_sig_data = signal_q.get(block=True, timeout=0.01)
-            except queue.Empty:
-                continue
-            if read_sig_data is None:
-                LOGGER.debug('Closing')
-                break
-
-            # convert tuples back to namedtuples after multiprocessing queue
-            sig_info, seq_summ_info = read_sig_data
-            sig_info = backends.SIGNAL_DATA(*sig_info)
-            seq_summ_info = mh.SEQ_SUMM_INFO(*seq_summ_info)
             LOGGER.debug('{} Processing'.format(sig_info.read_id))
             process_read(
                 getter_conns, caller_conn, sig_info, seq_summ_info, model_info,
@@ -496,6 +498,12 @@ def prep_errors_bar(status_info, getter_qs):
             if q_name == _SIG_EXTRACT_GETTER_NAME or (
                     q.return_conns and q_name != _FAILED_READ_GETTER_NAME)]
         num_qs = len(valid_q_names)
+        q_labs = [
+            (q_num, q_name, ' input queue capacity {}'.format(q_name))
+            if q_name == _SIG_EXTRACT_GETTER_NAME else
+            (q_num, q_name, 'output queue capacity {}'.format(q_name))
+            for q_num, q_name in enumerate(valid_q_names)]
+
     if status_info.num_prog_errs > 0 and not status_info.suppress_prog_bar:
         # TODO convert this to tqdm status only lines
         # add lines for dynamic error messages
@@ -509,11 +517,11 @@ def prep_errors_bar(status_info, getter_qs):
                    desc='Read Processing')
         if num_qs > 0:
             q_bars = OrderedDict((q_name, tqdm(
-                desc=q_name, total=mh._MAX_QUEUE_SIZE, smoothing=0,
+                desc=q_lab, total=mh._MAX_QUEUE_SIZE, smoothing=0,
                 dynamic_ncols=True, position=q_num + 1,
-                bar_format='output queue capacity {desc: <20}: ' +
-                '{percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}'))
-                                 for q_num, q_name in enumerate(valid_q_names))
+                bar_format='{desc: <42}: {percentage:3.0f}%|{bar}| ' +
+                '{n_fmt}/{total_fmt}'))
+                                 for q_num, q_name, q_lab in q_labs)
     if not status_info.suppress_prog_bar and status_info.num_prog_errs > 0:
         prog_prefix = ''.join(
             [_term_move_up(), ] * (status_info.num_prog_errs + 1)) + '\r'
