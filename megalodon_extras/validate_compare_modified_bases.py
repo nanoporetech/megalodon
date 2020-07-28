@@ -9,7 +9,7 @@ from megalodon import logging, megalodon_helper as mh
 from ._extras_parsers import get_parser_validate_compare_modified_bases
 
 
-LOGGER = logging.init_logger()
+LOGGER = logging.get_logger()
 
 CMAP = plt.cm.inferno_r
 COV_SAMP1_COLOR = '#7A7A7A'

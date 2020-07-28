@@ -221,7 +221,8 @@ class ModsDb:
         # Store ordered c/s combinations
         self._cs_values = [
             (chrm, strand) for chrm in self.chrm_names for strand in (1, -1)]
-        self._cs_offsets = np.insert(np.repeat(self.chrm_lens, 2)[:-1], 0, 0)
+        self._cs_offsets = np.insert(np.cumsum(np.repeat(
+            self.chrm_lens, 2))[:-1], 0, 0)
         # dictionary from (chrm, strand) to dbid offsets
         self._cs_offset_lookup = dict(zip(
             self._cs_values, map(int, self._cs_offsets)))
@@ -840,7 +841,6 @@ def extract_stats_at_valid_sites(
             order of the valid_sites_sets argument.
     """
     all_stats = [defaultdict(list) for _ in valid_sites_sets]
-    # load database with positions in memory to avoid disk reads
     mods_db = ModsDb(mods_db_fn)
     for (chrm, strand, pos), mods_pos_llrs in mods_db.iter_pos_scores(
             convert_pos=True, compute_llrs=True):

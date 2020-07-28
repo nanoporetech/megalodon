@@ -164,8 +164,7 @@ def report_mod_metrics(
     all_mods_data = [msd.mod_data for msd in mod_samps_data]
     samp_labs = [msd.label for msd in mod_samps_data]
     if ctrl_samps_data is None:
-        all_ctrl_data = [
-            mod_samp_data.ctrl_data for mod_samp_data in mod_samps_data]
+        all_ctrl_data = [msd.ctrl_data for msd in mod_samps_data]
     else:
         # handle case where single control sample is provided for all mod
         # samples
@@ -183,10 +182,13 @@ def report_mod_metrics(
     out_fp.write(MOD_VAL_METRICS_HEADER)
     all_pr_data, all_roc_data = defaultdict(list), defaultdict(list)
     all_kde_data = []
+    # loop over samples
     for mod_samp_data, ctrl_samp_data, samp_lab in zip(
             all_mods_data, all_ctrl_data, samp_labs):
+        # loop over valid site sets
         for vs_samp_mod_data, vs_samp_ctrl_data, vs_lab in zip(
                 mod_samp_data, ctrl_samp_data, vs_labs):
+            # loop over modified bases
             for mod_base in all_mod_bases:
                 # check that mod_base exists in both data set
                 if mod_base not in vs_samp_mod_data or \
