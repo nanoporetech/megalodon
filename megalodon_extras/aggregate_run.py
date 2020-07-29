@@ -26,10 +26,7 @@ def _main(args):
     elif args.mod_aggregate_method == mh.MOD_BIN_THRESH_NAME:
         mod_agg_info = mods.AGG_INFO(
             mh.MOD_BIN_THRESH_NAME, args.mod_binary_threshold)
-    valid_read_ids = None
-    if args.read_ids_filename is not None:
-        with open(args.read_ids_filename) as read_ids_fp:
-            valid_read_ids = set(line.strip() for line in read_ids_fp)
+    valid_read_ids = mh.parse_read_ids(args.read_ids_filename)
     aggregate.aggregate_stats(
         args.outputs, args.megalodon_directory, args.processes,
         args.write_vcf_log_probs, args.heterozygous_factors,

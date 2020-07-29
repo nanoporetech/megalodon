@@ -432,10 +432,7 @@ def _extract_signal(
 def _fill_files_queue(input_info, read_file_q, num_reads_conn, aux_failed_q):
     try:
         LOGGER.debug('Starting')
-        valid_read_ids = None
-        if input_info.read_ids_fn is not None:
-            with open(input_info.read_ids_fn) as read_ids_fp:
-                valid_read_ids = set(line.strip() for line in read_ids_fp)
+        valid_read_ids = mh.parse_read_ids(input_info.read_ids_fn)
         used_read_ids = set()
         LOGGER.debug('InitComplete')
     except Exception as e:

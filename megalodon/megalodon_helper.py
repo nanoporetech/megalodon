@@ -478,6 +478,63 @@ def med_mad(data, factor=None, axis=None, keepdims=False):
 # File-type Parsers #
 #####################
 
+def parse_read_ids(read_ids_fn):
+    """ Robust read IDs file parser.
+
+    This function will parse either a file with one read ID per line or a TSV
+    file with the "read_id" field in the header.
+
+    Args:
+        read_ids_fn (str): Filename/path for read IDs parser.
+
+    Returns:
+        Set of read ID strings if successfully parsed or `None` otherwise.
+    """
+    if read_ids_fn is None:
+        return None
+
+    with open(read_ids_fn) as read_ids_fp:
+        header = read_ids_fp.readline().strip()
+        if len(header) == 0:
+            LOGGER.warning(
+                ('Read IDs file, {}, first line is empty. Read IDs file ' +
+                 'will be ignored.').format(read_ids_fn))
+            return None
+        header_fields = header.split('\t')
+        if len(header_fields) > 1:
+            try:
+                read_id_field_num = next(
+                    i for i, f in enumerate(header_fields) if f == 'read_id')
+            except StopIteration:
+                LOGGER.warning(
+                    ('Read IDs file, {}, contains multiple header fields, ' +
+                     'but none are "read_id". Read IDs file will be ' +
+                     'ignored.').format(read_ids_fn))
+                return None
+
+            # parse read id TSV file
+            been_warned = False
+            valid_read_ids = set()
+            for line_num, line in enumerate(read_ids_fp):
+                try:
+                    valid_read_ids.add(
+                        line.strip().split('\t')[read_id_field_num])
+                except Exception:
+                    if not been_warned:
+                        LOGGER.warning(
+                            ('Read IDs TSV file, {}, contains lines with ' +
+                             'fewer fields than header. First offending ' +
+                             'line: {}').format(read_ids_fn, line_num))
+                    been_warned = True
+        else:
+            valid_read_ids = set(line.strip() for line in read_ids_fp)
+            # if first line is not single field header assume this is a
+            # read id as well.
+            if header_fields[0] != 'read_id':
+                valid_read_ids.add(header_fields[0])
+    return valid_read_ids
+
+
 def str_strand_to_int(strand_str):
     """ Convert string stand representation to integer +/-1 as used in
     minimap2/mappy
