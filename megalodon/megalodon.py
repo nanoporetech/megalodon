@@ -526,8 +526,8 @@ def prep_errors_bar(status_info, getter_qs):
         if num_qs > 0:
             bar_header = (
                 '{} most common unsuccessful processing stages (full ' +
-                'output queues indicate I/O bottleneck):').format(
-                    status_info.num_prog_errs)
+                'output or empty input queues indicate I/O ' +
+                'bottleneck):').format(status_info.num_prog_errs)
         else:
             bar_header = (
                 '{} most common unsuccessful processing stages:').format(
@@ -1015,8 +1015,7 @@ def parse_mod_args(args, model_info, ref_out_info):
         mod_all_paths=args.mod_all_paths,
         mod_context_bases=args.mod_context_bases,
         mods_calib_fn=mod_calib_fn, mod_output_fmts=args.mod_output_formats,
-        edge_buffer=args.edge_buffer,
-        pos_index_in_memory=not args.mod_positions_on_disk, agg_info=agg_info,
+        edge_buffer=args.edge_buffer, agg_info=agg_info,
         mod_thresh=args.ref_mod_threshold,
         do_ann_all_mods=args.ref_include_mods,
         map_base_conv=args.mod_map_base_conv,

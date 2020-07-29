@@ -4,7 +4,7 @@ import multiprocessing as mp
 
 from tqdm import tqdm
 
-from megalodon import logging, mods, megalodon_helper as mh
+from megalodon import backends, logging, mods, megalodon_helper as mh
 from ._extras_parsers import get_parser_merge_modified_bases
 
 
@@ -167,31 +167,60 @@ def insert_reads(in_mod_db_fns, out_mods_db):
 # mod/chrm table functions #
 ############################
 
-def insert_mods(in_mod_db_fns, out_mods_db):
+def extract_mods(in_mod_db_fns):
     LOGGER.info('Merging mod tables')
-    all_mod_long_names = set()
+    # collect modified base definitions from input databases
     mod_base_to_can = dict()
     for in_mod_db_fn in tqdm(in_mod_db_fns, smoothing=0, dynamic_ncols=True):
         mods_db = mods.ModsDb(in_mod_db_fn)
         for mod_base, can_base, mln in mods_db.get_full_mod_data():
-            if mod_base in mod_base_to_can:
-                if can_base != mod_base_to_can[mod_base]:
-                    raise mh.MegaError(
-                        'Modified base associated with mutliple canonical ' +
-                        'bases in different databases. {} != {}'.format(
-                            can_base, mod_base_to_can[mod_base]))
-                if (mod_base, mln) not in all_mod_long_names:
-                    raise mh.MegaError(
-                        'Modified base long names differ between databases. ' +
-                        '{} not in {}'.format(
-                            str((mod_base, mln)), str(all_mod_long_names)))
-            else:
-                all_mod_long_names.add((mod_base, mln))
-                mod_base_to_can[mod_base] = can_base
-    out_mods_db.insert_mod_long_names(all_mod_long_names, mod_base_to_can)
+            if mod_base in mod_base_to_can and \
+               (can_base, mln) != mod_base_to_can[mod_base]:
+                raise mh.MegaError(
+                    'Modified base associated with mutliple canonical bases ' +
+                    'or long names in different databases. {} != {}'.format(
+                        str((can_base, mln)),
+                        str(mod_base_to_can[mod_base])))
+            mod_base_to_can[mod_base] = (can_base, mln)
+    # check that mod long names are unique
+    mlns = [mln for _, mln in mod_base_to_can.values()]
+    if len(mlns) != len(set(mlns)):
+        raise mh.MegaError(
+            'Modified base long name assigned to more than one modified ' +
+            'base single letter code.')
+
+    # extract canonical bases associated with modified base
+    can_bases = set(can_base for can_base, _ in mod_base_to_can.values())
+    # determine first valid canonical alphabet compatible with database
+    can_alphabet = None
+    for v_alphabet in mh.VALID_ALPHABETS:
+        if len(can_bases.difference(v_alphabet)) == 0:
+            can_alphabet = v_alphabet
+            break
+    if can_alphabet is None:
+        LOGGER.error(
+            'Mods database does not contain valid canonical bases ({})'.format(
+                ''.join(sorted(can_bases))))
+        raise mh.MegaError('Invalid alphabet.')
+
+    # compute full output alphabet and ordered modified base long names
+    can_base_to_mods = dict(
+        (can_base, [(mod_base, mln)
+                    for mod_base, (mcan_base, mln) in mod_base_to_can.items()
+                    if mcan_base == can_base])
+        for can_base in can_alphabet)
+    alphabet = ''
+    mod_long_names = []
+    for can_base in can_alphabet:
+        alphabet += can_base
+        for mod_base, mln in can_base_to_mods[can_base]:
+            alphabet += mod_base
+            mod_long_names.append(mln)
+
+    return alphabet, mod_long_names
 
 
-def insert_chrms(in_mod_db_fns, out_mods_db):
+def extract_chrms(in_mod_db_fns):
     LOGGER.info('Merging chrm tables')
     ref_names_and_lens = [[], []]
     for in_mod_db_fn in in_mod_db_fns:
@@ -213,8 +242,7 @@ def insert_chrms(in_mod_db_fns, out_mods_db):
             bar.update()
         mods_db.close()
         bar.close()
-    # insert chrms at the end to avoid errors for in memory position datasets
-    out_mods_db.insert_chrms(ref_names_and_lens)
+    return ref_names_and_lens
 
 
 ########
@@ -225,35 +253,39 @@ def _main(args):
     mh.mkdir(args.output_megalodon_results_dir, args.overwrite)
     logging.init_logger(args.output_megalodon_results_dir)
 
-    LOGGER.info('Opening new modified base statistics database')
-    out_mods_db_fn = mh.get_megalodon_fn(
-        args.output_megalodon_results_dir, mh.PR_MOD_NAME)
+    LOGGER.info('Extracting mods and chrms from input databases')
+    in_mod_db_fns = [mh.get_megalodon_fn(mega_dir, mh.PR_MOD_NAME)
+                     for mega_dir in args.megalodon_results_dirs]
+    alphabet, mod_long_names = extract_mods(in_mod_db_fns)
+    ref_names_and_lens = extract_chrms(in_mod_db_fns)
+
+    LOGGER.info('Opening new per-read modified base statistics database')
+    model_info = backends.DetachedModelInfo(
+        alphabet=alphabet, mod_long_names=mod_long_names)
+    mods_info = mods.ModInfo(
+        model_info, out_dir=args.output_megalodon_results_dir)
+    mods.init_mods_db(mods_info, ref_names_and_lens)
+
     # load uuids in memory in main out db only in single process mode.
     # else worker threads only have to load uuid lookup tables
     out_mods_db = mods.ModsDb(
-        out_mods_db_fn, read_only=False, init_db_tables=True,
-        in_mem_uuid_to_dbid=args.single_process,
-        db_safety=args.database_safety)
-    in_mod_db_fns = [mh.get_megalodon_fn(mega_dir, mh.PR_MOD_NAME)
-                     for mega_dir in args.megalodon_results_dirs]
+        mods_info.mods_db_fn, read_only=False,
+        in_mem_uuid_to_dbid=args.single_process)
 
-    LOGGER.info(
-        'Merging will proceed in five stages:\n\t1) chrmosomes\n\t2) ' +
-        'modified base definitions\n\t3) read identifiers\n\t4) reference ' +
-        'positions\n\t5) modified base statistics')
-    insert_chrms(in_mod_db_fns, out_mods_db)
-    insert_mods(in_mod_db_fns, out_mods_db)
+    LOGGER.info('Inserting read UUIDs from input databases')
     if args.single_process:
         insert_reads(in_mod_db_fns, out_mods_db)
     else:
         insert_reads_mp(in_mod_db_fns, out_mods_db)
     # commit so read uuids are available to worker processes
     out_mods_db.commit()
+    LOGGER.info('Inserting per-read calls from input databases')
     if args.single_process:
         insert_data(in_mod_db_fns, out_mods_db, args.data_batch_size)
     else:
         insert_data_mp(
-            in_mod_db_fns, out_mods_db, out_mods_db_fn, args.data_batch_size,
+            in_mod_db_fns, out_mods_db, mods_info.mods_db_fn,
+            args.data_batch_size,
             args.max_processes)
     out_mods_db.commit()
 

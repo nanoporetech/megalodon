@@ -335,7 +335,7 @@ def get_parser_merge_modified_bases():
         '--single-process', action='store_true',
         help='Do not use multiprocessing with one input database per process.')
     parser.add_argument(
-        '--database-safety', type=int, default=1,
+        '--database-safety', type=int, default=0,
         help='Setting for database performance versus corruption ' +
         'protection. Options: 0 (DB corruption on application crash), ' +
         '1 (DB corruption on system crash), 2 (DB safe mode). ' +

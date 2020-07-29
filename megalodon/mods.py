@@ -1401,10 +1401,10 @@ class ModInfo:
             self, model_info, all_mod_motifs_raw=None, mod_all_paths=False,
             mod_context_bases=None, mods_calib_fn=None,
             mod_output_fmts=[mh.MOD_BEDMETHYL_NAME],
-            edge_buffer=mh.DEFAULT_EDGE_BUFFER, pos_index_in_memory=True,
-            agg_info=DEFAULT_AGG_INFO, mod_thresh=0.0, do_ann_all_mods=False,
-            map_base_conv=None, mod_db_timeout=mh.DEFAULT_MOD_DATABASE_TIMEOUT,
-            db_safety=0, out_dir=None, do_output=None):
+            edge_buffer=mh.DEFAULT_EDGE_BUFFER, agg_info=DEFAULT_AGG_INFO,
+            mod_thresh=0.0, do_ann_all_mods=False, map_base_conv=None,
+            mod_db_timeout=mh.DEFAULT_MOD_DATABASE_TIMEOUT, db_safety=0,
+            out_dir=None, do_output=None):
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other modbase info
         # don't want to pass all of these parameters around individually though
@@ -1415,7 +1415,6 @@ class ModInfo:
         self.calib_table = calibration.ModCalibrator(mods_calib_fn)
         self.mod_output_fmts = mod_output_fmts
         self.edge_buffer = edge_buffer
-        self.pos_index_in_memory = pos_index_in_memory
         self.agg_info = agg_info
         self.mod_thresh = mod_thresh
         self.do_ann_all_mods = do_ann_all_mods
@@ -1768,10 +1767,6 @@ class ModWigWriter:
 class AggMods(mh.AbstractAggregationClass):
     """ Class to assist in database queries for per-site aggregation of
     modified base calls over reads.
-
-    Warning, setting pos_index_in_memory for a large database will drastically
-    increase the startup time and memory usage (~8GB for a human genome at
-    CpG sites).
     """
     def __init__(self, mods_db_fn, agg_info=DEFAULT_AGG_INFO,
                  write_mod_lp=False, load_uuid_index_in_memory=False):

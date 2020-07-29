@@ -235,13 +235,6 @@ def get_parser():
         help=hidden_help('Modified base aggregated output format(s). ' +
                          'Default: %(default)s'))
     mod_grp.add_argument(
-        '--mod-positions-on-disk', action='store_true',
-        help=hidden_help('Force modified base positions to be stored ' +
-                         'only within on disk database table. This option ' +
-                         'will reduce the RAM memory requirement, but may ' +
-                         'drastically slow processing. Default: Store ' +
-                         'positions in memory and on disk.'))
-    mod_grp.add_argument(
         '--write-mod-log-probs', action='store_true',
         help=hidden_help('Write per-read modified base log probabilities ' +
                          'out in non-standard modVCF field.'))
