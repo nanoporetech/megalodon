@@ -1435,14 +1435,14 @@ class ModInfo:
             pass
         if model_info.is_cat_mod:
             LOGGER.info(
-                'Using canonical alphabet {} and modified bases {}.'.format(
+                'Using canonical alphabet {} and modified bases {}'.format(
                     self.alphabet, '; '.join(
                         '{}={} (alt to {})'.format(
                             mod_b, mln, model_info.mod_base_to_can[mod_b])
                         for mod_b, mln in model_info.mod_long_names)))
         else:
             LOGGER.info(
-                'Using canonical alphabet {}.'.format(self.alphabet))
+                'Using canonical alphabet {}'.format(self.alphabet))
 
         self.nbase = len(self.alphabet)
         self.n_can_state = (self.ncan_base + self.ncan_base) * (

@@ -41,7 +41,9 @@ NESTED_COMMANDS = [
       (ep.CMD_MODS_UPDATE_DB,
        'Update modified base database from older versions of Megalodon'),
       (ep.CMD_MODS_GT,
-       'Create ground truth modified base file from bedmethyl files')]),
+       'Create ground truth modified base file from bedmethyl files'),
+      (ep.CMD_MODS_INDEX,
+       'Create per-read modified base database index')]),
 
     (ep.GRP_PHASE,
      'Phase variants',
@@ -75,7 +77,9 @@ NESTED_COMMANDS = [
       (ep.CMD_VAR_RESOLVE,
        'Resolve potentially conflicting variants'),
       (ep.CMD_VAR_HET_FACTOR,
-       'Estimate optimal heterozygous factors for diploid variant calling')])
+       'Estimate optimal heterozygous factors for diploid variant calling'),
+      (ep.CMD_VAR_INDEX,
+       '***** Stub for future implementation *****')])
 ]
 
 

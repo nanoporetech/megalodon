@@ -181,6 +181,12 @@ class VarsDb:
             if self.uuid_idx_in_mem:
                 self.uuid_idx = {}
 
+    def check_data_covering_index_exists(self):
+        if len(self.cur.execute(
+                'SELECT name FROM sqlite_master WHERE type="index" AND name=?',
+                ('data_cov_idx', )).fetchall()) == 0:
+            raise mh.MegaError('Data covering index does not exist.')
+
     # insert data functions
     def get_chrm_id_or_insert(self, chrm, chrm_len):
         try:
@@ -1175,7 +1181,7 @@ class VarInfo:
         if self.variant_fn is None:
             return
 
-        LOGGER.info('Loading variants.')
+        LOGGER.info('Loading variants')
         vars_idx = pysam.VariantFile(self.variant_fn)
         try:
             contigs = list(vars_idx.header.contigs.keys())

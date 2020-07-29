@@ -47,8 +47,6 @@ def _main(args):
         LOGGER.info('Indexing output variant file')
         variants.index_variants(sort_variant_fn)
 
-    return
-
 
 if __name__ == '__main__':
     _main(get_parser_aggregate_run().parse_args())

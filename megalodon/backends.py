@@ -188,7 +188,7 @@ class ModelInfo(object):
         self.can_base_mods = dict(self.can_base_mods)
 
     def _load_taiyaki_model(self):
-        LOGGER.info('Loading taiyaki basecalling backend.')
+        LOGGER.info('Loading taiyaki basecalling backend')
         self.model_type = TAI_NAME
 
         devices = self.params.taiyaki.devices
@@ -306,7 +306,7 @@ class ModelInfo(object):
                     'Fast5 read does not contain required attributes.')
             return stride, mod_long_names, out_alphabet, out_size
 
-        LOGGER.info('Loading FAST5 basecalling backend.')
+        LOGGER.info('Loading FAST5 basecalling backend')
         self.model_type = FAST5_NAME
         self.process_devices = [None, ] * self.num_proc
 
@@ -425,7 +425,7 @@ class ModelInfo(object):
             if self.output_alphabet is None:
                 self.output_alphabet = mh.ALPHABET
 
-        LOGGER.info('Loading guppy basecalling backend.')
+        LOGGER.info('Loading guppy basecalling backend')
         self.model_type = PYGUPPY_NAME
         self.process_devices = [None, ] * self.num_proc
 

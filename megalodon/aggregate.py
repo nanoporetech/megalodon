@@ -275,7 +275,7 @@ def aggregate_stats(
         num_vars = agg_vars.num_uniq()
         ref_names_and_lens = agg_vars.vars_db.get_all_chrm_and_lens()
         agg_vars.close()
-        LOGGER.info('Spawning variant aggregation processes.')
+        LOGGER.info('Spawning variant aggregation processes')
         # create process to collect var stats from workers
         var_stats_q, var_stats_p, m_var_stats_conn = mega_mp.create_getter_q(
             _get_var_stats_queue, (
@@ -306,7 +306,7 @@ def aggregate_stats(
         num_mods = agg_mods.num_uniq()
         ref_names_and_lens = agg_mods.mods_db.get_all_chrm_and_lens()
         agg_mods.close()
-        LOGGER.info('Spawning modified base aggregation processes.')
+        LOGGER.info('Spawning modified base aggregation processes')
         # create process to collect mods stats from workers
         mod_stats_q, mod_stats_p, m_mod_stats_conn = mega_mp.create_getter_q(
             _get_mod_stats_queue, (
@@ -338,18 +338,18 @@ def aggregate_stats(
         return
     if num_vars == 0:
         LOGGER.info(
-            'Aggregating {} per-read modified base statistics.'.format(
+            'Aggregating {} per-read modified base statistics'.format(
                 num_mods))
     elif num_mods == 0:
-        LOGGER.info('Aggregating {} variants.'.format(num_vars))
+        LOGGER.info('Aggregating {} variants'.format(num_vars))
     else:
         LOGGER.info((
             'Aggregating {} variants and {} per-read modified base ' +
-            'statistics.').format(num_vars, num_mods))
+            'statistics').format(num_vars, num_mods))
     LOGGER.info(
         'NOTE: If this step is very slow, ensure the output directory is ' +
         'located on a fast read disk (e.g. local SSD). Aggregation can be ' +
-        'restarted using the `megalodon_extras aggregate run` command.')
+        'restarted using the `megalodon_extras aggregate run` command')
 
     # create progress process
     main_prog_conn, prog_conn = mp.Pipe()

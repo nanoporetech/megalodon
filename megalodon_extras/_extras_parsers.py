@@ -20,8 +20,7 @@ def get_parser_aggregate_run():
         choices=[mh.VAR_NAME, mh.MOD_NAME],
         help='Output type(s) to produce. Default: %(default)s')
     out_grp.add_argument(
-        '--megalodon-directory',
-        default='megalodon_results',
+        '--megalodon-directory', default='megalodon_results',
         help='Megalodon output directory containing per-read database(s) ' +
         'where aggregated results will be added. Default: %(default)s')
     out_grp.add_argument(
@@ -476,6 +475,22 @@ def get_parser_modified_bases_create_ground_truth():
     return parser
 
 
+def get_parser_modified_bases_index_database():
+    parser = argparse.ArgumentParser(
+        description='Create per-read modified bases calls database index. ' +
+        'Can rescue results from unexpected program crashes.')
+
+    parser.add_argument(
+        '--megalodon-directory', default='megalodon_results',
+        help='Megalodon output directory containing per-read modified bases ' +
+        'database to be indexed. Default: %(default)s')
+    parser.add_argument(
+        '--output-suffix', default='mod_index_database',
+        help='Log file suffix. Default: %(default)s')
+
+    return parser
+
+
 #########################
 # Phase Variant Parsers #
 #########################
@@ -797,6 +812,22 @@ def get_parser_variants_heterozygous_factor():
     return parser
 
 
+def get_parser_variants_index_database():
+    parser = argparse.ArgumentParser(
+        description='Create per-read variant calls database index. Can ' +
+        'rescue results from unexpected program crashes.')
+
+    parser.add_argument(
+        '--megalodon-directory', default='megalodon_results',
+        help='Megalodon output directory containing per-read variant ' +
+        'database to be indexed. Default: %(default)s')
+    parser.add_argument(
+        '--output-suffix', default='var_index_database',
+        help='Log file suffix. Default: %(default)s')
+
+    return parser
+
+
 # all megalodon_extras command groups
 GRP_AGG = 'aggregate'
 CMD_AGG_RUN = 'run'
@@ -817,6 +848,7 @@ CMD_MODS_ALPHABET = 'describe_alphabet'
 CMD_MODS_EST_THRESH = 'estimate_threshold'
 CMD_MODS_UPDATE_DB = 'update_database'
 CMD_MODS_GT = 'create_ground_truth'
+CMD_MODS_INDEX = 'index_database'
 
 GRP_PHASE = 'phase_variants'
 CMD_PHASE_FILT_WHATSHAP = 'whatshap_filter'
@@ -836,6 +868,7 @@ GRP_VARS = 'variants'
 CMD_VAR_ATOM = 'atomize'
 CMD_VAR_RESOLVE = 'resolve'
 CMD_VAR_HET_FACTOR = 'heterozygous_factor'
+CMD_VAR_INDEX = 'index_database'
 
 PARSERS = {
     GRP_AGG: {
@@ -853,7 +886,8 @@ PARSERS = {
         CMD_MODS_ALPHABET: get_parser_modified_bases_describe_alphabet,
         CMD_MODS_EST_THRESH: get_parser_modified_bases_estimate_threshold,
         CMD_MODS_UPDATE_DB: get_parser_modified_bases_update_database,
-        CMD_MODS_GT: get_parser_modified_bases_create_ground_truth},
+        CMD_MODS_GT: get_parser_modified_bases_create_ground_truth,
+        CMD_MODS_INDEX: get_parser_modified_bases_index_database},
     GRP_PHASE: {
         CMD_PHASE_FILT_WHATSHAP: get_parser_phase_variants_whatshap_filter,
         CMD_PHASE_GET_HAP_READS:
@@ -869,7 +903,8 @@ PARSERS = {
     GRP_VARS: {
         CMD_VAR_ATOM: get_parser_variants_atomize,
         CMD_VAR_RESOLVE: get_parser_variants_resolve,
-        CMD_VAR_HET_FACTOR: get_parser_variants_heterozygous_factor}}
+        CMD_VAR_HET_FACTOR: get_parser_variants_heterozygous_factor,
+        CMD_VAR_INDEX: get_parser_variants_index_database}}
 
 
 if __name__ == '__main__':
