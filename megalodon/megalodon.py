@@ -730,7 +730,7 @@ def wait_for_completion(
                 if out_name == mh.PR_VAR_NAME:
                     LOGGER.info(
                         'Waiting for variants database to complete indexing')
-                elif out_name == mh.PR_VAR_NAME:
+                elif out_name == mh.PR_MOD_NAME:
                     LOGGER.info(
                         'Waiting for mods database to complete indexing')
                 LOGGER.debug('JoiningMain: {}'.format(getter_p.name))
