@@ -1287,7 +1287,7 @@ def _get_mods_queue(mods_q, mods_info, map_info, ref_out_info, aux_failed_q):
             mod_map_fps = dict((
                 (mod_base, pysam.AlignmentFile(
                     mod_map_fn + map_info.map_fmt, w_mode, header=header,
-                    reference_filename=map_info.ref_fn))
+                    reference_filename=map_info.cram_ref_fn))
                 for mod_base, mod_map_fn in mod_map_fns))
         been_warned_timeout = been_warned_other = False
         LOGGER.debug('GetterInitComplete')

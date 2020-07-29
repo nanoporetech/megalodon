@@ -1092,7 +1092,7 @@ def _get_variants_queue(
                 '{}.{}'.format(
                     mh.get_megalodon_fn(vars_info.out_dir, mh.VAR_MAP_NAME),
                     map_info.map_fmt),
-                w_mode, header=header, reference_filename=map_info.ref_fn)
+                w_mode, header=header, reference_filename=map_info.cram_ref_fn)
         LOGGER.debug('GetterInitComplete')
     except Exception as e:
         aux_failed_q.put(('VarsInitError', str(e), traceback.format_exc()))

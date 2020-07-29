@@ -69,7 +69,7 @@ def get_map_pos_from_res(map_res):
 class MapInfo:
     def __init__(
             self, aligner, map_fmt, ref_fn, out_dir, do_output_mappings,
-            samtools_exec, do_sort_mappings):
+            samtools_exec, do_sort_mappings, cram_ref_fn):
         if aligner is None:
             self.ref_names_and_lens = None
         else:
@@ -81,6 +81,8 @@ class MapInfo:
 
         self.map_fmt = map_fmt
         self.ref_fn = mh.resolve_path(ref_fn)
+        self.cram_ref_fn = self.ref_fn if cram_ref_fn is None else \
+            mh.resolve_path(cram_ref_fn)
         self.out_dir = out_dir
         self.do_output_mappings = do_output_mappings
         self.samtools_exec = samtools_exec
@@ -97,18 +99,21 @@ class MapInfo:
             w_mode = 'w'
         else:
             raise mh.MegaError('Invalid mapping output format')
-        return pysam.AlignmentFile(
-            map_fn, w_mode, reference_names=self.ref_names_and_lens[0],
-            reference_lengths=self.ref_names_and_lens[1],
-            reference_filename=self.ref_fn)
+        try:
+            align_file = pysam.AlignmentFile(
+                map_fn, w_mode, reference_names=self.ref_names_and_lens[0],
+                reference_lengths=self.ref_names_and_lens[1],
+                reference_filename=self.cram_ref_fn)
+        except ValueError:
+            LOGGER.error(
+                'Failed to open alignment file for writing.\n\t\tFor CRAM ' +
+                'output, if FASTA is compressed ensure it is with bgzip or ' +
+                'if --reference is a minimap2 index see --cram-reference.')
+            raise mh.MegaError('Reference loading error.')
+        return align_file
 
     def test_open_alignment_out_file(self):
-        try:
-            map_fp = self.open_alignment_out_file()
-        except ValueError:
-            raise mh.MegaError(
-                'Failed to open alignment file for writing. Check that ' +
-                'reference file is compressed with bgzip for CRAM output.')
+        map_fp = self.open_alignment_out_file()
         map_fp.close()
         os.remove(map_fp.filename)
 
@@ -353,7 +358,8 @@ def _get_map_queue(mo_q, map_info, ref_out_info, aux_failed_q):
 # Samtools wrapper #
 ####################
 
-def sort_and_index_mapping(samtools_exec, map_fn, out_fn, map_fmt, ref_fn=None):
+def sort_and_index_mapping(
+        samtools_exec, map_fn, out_fn, map_fmt, ref_fn=None):
     sort_args = [
         samtools_exec, 'sort', '-O', map_fmt.upper(), '-o', out_fn, map_fn]
     if map_fmt == mh.MAP_OUT_CRAM:

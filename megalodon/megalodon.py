@@ -58,19 +58,19 @@ def start_sort_mapping_procs(map_info, mods_info, vars_info):
         LOGGER.info('Spawning process to sort mappings')
         map_p, _ = post_process_mapping(
             mh.get_megalodon_fn(map_info.out_dir, mh.MAP_NAME),
-            map_info.map_fmt, map_info.ref_fn, map_info.samtools_exec)
+            map_info.map_fmt, map_info.cram_ref_fn, map_info.samtools_exec)
     if mods_info.do_output.mod_map and map_info.do_sort_mappings:
         LOGGER.info('Spawning process to sort modified base mappings')
         mod_map_ps = [post_process_mapping(
             '{}.{}'.format(mh.get_megalodon_fn(
                 mods_info.out_dir, mh.MOD_MAP_NAME), mln),
-            map_info.map_fmt, map_info.ref_fn, map_info.samtools_exec)[0]
+            map_info.map_fmt, map_info.cram_ref_fn, map_info.samtools_exec)[0]
                       for _, mln in mods_info.mod_long_names]
     if vars_info.do_output.var_map and map_info.do_sort_mappings:
         LOGGER.info('Spawning process to sort variant mappings')
         var_map_p, var_sort_fn = post_process_mapping(
             mh.get_megalodon_fn(vars_info.out_dir, mh.VAR_MAP_NAME),
-            map_info.map_fmt, map_info.ref_fn, map_info.samtools_exec)
+            map_info.map_fmt, map_info.cram_ref_fn, map_info.samtools_exec)
     return map_p, mod_map_ps, var_map_p, var_sort_fn
 
 
@@ -874,11 +874,16 @@ def parse_aligner_args(args):
                 '[--reference] provided, but no [--outputs] requiring ' +
                 'alignment was requested. Argument will be ignored.')
     map_info = mapping.MapInfo(
-        aligner, args.mappings_format, args.reference, args.output_directory,
-        mh.MAP_NAME in args.outputs, args.samtools_executable,
-        args.sort_mappings)
+        aligner=aligner, map_fmt=args.mappings_format, ref_fn=args.reference,
+        out_dir=args.output_directory,
+        do_output_mappings=mh.MAP_NAME in args.outputs,
+        samtools_exec=args.samtools_executable,
+        do_sort_mappings=args.sort_mappings, cram_ref_fn=args.cram_reference)
     if map_info.do_output_mappings:
-        map_info.test_open_alignment_out_file()
+        try:
+            map_info.test_open_alignment_out_file()
+        except mh.MegaError:
+            sys.exit(1)
         if map_info.do_sort_mappings:
             map_info.test_samtools()
     return aligner, map_info

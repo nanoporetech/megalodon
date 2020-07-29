@@ -106,6 +106,12 @@ def get_parser():
         'called reads.')
 
     map_grp.add_argument(
+        '--cram-reference',
+        help=hidden_help('FASTA reference file. If --reference is a ' +
+                         'minimap2 index, the associated FASTA reference ' +
+                         'needs to be provided for the CRAM mapping output ' +
+                         'format.'))
+    map_grp.add_argument(
         '--samtools-executable', default='samtools',
         help=hidden_help('Samtools executable or path. Default: %(default)s'))
     map_grp.add_argument(
