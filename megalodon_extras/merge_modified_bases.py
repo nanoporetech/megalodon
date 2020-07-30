@@ -21,8 +21,7 @@ QUEUE_SIZE_LIMIT = 100
 
 def extract_data_worker(in_db_fns_q, data_conn, out_mods_db_fn, batch_size):
     # load output database with uuid in-memory indices
-    out_mods_db = mods.ModsDb(
-        out_mods_db_fn, read_only=True, in_mem_uuid_to_dbid=True)
+    out_mods_db = mods.ModsDb(out_mods_db_fn, in_mem_uuid_to_dbid=True)
     while True:
         try:
             in_mod_db_fn = in_db_fns_q.get(block=True, timeout=0.1)
@@ -77,7 +76,7 @@ def insert_data_mp(
         in_mods_db = mods.ModsDb(in_mod_db_fn)
         total_batches += (in_mods_db.get_num_uniq_stats() // batch_size) + 1
         in_mods_db.close()
-    bar = tqdm(desc='Statistics Batches', total=total_batches,
+    bar = tqdm(desc='Data Batches', unit='Batches', total=total_batches,
                smoothing=0, dynamic_ncols=True)
 
     while data_q.has_valid_conns:
@@ -89,11 +88,15 @@ def insert_data_mp(
 
 def insert_data(in_mod_db_fns, out_mods_db, batch_size):
     LOGGER.info('Inserting modified base data')
+    total_batches = 0
     for in_mod_db_fn in in_mod_db_fns:
         in_mods_db = mods.ModsDb(in_mod_db_fn)
-        bar = tqdm(
-            desc=in_mod_db_fn, total=in_mods_db.get_num_uniq_stats(),
-            smoothing=0, dynamic_ncols=True)
+        total_batches += (in_mods_db.get_num_uniq_stats() // batch_size) + 1
+        in_mods_db.close()
+    bar = tqdm(desc='Data Batches', unit='Batches', total=total_batches,
+               smoothing=0, dynamic_ncols=True)
+    for in_mod_db_fn in in_mod_db_fns:
+        in_mods_db = mods.ModsDb(in_mod_db_fn)
         batch_data = []
         for score, uuid, mod_base, in_pos_dbid in in_mods_db.iter_data():
             out_pos_dbid = out_mods_db.get_pos_dbid(*in_mods_db.get_pos(
@@ -104,11 +107,12 @@ def insert_data(in_mod_db_fns, out_mods_db, batch_size):
             if len(batch_data) >= batch_size:
                 out_mods_db.insert_batch_data(batch_data)
                 batch_data = []
-            bar.update()
+                bar.update()
         if len(batch_data) > 0:
             out_mods_db.insert_batch_data(batch_data)
+            bar.update()
         in_mods_db.close()
-        bar.close()
+    bar.close()
 
 
 ########################
@@ -133,7 +137,7 @@ def insert_reads_mp(in_mod_db_fns, out_mods_db):
         p.start()
         uuids_ps.append(p)
 
-    bar = tqdm(desc='Input DBs', total=len(in_mod_db_fns),
+    bar = tqdm(desc='Databases', unit='DBs', total=len(in_mod_db_fns),
                smoothing=0, dynamic_ncols=True)
     in_uuids = set()
     while any(p.is_alive() for p in uuids_ps):
@@ -155,7 +159,8 @@ def insert_reads_mp(in_mod_db_fns, out_mods_db):
 def insert_reads(in_mod_db_fns, out_mods_db):
     LOGGER.info('Merging read uuid tables')
     in_uuids = set()
-    for in_mod_db_fn in tqdm(in_mod_db_fns, smoothing=0, dynamic_ncols=True):
+    for in_mod_db_fn in tqdm(in_mod_db_fns, desc='Databases', unit='DBs',
+                             smoothing=0, dynamic_ncols=True):
         in_mods_db = mods.ModsDb(in_mod_db_fn)
         in_uuids.update(uuid for _, uuid in in_mods_db.iter_uuids())
         in_mods_db.close()
@@ -170,7 +175,8 @@ def extract_mods(in_mod_db_fns):
     LOGGER.info('Merging mod tables')
     # collect modified base definitions from input databases
     mod_base_to_can = dict()
-    for in_mod_db_fn in tqdm(in_mod_db_fns, smoothing=0, dynamic_ncols=True):
+    for in_mod_db_fn in tqdm(in_mod_db_fns, desc='Databases', unit='DBs',
+                             smoothing=0, dynamic_ncols=True):
         mods_db = mods.ModsDb(in_mod_db_fn)
         for mod_base, can_base, mln in mods_db.get_full_mod_data():
             if mod_base in mod_base_to_can and \
@@ -222,10 +228,9 @@ def extract_mods(in_mod_db_fns):
 def extract_chrms(in_mod_db_fns):
     LOGGER.info('Merging chrm tables')
     ref_names_and_lens = [[], []]
-    for in_mod_db_fn in in_mod_db_fns:
+    for in_mod_db_fn in tqdm(in_mod_db_fns, desc='Databases', unit='DBs',
+                             smoothing=0, dynamic_ncols=True):
         mods_db = mods.ModsDb(in_mod_db_fn)
-        bar = tqdm(desc=in_mod_db_fn, total=mods_db.get_num_uniq_chrms(),
-                   smoothing=0, dynamic_ncols=True)
         for _, chrm, chrm_len in mods_db.iter_chrms():
             if chrm in ref_names_and_lens[0]:
                 prev_chrm_len = ref_names_and_lens[1][
@@ -238,9 +243,7 @@ def extract_chrms(in_mod_db_fns):
             else:
                 ref_names_and_lens[0].append(chrm)
                 ref_names_and_lens[1].append(chrm_len)
-            bar.update()
         mods_db.close()
-        bar.close()
     return ref_names_and_lens
 
 
