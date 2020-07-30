@@ -1134,8 +1134,9 @@ def call_read_mods(
                         'Invalid charcters for signal mapping found in ' +
                         'mapped sequence: ({})').format(''.join(invalid_chars))
                     # Send invalid character code to failed reads queue
-                    failed_reads_q.put((
-                        True, False, fail_msg, fast5_fn, None, 0))
+                    failed_reads_q.put(tuple(mh.READ_STATUS(
+                        is_err=True, do_update_prog=True, err_type=fail_msg,
+                        fast5_fn=fast5_fn)))
             else:
                 # replace reference sequence with mod annotated sequence
                 sig_map_res = sig_map_res._replace(

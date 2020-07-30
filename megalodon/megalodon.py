@@ -12,7 +12,6 @@ from collections import defaultdict, OrderedDict
 import mappy
 import numpy as np
 from tqdm import tqdm
-from tqdm._utils import _term_move_up
 
 from megalodon import (
     aggregate, backends, fast5_io, logging, mapping, mods,
@@ -103,16 +102,18 @@ def handle_errors(func, args, r_vals, out_q, fast5_fn, failed_reads_q):
     try:
         out_q.put((func(*args), r_vals))
     except KeyboardInterrupt:
-        failed_reads_q.put(
-            (True, False, 'Keyboard interrupt', fast5_fn, None, 0))
+        failed_reads_q.put(tuple(mh.READ_STATUS(
+            is_err=True, do_update_prog=False, err_type='Keyboard interrupt',
+            fast5_fn=fast5_fn)))
         return
     except mh.MegaError as e:
-        failed_reads_q.put(
-            (True, False, str(e), fast5_fn, None, 0))
+        failed_reads_q.put(tuple(mh.READ_STATUS(
+            is_err=True, do_update_prog=False, err_type=str(e),
+            fast5_fn=fast5_fn)))
     except Exception:
-        failed_reads_q.put((
-            True, False, _UNEXPECTED_ERROR_CODE, fast5_fn,
-            traceback.format_exc(), 0))
+        failed_reads_q.put(tuple(mh.READ_STATUS(
+            is_err=True, do_update_prog=False, err_type=_UNEXPECTED_ERROR_CODE,
+            fast5_fn=fast5_fn, err_tb=traceback.format_exc())))
 
 
 def interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum):
@@ -179,6 +180,7 @@ def process_read(
         bc_info.rev_sig)
     np_ref_seq = mh.seq_to_int(r_ref_seq, error_on_invalid=False)
 
+    failed_reads_q = getter_conns[_FAILED_READ_GETTER_NAME]
     sig_map_res = None
     if ref_out_info.do_output.sig_maps:
         pass_sig_map_filts = mapping.read_passes_filters(
@@ -196,9 +198,10 @@ def process_read(
                 LOGGER.debug('{} SignalMappingError {}'.format(
                     sig_info.read_id, str(e)))
                 # taiyaki errors can contain newlines so split them here
-                getter_conns[_FAILED_READ_GETTER_NAME].put((
-                    True, False, ' ::: '.join(str(e).strip().split('\n')),
-                    sig_info.fast5_fn, None, 0))
+                failed_reads_q.put(tuple(mh.READ_STATUS(
+                    is_err=True, do_update_prog=False,
+                    err_type=' ::: '.join(str(e).strip().split('\n')),
+                    fast5_fn=sig_info.fast5_fn)))
 
     # get mapped start in post and run len to mapped bit of output
     post_mapped_start, post_mapped_end = (rl_cumsum[r_ref_pos.q_trim_start],
@@ -224,7 +227,7 @@ def process_read(
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
             out_q=getter_conns[mh.PR_VAR_NAME],
             fast5_fn=sig_info.fast5_fn + ':::' + sig_info.read_id,
-            failed_reads_q=getter_conns[_FAILED_READ_GETTER_NAME])
+            failed_reads_q=failed_reads_q)
     if mods_info.do_output.db:
         mapped_post_w_mods = post_w_mods[post_mapped_start:post_mapped_end]
         mod_sig_map_q = getter_conns[mh.SIG_MAP_NAME] \
@@ -232,15 +235,14 @@ def process_read(
         handle_errors(
             func=mods.call_read_mods,
             args=(r_ref_pos, r_ref_seq, ref_to_block, mapped_post_w_mods,
-                  mods_info, mod_sig_map_q, sig_map_res,
-                  bc_info.rev_sig, sig_info.read_id,
-                  getter_conns[_FAILED_READ_GETTER_NAME], sig_info.fast5_fn),
+                  mods_info, mod_sig_map_q, sig_map_res, bc_info.rev_sig,
+                  sig_info.read_id, failed_reads_q, sig_info.fast5_fn),
             r_vals=(sig_info.read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
             out_q=getter_conns[mh.PR_MOD_NAME],
             fast5_fn=sig_info.fast5_fn + ':::' + sig_info.read_id,
-            failed_reads_q=getter_conns[_FAILED_READ_GETTER_NAME])
+            failed_reads_q=failed_reads_q)
 
 
 ########################
@@ -264,7 +266,7 @@ def _process_reads_worker(
             yield (backends.SIGNAL_DATA(*sig_info),
                    mh.SEQ_SUMM_INFO(*seq_summ_info))
 
-    fr_q = getter_conns[_FAILED_READ_GETTER_NAME]
+    failed_reads_q = getter_conns[_FAILED_READ_GETTER_NAME]
     # wrap process prep in try loop to avoid stalled command
     try:
         model_info.prep_model_worker(device)
@@ -281,11 +283,12 @@ def _process_reads_worker(
             process_read(
                 getter_conns, caller_conn, sig_info, seq_summ_info, model_info,
                 ref_out_info, vars_info, mods_info, bc_info)
-            fr_q.put((False, True, None, None, None, sig_info.raw_len))
+            failed_reads_q.put(tuple(mh.READ_STATUS(n_sig=sig_info.raw_len)))
             LOGGER.debug('{} Success'.format(sig_info.read_id))
         except KeyboardInterrupt:
-            fr_q.put(
-                (True, True, 'Keyboard interrupt', sig_info.fast5_fn, None, 0))
+            failed_reads_q.put(tuple(mh.READ_STATUS(
+                is_err=True, do_update_prog=False,
+                err_type='Keyboard interrupt', fast5_fn=sig_info.fast5_fn)))
             LOGGER.debug('{} KeyboardInterrupt'.format(sig_info.read_id))
             for getter_conn in getter_conns.values():
                 if getter_conn is not None:
@@ -294,13 +297,16 @@ def _process_reads_worker(
         except mh.MegaError as e:
             raw_len = sig_info.raw_len if hasattr(sig_info, 'raw_len') else 0
             fn_rid = '{}:::{}'.format(sig_info.fast5_fn, sig_info.read_id)
-            fr_q.put((True, True, str(e), fn_rid, None, raw_len))
+            failed_reads_q.put(tuple(mh.READ_STATUS(
+                is_err=True, do_update_prog=True, err_type=str(e),
+                fast5_fn=fn_rid, n_sig=raw_len)))
             LOGGER.debug('{} Failed {}'.format(sig_info.read_id, str(e)))
         except Exception as e:
             fn_rid = '{}:::{}'.format(sig_info.fast5_fn, sig_info.read_id)
-            fr_q.put((
-                True, True, _UNEXPECTED_ERROR_CODE, fn_rid,
-                traceback.format_exc(), 0))
+            failed_reads_q.put(tuple(mh.READ_STATUS(
+                is_err=True, do_update_prog=True,
+                err_type=_UNEXPECTED_ERROR_CODE, fast5_fn=fn_rid,
+                err_tb=traceback.format_exc())))
             LOGGER.debug(
                 '{} UnexpectedFail {}'.format(sig_info.read_id, str(e)))
     for getter_conn in getter_conns.values():
@@ -472,20 +478,74 @@ def _fill_files_queue(input_info, read_file_q, num_reads_conn, aux_failed_q):
         read_file_q.put(None)
 
 
-def format_fail_summ(header, fail_summ=[], reads_called=0, num_errs=None):
-    summ_errs = sorted(fail_summ)[::-1]
+####################
+# Dynamic progress #
+####################
+
+def iter_most_common_errs(err_types, reads_called, num_errs=None):
+    summ_errs = sorted(err_types)[::-1]
     if num_errs is not None:
         summ_errs = summ_errs[:num_errs]
-        if len(summ_errs) < num_errs:
-            summ_errs.extend([(None, '') for _ in range(
-                num_errs - len(summ_errs))])
-    errs_str = '\n'.join(
-        "{:8.1f}% ({:>7} reads)".format(
-            100 * n_fns / float(reads_called), n_fns) +
-        " : " + '{:<80}'.format(err)
-        if (n_fns is not None and reads_called > 0) else
-        '     -----' for n_fns, err in summ_errs)
-    return '\n'.join((header, errs_str))
+    if reads_called == 0:
+        summ_errs = []
+    # skip errors that were checked but not registered
+    summ_errs = [(n_fns, err) for n_fns, err in summ_errs if n_fns > 0]
+    for n_fns, err in summ_errs:
+        yield '{:8.1f}% ({:>7} reads) : {:<80}'.format(
+            100 * n_fns / float(reads_called), n_fns, err)
+    if num_errs is not None and len(summ_errs) < num_errs:
+        for _ in range(num_errs - len(summ_errs)):
+            yield '    -----'
+
+
+def update_err(failed_reads, err_type, fast5_fn, err_tb, unexp_err_fp):
+    failed_reads[err_type].append(fast5_fn)
+    if err_type == _UNEXPECTED_ERROR_CODE:
+        # if this is the first unexpected error open file
+        if len(failed_reads[_UNEXPECTED_ERROR_CODE]) == 1:
+            unexp_err_fp = open(_UNEXPECTED_ERROR_FN.format(
+                np.random.randint(10000)), 'w')
+        if len(failed_reads[err_type]) >= _MAX_NUM_UNEXP_ERRORS:
+            # if this is the unexpected error limit close the file
+            unexp_err_fp.close()
+        else:
+            # else write the error
+            unexp_err_fp.write(
+                fast5_fn + '\n:::\n' + err_tb + '\n\n\n')
+            unexp_err_fp.flush()
+    return unexp_err_fp
+
+
+def update_prog(
+        err_statuses, bar, q_bars, sig_called, getter_qs, status_info,
+        reads_called, failed_reads, last_err_write, read_called=True):
+    try:
+        bar.set_postfix(
+            {'samples/s': sig_called / bar.format_dict['elapsed']},
+            refresh=False)
+    except AttributeError:
+        # sometimes get no format_dict error, if so don't include samples/s
+        pass
+    if q_bars is not None:
+        for q_name, q_bar in q_bars.items():
+            q_bar.n = getter_qs[q_name].qsize()
+            # trigger display refresh
+            q_bar.update(0)
+    if read_called:
+        bar.update()
+    if status_info.num_prog_errs > 0:
+        err_types = [
+            (len(fns), err) for err, fns in failed_reads.items()]
+        num_errs = sum((x[0] for x in err_types))
+        if num_errs > 0 and (
+                last_err_write == 0 or
+                num_errs / last_err_write > 1 + ERR_UPDATE_PROP):
+            last_err_write = num_errs
+            for err_num, err_status in enumerate(iter_most_common_errs(
+                    err_types, reads_called, status_info.num_prog_errs)):
+                err_statuses[err_num].set_description_str(err_status)
+
+    return last_err_write
 
 
 def prep_errors_bar(status_info, getter_qs):
@@ -507,23 +567,24 @@ def prep_errors_bar(status_info, getter_qs):
             (q_num, q_name, 'output queue capacity {}'.format(q_name))
             for q_num, q_name in enumerate(valid_q_names)]
 
-    err_statuses = bar = q_bars = None
+    err_statuses = q_bars = None
     if status_info.num_prog_errs > 0:
         # write header for progress bars if dynamic error reporting is on
         sys.stderr.write(
             '{} most common unsuccessful processing stages:\n'.format(
                 status_info.num_prog_errs))
         err_statuses = [
-            tqdm(total=0, position=err_num, bar_format='{desc}', desc='-----')
+            tqdm(position=err_num, bar_format='{desc}', desc='    -----')
             for err_num in range(status_info.num_prog_errs)]
     # open main progress bar
     bar = tqdm(total=None, smoothing=0, initial=0,
-               unit=' read(s)', dynamic_ncols=True,
+               unit='reads', dynamic_ncols=True,
                position=status_info.num_prog_errs, desc='Read Processing')
     if q_labs is not None:
         q_bars = OrderedDict((q_name, tqdm(
             desc=q_lab, total=mh._MAX_QUEUE_SIZE, smoothing=0,
-            dynamic_ncols=True, position=q_num + 1,
+            dynamic_ncols=True,
+            position=q_num + 1 + status_info.num_prog_errs,
             bar_format='{desc: <42}: {percentage:3.0f}%|{bar}| ' +
             '{n_fmt}/{total_fmt}')) for q_num, q_name, q_lab in q_labs)
 
@@ -532,52 +593,6 @@ def prep_errors_bar(status_info, getter_qs):
 
 def _get_fail_queue(
         failed_reads_q, status_info, gnr_conn, getter_qs, signal_q):
-    def update_prog(reads_called, sig_called, unexp_err_fp, last_err_write,
-                    read_called=True):
-        if is_err:
-            failed_reads[err_type].append(fast5_fn)
-            if err_type == _UNEXPECTED_ERROR_CODE:
-                if len(failed_reads[_UNEXPECTED_ERROR_CODE]) == 1:
-                    unexp_err_fp = open(_UNEXPECTED_ERROR_FN.format(
-                        np.random.randint(10000)), 'w')
-                if len(failed_reads[err_type]) >= _MAX_NUM_UNEXP_ERRORS:
-                    unexp_err_fp.close()
-                else:
-                    unexp_err_fp.write(
-                        fast5_fn + '\n:::\n' + err_tb + '\n\n\n')
-                    unexp_err_fp.flush()
-        if do_update_prog:
-            if not status_info.suppress_prog_bar:
-                try:
-                    bar.set_postfix({
-                        'ksamp/s': (sig_called / 1000) /
-                        bar.format_dict['elapsed']}, refresh=False)
-                except AttributeError:
-                    # sometimes get no format_dict error
-                    # so don't include ksample/s if so
-                    pass
-                if q_bars is not None:
-                    for q_name, q_bar in q_bars.items():
-                        q_bar.n = getter_qs[q_name].qsize()
-                        # trigger display refresh
-                        q_bar.update(0)
-                if read_called:
-                    bar.update()
-                if status_info.num_prog_errs > 0:
-                    err_types = [
-                        (len(fns), err) for err, fns in failed_reads.items()]
-                    num_errs = sum((x[0] for x in err_types))
-                    if num_errs > 0 and (
-                            last_err_write == 0 or
-                            num_errs / last_err_write > 1 + ERR_UPDATE_PROP):
-                        last_err_write = num_errs
-                        # TODO update to using err_statuses
-                        bar.write(prog_prefix + format_fail_summ(
-                            bar_header, err_types, reads_called,
-                            status_info.num_prog_errs), file=sys.stderr)
-
-        return unexp_err_fp, last_err_write
-
     LOGGER.info('Processing reads')
     LOGGER.debug('GetterStarting')
     reads_called = sig_called = last_err_write = 0
@@ -590,14 +605,21 @@ def _get_fail_queue(
     LOGGER.debug('GetterInitComplete')
     try:
         while failed_reads_q.has_valid_conns:
-            for fr_res in failed_reads_q.wait_recv():
-                is_err, do_update_prog, err_type, fast5_fn, err_tb, \
-                    n_sig = fr_res
-                sig_called += n_sig
-                if do_update_prog:
+            for read_status in failed_reads_q.wait_recv():
+                read_status = mh.READ_STATUS(*read_status)
+                sig_called += read_status.n_sig
+                if read_status.do_update_prog:
                     reads_called += 1
-                unexp_err_fp, last_err_write = update_prog(
-                    reads_called, sig_called, unexp_err_fp, last_err_write)
+                if read_status.is_err:
+                    unexp_err_fp = update_err(
+                        failed_reads, read_status.err_type,
+                        read_status.fast5_fn, read_status.err_tb, unexp_err_fp)
+                if read_status.do_update_prog and \
+                   not status_info.suppress_prog_bar:
+                    last_err_write = update_prog(
+                        err_statuses, bar, q_bars, sig_called, getter_qs,
+                        status_info, reads_called, failed_reads,
+                        last_err_write)
                 # get total number of reads once all reads are enumerated
                 if bar is not None and bar.total is None:
                     if gnr_conn.poll():
@@ -607,16 +629,28 @@ def _get_fail_queue(
         # exit gracefully on keyboard inturrupt
         return
 
+    # cleanup progressbars
     if not status_info.suppress_prog_bar:
+        # wait for getter queues to flush
         if q_bars is not None:
             while any(not getter_qs[q_name].empty()
                       for q_name in q_bars.keys()):
-                unexp_err_fp, last_err_write = update_prog(
-                    reads_called, 0, unexp_err_fp, last_err_write, False)
+                for q_name, q_bar in q_bars.items():
+                    q_bar.n = getter_qs[q_name].qsize()
+                    q_bar.update(0)
+        # close all open progressbars
+        if err_statuses is not None:
+            for err_status in err_statuses:
+                err_status.close()
         bar.close()
         if q_bars is not None:
             for q_bar in q_bars.values():
                 q_bar.close()
+        # print newlines to avoid tqdm issue 719
+        num_extra_bars = (0 if q_bars is None else len(q_bars)) + (
+            0 if err_statuses is None else len(err_statuses))
+        if num_extra_bars > 0:
+            tqdm.write('\n' * num_extra_bars)
 
     if len(failed_reads[_UNEXPECTED_ERROR_CODE]) >= 1:
         LOGGER.warning((
@@ -624,11 +658,9 @@ def _get_fail_queue(
             'error stack traces for first (up to) {0:d} errors in ' +
             '"{1}"').format(_MAX_NUM_UNEXP_ERRORS, unexp_err_fp.name))
     if any(len(fns) > 0 for fns in failed_reads.values()):
-        LOGGER.info(
-            format_fail_summ(
-                'Unsuccessful processing types:',
-                [(len(fns), err) for err, fns in failed_reads.items()
-                 if len(fns) > 0], reads_called))
+        err_types = [(len(fns), err) for err, fns in failed_reads.items()]
+        LOGGER.info('Unsuccessful processing types:\n{}'.format('\n'.join(
+            iter_most_common_errs(err_types, reads_called))))
         # TODO flag to output failed read names to file
     else:
         LOGGER.info('All reads processed successfully')

@@ -214,6 +214,11 @@ DEFAULT_GUPPY_SERVER_PATH = './ont-guppy/bin/guppy_basecall_server'
 DEFAULT_GUPPY_CFG = 'dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg'
 DEFAULT_GUPPY_TIMEOUT = 5.0
 
+# completed read information
+READ_STATUS = namedtuple('READ_STATUS', (
+    'is_err', 'do_update_prog', 'err_type', 'fast5_fn', 'err_tb', 'n_sig'))
+READ_STATUS.__new__.__defaults__ = (False, True, None, None, None, 0)
+
 TRUE_TEXT_VALUES = set(('y', 'yes', 't', 'true', 'on', '1'))
 FALSE_TEXT_VALUES = set(('n', 'no', 'f', 'false', 'off', '0'))
 
