@@ -170,6 +170,8 @@ class ModsDb:
                 mh.SQLITE_PAGE_SIZE))
             self.db.execute('PRAGMA max_page_count = {}'.format(
                 mh.SQLITE_MAX_PAGE_COUNT))
+            self.db.execute("PRAGMA temp_store_directory = '{}'".format(
+                os.path.dirname(self.fn)))
             if self.db_safety < 2:
                 # set asynchronous mode to off for max speed
                 self.db.execute('PRAGMA synchronous = OFF')

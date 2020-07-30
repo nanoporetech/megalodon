@@ -146,6 +146,8 @@ class VarsDb:
             if self.uuid_strand_idx_in_mem:
                 self.load_uuid_strand_read_index()
         else:
+            self.db.execute("PRAGMA temp_store_directory = '{}'".format(
+                os.path.dirname(self.fn)))
             if db_safety < 2:
                 # set asynchronous mode to off for max speed
                 self.cur.execute('PRAGMA synchronous = OFF')
