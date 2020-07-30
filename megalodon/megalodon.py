@@ -489,54 +489,45 @@ def format_fail_summ(header, fail_summ=[], reads_called=0, num_errs=None):
 
 
 def prep_errors_bar(status_info, getter_qs):
-    num_qs = 0
+    if status_info.suppress_prog_bar:
+        return None, None, None
+
+    # prep queue capacity status bars if requested
+    q_labs = None
     if not status_info.suppress_queues:
+        sys.stderr.write(
+            'Full output or empty input queues indicate I/O bottleneck\n')
         valid_q_names = [
             q_name for q_name, q in getter_qs.items()
             if q_name == _SIG_EXTRACT_GETTER_NAME or (
                     q.return_conns and q_name != _FAILED_READ_GETTER_NAME)]
-        num_qs = len(valid_q_names)
         q_labs = [
             (q_num, q_name, ' input queue capacity {}'.format(q_name))
             if q_name == _SIG_EXTRACT_GETTER_NAME else
             (q_num, q_name, 'output queue capacity {}'.format(q_name))
             for q_num, q_name in enumerate(valid_q_names)]
 
-    if status_info.num_prog_errs > 0 and not status_info.suppress_prog_bar:
-        # TODO convert this to tqdm status only lines
-        # add lines for dynamic error messages
-        # note 2 extra lines for header and bar
+    err_statuses = bar = q_bars = None
+    if status_info.num_prog_errs > 0:
+        # write header for progress bars if dynamic error reporting is on
         sys.stderr.write(
-            '\n'.join(['' for _ in range(status_info.num_prog_errs + 2)]))
-    bar = prog_prefix = bar_header = q_bars = None
-    if not status_info.suppress_prog_bar:
-        bar = tqdm(total=None, smoothing=0, initial=0,
-                   unit=' read(s)', dynamic_ncols=True, position=0,
-                   desc='Read Processing')
-        if num_qs > 0:
-            q_bars = OrderedDict((q_name, tqdm(
-                desc=q_lab, total=mh._MAX_QUEUE_SIZE, smoothing=0,
-                dynamic_ncols=True, position=q_num + 1,
-                bar_format='{desc: <42}: {percentage:3.0f}%|{bar}| ' +
-                '{n_fmt}/{total_fmt}'))
-                                 for q_num, q_name, q_lab in q_labs)
-    if not status_info.suppress_prog_bar and status_info.num_prog_errs > 0:
-        prog_prefix = ''.join(
-            [_term_move_up(), ] * (status_info.num_prog_errs + 1)) + '\r'
-        if num_qs > 0:
-            bar_header = (
-                '{} most common unsuccessful processing stages (full ' +
-                'output or empty input queues indicate I/O ' +
-                'bottleneck):').format(status_info.num_prog_errs)
-        else:
-            bar_header = (
-                '{} most common unsuccessful processing stages:').format(
-                    status_info.num_prog_errs)
-        # write failed read update header
-        bar.write(prog_prefix + format_fail_summ(
-            bar_header, num_errs=status_info.num_prog_errs), file=sys.stderr)
+            '{} most common unsuccessful processing stages:\n'.format(
+                status_info.num_prog_errs))
+        err_statuses = [
+            tqdm(total=0, position=err_num, bar_format='{desc}', desc='-----')
+            for err_num in range(status_info.num_prog_errs)]
+    # open main progress bar
+    bar = tqdm(total=None, smoothing=0, initial=0,
+               unit=' read(s)', dynamic_ncols=True,
+               position=status_info.num_prog_errs, desc='Read Processing')
+    if q_labs is not None:
+        q_bars = OrderedDict((q_name, tqdm(
+            desc=q_lab, total=mh._MAX_QUEUE_SIZE, smoothing=0,
+            dynamic_ncols=True, position=q_num + 1,
+            bar_format='{desc: <42}: {percentage:3.0f}%|{bar}| ' +
+            '{n_fmt}/{total_fmt}')) for q_num, q_name, q_lab in q_labs)
 
-    return bar, q_bars, prog_prefix, bar_header
+    return err_statuses, bar, q_bars
 
 
 def _get_fail_queue(
@@ -580,6 +571,7 @@ def _get_fail_queue(
                             last_err_write == 0 or
                             num_errs / last_err_write > 1 + ERR_UPDATE_PROP):
                         last_err_write = num_errs
+                        # TODO update to using err_statuses
                         bar.write(prog_prefix + format_fail_summ(
                             bar_header, err_types, reads_called,
                             status_info.num_prog_errs), file=sys.stderr)
@@ -594,8 +586,7 @@ def _get_fail_queue(
     # add signal extraction queue to getter queues
     getter_qs[_SIG_EXTRACT_GETTER_NAME] = signal_q
     getter_qs.move_to_end(_SIG_EXTRACT_GETTER_NAME, last=False)
-    bar, q_bars, prog_prefix, bar_header = prep_errors_bar(
-        status_info, getter_qs)
+    err_statuses, bar, q_bars = prep_errors_bar(status_info, getter_qs)
     LOGGER.debug('GetterInitComplete')
     try:
         while failed_reads_q.has_valid_conns:
