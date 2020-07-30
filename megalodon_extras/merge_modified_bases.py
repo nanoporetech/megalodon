@@ -4,7 +4,9 @@ import multiprocessing as mp
 
 from tqdm import tqdm
 
-from megalodon import backends, logging, mods, megalodon_helper as mh
+from megalodon import (
+    backends, logging, mods, megalodon_helper as mh,
+    megalodon_multiprocessing as mega_mp)
 from ._extras_parsers import get_parser_merge_modified_bases
 
 
@@ -17,7 +19,7 @@ QUEUE_SIZE_LIMIT = 100
 # data table functions #
 ########################
 
-def extract_data_worker(in_db_fns_q, data_q, out_mods_db_fn, batch_size):
+def extract_data_worker(in_db_fns_q, data_conn, out_mods_db_fn, batch_size):
     # load output database with uuid in-memory indices
     out_mods_db = mods.ModsDb(
         out_mods_db_fn, read_only=True, in_mem_uuid_to_dbid=True)
@@ -39,10 +41,10 @@ def extract_data_worker(in_db_fns_q, data_q, out_mods_db_fn, batch_size):
                 score, out_pos_dbid, out_mods_db.get_mod_base_dbid(mod_base),
                 out_mods_db.get_read_dbid(uuid)))
             if len(batch_data) >= batch_size:
-                data_q.put(batch_data)
+                data_conn.put(batch_data)
                 batch_data = []
         if len(batch_data) > 0:
-            data_q.put(batch_data)
+            data_conn.put(batch_data)
             batch_data = []
         in_mods_db.close()
     out_mods_db.close()
@@ -57,14 +59,17 @@ def insert_data_mp(
         in_db_fns_q.put(in_mod_db_fn)
     for _ in range(num_proc):
         in_db_fns_q.put(None)
-    data_q = mp.Queue(maxsize=QUEUE_SIZE_LIMIT)
+    data_q = mega_mp.SimplexManyToOneQueue(max_size=QUEUE_SIZE_LIMIT)
     data_ps = []
     for _ in range(num_proc):
+        data_conn = data_q.get_conn()
         p = mp.Process(
             target=extract_data_worker,
-            args=(in_db_fns_q, data_q, out_mods_db_fn, batch_size),
+            args=(in_db_fns_q, data_conn, out_mods_db_fn, batch_size),
             daemon=True)
         p.start()
+        data_conn.close()
+        del data_conn
         data_ps.append(p)
 
     total_batches = 0
@@ -74,17 +79,11 @@ def insert_data_mp(
         in_mods_db.close()
     bar = tqdm(desc='Statistics Batches', total=total_batches,
                smoothing=0, dynamic_ncols=True)
-    while any(p.is_alive() for p in data_ps):
-        try:
-            batch_data = data_q.get(block=True, timeout=0.1)
-        except queue.Empty:
-            sleep(0.001)
-            continue
-        out_mods_db.insert_batch_data(batch_data)
-        bar.update()
-    while not data_q.empty():
-        out_mods_db.insert_batch_data(data_q.get(block=False))
-        bar.update()
+
+    while data_q.has_valid_conns:
+        for batch_data in data_q.wait_recv():
+            out_mods_db.insert_batch_data(batch_data)
+            bar.update()
     bar.close()
 
 
