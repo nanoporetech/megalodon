@@ -212,27 +212,34 @@ class ModsDb:
     # load in-memory index functions #
     ##################################
 
-    def _load_cs_offsets(self, ref_names_and_lens):
+    def _load_chrm_offsets(self, ref_names_and_lens):
+        """ Positions are encoded as integer values ordered first by chromomes,
+        then position, then strand. Forward strand (encoded as `1` as in
+        `mappy`) positions are all even values and reverse strand (encoded as
+        `-1`) are all odd values. Chromosomes are ordered as passed in, but
+        expected in LooseVersion (as in unix `sort -V`) provided via
+        megalodon.mapping.RefName.
+        """
         # store dict from chrm to chrm_len
-        self._chrm_lens = dict(zip(*ref_names_and_lens))
+        self._chrm_len_lookup = dict(
+            (chrm_name, int(chrm_len))
+            for chrm_name, chrm_len in zip(*ref_names_and_lens))
         self.chrm_names = ref_names_and_lens[0]
-        self.chrm_lens = ref_names_and_lens[1]
+        self.chrm_lens = [int(cl) for cl in ref_names_and_lens[1]]
 
         self.num_chrms = len(self.chrm_names)
         # create data structures to convert (chrm, strand, pos) <--> pos_dbid
-        # Store ordered c/s combinations
-        self._cs_values = [
-            (chrm, strand) for chrm in self.chrm_names for strand in (1, -1)]
-        self._cs_offsets = np.insert(np.cumsum(np.repeat(
-            self.chrm_lens, 2))[:-1], 0, 0)
-        # dictionary from (chrm, strand) to dbid offsets
-        self._cs_offset_lookup = dict(zip(
-            self._cs_values, map(int, self._cs_offsets)))
+        # Store offsets to start of each chromosome
+        self._chrm_offsets = np.insert(
+            np.cumsum(self.chrm_lens[:-1]) * 2, 0, 0)
+        # dictionary from chrm to dbid offsets
+        self._chrm_offset_lookup = dict(zip(
+            self.chrm_names, map(int, self._chrm_offsets)))
 
     def load_in_mem_chrm(self):
         ref_names_and_lens = list(zip(*self.cur.execute(
             'SELECT chrm, chrm_len FROM chrm').fetchall()))
-        self._load_cs_offsets(ref_names_and_lens)
+        self._load_chrm_offsets(ref_names_and_lens)
 
     def _create_mod_lookups(self, mod_db_info):
         self.dbid_to_mod = dict(
@@ -271,11 +278,12 @@ class ModsDb:
             raise mh.MegaError(
                 'Cannot extract position database ID from connection opened ' +
                 'for initialization.')
-        if pos >= self._chrm_lens[chrm]:
+        if pos // 2 >= self._chrm_len_lookup[chrm]:
             raise mh.MegaError((
                 'Attempt to extract position past the end of a chromosome.' +
                 ' {}:{}').format(chrm, pos))
-        return int(self._cs_offset_lookup[(chrm, strand)]) + pos
+        strand_offset = 0 if strand == 1 else 1
+        return self._chrm_offset_lookup[chrm] + (pos * 2) + strand_offset
 
     def get_pos_dbids(self, r_uniq_pos, chrm, strand):
         """ Get position database IDs. If positions are not found in the
@@ -293,12 +301,13 @@ class ModsDb:
             raise mh.MegaError(
                 'Cannot extract position database IDs from connection ' +
                 'opened for initialization.')
-        if max(r_uniq_pos) >= self._chrm_lens[chrm]:
+        if max(r_uniq_pos) // 2 >= self._chrm_len_lookup[chrm]:
             raise mh.MegaError((
                 'Attempt to extract position past the end of a chromosome.' +
                 ' {}:{}').format(chrm, max(r_uniq_pos)))
-        cs_offset = int(self._cs_offset_lookup[(chrm, strand)])
-        return [pos + cs_offset for pos in r_uniq_pos]
+        strand_offset = 0 if strand == 1 else 1
+        cs_offset = self._chrm_offset_lookup[chrm]
+        return [cs_offset + (pos * 2) + strand_offset for pos in r_uniq_pos]
 
     def get_pos(self, pos_dbid):
         """ Get position from database ID
@@ -314,9 +323,11 @@ class ModsDb:
             raise mh.MegaError(
                 'Cannot extract position from connection opened for ' +
                 'initialization.')
-        cs_idx = np.searchsorted(self._cs_offsets, pos_dbid, 'right') - 1
-        chrm, strand = self._cs_values[cs_idx]
-        pos = pos_dbid - int(self._cs_offsets[cs_idx])
+        chrm_idx = np.searchsorted(self._chrm_offsets, pos_dbid, 'right') - 1
+        chrm = self.chrm_names[chrm_idx]
+        strand = 1 if pos_dbid % 2 == 0 else -1
+        # note conversion to int so that sqlite3 does not store np.int32 bytes
+        pos = (pos_dbid - int(self._chrm_offsets[chrm_idx])) // 2
         return chrm, strand, pos
 
     def get_mod_base(self, mod_dbid):
@@ -476,7 +487,7 @@ class ModsDb:
                              zip(*s_ref_names_and_lens))
         # add save to internal data structure to determine database ids for
         # positions
-        self._load_cs_offsets(s_ref_names_and_lens)
+        self._load_chrm_offsets(s_ref_names_and_lens)
 
     def insert_mod_long_names(self, mod_long_names, mod_base_to_can):
         # modified bases must be entered only once for a database
