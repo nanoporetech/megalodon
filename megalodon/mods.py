@@ -349,6 +349,44 @@ class ModsDb:
             raise mh.MegaError(
                 'Modified base not found in database: {}'.format(mod_base))
 
+    def get_alphabet_info(self):
+        mod_base_to_can = dict()
+        for mod_base, can_base, mln in self.get_full_mod_data():
+            mod_base_to_can[mod_base] = (can_base, mln)
+
+        # extract canonical bases associated with modified base
+        can_bases = set(can_base for can_base, _ in mod_base_to_can.values())
+        # determine first valid canonical alphabet compatible with database
+        can_alphabet = None
+        for v_alphabet in mh.VALID_ALPHABETS:
+            if len(can_bases.difference(v_alphabet)) == 0:
+                can_alphabet = v_alphabet
+                break
+        if can_alphabet is None:
+            LOGGER.error(
+                ('Mods database does not contain valid canonical ' +
+                 'bases ({})').format(''.join(sorted(can_bases))))
+            raise mh.MegaError('Invalid alphabet.')
+
+        # compute full output alphabet and ordered modified base long names
+        can_base_to_mods = dict(
+            (can_base, [
+                (mod_base, mln)
+                for mod_base, (mcan_base, mln) in mod_base_to_can.items()
+                if mcan_base == can_base])
+            for can_base in can_alphabet)
+        alphabet, collapse_alphabet = '', ''
+        mod_long_names = []
+        for can_base in can_alphabet:
+            alphabet += can_base
+            collapse_alphabet += can_base
+            for mod_base, mln in can_base_to_mods[can_base]:
+                alphabet += mod_base
+                collapse_alphabet += can_base
+                mod_long_names.append(mln)
+
+        return alphabet, collapse_alphabet, mod_long_names
+
     def get_uuid(self, read_dbid):
         """ Get read UUID from database.
 
@@ -1390,9 +1428,7 @@ class ModInfo:
                     'position ({}) base ({}) does not match ' +
                     'collapsed alphabet value ({}).').format(
                         pos, raw_motif[pos], can_base)
-                motif = re.compile(''.join(
-                    '[{}]'.format(mh.SINGLE_LETTER_CODE[letter])
-                    for letter in raw_motif))
+                motif = mh.compile_motif_pat(raw_motif)
                 self.all_mod_motifs.append((motif, pos, mod_bases, raw_motif))
 
             if not self.distinct_motifs():

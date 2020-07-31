@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import shutil
 import traceback
@@ -307,6 +308,18 @@ def log_errors(func, *args, **kwargs):
     except Exception as e:
         LOGGER.debug('UnexpectedError {}\nFull traceback:\n{}'.format(
             str(e), traceback.format_exc()))
+
+
+def compile_motif_pat(raw_motif):
+    return re.compile(''.join(
+        '[{}]'.format(SINGLE_LETTER_CODE[letter])
+        for letter in raw_motif))
+
+
+def compile_rev_comp_motif_pat(raw_motif):
+    return re.compile(''.join(
+        '[{}]'.format(''.join(comp(b) for b in SINGLE_LETTER_CODE[letter]))
+        for letter in raw_motif[::-1]))
 
 
 #######################
