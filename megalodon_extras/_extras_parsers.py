@@ -450,6 +450,34 @@ def get_parser_modified_bases_update_database():
     return parser
 
 
+def get_parser_modified_bases_split_calls_by_motif():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        'reference',
+        help='Reference FASTA file. Must include index file ending in fai.')
+    parser.add_argument(
+        '--motif', nargs=2, action='append', required=True,
+        metavar=['MOTIF', 'REL_POS'],
+        help='Motif description. Motifs include two values specifying the ' +
+        'sequence motif (including ambiguous codes) and the relative ' +
+        'modified position. Multiple `--motif` values should be provided.')
+    parser.add_argument(
+        '--megalodon-directory', default='megalodon_results',
+        help='Megalodon output directory containing per-read modified base ' +
+        'database to be split. Default: %(default)s')
+    parser.add_argument(
+        '--output-suffix', default='split_by_motif',
+        help='Suffix to apply to log (stored in input directory. ' +
+        'Default: %(default)s')
+    parser.add_argument(
+        '--output-prefix', default='megalodon_results.split_by_motif',
+        help='Prefix for output directories. One directory will be created ' +
+        'for each motif with names [--output-prefix].[--motif]. ' +
+        'Default: %(default)s')
+
+    return parser
+
+
 def get_parser_modified_bases_create_ground_truth():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -849,6 +877,7 @@ CMD_MODS_EST_THRESH = 'estimate_threshold'
 CMD_MODS_UPDATE_DB = 'update_database'
 CMD_MODS_GT = 'create_ground_truth'
 CMD_MODS_INDEX = 'index_database'
+CMD_MODS_SPLIT = 'split_by_motif'
 
 GRP_PHASE = 'phase_variants'
 CMD_PHASE_FILT_WHATSHAP = 'whatshap_filter'
@@ -887,7 +916,8 @@ PARSERS = {
         CMD_MODS_EST_THRESH: get_parser_modified_bases_estimate_threshold,
         CMD_MODS_UPDATE_DB: get_parser_modified_bases_update_database,
         CMD_MODS_GT: get_parser_modified_bases_create_ground_truth,
-        CMD_MODS_INDEX: get_parser_modified_bases_index_database},
+        CMD_MODS_INDEX: get_parser_modified_bases_index_database,
+        CMD_MODS_SPLIT: get_parser_modified_bases_split_calls_by_motif},
     GRP_PHASE: {
         CMD_PHASE_FILT_WHATSHAP: get_parser_phase_variants_whatshap_filter,
         CMD_PHASE_GET_HAP_READS:

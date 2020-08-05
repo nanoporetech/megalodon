@@ -43,7 +43,9 @@ NESTED_COMMANDS = [
       (ep.CMD_MODS_GT,
        'Create ground truth modified base file from bedmethyl files'),
       (ep.CMD_MODS_INDEX,
-       'Create per-read modified base database index')]),
+       'Create per-read modified base database index'),
+      (ep.CMD_MODS_SPLIT,
+       'Split modified base database by motif')]),
 
     (ep.GRP_PHASE,
      'Phase variants',
