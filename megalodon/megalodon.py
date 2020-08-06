@@ -154,7 +154,8 @@ def process_read(
          sig_info, return_post_w_mods=mods_info.do_output.db,
          return_mod_scores=bc_info.do_output.mod_basecalls,
          update_sig_info=ref_out_info.do_output.sig_maps,
-         signal_reversed=bc_info.rev_sig, seq_summ_info=seq_summ_info)
+         signal_reversed=bc_info.rev_sig, seq_summ_info=seq_summ_info,
+         mod_bc_min_prob=bc_info.mod_bc_min_prob)
     if bc_info.do_output.any:
         # convert seq_summ_info to tuple since namedtuples can't be
         # pickled for passing through a queue.
@@ -1217,6 +1218,7 @@ def parse_basecall_args(args, mods_info):
         do_output=bc_do_output,
         out_dir=args.output_directory,
         bc_fmt=args.basecalls_format, mod_bc_fmt=mod_bc_fmt,
+        mod_bc_min_prob=args.mod_basecalls_min_prob,
         mod_long_names=mods_info.mod_long_names, rev_sig=args.rna)
 
 

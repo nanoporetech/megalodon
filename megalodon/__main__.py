@@ -218,6 +218,10 @@ def get_parser():
         help=hidden_help('Compute forwards algorithm all paths score for ' +
                          'modified base calls. (Default: Viterbi ' +
                          'best-path score)'))
+    out_grp.add_argument(
+        '--mod-basecalls-min-prob', type=float, default=mh.DEFAULT_MOD_BC_PROB,
+        help=hidden_help('Only include modified base probabilities greater ' +
+                         'than this value.'))
     mod_grp.add_argument(
         '--mod-binary-threshold', type=float,
         default=mh.DEFAULT_MOD_BINARY_THRESH,

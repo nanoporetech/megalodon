@@ -32,6 +32,7 @@ DEFAULT_INDEL_CONTEXT = 30
 DEFAULT_VAR_CONTEXT_BASES = [DEFAULT_SNV_CONTEXT, DEFAULT_INDEL_CONTEXT]
 DEFAULT_MOD_CONTEXT = 15
 DEFAULT_CONTEXT_MIN_ALT_PROB = 0.0
+DEFAULT_MOD_BC_PROB = 0.01
 MOD_BIN_THRESH_NAME = 'binary_threshold'
 MOD_EM_NAME = 'expectation_maximization'
 MOD_AGG_METHOD_NAMES = set((MOD_BIN_THRESH_NAME, MOD_EM_NAME))
@@ -171,8 +172,8 @@ INPUT_INFO = namedtuple('INPUT_INFO', (
 BASECALL_DO_OUTPUT = namedtuple('BASECALL_DO_OUTPUT', (
     'any', 'basecalls', 'mod_basecalls'))
 BASECALL_INFO = namedtuple('BASECALL_INFO', (
-    'do_output', 'out_dir', 'bc_fmt', 'mod_bc_fmt', 'mod_long_names',
-    'rev_sig'))
+    'do_output', 'out_dir', 'bc_fmt', 'mod_bc_fmt', 'mod_bc_min_prob',
+    'mod_long_names', 'rev_sig'))
 REF_DO_OUTPUT = namedtuple('REF_DO_OUTPUT', (
     'pr_refs', 'can_pr_refs', 'mod_pr_refs', 'var_pr_refs',
     'sig_maps', 'can_sig_maps', 'mod_sig_maps', 'var_sig_maps'))

@@ -81,6 +81,7 @@ def open_unaligned_alignment_file(basename, map_fmt, mod_long_names=None):
 
 
 def prepare_unaligned_mod_mapping(read_id, q_seq, q_qual, mod_scores):
+    # TODO add option to provide mapping position and plumb in mod_mappings
     a = pysam.AlignedSegment()
     a.query_name = read_id
     a.query_sequence = q_seq
@@ -90,7 +91,10 @@ def prepare_unaligned_mod_mapping(read_id, q_seq, q_qual, mod_scores):
     a.cigartuples = [(0, len(q_seq)), ]
     # Add modified base tags
     #  see https://github.com/samtools/hts-specs/pull/418
-    a.set_tags([('MM', mod_scores[0], 'Z'), ('ML', mod_scores[1])])
+    tags = [('MM', mod_scores[0], 'Z'), ]
+    if len(mod_scores[1]) > 0:
+        tags.append(('ML', mod_scores[1]))
+    a.set_tags(tags)
     return a
 
 

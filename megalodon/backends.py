@@ -245,7 +245,7 @@ class AbstractModelInfo(ABC):
             self.mod_long_names = []
             self.can_nmods = None
 
-    def format_mod_scores(self, bc_seq, mods_scores):
+    def format_mod_scores(self, bc_seq, mods_scores, min_prob):
         """ Convert 2D array of scores to hts-spec modified base output.
         See https://github.com/samtools/hts-specs/pull/418
 
@@ -253,6 +253,7 @@ class AbstractModelInfo(ABC):
             bc_seq (str): basecall sequence
             mods_scores (np.ndarray): 2D array with basecall position rows and
                 modbase columns.
+            min_prob (float): Minimum probability to include modified base
         """
         mm_tag, ml_tag = '', array.array('B')
         prev_bases = 0
@@ -269,14 +270,18 @@ class AbstractModelInfo(ABC):
             can_bs_pos = np.array([b == can_base for b in bc_seq], dtype=bool)
             for mod_base, mod_index in zip(mod_bases, range(
                     prev_bases + 1, prev_bases + 1 + can_nmods)):
-                if mod_index > 0:
-                    mm_tag += ';'
-                # TODO implement a threshold to filter the output probabilties
-                mm_tag += '{}+{}{}'.format(
-                    can_base, mod_base, ''.join(',0' for _ in can_bs_pos))
+                probs = np.exp(mods_scores[can_bs_pos, mod_index])
+                valid_prob_locs = np.where(probs > min_prob)[0]
+                mm_tag += '{}+{}{};'.format(
+                    can_base, mod_base,
+                    ''.join(',{}'.format(d) for d in np.diff(np.insert(
+                        valid_prob_locs, 0, -1)) - 1))
                 # extract mod scores and scale to 0-255 range
-                ml_tag.extend(np.floor(np.exp(mods_scores[
-                    can_bs_pos, mod_index]) * 255).astype(np.uint8))
+                uint8_probs = np.floor(
+                    probs[valid_prob_locs] * 256).astype(np.uint8)
+                # last interval includes prob=1
+                uint8_probs[uint8_probs == 256] = 255
+                ml_tag.extend(uint8_probs)
             prev_bases += can_nmods + 1
 
         return mm_tag, ml_tag
@@ -666,7 +671,7 @@ class ModelInfo(AbstractModelInfo):
 
     def _run_pyguppy_model(
             self, sig_info, return_post_w_mods, return_mod_scores,
-            update_sig_info, signal_reversed, seq_summ_info):
+            update_sig_info, signal_reversed, seq_summ_info, mod_bc_min_prob):
         if self.model_type != PYGUPPY_NAME:
             raise mh.MegaError(
                 'Attempted to run pyguppy model with non-pyguppy ' +
@@ -705,7 +710,7 @@ class ModelInfo(AbstractModelInfo):
                     if signal_reversed:
                         mods_scores = mods_scores[::-1]
                     mods_scores = self.format_mod_scores(
-                        called_read.seq, mods_scores)
+                        called_read.seq, mods_scores, mod_bc_min_prob)
         else:
             can_post = called_read.state
 
@@ -767,7 +772,8 @@ class ModelInfo(AbstractModelInfo):
 
     def basecall_read(
             self, sig_info, return_post_w_mods=True, return_mod_scores=False,
-            update_sig_info=False, signal_reversed=False, seq_summ_info=None):
+            update_sig_info=False, signal_reversed=False, seq_summ_info=None,
+            mod_bc_min_prob=mh.DEFAULT_MOD_BC_PROB):
         if self.model_type not in (TAI_NAME, FAST5_NAME, PYGUPPY_NAME):
             raise mh.MegaError('Invalid model backend')
 
@@ -776,7 +782,8 @@ class ModelInfo(AbstractModelInfo):
         if self.model_type == PYGUPPY_NAME:
             return self._run_pyguppy_model(
                 sig_info, return_post_w_mods, return_mod_scores,
-                update_sig_info, signal_reversed, seq_summ_info)
+                update_sig_info, signal_reversed, seq_summ_info,
+                mod_bc_min_prob)
 
         post_w_mods = mod_weights = None
         if self.model_type == TAI_NAME:
@@ -817,7 +824,8 @@ class ModelInfo(AbstractModelInfo):
         r_seq, _, rl_cumsum, mods_scores = decode.decode_post(
             can_post, self.can_alphabet, mod_weights, self.can_nmods)
         if return_mod_scores:
-            mods_scores = self.format_mods_scores(r_seq, mods_scores)
+            mods_scores = self.format_mod_scores(
+                r_seq, mods_scores, mod_bc_min_prob)
         # TODO implement quality extraction for taiyaki and fast5 modes
         # and add mean_qscore_template to seq summary
         r_qual = None
