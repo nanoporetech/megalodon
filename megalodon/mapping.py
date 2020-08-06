@@ -85,7 +85,8 @@ def prepare_unaligned_mod_mapping(read_id, q_seq, q_qual, mod_scores):
     a.query_name = read_id
     a.query_sequence = q_seq
     a.query_qualities = [ord(q) - 33 for q in q_qual]
-    a.flag = 0
+    # 4 indicates unmapped
+    a.flag = 4
     a.cigartuples = [(0, len(q_seq)), ]
     # Add modified base tags
     #  see https://github.com/samtools/hts-specs/pull/418

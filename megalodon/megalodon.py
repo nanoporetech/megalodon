@@ -324,7 +324,7 @@ if _DO_PROFILE:
 # Queue getters #
 #################
 
-def _get_bc_queue(bc_q, bc_info, map_info, aux_failed_q):
+def _get_bc_queue(bc_q, bc_info, aux_failed_q):
     def write_read(bc_res):
         read_id, r_seq, r_qual, mods_scores, seq_summ_info = bc_res
         # convert seq_summ_info back into namedtuple after passing
@@ -355,7 +355,7 @@ def _get_bc_queue(bc_q, bc_info, map_info, aux_failed_q):
             LOGGER.debug('outputting mod basecalls')
             mods_fp = mapping.open_unaligned_alignment_file(
                 mh.get_megalodon_fn(bc_info.out_dir, mh.BC_MODS_NAME),
-                map_info.map_fmt, bc_info.mod_long_names)
+                bc_info.mod_bc_fmt, bc_info.mod_long_names)
         LOGGER.debug('GetterInitComplete')
     except Exception as e:
         aux_failed_q.put((
@@ -783,7 +783,7 @@ def process_all_reads(
     getters_info = [
         mh.GETTER_INFO(
             name=mh.BC_NAME, do_output=bc_info.do_output.any,
-            func=_get_bc_queue, args=(bc_info, map_info, aux_failed_q)),
+            func=_get_bc_queue, args=(bc_info, aux_failed_q)),
         mh.GETTER_INFO(
             name=mh.MAP_NAME, do_output=map_info.do_output_mappings,
             func=mapping._get_map_queue,
@@ -1201,6 +1201,14 @@ def parse_basecall_args(args, mods_info):
                        'not support calling modified bases. Removing ' +
                        'mod_basecalls from outputs.')
         args.outputs.remove(mh.BC_MODS_NAME)
+    if mh.BC_MODS_NAME in args.outputs and \
+       args.mappings_format == mh.MAP_OUT_CRAM:
+        LOGGER.warning(
+            'CRAM mapping format not available for unmapped output. ' +
+            'Reverting to BAM format for mod_basecalls output.')
+    mod_bc_fmt = (
+        args.mappings_format if args.mappings_format != mh.MAP_OUT_CRAM else
+        mh.MAP_OUT_BAM)
     bc_do_output = mh.BASECALL_DO_OUTPUT(
         any=mh.BC_NAME in args.outputs or mh.BC_MODS_NAME in args.outputs,
         basecalls=mh.BC_NAME in args.outputs,
@@ -1208,7 +1216,7 @@ def parse_basecall_args(args, mods_info):
     return mh.BASECALL_INFO(
         do_output=bc_do_output,
         out_dir=args.output_directory,
-        bc_fmt=args.basecalls_format,
+        bc_fmt=args.basecalls_format, mod_bc_fmt=mod_bc_fmt,
         mod_long_names=mods_info.mod_long_names, rev_sig=args.rna)
 
 

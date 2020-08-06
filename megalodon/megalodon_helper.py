@@ -171,7 +171,8 @@ INPUT_INFO = namedtuple('INPUT_INFO', (
 BASECALL_DO_OUTPUT = namedtuple('BASECALL_DO_OUTPUT', (
     'any', 'basecalls', 'mod_basecalls'))
 BASECALL_INFO = namedtuple('BASECALL_INFO', (
-    'do_output', 'out_dir', 'bc_fmt', 'mod_long_names', 'rev_sig'))
+    'do_output', 'out_dir', 'bc_fmt', 'mod_bc_fmt', 'mod_long_names',
+    'rev_sig'))
 REF_DO_OUTPUT = namedtuple('REF_DO_OUTPUT', (
     'pr_refs', 'can_pr_refs', 'mod_pr_refs', 'var_pr_refs',
     'sig_maps', 'can_sig_maps', 'mod_sig_maps', 'var_sig_maps'))
