@@ -11,6 +11,7 @@ import pysam
 import numpy as np
 
 from megalodon import megalodon_helper as mh, logging
+from megalodon._version import MEGALODON_VERSION
 
 
 LOGGER = logging.get_logger()
@@ -60,6 +61,38 @@ class RefName(str):
             return len(svi) < len(ovi)
 
 
+def get_mapping_mode(map_fmt):
+    if map_fmt == 'bam':
+        return 'wb'
+    elif map_fmt == 'cram':
+        return 'wc'
+    elif map_fmt == 'sam':
+        return 'w'
+    raise mh.MegaError('Invalid mapping output format: {}'.format(map_fmt))
+
+
+def open_unaligned_alignment_file(basename, map_fmt, mod_long_names=None):
+    fn = '{}.{}'.format(basename, map_fmt)
+    header = {'PG': [{'PN': 'Megalodon', 'VN': MEGALODON_VERSION}]}
+    if mod_long_names is not None:
+        header['CO'] = ['Modified base "{}" encoded as "{}"'.format(
+            mln, mod_base) for mod_base, mln in mod_long_names]
+    return pysam.AlignmentFile(fn, get_mapping_mode(map_fmt), header=header)
+
+
+def prepare_unaligned_mod_mapping(read_id, q_seq, q_qual, mod_scores):
+    a = pysam.AlignedSegment()
+    a.query_name = read_id
+    a.query_sequence = q_seq
+    a.query_qualities = [ord(q) - 33 for q in q_qual]
+    a.flag = 0
+    a.cigartuples = [(0, len(q_seq)), ]
+    # Add modified base tags
+    #  see https://github.com/samtools/hts-specs/pull/418
+    a.set_tags([('MM', mod_scores[0], 'Z'), ('ML', mod_scores[1])])
+    return a
+
+
 def get_map_pos_from_res(map_res):
     return MAP_POS(
         chrm=map_res.ctg, strand=map_res.strand, start=map_res.r_st,
@@ -91,14 +124,7 @@ class MapInfo:
     def open_alignment_out_file(self):
         map_fn = '{}.{}'.format(
             mh.get_megalodon_fn(self.out_dir, mh.MAP_NAME), self.map_fmt)
-        if self.map_fmt == 'bam':
-            w_mode = 'wb'
-        elif self.map_fmt == 'cram':
-            w_mode = 'wc'
-        elif self.map_fmt == 'sam':
-            w_mode = 'w'
-        else:
-            raise mh.MegaError('Invalid mapping output format')
+        w_mode = get_mapping_mode(self.map_fmt)
         try:
             align_file = pysam.AlignmentFile(
                 map_fn, w_mode, reference_names=self.ref_names_and_lens[0],

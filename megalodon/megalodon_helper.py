@@ -111,7 +111,7 @@ PR_REF_NAME = 'per_read_refs'
 OUTPUT_FNS = {
     BC_NAME: 'basecalls',
     SEQ_SUMM_NAME: 'sequencing_summary.txt',
-    BC_MODS_NAME: 'basecalls.modified_base_scores.hdf5',
+    BC_MODS_NAME: 'mod_basecalls',
     MAP_NAME: 'mappings',
     MAP_SUMM_NAME: 'mappings.summary.txt',
     PR_VAR_NAME: 'per_read_variant_calls.db',

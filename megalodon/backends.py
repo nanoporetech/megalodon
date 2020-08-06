@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+import array
 import subprocess
 from abc import ABC
 from time import sleep
@@ -243,6 +244,42 @@ class AbstractModelInfo(ABC):
             self.str_to_int_mod_labels = {}
             self.mod_long_names = []
             self.can_nmods = None
+
+    def format_mod_scores(self, bc_seq, mods_scores):
+        """ Convert 2D array of scores to hts-spec modified base output.
+        See https://github.com/samtools/hts-specs/pull/418
+
+        Args:
+            bc_seq (str): basecall sequence
+            mods_scores (np.ndarray): 2D array with basecall position rows and
+                modbase columns.
+        """
+        mm_tag, ml_tag = '', array.array('B')
+        prev_bases = 0
+        for can_base, can_nmods in zip(self.can_alphabet, self.can_nmods):
+            if can_nmods == 0:
+                prev_bases += 1
+                continue
+            mod_bases = self.can_base_mods[can_base]
+            if len(mod_bases) != can_nmods:
+                raise mh.MegaError((
+                    'Number of modified bases ({}) associated with {} does ' +
+                    'not match expected number of columns in mod scores: ' +
+                    '{}.').format(','.join(mod_bases), can_base, can_nmods))
+            can_bs_pos = np.array([b == can_base for b in bc_seq], dtype=bool)
+            for mod_base, mod_index in zip(mod_bases, range(
+                    prev_bases + 1, prev_bases + 1 + can_nmods)):
+                if mod_index > 0:
+                    mm_tag += ';'
+                # TODO implement a threshold to filter the output probabilties
+                mm_tag += '{}+{}{}'.format(
+                    can_base, mod_base, ''.join(',0' for _ in can_bs_pos))
+                # extract mod scores and scale to 0-255 range
+                ml_tag.extend(np.floor(np.exp(mods_scores[
+                    can_bs_pos, mod_index]) * 255).astype(np.uint8))
+            prev_bases += can_nmods + 1
+
+        return mm_tag, ml_tag
 
 
 class DetachedModelInfo(AbstractModelInfo):
@@ -664,10 +701,11 @@ class ModelInfo(AbstractModelInfo):
                     post_w_mods = np.concatenate(
                         [can_post, mods_weights], axis=1)
                 if return_mod_scores:
-                    # TODO apply np.NAN mask to scores not applicable to
-                    # canonical basecalls
-                    mods_scores = np.ascontiguousarray(
-                        mods_weights[rl_cumsum[:-1]])
+                    mods_scores = mods_weights[rl_cumsum[:-1]]
+                    if signal_reversed:
+                        mods_scores = mods_scores[::-1]
+                    mods_scores = self.format_mod_scores(
+                        called_read.seq, mods_scores)
         else:
             can_post = called_read.state
 
@@ -752,7 +790,7 @@ class ModelInfo(AbstractModelInfo):
             can_post = decode.crf_flipflop_trans_post(bc_weights, log=True)
             if return_post_w_mods and self.is_cat_mod:
                 post_w_mods = np.concatenate([can_post, mod_weights], axis=1)
-            # set mod_weights to None if mod_scores not requested to
+            # set mod_weights to None if mods_scores not requested to
             # avoid extra computation
             if not return_mod_scores:
                 mod_weights = None
@@ -778,6 +816,8 @@ class ModelInfo(AbstractModelInfo):
         # decode posteriors to sequence and per-base mod scores
         r_seq, _, rl_cumsum, mods_scores = decode.decode_post(
             can_post, self.can_alphabet, mod_weights, self.can_nmods)
+        if return_mod_scores:
+            mods_scores = self.format_mods_scores(r_seq, mods_scores)
         # TODO implement quality extraction for taiyaki and fast5 modes
         # and add mean_qscore_template to seq summary
         r_qual = None

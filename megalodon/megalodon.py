@@ -1,6 +1,5 @@
 import os
 import sys
-import h5py
 import queue
 import threading
 import traceback
@@ -156,12 +155,10 @@ def process_read(
          return_mod_scores=bc_info.do_output.mod_basecalls,
          update_sig_info=ref_out_info.do_output.sig_maps,
          signal_reversed=bc_info.rev_sig, seq_summ_info=seq_summ_info)
-    if bc_info.do_output.basecalls:
+    if bc_info.do_output.any:
+        # convert seq_summ_info to tuple since namedtuples can't be
+        # pickled for passing through a queue.
         if bc_info.rev_sig:
-            if mods_scores is not None:
-                mods_scores = mods_scores[::-1]
-            # convert seq_summ_info to tuple since namedtuples can't be
-            # pickled for passing through a queue.
             getter_conns[mh.BC_NAME].put((
                 sig_info.read_id, r_seq[::-1], r_qual[::-1], mods_scores,
                 tuple(seq_summ_info)))
@@ -327,7 +324,7 @@ if _DO_PROFILE:
 # Queue getters #
 #################
 
-def _get_bc_queue(bc_q, bc_info, aux_failed_q):
+def _get_bc_queue(bc_q, bc_info, map_info, aux_failed_q):
     def write_read(bc_res):
         read_id, r_seq, r_qual, mods_scores, seq_summ_info = bc_res
         # convert seq_summ_info back into namedtuple after passing
@@ -343,12 +340,8 @@ def _get_bc_queue(bc_q, bc_info, aux_failed_q):
             seq_summ_fp.write('\t'.join(map(str, seq_summ_info)) + '\n')
 
         if bc_info.do_output.mod_basecalls:
-            try:
-                mods_fp.create_dataset(
-                    'Reads/' + read_id, data=mods_scores, compression="gzip")
-            except RuntimeError:
-                # same read_id encountered previously
-                pass
+            mods_fp.write(mapping.prepare_unaligned_mod_mapping(
+                read_id, r_seq, r_qual, mods_scores))
 
     try:
         LOGGER.debug('GetterStarting')
@@ -359,13 +352,10 @@ def _get_bc_queue(bc_q, bc_info, aux_failed_q):
                 mh.get_megalodon_fn(bc_info.out_dir, mh.SEQ_SUMM_NAME), 'w')
             seq_summ_fp.write('\t'.join(mh.SEQ_SUMM_INFO._fields) + '\n')
         if bc_info.do_output.mod_basecalls:
-            # TODO convert this to writing un-aligned sam with htseq format
-            mods_fp = h5py.File(
-                mh.get_megalodon_fn(bc_info.out_dir, mh.BC_MODS_NAME), 'w')
-            mods_fp.create_group('Reads')
-            mods_fp.create_dataset(
-                'mod_long_names', dtype=h5py.special_dtype(vlen=str),
-                data=np.array(bc_info.mod_long_names, dtype='S'))
+            LOGGER.debug('outputting mod basecalls')
+            mods_fp = mapping.open_unaligned_alignment_file(
+                mh.get_megalodon_fn(bc_info.out_dir, mh.BC_MODS_NAME),
+                map_info.map_fmt, bc_info.mod_long_names)
         LOGGER.debug('GetterInitComplete')
     except Exception as e:
         aux_failed_q.put((
@@ -793,7 +783,7 @@ def process_all_reads(
     getters_info = [
         mh.GETTER_INFO(
             name=mh.BC_NAME, do_output=bc_info.do_output.any,
-            func=_get_bc_queue, args=(bc_info, aux_failed_q)),
+            func=_get_bc_queue, args=(bc_info, map_info, aux_failed_q)),
         mh.GETTER_INFO(
             name=mh.MAP_NAME, do_output=map_info.do_output_mappings,
             func=mapping._get_map_queue,
@@ -1206,6 +1196,11 @@ def parse_ref_out_args(args, model_info):
 
 
 def parse_basecall_args(args, mods_info):
+    if mh.BC_MODS_NAME in args.outputs and mods_info.nmod_base == 0:
+        LOGGER.warning('mod_basecalls requested, but specified model does ' +
+                       'not support calling modified bases. Removing ' +
+                       'mod_basecalls from outputs.')
+        args.outputs.remove(mh.BC_MODS_NAME)
     bc_do_output = mh.BASECALL_DO_OUTPUT(
         any=mh.BC_NAME in args.outputs or mh.BC_MODS_NAME in args.outputs,
         basecalls=mh.BC_NAME in args.outputs,
