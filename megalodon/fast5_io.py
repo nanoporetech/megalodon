@@ -5,10 +5,34 @@ from glob import glob
 import numpy as np
 from ont_fast5_api.fast5_interface import get_fast5_file as ont_get_fast5_file
 
-from megalodon import megalodon_helper as mh
+from megalodon import logging, megalodon_helper as mh
 
 
-def iterate_fast5_filenames(input_path, recursive=True):
+LOGGER = logging.get_logger()
+
+LIVE_COMP_FN_START = "final_summary_"
+LIVE_SLEEP = 0.1
+
+
+class LiveDoneError(Exception):
+    """ Custom error to indicate that live processing has completed
+    """
+    pass
+
+
+def iterate_fast5_filenames(input_path, recursive=True, do_it_live=False):
+    """ Iterate over fast5 file from the base directory
+
+    Args:
+        input_path (str): Path to root reads directory
+        recursive (bool): Search recursively
+        do_it_live (bool): Raise error when file starting with
+            LIVE_COMP_FN_START is found
+
+    Raises:
+        megalodon.fast5_io.LiveDoneError: When do_it_live is set and
+            LIVE_COMP_FN_START is found
+    """
     if recursive:
         for root, _, fns in os.walk(input_path, followlinks=True):
             for fn in fns:
