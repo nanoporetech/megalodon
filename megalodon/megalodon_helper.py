@@ -225,6 +225,10 @@ READ_STATUS.__new__.__defaults__ = (False, True, None, None, None, 0)
 TRUE_TEXT_VALUES = set(('y', 'yes', 't', 'true', 'on', '1'))
 FALSE_TEXT_VALUES = set(('n', 'no', 'f', 'false', 'off', '0'))
 
+# original modified base models used 5mC=Z and 6mA=Y. This has now been
+# standardized here https://github.com/samtools/hts-specs/pull/418
+LEGACY_MOD_BASES = dict(zip(map(ord, 'ZY'), map(ord, 'ma')))
+
 
 class MegaError(Exception):
     """ Custom megalodon error for more graceful error handling
@@ -322,6 +326,10 @@ def compile_rev_comp_motif_pat(raw_motif):
     return re.compile(''.join(
         '[{}]'.format(''.join(comp(b) for b in SINGLE_LETTER_CODE[letter]))
         for letter in raw_motif[::-1]))
+
+
+def convert_legacy_mods(mod_base):
+    return mod_base .translate(LEGACY_MOD_BASES)
 
 
 #######################
