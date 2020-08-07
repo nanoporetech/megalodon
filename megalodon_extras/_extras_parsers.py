@@ -20,8 +20,7 @@ def get_parser_aggregate_run():
         choices=[mh.VAR_NAME, mh.MOD_NAME],
         help='Output type(s) to produce. Default: %(default)s')
     out_grp.add_argument(
-        '--megalodon-directory',
-        default='megalodon_results',
+        '--megalodon-directory', default='megalodon_results',
         help='Megalodon output directory containing per-read database(s) ' +
         'where aggregated results will be added. Default: %(default)s')
     out_grp.add_argument(
@@ -336,13 +335,7 @@ def get_parser_merge_modified_bases():
         '--single-process', action='store_true',
         help='Do not use multiprocessing with one input database per process.')
     parser.add_argument(
-        '--force-uint32-pos-index', action='store_true',
-        help='Force position database index to use uint32. Default will ' +
-        'swap to uint64 (doubling memory use) for references > 2.1 ' +
-        'gigabases. If set, no more than 2.1 billion unique stranded ' +
-        'reference sites should contain modified base scores.')
-    parser.add_argument(
-        '--database-safety', type=int, default=1,
+        '--database-safety', type=int, default=0,
         help='Setting for database performance versus corruption ' +
         'protection. Options: 0 (DB corruption on application crash), ' +
         '1 (DB corruption on system crash), 2 (DB safe mode). ' +
@@ -425,8 +418,7 @@ def get_parser_modified_bases_estimate_threshold():
         'megalodon_results_dir',
         help='Output directory from megalodon with per_read_mods in output.')
     parser.add_argument(
-        'mod_base',
-        help='Single letter code for the modified base.')
+        'mod_base', help='Single letter code for the modified base.')
 
     parser.add_argument(
         '--fraction-modified', type=float,
@@ -437,9 +429,9 @@ def get_parser_modified_bases_estimate_threshold():
         help='Percentile of extreme scores to determine fraction of ' +
         'modified bases. Default: %(default)d')
     parser.add_argument(
-        '--num-positions', type=int,
-        help='Number of positions from which to select statistics. ' +
-        'Default: All positions')
+        '--num-statistics', type=int,
+        help='Number of per-read statistics to use in estimation. ' +
+        'Default: All statistics')
 
     return parser
 
@@ -454,6 +446,34 @@ def get_parser_modified_bases_update_database():
         help='Output data base name. Should replace ' +
         'per_read_modified_base_calls.db in megalodon results directory in ' +
         'order to process further. Default: %(default)s')
+
+    return parser
+
+
+def get_parser_modified_bases_split_calls_by_motif():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        'reference',
+        help='Reference FASTA file. Must include index file ending in fai.')
+    parser.add_argument(
+        '--motif', nargs=2, action='append', required=True,
+        metavar=['MOTIF', 'REL_POS'],
+        help='Motif description. Motifs include two values specifying the ' +
+        'sequence motif (including ambiguous codes) and the relative ' +
+        'modified position. Multiple `--motif` values should be provided.')
+    parser.add_argument(
+        '--megalodon-directory', default='megalodon_results',
+        help='Megalodon output directory containing per-read modified base ' +
+        'database to be split. Default: %(default)s')
+    parser.add_argument(
+        '--output-suffix', default='split_by_motif',
+        help='Suffix to apply to log (stored in input directory. ' +
+        'Default: %(default)s')
+    parser.add_argument(
+        '--output-prefix', default='megalodon_results.split_by_motif',
+        help='Prefix for output directories. One directory will be created ' +
+        'for each motif with names [--output-prefix].[--motif]. ' +
+        'Default: %(default)s')
 
     return parser
 
@@ -479,6 +499,22 @@ def get_parser_modified_bases_create_ground_truth():
         help='Offset to combine stranded results. Positive value indicates ' +
         'reverse strand sites have higher position values. Default treat ' +
         'strands independently.')
+
+    return parser
+
+
+def get_parser_modified_bases_index_database():
+    parser = argparse.ArgumentParser(
+        description='Create per-read modified bases calls database index. ' +
+        'Can rescue results from unexpected program crashes.')
+
+    parser.add_argument(
+        '--megalodon-directory', default='megalodon_results',
+        help='Megalodon output directory containing per-read modified bases ' +
+        'database to be indexed. Default: %(default)s')
+    parser.add_argument(
+        '--output-suffix', default='mod_index_database',
+        help='Log file suffix. Default: %(default)s')
 
     return parser
 
@@ -804,6 +840,22 @@ def get_parser_variants_heterozygous_factor():
     return parser
 
 
+def get_parser_variants_index_database():
+    parser = argparse.ArgumentParser(
+        description='Create per-read variant calls database index. Can ' +
+        'rescue results from unexpected program crashes.')
+
+    parser.add_argument(
+        '--megalodon-directory', default='megalodon_results',
+        help='Megalodon output directory containing per-read variant ' +
+        'database to be indexed. Default: %(default)s')
+    parser.add_argument(
+        '--output-suffix', default='var_index_database',
+        help='Log file suffix. Default: %(default)s')
+
+    return parser
+
+
 # all megalodon_extras command groups
 GRP_AGG = 'aggregate'
 CMD_AGG_RUN = 'run'
@@ -824,6 +876,8 @@ CMD_MODS_ALPHABET = 'describe_alphabet'
 CMD_MODS_EST_THRESH = 'estimate_threshold'
 CMD_MODS_UPDATE_DB = 'update_database'
 CMD_MODS_GT = 'create_ground_truth'
+CMD_MODS_INDEX = 'index_database'
+CMD_MODS_SPLIT = 'split_by_motif'
 
 GRP_PHASE = 'phase_variants'
 CMD_PHASE_FILT_WHATSHAP = 'whatshap_filter'
@@ -843,6 +897,7 @@ GRP_VARS = 'variants'
 CMD_VAR_ATOM = 'atomize'
 CMD_VAR_RESOLVE = 'resolve'
 CMD_VAR_HET_FACTOR = 'heterozygous_factor'
+CMD_VAR_INDEX = 'index_database'
 
 PARSERS = {
     GRP_AGG: {
@@ -860,7 +915,9 @@ PARSERS = {
         CMD_MODS_ALPHABET: get_parser_modified_bases_describe_alphabet,
         CMD_MODS_EST_THRESH: get_parser_modified_bases_estimate_threshold,
         CMD_MODS_UPDATE_DB: get_parser_modified_bases_update_database,
-        CMD_MODS_GT: get_parser_modified_bases_create_ground_truth},
+        CMD_MODS_GT: get_parser_modified_bases_create_ground_truth,
+        CMD_MODS_INDEX: get_parser_modified_bases_index_database,
+        CMD_MODS_SPLIT: get_parser_modified_bases_split_calls_by_motif},
     GRP_PHASE: {
         CMD_PHASE_FILT_WHATSHAP: get_parser_phase_variants_whatshap_filter,
         CMD_PHASE_GET_HAP_READS:
@@ -876,7 +933,8 @@ PARSERS = {
     GRP_VARS: {
         CMD_VAR_ATOM: get_parser_variants_atomize,
         CMD_VAR_RESOLVE: get_parser_variants_resolve,
-        CMD_VAR_HET_FACTOR: get_parser_variants_heterozygous_factor}}
+        CMD_VAR_HET_FACTOR: get_parser_variants_heterozygous_factor,
+        CMD_VAR_INDEX: get_parser_variants_index_database}}
 
 
 if __name__ == '__main__':

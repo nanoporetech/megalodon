@@ -10,7 +10,8 @@ import numpy as np
 from tqdm import tqdm
 
 from megalodon import (
-    backends, logging, mapping, megalodon_helper as mh, megalodon, variants)
+    backends, fast5_io, logging, mapping, megalodon_helper as mh, megalodon,
+    variants)
 from ._extras_parsers import get_parser_calibrate_generate_variants_stats
 
 
@@ -252,7 +253,8 @@ def _process_reads_worker(
             break
 
         try:
-            sig_info = model_info.extract_signal_info(fast5_fn, read_id)
+            sig_info = model_info.extract_signal_info(fast5_io.get_fast5_file(
+                fast5_fn), read_id)
             read_var_calls = process_read(
                 sig_info, model_info, caller_conn, map_thr_buf, do_false_ref)
             var_calls_q.put((True, read_var_calls))

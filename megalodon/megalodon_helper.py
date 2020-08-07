@@ -1,15 +1,19 @@
 import os
+import re
 import sys
 import shutil
+import traceback
 import pkg_resources
 from tqdm import tqdm
-import multiprocessing as mp
 from abc import ABC, abstractmethod
-from multiprocessing.queues import Queue as mpQueue
 from collections import defaultdict, namedtuple, OrderedDict
 
 import numpy as np
 
+from megalodon import logging
+
+
+LOGGER = logging.get_logger()
 
 # TODO move these values into model specific files as they may change from
 # model to model. Need to create script to automate HET_FACTOR optimization
@@ -28,6 +32,7 @@ DEFAULT_INDEL_CONTEXT = 30
 DEFAULT_VAR_CONTEXT_BASES = [DEFAULT_SNV_CONTEXT, DEFAULT_INDEL_CONTEXT]
 DEFAULT_MOD_CONTEXT = 15
 DEFAULT_CONTEXT_MIN_ALT_PROB = 0.0
+DEFAULT_MOD_BC_PROB = 0.01
 MOD_BIN_THRESH_NAME = 'binary_threshold'
 MOD_EM_NAME = 'expectation_maximization'
 MOD_AGG_METHOD_NAMES = set((MOD_BIN_THRESH_NAME, MOD_EM_NAME))
@@ -60,8 +65,6 @@ CHAN_INFO_RANGE = 'range'
 CHAN_INFO_DIGI = 'digitisation'
 CHAN_INFO_SAMP_RATE = 'sampling_rate'
 
-_MAX_QUEUE_SIZE = 10000
-
 # allow 64GB for memory mapped sqlite file access
 MEMORY_MAP_LIMIT = 64000000000
 DEFAULT_VAR_DATABASE_TIMEOUT = 5
@@ -84,7 +87,9 @@ STRAND_FIELD_NAME = 'STRAND'
 
 # outputs specification
 BC_NAME = 'basecalls'
-BC_OUT_FMTS = ('fastq', 'fasta')
+BC_FMT_FQ = 'fastq'
+BC_FMT_FA = 'fasta'
+BC_OUT_FMTS = (BC_FMT_FQ, BC_FMT_FA)
 SEQ_SUMM_NAME = 'seq_summary'
 BC_MODS_NAME = 'mod_basecalls'
 MAP_NAME = 'mappings'
@@ -107,7 +112,7 @@ PR_REF_NAME = 'per_read_refs'
 OUTPUT_FNS = {
     BC_NAME: 'basecalls',
     SEQ_SUMM_NAME: 'sequencing_summary.txt',
-    BC_MODS_NAME: 'basecalls.modified_base_scores.hdf5',
+    BC_MODS_NAME: 'mod_basecalls',
     MAP_NAME: 'mappings',
     MAP_SUMM_NAME: 'mappings.summary.txt',
     PR_VAR_NAME: 'per_read_variant_calls.db',
@@ -121,7 +126,6 @@ OUTPUT_FNS = {
     SIG_MAP_NAME: 'signal_mappings.hdf5',
     PR_REF_NAME: 'per_read_references.fasta'
 }
-LOG_FILENAME = 'log.txt'
 # outputs to be selected with command line --outputs argument
 OUTPUT_DESCS = OrderedDict([
     (BC_NAME, 'Called bases (FASTA/Q)'),
@@ -155,12 +159,35 @@ MOD_OUTPUT_EXTNS = {
 ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, SIG_MAP_NAME,
                      PR_VAR_NAME, VAR_NAME, VAR_MAP_NAME,
                      PR_MOD_NAME, MOD_NAME, MOD_MAP_NAME))
-GETTER_PROC = namedtuple('getter_proc', ('queue', 'proc', 'conn'))
+MOD_OUTPUTS = set((MOD_NAME, PR_MOD_NAME, BC_MODS_NAME, MOD_MAP_NAME))
 
+_MAX_QUEUE_SIZE = 10000
+GETTER_INFO = namedtuple('INPUT_INFO', (
+    'name', 'do_output', 'func', 'args',  'max_size'))
+GETTER_INFO.__new__.__defaults__ = (_MAX_QUEUE_SIZE, )
+STATUS_INFO = namedtuple('STATUS_INFO', (
+    'suppress_prog_bar', 'suppress_queues', 'num_prog_errs'))
+INPUT_INFO = namedtuple('INPUT_INFO', (
+    'fast5s_dir', 'recursive', 'num_reads', 'read_ids_fn', 'num_ps'))
+BASECALL_DO_OUTPUT = namedtuple('BASECALL_DO_OUTPUT', (
+    'any', 'basecalls', 'mod_basecalls'))
+BASECALL_INFO = namedtuple('BASECALL_INFO', (
+    'do_output', 'out_dir', 'bc_fmt', 'mod_bc_fmt', 'mod_bc_min_prob',
+    'mod_long_names', 'rev_sig'))
+REF_DO_OUTPUT = namedtuple('REF_DO_OUTPUT', (
+    'pr_refs', 'can_pr_refs', 'mod_pr_refs', 'var_pr_refs',
+    'sig_maps', 'can_sig_maps', 'mod_sig_maps', 'var_sig_maps'))
+REF_OUT_FILTER_PARAMS = namedtuple('REF_OUT_FILTER_PARAMS', (
+    'pct_idnt', 'pct_cov', 'min_len', 'max_len'))
 REF_OUT_INFO = namedtuple('ref_out_info', (
-    'pct_idnt', 'pct_cov', 'min_len', 'max_len', 'alphabet',
-    'collapse_alphabet', 'mod_long_names', 'annotate_mods', 'annotate_vars',
-    'output_sig_maps', 'output_pr_refs', 'ref_mods_all_motifs'))
+    'do_output', 'filt_params', 'ref_mods_all_motifs', 'alphabet_info',
+    'out_dir', 'get_sig_map_func'))
+VAR_DO_OUTPUT = namedtuple('VAR_DO_OUTPUT', (
+    'db', 'text', 'var_map'))
+VAR_DO_OUTPUT.__new__.__defaults__ = (False, False, False, False)
+MOD_DO_OUTPUT = namedtuple('MOD_DO_OUTPUT', (
+    'db', 'text', 'mod_map'))
+MOD_DO_OUTPUT.__new__.__defaults__ = (False, False, False, False)
 
 # directory names define model preset string
 # currently only one model trained
@@ -183,12 +210,17 @@ SEQ_SUMM_INFO = namedtuple('seq_summ_info', (
     'scaling_median_template', 'scaling_mad_template'))
 # set default value of None for ref, alts, ref_start and strand;
 # false for has_context_base
-SEQ_SUMM_INFO.__new__.__defaults__ = tuple(['NA', ] * 11)
+SEQ_SUMM_INFO.__new__.__defaults__ = tuple(['NA', ] * 12)
 
 # default guppy settings
 DEFAULT_GUPPY_SERVER_PATH = './ont-guppy/bin/guppy_basecall_server'
 DEFAULT_GUPPY_CFG = 'dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg'
 DEFAULT_GUPPY_TIMEOUT = 5.0
+
+# completed read information
+READ_STATUS = namedtuple('READ_STATUS', (
+    'is_err', 'do_update_prog', 'err_type', 'fast5_fn', 'err_tb', 'n_sig'))
+READ_STATUS.__new__.__defaults__ = (False, True, None, None, None, 0)
 
 TRUE_TEXT_VALUES = set(('y', 'yes', 't', 'true', 'on', '1'))
 FALSE_TEXT_VALUES = set(('n', 'no', 'f', 'false', 'off', '0'))
@@ -268,39 +300,28 @@ def log_prob_to_phred(log_prob, ignore_np_divide=True):
     return -10 * np.log10(1 - np.exp(log_prob))
 
 
-def extract_seq_summary_info(read, na_str='NA'):
-    """ Extract non-basecalling sequencing summary information from
-    ont_fast5_api read object
-    """
+def log_errors(func, *args, **kwargs):
     try:
-        fn = read.filename
-        read_id = read.read_id
-        channel_info = read.get_channel_info()
-        try:
-            read_info = read.status.read_info[0]
-            mux = read_info.start_mux
-            start_time = '{:.6f}'.format(read_info.start_time / samp_rate)
-            dur = '{:.6f}'.format(read_info.duration / samp_rate)
-            num_events = str(read_info.event_data_count
-                             if read_info.has_event_data else na_str)
-        except AttributeError:
-            mux = start_time = dur = num_events = na_str
-        run_id = read.get_run_id()
-        try:
-            run_id = run_id.decode()
-        except AttributeError:
-            pass
-        batch_id = na_str
-        chan = channel_info[CHAN_INFO_CHANNEL_SLOT]
-        samp_rate = channel_info[CHAN_INFO_SAMP_RATE]
-    except Exception:
-        # if anything goes wrong set all values to na_str
-        fn = read_id = run_id = batch_id = chan = mux = start_time = dur = \
-                       num_events = na_str
-    return SEQ_SUMM_INFO(
-        filename=fn, read_id=read_id, run_id=run_id, batch_id=batch_id,
-        channel=chan, mux=mux, start_time=start_time, duration=dur,
-        num_events=num_events)
+        return func(*args, **kwargs)
+    except KeyboardInterrupt:
+        raise
+    except MegaError as e:
+        LOGGER.debug('MegaError {}'.format(str(e)))
+    except Exception as e:
+        LOGGER.debug('UnexpectedError {}\nFull traceback:\n{}'.format(
+            str(e), traceback.format_exc()))
+
+
+def compile_motif_pat(raw_motif):
+    return re.compile(''.join(
+        '[{}]'.format(SINGLE_LETTER_CODE[letter])
+        for letter in raw_motif))
+
+
+def compile_rev_comp_motif_pat(raw_motif):
+    return re.compile(''.join(
+        '[{}]'.format(''.join(comp(b) for b in SINGLE_LETTER_CODE[letter]))
+        for letter in raw_motif[::-1]))
 
 
 #######################
@@ -311,6 +332,8 @@ def resolve_path(fn_path):
     """Helper function to resolve relative and linked paths that might
     give other packages problems.
     """
+    if fn_path is None:
+        return None
     return os.path.realpath(os.path.expanduser(fn_path))
 
 
@@ -425,53 +448,6 @@ def get_supported_configs_message():
     return out_msg
 
 
-###########################
-# Multi-processing Helper #
-###########################
-
-class CountingMPQueue(mpQueue):
-    """ Minimal version of multiprocessing queue maintaining a queue size
-    counter
-    """
-    def __init__(self, **kwargs):
-        super().__init__(ctx=mp.get_context(), **kwargs)
-        self.size = mp.Value('i', 0)
-        self.maxsize = None
-        if 'maxsize' in kwargs:
-            self.maxsize = kwargs['maxsize']
-
-    def put(self, *args, **kwargs):
-        super().put(*args, **kwargs)
-        with self.size.get_lock():
-            self.size.value += 1
-
-    def get(self, *args, **kwargs):
-        rval = super().get(*args, **kwargs)
-        with self.size.get_lock():
-            self.size.value -= 1
-        return rval
-
-    def qsize(self):
-        qsize = max(0, self.size.value)
-        if self.maxsize is not None:
-            return min(self.maxsize, qsize)
-        return qsize
-
-    def empty(self):
-        return self.qsize() <= 0
-
-
-def create_getter_q(getter_func, args, max_size=_MAX_QUEUE_SIZE):
-    if max_size is None:
-        q = CountingMPQueue()
-    else:
-        q = CountingMPQueue(maxsize=max_size)
-    main_conn, conn = mp.Pipe()
-    p = mp.Process(target=getter_func, daemon=True, args=(q, conn, *args))
-    p.start()
-    return GETTER_PROC(q, p, main_conn)
-
-
 ########################
 # Stat Aggregation ABC #
 ########################
@@ -494,14 +470,16 @@ def med_mad(data, factor=None, axis=None, keepdims=False):
     """Compute the Median Absolute Deviation, i.e., the median
     of the absolute deviations from the median, and the median
 
-    :param data: A :class:`ndarray` object
-    :param factor: Factor to scale MAD by. Default (None) is to be consistent
-    with the standard deviation of a normal distribution
-    (i.e. mad( N(0, sigma^2) ) = sigma).
-    :param axis: For multidimensional arrays, which axis to calculate over
-    :param keepdims: If True, axis is kept as dimension of length 1
+    Args:
+        data (np.ndarray): Data to be scaled
+        factor (float): Factor to scale MAD by. Default (None) is to be
+            consistent with the standard deviation of a normal distribution
+            (i.e. mad( N(0, sigma^2) ) = sigma).
+        axis: For multidimensional arrays, which axis to calculate over
+        keepdims: If True, axis is kept as dimension of length 1
 
-    :returns: a tuple containing the median and MAD of the data
+    Returns:
+        A tuple containing the median and MAD of the data
     """
     if factor is None:
         factor = MED_NORM_FACTOR
@@ -519,6 +497,63 @@ def med_mad(data, factor=None, axis=None, keepdims=False):
 #####################
 # File-type Parsers #
 #####################
+
+def parse_read_ids(read_ids_fn):
+    """ Robust read IDs file parser.
+
+    This function will parse either a file with one read ID per line or a TSV
+    file with the "read_id" field in the header.
+
+    Args:
+        read_ids_fn (str): Filename/path for read IDs parser.
+
+    Returns:
+        Set of read ID strings if successfully parsed or `None` otherwise.
+    """
+    if read_ids_fn is None:
+        return None
+
+    with open(read_ids_fn) as read_ids_fp:
+        header = read_ids_fp.readline().strip()
+        if len(header) == 0:
+            LOGGER.warning(
+                ('Read IDs file, {}, first line is empty. Read IDs file ' +
+                 'will be ignored.').format(read_ids_fn))
+            return None
+        header_fields = header.split('\t')
+        if len(header_fields) > 1:
+            try:
+                read_id_field_num = next(
+                    i for i, f in enumerate(header_fields) if f == 'read_id')
+            except StopIteration:
+                LOGGER.warning(
+                    ('Read IDs file, {}, contains multiple header fields, ' +
+                     'but none are "read_id". Read IDs file will be ' +
+                     'ignored.').format(read_ids_fn))
+                return None
+
+            # parse read id TSV file
+            been_warned = False
+            valid_read_ids = set()
+            for line_num, line in enumerate(read_ids_fp):
+                try:
+                    valid_read_ids.add(
+                        line.strip().split('\t')[read_id_field_num])
+                except Exception:
+                    if not been_warned:
+                        LOGGER.warning(
+                            ('Read IDs TSV file, {}, contains lines with ' +
+                             'fewer fields than header. First offending ' +
+                             'line: {}').format(read_ids_fn, line_num))
+                    been_warned = True
+        else:
+            valid_read_ids = set(line.strip() for line in read_ids_fp)
+            # if first line is not single field header assume this is a
+            # read id as well.
+            if header_fields[0] != 'read_id':
+                valid_read_ids.add(header_fields[0])
+    return valid_read_ids
+
 
 def str_strand_to_int(strand_str):
     """ Convert string stand representation to integer +/-1 as used in
@@ -545,9 +580,10 @@ def int_strand_to_str(strand_str):
 def parse_beds(bed_fns, ignore_strand=False, show_prog_bar=True):
     """ Parse bed files.
 
-    Arguments:
-        bed_fns: Iterable containing bed paths
-        ignore_strand: Set strand values to None
+    Args:
+        bed_fns (Iterable): Iterable containing bed paths
+        ignore_strand (bool): Set strand values to None
+        show_prog_bar (bool): Show twdm progress bar
 
     Returns:
         Dictionary with keys (chromosome, strand) and values with set of
@@ -571,16 +607,20 @@ def parse_beds(bed_fns, ignore_strand=False, show_prog_bar=True):
     return sites
 
 
-def parse_bed_methyls(bed_fns, strand_offset=None, show_prog_bar=True):
+def parse_bed_methyls(
+        bed_fns, strand_offset=None, show_prog_bar=True, valid_pos=None):
     """ Parse bedmethyl files and return two dictionaries containing
     total and methylated coverage. Both dictionaries have top level keys
     (chromosome, strand) and second level keys with 0-based position.
 
-    Arguments:
-        bed_fns: Iterable containing bed methyl paths
-        strand_offset: Set to aggregate negative strand along with positive
-            strand values. Positive indicates negative strand sites have higher
-            coordinate values.
+    Args:
+        bed_fns (Iterable): Bed methyl file paths
+        strand_offset (bool): Set to aggregate negative strand along with
+            positive strand values. Positive indicates negative strand sites
+            have higher coordinate values.
+        show_prog_bar (bool): Show twdm progress bar
+        valid_pos (dict): Filter to valid positions, as returned from
+            mh.parse_beds
     """
     cov = defaultdict(lambda: defaultdict(int))
     meth_cov = defaultdict(lambda: defaultdict(int))
@@ -600,6 +640,11 @@ def parse_bed_methyls(bed_fns, strand_offset=None, show_prog_bar=True):
                     # apply offset to reverse strand positions
                     if strand == '-':
                         start -= strand_offset
+                # skip any positions not found in valid_pos
+                if valid_pos is not None and (
+                        (chrm, store_strand) not in valid_pos or
+                        start not in valid_pos[(chrm, store_strand)]):
+                    continue
                 num_reads = int(num_reads)
                 if num_reads <= 0:
                     continue

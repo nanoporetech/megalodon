@@ -9,7 +9,7 @@ from megalodon import logging, megalodon_helper as mh
 from ._extras_parsers import get_parser_validate_compare_modified_bases
 
 
-LOGGER = logging.init_logger()
+LOGGER = logging.get_logger()
 
 CMAP = plt.cm.inferno_r
 COV_SAMP1_COLOR = '#7A7A7A'
@@ -117,8 +117,8 @@ def plot_hm(samp1_mod_pct, samp2_mod_pct, hm_num_bins, samp_names,
 
 
 def compute_filt_mod_pct(
-        samp1_cov, samp1_mod_cov, samp2_cov, samp2_mod_cov, valid_pos,
-        cov_thresh, samp_names, out_fp):
+        samp1_cov, samp1_mod_cov, samp2_cov, samp2_mod_cov, cov_thresh,
+        samp_names, out_fp):
     common_ctgs = set(samp1_cov).intersection(samp2_cov)
     if len(common_ctgs) == 0:
         LOGGER.error(
@@ -132,13 +132,7 @@ def compute_filt_mod_pct(
     samp1_mod_pct, samp2_mod_pct = [], []
     samp1_valid_cov, samp2_valid_cov = [], []
     for ctg in common_ctgs:
-        if valid_pos is not None:
-            if ctg not in valid_pos:
-                continue
-            valid_ctg_pos = valid_pos[ctg]
         for pos in set(samp1_cov[ctg]).intersection(samp2_cov[ctg]):
-            if valid_pos is not None and pos not in valid_ctg_pos:
-                continue
             samp1_pos_cov = samp1_cov[ctg][pos]
             samp2_pos_cov = samp2_cov[ctg][pos]
             if min(samp1_pos_cov, samp2_pos_cov) < cov_thresh:
@@ -173,13 +167,19 @@ def compute_filt_mod_pct(
 def parse_inputs(
         samp1_bm_fns, samp2_bm_fns, strand_offset, samp_names, valid_pos_fn,
         out_fp):
+    # parse valid positions
+    valid_pos = None
+    if valid_pos_fn is not None:
+        valid_pos = mh.parse_beds(
+            valid_pos_fn, ignore_strand=strand_offset is not None)
+
     # parse bed methyl files
     samp1_cov, samp1_mod_cov = mh.parse_bed_methyls(
-        samp1_bm_fns, strand_offset=strand_offset)
+        samp1_bm_fns, strand_offset=strand_offset, valid_pos=valid_pos)
     samp1_all_cov = np.array([cov for ctg_cov in samp1_cov.values()
                               for cov in ctg_cov.values()])
     samp2_cov, samp2_mod_cov = mh.parse_bed_methyls(
-        samp2_bm_fns, strand_offset=strand_offset)
+        samp2_bm_fns, strand_offset=strand_offset, valid_pos=valid_pos)
     samp2_all_cov = np.array([cov for ctg_cov in samp2_cov.values()
                               for cov in ctg_cov.values()])
     out_fp.write(
@@ -191,14 +191,8 @@ def parse_inputs(
             samp_names[1], np.median(samp2_all_cov),
             np.mean(samp2_all_cov), np.std(samp2_all_cov)))
 
-    # parse valid positions
-    valid_pos = None
-    if valid_pos_fn is not None:
-        valid_pos = mh.parse_beds(
-            valid_pos_fn, ignore_strand=strand_offset is not None)
-
     return (samp1_cov, samp1_mod_cov, samp1_all_cov,
-            samp2_cov, samp2_mod_cov, samp2_all_cov, valid_pos)
+            samp2_cov, samp2_mod_cov, samp2_all_cov)
 
 
 def _main(args):
@@ -208,12 +202,12 @@ def _main(args):
               open(args.out_filename, 'w'))
 
     (samp1_cov, samp1_mod_cov, samp1_all_cov,
-     samp2_cov, samp2_mod_cov, samp2_all_cov, valid_pos) = parse_inputs(
+     samp2_cov, samp2_mod_cov, samp2_all_cov) = parse_inputs(
          args.sample1_bed_methyl_files, args.sample2_bed_methyl_files,
          args.strand_offset, args.sample_names, args.valid_positions, out_fp)
     (samp1_mod_pct, samp2_mod_pct,
      samp1_valid_cov, samp2_valid_cov) = compute_filt_mod_pct(
-         samp1_cov, samp1_mod_cov, samp2_cov, samp2_mod_cov, valid_pos,
+         samp1_cov, samp1_mod_cov, samp2_cov, samp2_mod_cov,
          args.coverage_threshold, args.sample_names, out_fp)
     plot_hm(
         samp1_mod_pct, samp2_mod_pct, args.heatmap_num_bins, args.sample_names,

@@ -1,9 +1,8 @@
 import os
 import sys
-import queue
 import sqlite3
 import datetime
-from time import sleep
+import traceback
 from array import array
 from operator import itemgetter
 from itertools import chain, combinations, product, repeat
@@ -63,7 +62,7 @@ LOGGER = logging.get_logger()
 # Variants DB #
 ###############
 
-class VarsDb(object):
+class VarsDb:
     # note foreign key constraint is not applied here as this
     # drastically reduces efficiency. Namely the search for pos_id
     # when inserting into the data table forces a scan of a very
@@ -104,7 +103,7 @@ class VarsDb(object):
         'read_id', 'chrm', 'strand', 'pos', 'ref_log_prob', 'alt_log_prob',
         'ref_seq', 'alt_seq', 'var_id')
 
-    def __init__(self, fn, read_only=True, db_safety=1,
+    def __init__(self, fn, read_only=True, db_safety=0,
                  loc_index_in_memory=False, chrm_index_in_memory=True,
                  alt_index_in_memory=True, uuid_index_in_memory=False,
                  uuid_strand_index_in_memory=False):
@@ -147,6 +146,8 @@ class VarsDb(object):
             if self.uuid_strand_idx_in_mem:
                 self.load_uuid_strand_read_index()
         else:
+            self.db.execute("PRAGMA temp_store_directory = '{}'".format(
+                os.path.dirname(self.fn)))
             if db_safety < 2:
                 # set asynchronous mode to off for max speed
                 self.cur.execute('PRAGMA synchronous = OFF')
@@ -181,6 +182,12 @@ class VarsDb(object):
                 self.create_alt_index()
             if self.uuid_idx_in_mem:
                 self.uuid_idx = {}
+
+    def check_data_covering_index_exists(self):
+        if len(self.cur.execute(
+                'SELECT name FROM sqlite_master WHERE type="index" AND name=?',
+                ('data_cov_idx', )).fetchall()) == 0:
+            raise mh.MegaError('Data covering index does not exist.')
 
     # insert data functions
     def get_chrm_id_or_insert(self, chrm, chrm_len):
@@ -992,9 +999,7 @@ def annotate_variants(r_start, ref_seq, r_var_calls, strand):
 
 
 def _get_variants_queue(
-        vars_q, vars_conn, vars_db_fn, vars_txt_fn, db_safety, pr_refs_fn,
-        ref_out_info, var_map_fn, ref_names_and_lens, ref_fn,
-        loc_index_in_memory):
+        vars_q, vars_info, ref_out_info, map_info, aux_failed_q):
     def write_var_alignment(
             read_id, var_seq, var_quals, chrm, strand, r_st, var_cigar):
         a = pysam.AlignedSegment()
@@ -1027,12 +1032,10 @@ def _get_variants_queue(
                     'Error inserting sequence variant scores into database. ' +
                     'See log debug output for error details.')
                 been_warned = True
-            import traceback
-            LOGGER.debug(
-                'Error inserting modified base scores into database: ' +
-                str(e) + '\n' + traceback.format_exc())
+            LOGGER.debug('VarDBInsertError {}\n{}'.format(
+                str(e), traceback.format_exc()))
 
-        if vars_txt_fp is not None and len(r_var_calls) > 0:
+        if vars_info.do_output.text and len(r_var_calls) > 0:
             var_out_text = ''
             for (pos, alt_lps, var_ref_seq, var_alt_seqs, var_id,
                  test_start, test_end) in r_var_calls:
@@ -1045,90 +1048,91 @@ def _get_variants_queue(
                     for alt_lp, var_alt_seq in zip(
                             alt_lps, var_alt_seqs))) + '\n'
             vars_txt_fp.write(var_out_text)
-        if do_ann_vars:
+        if ref_out_info.do_output.var_pr_refs or vars_info.do_output.var_map:
             if not mapping.read_passes_filters(
-                    ref_out_info, read_len, q_st, q_en, cigar):
+                    ref_out_info.filt_params, read_len, q_st, q_en, cigar):
                 return
             var_seq, var_quals, var_cigar = annotate_variants(
                 r_start, ref_seq, r_var_calls, strand)
-            if pr_refs_fn is not None:
+            if ref_out_info.do_output.var_pr_refs:
                 pr_refs_fp.write('>{}\n{}\n'.format(read_id, var_seq))
-            if var_map_fn is not None:
+            if vars_info.do_output.var_map:
                 write_var_alignment(
                     read_id, var_seq, var_quals, chrm, strand, r_start,
                     var_cigar)
 
         return been_warned
 
-    been_warned = False
+    try:
+        LOGGER.debug('GetterStarting')
+        been_warned = False
+        vars_db = VarsDb(
+            mh.get_megalodon_fn(vars_info.out_dir, mh.PR_VAR_NAME),
+            db_safety=vars_info.db_safety, read_only=False,
+            loc_index_in_memory=vars_info.loc_index_in_memory)
+        vars_db.insert_chrms(map_info.ref_names_and_lens)
+        vars_db.create_chrm_index()
+        if vars_info.do_output.text:
+            vars_txt_fp = open(mh.get_megalodon_fn(
+                vars_info.out_dir, mh.PR_VAR_TXT_NAME), 'w')
+            vars_txt_fp.write('\t'.join(vars_db.text_field_names) + '\n')
+        if ref_out_info.do_output.var_pr_refs:
+            pr_refs_fp = open(mh.get_megalodon_fn(
+                vars_info.out_dir, mh.PR_REF_NAME), 'w')
+        if vars_info.do_output.var_map:
+            try:
+                w_mode = mh.MAP_OUT_WRITE_MODES[map_info.map_fmt]
+            except KeyError:
+                raise mh.MegaError('Invalid mapping output format')
+            header = {
+                'HD': {'VN': '1.4'},
+                'SQ': [{'LN': ref_len, 'SN': ref_name}
+                       for ref_name, ref_len in sorted(
+                               zip(*map_info.ref_names_and_lens))],
+                'RG': [{'ID': VAR_MAP_RG_ID, 'SM': SAMPLE_NAME}, ]}
+            var_map_fp = pysam.AlignmentFile(
+                '{}.{}'.format(
+                    mh.get_megalodon_fn(vars_info.out_dir, mh.VAR_MAP_NAME),
+                    map_info.map_fmt),
+                w_mode, header=header, reference_filename=map_info.cram_ref_fn)
+        LOGGER.debug('GetterInitComplete')
+    except Exception as e:
+        aux_failed_q.put(('VarsInitError', str(e), traceback.format_exc()))
+        return
 
-    vars_db = VarsDb(vars_db_fn, db_safety=db_safety, read_only=False,
-                     loc_index_in_memory=loc_index_in_memory)
-    vars_db.insert_chrms(ref_names_and_lens)
-    vars_db.create_chrm_index()
-    if vars_txt_fn is None:
-        vars_txt_fp = None
-    else:
-        vars_txt_fp = open(vars_txt_fn, 'w')
-        vars_txt_fp.write('\t'.join(vars_db.text_field_names) + '\n')
+    try:
+        while vars_q.has_valid_conns:
+            for r_var_calls, r_var_res in vars_q.wait_recv():
+                r_val = mh.log_errors(
+                    store_var_call, r_var_calls, *r_var_res, been_warned)
+                if r_val is not None:
+                    been_warned = r_val
+        LOGGER.debug('GetterClosing')
+    except Exception as e:
+        aux_failed_q.put((
+            'VarsProcessingError', str(e), traceback.format_exc()))
+    finally:
+        if vars_info.do_output.text:
+            vars_txt_fp.close()
+        if ref_out_info.do_output.var_pr_refs:
+            pr_refs_fp.close()
+        if vars_info.do_output.var_map:
+            var_map_fp.close()
+        vars_db.create_alt_index()
+        if vars_db.loc_idx_in_mem:
+            vars_db.create_loc_index()
 
-    if pr_refs_fn is not None:
-        pr_refs_fp = open(pr_refs_fn, 'w')
-
-    if var_map_fn is not None:
-        try:
-            w_mode = mh.MAP_OUT_WRITE_MODES[
-                os.path.splitext(var_map_fn)[1][1:]]
-        except KeyError:
-            raise mh.MegaError('Invalid mapping output format')
-        header = {
-            'HD': {'VN': '1.4'},
-            'SQ': [{'LN': ref_len, 'SN': ref_name}
-                   for ref_name, ref_len in sorted(zip(*ref_names_and_lens))],
-            'RG': [{'ID': VAR_MAP_RG_ID, 'SM': SAMPLE_NAME}, ]}
-        var_map_fp = pysam.AlignmentFile(
-            var_map_fn, w_mode, header=header, reference_filename=ref_fn)
-
-    do_ann_vars = var_map_fn is not None or pr_refs_fn is not None
-
-    while True:
-        try:
-            r_var_calls, (read_id, chrm, strand, r_start, ref_seq, read_len,
-                          q_st, q_en, cigar) = vars_q.get(
-                              block=True, timeout=0.01)
-        except queue.Empty:
-            if vars_conn.poll():
-                break
-            sleep(0.001)
-            continue
-        been_warned = store_var_call(
-            r_var_calls, read_id, chrm, strand, r_start, ref_seq, read_len,
-            q_st, q_en, cigar, been_warned)
-    while not vars_q.empty():
-        r_var_calls, (read_id, chrm, strand, r_start, ref_seq, read_len,
-                      q_st, q_en, cigar) = vars_q.get(block=False)
-        been_warned = store_var_call(
-            r_var_calls, read_id, chrm, strand, r_start, ref_seq, read_len,
-            q_st, q_en, cigar, been_warned)
-
-    if vars_txt_fp is not None:
-        vars_txt_fp.close()
-    if pr_refs_fn is not None:
-        pr_refs_fp.close()
-    if var_map_fn is not None:
-        var_map_fp.close()
-    vars_db.create_alt_index()
-    if vars_db.loc_idx_in_mem:
-        vars_db.create_loc_index()
-    vars_db.create_data_covering_index()
-    vars_db.close()
+        LOGGER.debug('CreatingIndex')
+        vars_db.create_data_covering_index()
+        LOGGER.debug('ClosingDB')
+        vars_db.close()
 
 
 ##############
 # VCF Reader #
 ##############
 
-class VarData(object):
+class VarInfo:
     def check_vars_match_ref(
             self, vars_idx, contigs, aligner, num_contigs=5,
             num_sites_per_contig=50):
@@ -1141,25 +1145,24 @@ class VarData(object):
                 ref_seq = aligner.seq(contig, var_data.start, var_data.stop)
                 if ref_seq != var_data.ref:
                     # variant reference sequence does not match reference
-                    LOGGER.debug((
-                        'Reference sequence does not match variant ' +
-                        'reference sequence at {} expected "{}" got ' +
-                        '"{}"').format(var_data.start, var_data.ref, ref_seq))
+                    LOGGER.debug('VarSeqMismatchError {}:{}:{}'.format(
+                        var_data.start, var_data.ref, ref_seq))
                     return False
 
         return True
 
     def __init__(
-            self, variant_fn, max_indel_size=mh.DEFAULT_MAX_INDEL_SIZE,
-            all_paths=False, write_vars_txt=False,
-            context_bases=mh.DEFAULT_VAR_CONTEXT_BASES, vars_calib_fn=None,
-            call_mode=DIPLOID_MODE, aligner=None, keep_var_fp_open=False,
-            do_validate_reference=True, edge_buffer=mh.DEFAULT_EDGE_BUFFER,
+            self, variant_fn, aligner=None,
+            max_indel_size=mh.DEFAULT_MAX_INDEL_SIZE, all_paths=False,
+            context_bases=mh.DEFAULT_VAR_CONTEXT_BASES,
+            vars_calib_fn=None, call_mode=DIPLOID_MODE,
+            keep_var_fp_open=False, do_validate_reference=True,
+            edge_buffer=mh.DEFAULT_EDGE_BUFFER,
             context_min_alt_prob=mh.DEFAULT_CONTEXT_MIN_ALT_PROB,
-            loc_index_in_memory=True, variants_are_atomized=False):
+            loc_index_in_memory=True, variants_are_atomized=False,
+            db_safety=0, do_output=mh.VAR_DO_OUTPUT(), out_dir=None):
         self.max_indel_size = max_indel_size
         self.all_paths = all_paths
-        self.write_vars_txt = write_vars_txt
         self.vars_calib_fn = vars_calib_fn
         self.calib_table = calibration.VarCalibrator(self.vars_calib_fn)
         self.context_bases = context_bases
@@ -1174,10 +1177,13 @@ class VarData(object):
         self.variants_are_atomized = variants_are_atomized
         self.variant_fn = variant_fn
         self.variants_idx = None
+        self.db_safety = db_safety
+        self.do_output = do_output
+        self.out_dir = out_dir
         if self.variant_fn is None:
             return
 
-        LOGGER.info('Loading variants.')
+        LOGGER.info('Loading variants')
         vars_idx = pysam.VariantFile(self.variant_fn)
         try:
             contigs = list(vars_idx.header.contigs.keys())
@@ -1197,13 +1203,12 @@ class VarData(object):
                 raise mh.MegaError(
                     'Must provide aligner if variants filename is provided ' +
                     'and reference validation is requested.')
-            if len(set(aligner.ref_names_and_lens[0]).intersection(
-                    contigs)) == 0:
+            if len(set(aligner.seq_names).intersection(contigs)) == 0:
                 raise mh.MegaError((
                     'Reference and variant files contain no chromosomes/' +
                     'contigs in common.\n\t\tFirst 3 reference contigs:' +
                     '\t{}\n\t\tFirst 3 variant file contigs:\t{}').format(
-                        ', '.join(aligner.ref_names_and_lens[0][:3]),
+                        ', '.join(aligner.seq_names[:3]),
                         ', '.join(contigs[:3])))
             if not self.check_vars_match_ref(vars_idx, contigs, aligner):
                 raise mh.MegaError(
@@ -1295,7 +1300,7 @@ class VarData(object):
 
         dist_vars = defaultdict(list)
         for context_var in context_variants:
-            var_dist = VarData.compute_variant_distance(variant, context_var)
+            var_dist = VarInfo.compute_variant_distance(variant, context_var)
             if var_dist is not None:
                 dist_vars[var_dist].append(context_var)
 
@@ -1564,20 +1569,16 @@ class VarData(object):
                 # np_ref_seq_from_var = mh.seq_to_int(var.ref)
                 # assert np.all(np_ref_seq == np_ref_seq_from_var)
             except mh.MegaError:
-                LOGGER.debug((
-                    'Encountered invalid variant reference sequence, {}, ' +
-                    'from variant at {}:{} with id: {}'.format(
-                        var.ref, var.chrom, var.pos, var.id)))
+                LOGGER.debug('VarSeqMismatchError {}:{}:{}:{}'.format(
+                    var.ref, var.chrom, var.pos, var.id))
                 continue
             np_alt_seqs = []
             for alt_seq in var.alts:
                 try:
                     np_alt_seq = mh.seq_to_int(alt_seq)
                 except mh.MegaError:
-                    LOGGER.debug((
-                        'Encountered invalid variant alternative sequence, ' +
-                        '{}, from variant at {}:{} with id: {}'.format(
-                            alt_seq, var.chrom, var.pos, var.id)))
+                    LOGGER.debug('VarAltSeqMismatchError {}:{}:{}:{}'.format(
+                        alt_seq, var.chrom, var.pos, var.id))
                     continue
                 np_alt_seqs.append(np_alt_seq)
             if len(np_alt_seqs) == 0:
@@ -1715,9 +1716,7 @@ class VarData(object):
                     seq for cntxt_seqs in np_context_seqs
                     for seq in cntxt_seqs]).max() > len(mh.ALPHABET):
                 # some sequence contained invalid characters
-                LOGGER.debug(
-                    'Invalid sequence encountered for variant ' +
-                    '"{}" at {}:{}'.format(
+                LOGGER.debug('VarSeqMismatchError {}:{}:{}'.format(
                         variant.id, variant.chrom, variant.start))
                 continue
 
@@ -1734,7 +1733,7 @@ class VarData(object):
 # VCF Writer #
 ##############
 
-class Variant(object):
+class Variant:
     """ Variant for entry into VcfWriter.
     Currently only handles a single sample.
     """
@@ -1811,9 +1810,7 @@ class Variant(object):
         try:
             qual = int(np.around(np.minimum(raw_pl[0], mh.MAX_PL_VALUE)))
         except ValueError:
-            LOGGER.debug(
-                'NAN quality value encountered. gts:{}, probs:{}'.format(
-                    str(gts), str(probs)))
+            LOGGER.debug('NanVarQual {}:{}'.format(str(gts), str(probs)))
             qual = mh.MAX_PL_VALUE
         self.qual = '{:.0f}'.format(qual) if qual > 0 else '.'
         self.add_sample_field('GQ', '{:.0f}'.format(np.around(s_pl[1])))
@@ -1837,9 +1834,7 @@ class Variant(object):
         try:
             qual = int(np.minimum(np.around(raw_pl[0]), mh.MAX_PL_VALUE))
         except ValueError:
-            LOGGER.debug(
-                'NAN quality value encountered. gts:{}, probs:{}'.format(
-                    str(gts), str(probs)))
+            LOGGER.debug('NanVarQual {}:{}'.format(str(gts), str(probs)))
             qual = mh.MAX_PL_VALUE
         self.qual = '{:.0f}'.format(qual) if qual > 0 else '.'
         self.add_sample_field('GQ', '{:.0f}'.format(np.around(s_pl[1])))
@@ -1868,7 +1863,7 @@ class Variant(object):
         return (self.chrm, self.pos, self.id) >= (var2.chrm, var2.pos, var2.id)
 
 
-class VcfWriter(object):
+class VcfWriter:
     """ VCF writer class
     """
     version_options = set(['4.1', ])
@@ -2054,10 +2049,10 @@ class AggVars(mh.AbstractAggregationClass):
 # Mapping Post-process #
 ########################
 
-def get_whatshap_command(index_variant_fn, var_sort_fn, phase_fn):
-    return ('Run following command to obtain phased variants:\n\t\t' +
-            'whatshap phase --indels --distrust-genotypes -o {} {} {}').format(
-                phase_fn, index_variant_fn, var_sort_fn)
+def get_whatshap_command(index_variant_fn, var_sort_fn):
+    return ('See online documentation to obtain high-quality phased ' +
+            'variants from outputs "{}" and "{}".').format(
+                index_variant_fn, var_sort_fn)
 
 
 def sort_variants(in_vcf_fn, out_vcf_fn):

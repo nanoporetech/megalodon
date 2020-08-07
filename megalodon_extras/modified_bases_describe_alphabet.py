@@ -28,17 +28,12 @@ def _main(args):
     backend_params = backends.parse_backend_params(args)
     with backends.ModelInfo(backend_params, 1) as model_info:
         if model_info.is_cat_mod:
-            can_bs = [
-                can_b for mod_b, _ in model_info.mod_long_names
-                for can_b, can_mod_bs in model_info.can_base_mods.items()
-                if mod_b in can_mod_bs]
-            LOGGER.info((
-                'Model contains canonical alphabet {} and modified ' +
-                'bases {}.').format(
+            LOGGER.info(
+                'Using canonical alphabet {} and modified bases {}.'.format(
                     model_info.can_alphabet, '; '.join(
-                        '{}={} (alt to {})'.format(mod_b, mln, can_b)
-                        for (mod_b, mln), can_b in zip(
-                                model_info.mod_long_names, can_bs))))
+                        '{}={} (alt to {})'.format(
+                            mod_b, mln, model_info.mod_base_to_can[mod_b])
+                        for mod_b, mln in model_info.mod_long_names)))
         else:
             LOGGER.info(
                 'Model contains canonical alphabet {}.'.format(

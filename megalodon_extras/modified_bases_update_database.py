@@ -60,11 +60,13 @@ def fill_refs(old_cur, new_db):
 
 
 def _main(args):
+    raise NotImplementedError(
+        'The previous version of this script updated version 0 to ' +
+        'version 1. Updgreade to version 2 not yet implemented.')
     logging.init_logger()
     old_db = sqlite3.connect(args.old_db)
     old_cur = old_db.cursor()
-    new_db = mods.ModsDb(args.new_db, read_only=False,
-                         pos_index_in_memory=True)
+    new_db = mods.ModsDb(args.new_db, read_only=False)
 
     LOGGER.info('Reading/loading reference record names.')
     fill_refs(old_cur, new_db)

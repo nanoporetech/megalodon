@@ -105,6 +105,21 @@ def get_parser():
         help='Reference FASTA or minimap2 index file used for mapping ' +
         'called reads.')
 
+    map_grp.add_argument(
+        '--cram-reference',
+        help=hidden_help('FASTA reference file. If --reference is a ' +
+                         'minimap2 index, the associated FASTA reference ' +
+                         'needs to be provided for the CRAM mapping output ' +
+                         'format.'))
+    map_grp.add_argument(
+        '--samtools-executable', default='samtools',
+        help=hidden_help('Samtools executable or path. Default: %(default)s'))
+    map_grp.add_argument(
+        '--sort-mappings', action='store_true',
+        help=hidden_help('Perform sorting and indexing of mapping output ' +
+                         'files. This can take considerable time for larger ' +
+                         'runs.'))
+
     var_grp = parser.add_argument_group('Sequence Variant Arguments')
     var_grp.add_argument(
         '--haploid', action='store_true',
@@ -177,7 +192,10 @@ def get_parser():
     mod_grp.add_argument(
         '--mod-motif', action="append", nargs=3,
         metavar=('BASE', 'MOTIF', 'REL_POSITION'),
-        help='Restrict modified base calls to specified motif(s). For ' +
+        help='Restrict modified base calls to specified motif(s). Argument ' +
+        'takes 3 values representing 1) the single letter modified base(s), ' +
+        '2) sequence motif and 3) relative modified base position. Multiple ' +
+        '--mod-motif arguments may be provided to a single command. For ' +
         'example to restrict to CpG sites use "--mod-motif Z CG 0".')
     mod_grp.add_argument(
         '--mod-calibration-filename',
@@ -200,6 +218,10 @@ def get_parser():
         help=hidden_help('Compute forwards algorithm all paths score for ' +
                          'modified base calls. (Default: Viterbi ' +
                          'best-path score)'))
+    out_grp.add_argument(
+        '--mod-basecalls-min-prob', type=float, default=mh.DEFAULT_MOD_BC_PROB,
+        help=hidden_help('Only include modified base probabilities greater ' +
+                         'than this value.'))
     mod_grp.add_argument(
         '--mod-binary-threshold', type=float,
         default=mh.DEFAULT_MOD_BINARY_THRESH,
@@ -222,13 +244,6 @@ def get_parser():
         choices=tuple(mh.MOD_OUTPUT_FMTS.keys()),
         help=hidden_help('Modified base aggregated output format(s). ' +
                          'Default: %(default)s'))
-    mod_grp.add_argument(
-        '--mod-positions-on-disk', action='store_true',
-        help=hidden_help('Force modified base positions to be stored ' +
-                         'only within on disk database table. This option ' +
-                         'will reduce the RAM memory requirement, but may ' +
-                         'drastically slow processing. Default: Store ' +
-                         'positions in memory and on disk.'))
     mod_grp.add_argument(
         '--write-mod-log-probs', action='store_true',
         help=hidden_help('Write per-read modified base log probabilities ' +
@@ -328,7 +343,7 @@ def get_parser():
         help='show megalodon version and exit.')
 
     misc_grp.add_argument(
-        '--database-safety', type=int, default=1,
+        '--database-safety', type=int, default=0,
         help=hidden_help('Setting for database performance versus ' +
                          'corruption protection. Options: 0 (DB corruption ' +
                          'on application crash), 1 (DB corruption on system ' +
