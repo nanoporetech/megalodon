@@ -637,11 +637,6 @@ def _get_fail_queue(
         if q_bars is not None:
             for q_bar in q_bars.values():
                 q_bar.close()
-        # print newlines to avoid tqdm issue 719
-        num_extra_bars = (0 if q_bars is None else len(q_bars)) + (
-            0 if err_statuses is None else len(err_statuses))
-        if num_extra_bars > 0:
-            tqdm.write('\n' * num_extra_bars)
 
     if len(failed_reads[_UNEXPECTED_ERROR_CODE]) >= 1:
         LOGGER.warning((
