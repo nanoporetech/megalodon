@@ -2,9 +2,9 @@ import os
 import sys
 import traceback
 import subprocess
-from collections import namedtuple
 from functools import total_ordering
 from distutils.version import LooseVersion
+from collections import namedtuple, OrderedDict
 
 import mappy
 import pysam
@@ -73,11 +73,15 @@ def get_mapping_mode(map_fmt):
 
 def open_unaligned_alignment_file(basename, map_fmt, mod_long_names=None):
     fn = '{}.{}'.format(basename, map_fmt)
-    header = {'PG': [{'PN': 'Megalodon', 'VN': MEGALODON_VERSION}]}
+    header_dict = OrderedDict([('PG', [OrderedDict([
+        ('ID', 'megalodon'), ('PN', 'megalodon'), ('VN', MEGALODON_VERSION),
+        ('CL', ' '.join(sys.argv))])])])
     if mod_long_names is not None:
-        header['CO'] = ['Modified base "{}" encoded as "{}"'.format(
+        header_dict['CO'] = ['Modified base "{}" encoded as "{}"'.format(
             mln, mod_base) for mod_base, mln in mod_long_names]
-    return pysam.AlignmentFile(fn, get_mapping_mode(map_fmt), header=header)
+    header = pysam.AlignmentHeader.from_dict(header_dict)
+    return pysam.AlignmentFile(fn, get_mapping_mode(map_fmt), header=header,
+                               add_sq_text=False)
 
 
 def prepare_unaligned_mod_mapping(read_id, q_seq, q_qual, mod_scores):
