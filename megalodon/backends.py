@@ -309,15 +309,14 @@ class AbstractModelInfo(ABC):
                 probs = np.exp(mods_scores[can_bs_pos, mod_index])
                 valid_prob_locs = np.where(probs > min_prob)[0]
                 mm_tag += '{}+{}{};'.format(
-                    can_base, mod_base,
+                    can_base, mh.convert_legacy_mods(mod_base),
                     ''.join(',{}'.format(d) for d in np.diff(np.insert(
                         valid_prob_locs, 0, -1)) - 1))
                 # extract mod scores and scale to 0-255 range
-                uint8_probs = np.floor(
-                    probs[valid_prob_locs] * 256).astype(np.uint8)
+                scaled_probs = np.floor(probs[valid_prob_locs] * 256)
                 # last interval includes prob=1
-                uint8_probs[uint8_probs == 256] = 255
-                ml_tag.extend(uint8_probs)
+                scaled_probs[scaled_probs == 256] = 255
+                ml_tag.extend(scaled_probs.astype(np.uint8))
             prev_bases += can_nmods + 1
 
         return mm_tag, ml_tag

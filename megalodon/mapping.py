@@ -77,8 +77,10 @@ def open_unaligned_alignment_file(basename, map_fmt, mod_long_names=None):
         ('ID', 'megalodon'), ('PN', 'megalodon'), ('VN', MEGALODON_VERSION),
         ('CL', ' '.join(sys.argv))])])])
     if mod_long_names is not None:
-        header_dict['CO'] = ['Modified base "{}" encoded as "{}"'.format(
-            mln, mod_base) for mod_base, mln in mod_long_names]
+        header_dict['CO'] = [
+            'Modified base "{}" encoded as "{}"'.format(
+                mln, mh.convert_legacy_mods(mod_base))
+            for mod_base, mln in mod_long_names]
     header = pysam.AlignmentHeader.from_dict(header_dict)
     return pysam.AlignmentFile(fn, get_mapping_mode(map_fmt), header=header,
                                add_sq_text=False)
