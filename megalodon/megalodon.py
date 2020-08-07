@@ -1202,14 +1202,6 @@ def parse_basecall_args(args, mods_info):
                        'not support calling modified bases. Removing ' +
                        'mod_basecalls from outputs.')
         args.outputs.remove(mh.BC_MODS_NAME)
-    if mh.BC_MODS_NAME in args.outputs and \
-       args.mappings_format == mh.MAP_OUT_CRAM:
-        LOGGER.warning(
-            'CRAM mapping format not available for unmapped output. ' +
-            'Reverting to BAM format for mod_basecalls output.')
-    mod_bc_fmt = (
-        args.mappings_format if args.mappings_format != mh.MAP_OUT_CRAM else
-        mh.MAP_OUT_BAM)
     bc_do_output = mh.BASECALL_DO_OUTPUT(
         any=mh.BC_NAME in args.outputs or mh.BC_MODS_NAME in args.outputs,
         basecalls=mh.BC_NAME in args.outputs,
@@ -1217,7 +1209,7 @@ def parse_basecall_args(args, mods_info):
     return mh.BASECALL_INFO(
         do_output=bc_do_output,
         out_dir=args.output_directory,
-        bc_fmt=args.basecalls_format, mod_bc_fmt=mod_bc_fmt,
+        bc_fmt=args.basecalls_format, mod_bc_fmt=args.mappings_format,
         mod_bc_min_prob=args.mod_basecalls_min_prob,
         mod_long_names=mods_info.mod_long_names, rev_sig=args.rna)
 
