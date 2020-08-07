@@ -1,6 +1,7 @@
 import os
 import sys
 from glob import glob
+from time import sleep
 
 import numpy as np
 from ont_fast5_api.fast5_interface import get_fast5_file as ont_get_fast5_file
@@ -36,6 +37,8 @@ def iterate_fast5_filenames(input_path, recursive=True, do_it_live=False):
     if recursive:
         for root, _, fns in os.walk(input_path, followlinks=True):
             for fn in fns:
+                if do_it_live and fn.startswith(LIVE_COMP_FN_START):
+                    raise LiveDoneError
                 if not fn.endswith('.fast5'):
                     continue
                 yield os.path.join(root, fn)
@@ -44,9 +47,10 @@ def iterate_fast5_filenames(input_path, recursive=True, do_it_live=False):
             yield fn
 
 
-def iterate_fast5_reads(fast5s_dir, limit=None, recursive=True):
-    """Return iterator yielding reads in a directory of fast5 files or a
-    single fast5 file.
+def _iterate_fast5_reads_core(
+        fast5s_dir, limit=None, recursive=True, do_it_live=False,
+        skip_fns=None):
+    """ Yield reads in a directory of fast5 files.
 
     Each read is specified by a tuple (filepath, read_id)
     Files may be single or multi-read fast5s
@@ -55,15 +59,67 @@ def iterate_fast5_reads(fast5s_dir, limit=None, recursive=True):
         fast5s_dir (str): Directory containing fast5 files
         limit (int): Limit number of reads to consider
         recursive (bool): Search path recursively for fast5 files.
+        do_it_live (bool): Raise RuntimeError when file starting with
+            LIVE_COMP_FN_START is found.
+        skip_fns (set): Set of filenames to skip for read iteration
     """
     nreads = 0
-    for fast5_fn in iterate_fast5_filenames(fast5s_dir, recursive):
+    for fast5_fn in iterate_fast5_filenames(fast5s_dir, recursive, do_it_live):
+        if skip_fns is not None and fast5_fn in skip_fns:
+            continue
         with ont_get_fast5_file(fast5_fn, 'r') as fast5_fp:
             for read_id in fast5_fp.get_read_ids():
                 yield fast5_fn, read_id
                 nreads += 1
                 if limit is not None and nreads >= limit:
                     return
+
+
+def iterate_fast5_reads(
+        fast5s_dir, limit=None, recursive=True, do_it_live=False):
+    """ Iterate fast5 file path and read id combinations in directory
+
+    Args:
+        fast5s_dir (str): Directory containing fast5 files
+        limit (int): Limit number of reads to consider
+        recursive (bool): Search path recursively for fast5 files.
+        do_it_live (bool): Continue searching for reads until file starting
+            with LIVE_COMP_FN_START is found.
+    """
+    if do_it_live:
+        LOGGER.debug('LiveProcessingStarting')
+        # track files that have been searched for read_ids so they aren't
+        # opened again
+        used_fns = set()
+        # keep track of limit here since inner loop won't keep total count
+        nreads = 0
+        try:
+            while True:
+                # freeze set so it doesn't update in inner function
+                iter_skip_fns = frozenset(used_fns)
+                for fast5_fn, read_id in _iterate_fast5_reads_core(
+                        fast5s_dir, recursive=recursive, do_it_live=True,
+                        skip_fns=iter_skip_fns):
+                    yield fast5_fn, read_id
+                    used_fns.add(fast5_fn)
+                    nreads += 1
+                    if limit is not None and nreads >= limit:
+                        return
+                # sleep so file searching doesn't take too much processing
+                sleep(LIVE_SLEEP)
+        except LiveDoneError:
+            LOGGER.debug('LiveProcessingComplete')
+            # search for any files that were missed before run ended
+            for fast5_fn, read_id in _iterate_fast5_reads_core(
+                    fast5s_dir, recursive=recursive, skip_fns=used_fns):
+                yield fast5_fn, read_id
+                nreads += 1
+                if limit is not None and nreads >= limit:
+                    return
+    else:
+        for fast5_fn, read_id in _iterate_fast5_reads_core(
+                fast5s_dir, limit=limit, recursive=recursive):
+            yield fast5_fn, read_id
 
 
 def get_read(fast5_fn, read_id):
