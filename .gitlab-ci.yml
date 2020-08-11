@@ -48,7 +48,7 @@ docs:
     stage: format
     script:
         - pip install sphinx sphinx-rtd-theme
-        - cd doc ; make html
+        - cd docs ; make html
         - mv build/html/ ../public/
     artifacts:
         paths:
