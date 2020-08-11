@@ -5,6 +5,7 @@ import array
 import subprocess
 from abc import ABC
 from time import sleep
+from distutils.version import LooseVersion
 from collections import defaultdict, namedtuple
 
 import numpy as np
@@ -39,6 +40,8 @@ GUPPY_HOST = 'localhost'
 PYGUPPY_PER_TRY_TIMEOUT = 0.0001
 GUPPY_LOG_BASE = 'guppy_log'
 GUPPY_PORT_PAT = re.compile(r'Starting server on port:\W+(\d+)')
+GUPPY_VERSION_PAT = re.compile(r'Version\W+(.+\..+\..+),\W+')
+MIN_GUPPY_VERSION = LooseVersion('4.0')
 
 PYGUPPY_CLIENT_KWARGS = {
     'move_and_trace_enabled': True,
@@ -461,6 +464,26 @@ class ModelInfo(AbstractModelInfo):
         self._parse_minimal_alphabet_info()
 
     def _load_pyguppy(self, init_sig_len=1000):
+        def _check_guppy_version():
+            try:
+                check_vers_proc = subprocess.Popen(
+                    [self.params.pyguppy.bin_path, '--version'], shell=False,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            except FileNotFoundError:
+                raise mh.MegaError(
+                    'Guppy server executable not found. Please specify path ' +
+                    'via `--guppy-server-path` argument.')
+            version_out = str(check_vers_proc.stdout.read())
+            version_match = GUPPY_VERSION_PAT.search(version_out)
+            if version_match is None:
+                raise mh.MegaError(
+                    'Guppy version string does not match expected ' +
+                    'pattern: "{}"'.format(version_out))
+            if LooseVersion(version_match.groups()[0]) < MIN_GUPPY_VERSION:
+                raise mh.MegaError(
+                    'Megalodon requires Guppy version>=4.0. Got: "{}"'.format(
+                        version_match.groups()[0]))
+
         def start_guppy_server():
             def get_server_port():
                 next_line = guppy_out_read_fp.readline()
@@ -471,6 +494,7 @@ class ModelInfo(AbstractModelInfo):
                 except AttributeError:
                     return None
 
+            _check_guppy_version()
             # set guppy logs output locations
             self.guppy_log = os.path.join(
                 self.params.pyguppy.out_dir, GUPPY_LOG_BASE)
@@ -493,14 +517,9 @@ class ModelInfo(AbstractModelInfo):
                 server_args.extend(('-x', devices_str))
             if self.params.pyguppy.server_params is not None:
                 server_args.extend(self.params.pyguppy.server_params.split())
-            try:
-                self.guppy_server_proc = subprocess.Popen(
-                    server_args, shell=False,
-                    stdout=self.guppy_out_fp, stderr=self.guppy_err_fp)
-            except FileNotFoundError:
-                raise mh.MegaError(
-                    'Guppy server executable not found. Please specify path ' +
-                    'via `--guppy-server-path` argument.')
+            self.guppy_server_proc = subprocess.Popen(
+                server_args, shell=False,
+                stdout=self.guppy_out_fp, stderr=self.guppy_err_fp)
             # wait until server is successfully started or fails
             while True:
                 used_port = get_server_port()
@@ -521,29 +540,33 @@ class ModelInfo(AbstractModelInfo):
                 self.params.pyguppy.config, **PYGUPPY_CLIENT_KWARGS)
             try:
                 init_client.connect()
+                init_read = get_pyguppy_read(
+                    'a', np.zeros(init_sig_len, dtype=np.int16),
+                    {mh.CHAN_INFO_OFFSET: 0, mh.CHAN_INFO_RANGE: 1,
+                     mh.CHAN_INFO_DIGI: 1})
+                try:
+                    init_called_read = self.pyguppy_basecall(
+                        init_client, init_read)
+                except mh.MegaError:
+                    raise mh.MegaError(
+                        'Failed to run test read with Guppy. See Guppy logs ' +
+                        'in --output-directory.')
             except ConnectionError:
+                self.close()
                 raise mh.MegaError(
                     'Error connecting to Guppy server. Server unavailable.')
             except ValueError:
+                self.close()
                 raise mh.MegaError(
                     'Error connecting to Guppy server. Missing barcode kit.')
             except RuntimeError as e:
+                self.close()
                 raise mh.MegaError(
                     'Error connecting to Guppy server. Undefined error: ' +
                     str(e))
-            init_read = get_pyguppy_read(
-                'a', np.zeros(init_sig_len, dtype=np.int16),
-                {mh.CHAN_INFO_OFFSET: 0, mh.CHAN_INFO_RANGE: 1,
-                 mh.CHAN_INFO_DIGI: 1})
-            try:
-                init_called_read = self.pyguppy_basecall(
-                    init_client, init_read)
-            except mh.MegaError:
-                raise mh.MegaError(
-                    'Failed to run test read with Guppy. See Guppy logs in ' +
-                    '--output-directory.')
+            finally:
+                init_client.disconnect()
 
-            init_client.disconnect()
             if init_called_read.model_type not in COMPAT_GUPPY_MODEL_TYPES:
                 raise mh.MegaError((
                     'Megalodon is not compatible with guppy model type: ' +
@@ -611,8 +634,6 @@ class ModelInfo(AbstractModelInfo):
                 '{}:{}'.format(GUPPY_HOST, self.params.pyguppy.port),
                 self.params.pyguppy.config, **PYGUPPY_CLIENT_KWARGS)
             self.client.connect()
-
-        return
 
     def extract_signal_info(self, fast5_fp, read_id, extract_dacs=False):
         """ Extract signal information from fast5 file pointer.

@@ -1240,10 +1240,12 @@ def _main(args):
     if _DO_PROFILE:
         LOGGER.warning('Running profiling. This may slow processing.')
 
-    status_info = parse_status_args(args)
-    input_info = parse_input_args(args)
-    backend_params = backends.parse_backend_params(args)
-    with backends.ModelInfo(backend_params, args.processes) as model_info:
+    model_info = None
+    try:
+        status_info = parse_status_args(args)
+        input_info = parse_input_args(args)
+        backend_params = backends.parse_backend_params(args)
+        model_info = backends.ModelInfo(backend_params, args.processes)
         # process ref out first as it might add mods or variants to outputs
         args, ref_out_info = parse_ref_out_args(args, model_info)
         args, mods_info = parse_mod_args(args, model_info, ref_out_info)
@@ -1255,6 +1257,13 @@ def _main(args):
         process_all_reads(
             status_info, input_info, model_info, bc_info, aligner, map_info,
             mods_info, vars_info, ref_out_info)
+        model_info.close()
+    except mh.MegaError as e:
+        LOGGER.error(str(e))
+        sys.exit(1)
+    finally:
+        if model_info is not None:
+            model_info.close()
 
     if aligner is None:
         # all other tasks require reference mapping
