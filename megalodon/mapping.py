@@ -35,6 +35,9 @@ MAP_SUMM_TYPES = dict(zip(
     MAP_SUMM._fields,
     (str, float, int, int, int, int, float, str, str, int, int)))
 
+MOD_POS_TAG = 'Mm'
+MOD_PROB_TAG = 'Ml'
+
 
 @total_ordering
 class RefName(str):
@@ -97,9 +100,9 @@ def prepare_unaligned_mod_mapping(read_id, q_seq, q_qual, mod_scores):
     a.cigartuples = [(0, len(q_seq)), ]
     # Add modified base tags
     #  see https://github.com/samtools/hts-specs/pull/418
-    tags = [('MM', mod_scores[0], 'Z'), ]
+    tags = [(MOD_POS_TAG, mod_scores[0], 'Z'), ]
     if len(mod_scores[1]) > 0:
-        tags.append(('ML', mod_scores[1]))
+        tags.append((MOD_PROB_TAG, mod_scores[1]))
     a.set_tags(tags)
     return a
 

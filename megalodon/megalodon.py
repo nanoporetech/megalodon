@@ -455,7 +455,8 @@ def _fill_files_queue(input_info, read_file_q, num_reads_conn, aux_failed_q):
     try:
         # fill queue with read filename and read id tuples
         for fast5_fn, read_id in fast5_io.iterate_fast5_reads(
-                input_info.fast5s_dir, recursive=input_info.recursive):
+                input_info.fast5s_dir, recursive=input_info.recursive,
+                do_it_live=input_info.do_it_live):
             do_break = mh.log_errors(put_read, fast5_fn, read_id)
             if do_break:
                 break
@@ -637,11 +638,6 @@ def _get_fail_queue(
         if q_bars is not None:
             for q_bar in q_bars.values():
                 q_bar.close()
-        # print newlines to avoid tqdm issue 719
-        num_extra_bars = (0 if q_bars is None else len(q_bars)) + (
-            0 if err_statuses is None else len(err_statuses))
-        if num_extra_bars > 0:
-            tqdm.write('\n' * num_extra_bars)
 
     if len(failed_reads[_UNEXPECTED_ERROR_CODE]) >= 1:
         LOGGER.warning((
@@ -1218,7 +1214,7 @@ def parse_input_args(args):
     return mh.INPUT_INFO(
         fast5s_dir=args.fast5s_dir, recursive=not args.not_recursive,
         num_reads=args.num_reads, read_ids_fn=args.read_ids_filename,
-        num_ps=args.processes)
+        num_ps=args.processes, do_it_live=args.live_processing)
 
 
 def parse_status_args(args):

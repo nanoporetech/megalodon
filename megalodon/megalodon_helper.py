@@ -168,7 +168,8 @@ GETTER_INFO.__new__.__defaults__ = (_MAX_QUEUE_SIZE, )
 STATUS_INFO = namedtuple('STATUS_INFO', (
     'suppress_prog_bar', 'suppress_queues', 'num_prog_errs'))
 INPUT_INFO = namedtuple('INPUT_INFO', (
-    'fast5s_dir', 'recursive', 'num_reads', 'read_ids_fn', 'num_ps'))
+    'fast5s_dir', 'recursive', 'num_reads', 'read_ids_fn', 'num_ps',
+    'do_it_live'))
 BASECALL_DO_OUTPUT = namedtuple('BASECALL_DO_OUTPUT', (
     'any', 'basecalls', 'mod_basecalls'))
 BASECALL_INFO = namedtuple('BASECALL_INFO', (
