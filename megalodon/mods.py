@@ -1456,6 +1456,7 @@ class ModInfo:
         self.edge_buffer = edge_buffer
         self.agg_info = agg_info
         self.mod_thresh = mod_thresh
+        # TODO move these attributes to do_output
         self.do_ann_all_mods = do_ann_all_mods
         self.map_base_conv_raw = map_base_conv
         self.mod_db_timeout = mod_db_timeout

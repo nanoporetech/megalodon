@@ -607,7 +607,7 @@ def parse_beds(bed_fns, ignore_strand=False, show_prog_bar=True):
                 chrm, start, _, _, _, strand = line.split()[:6]
                 start = int(start)
                 store_strand = None if ignore_strand else \
-                    int_strand_to_str(strand)
+                    str_strand_to_int(strand)
                 sites[(chrm, store_strand)].add(start)
 
     # convert to standard dict
@@ -617,7 +617,8 @@ def parse_beds(bed_fns, ignore_strand=False, show_prog_bar=True):
 
 
 def parse_bed_methyls(
-        bed_fns, strand_offset=None, show_prog_bar=True, valid_pos=None):
+        bed_fns, strand_offset=None, show_prog_bar=True, valid_pos=None,
+        limit=None):
     """ Parse bedmethyl files and return two dictionaries containing
     total and methylated coverage. Both dictionaries have top level keys
     (chromosome, strand) and second level keys with 0-based position.
@@ -630,9 +631,11 @@ def parse_bed_methyls(
         show_prog_bar (bool): Show twdm progress bar
         valid_pos (dict): Filter to valid positions, as returned from
             mh.parse_beds
+        limit (int): limit the total number of sites to parse
     """
     cov = defaultdict(lambda: defaultdict(int))
     meth_cov = defaultdict(lambda: defaultdict(int))
+    n_sites = 0
     for bed_fn in bed_fns:
         with open(bed_fn) as bed_fp:
             bed_iter = (tqdm(bed_fp, desc=bed_fn, smoothing=0)
@@ -642,7 +645,7 @@ def parse_bed_methyls(
                  pct_meth) = line.split()
                 start = int(start)
                 # convert to 1/-1 strand storage (matching mappy)
-                store_strand = int_strand_to_str(strand)
+                store_strand = str_strand_to_int(strand)
                 if strand_offset is not None:
                     # store both strand counts under None
                     store_strand = None
@@ -657,9 +660,14 @@ def parse_bed_methyls(
                 num_reads = int(num_reads)
                 if num_reads <= 0:
                     continue
-                meth_reads = int((float(pct_meth) / 100.0) * num_reads)
+                meth_reads = int(float(pct_meth) * num_reads / 100.0)
                 cov[(chrm, store_strand)][start] += num_reads
                 meth_cov[(chrm, store_strand)][start] += meth_reads
+                n_sites += 1
+                if limit is not None and n_sites >= limit:
+                    break
+        if limit is not None and n_sites >= limit:
+            break
 
     # convert to standard dicts
     cov = dict((k, dict(v)) for k, v in cov.items())
