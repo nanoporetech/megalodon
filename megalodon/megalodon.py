@@ -1,6 +1,5 @@
 import os
 import sys
-import h5py
 import queue
 import threading
 import traceback
@@ -155,13 +154,12 @@ def process_read(
          sig_info, return_post_w_mods=mods_info.do_output.db,
          return_mod_scores=bc_info.do_output.mod_basecalls,
          update_sig_info=ref_out_info.do_output.sig_maps,
-         signal_reversed=bc_info.rev_sig, seq_summ_info=seq_summ_info)
-    if bc_info.do_output.basecalls:
+         signal_reversed=bc_info.rev_sig, seq_summ_info=seq_summ_info,
+         mod_bc_min_prob=bc_info.mod_bc_min_prob)
+    if bc_info.do_output.any:
+        # convert seq_summ_info to tuple since namedtuples can't be
+        # pickled for passing through a queue.
         if bc_info.rev_sig:
-            if mods_scores is not None:
-                mods_scores = mods_scores[::-1]
-            # convert seq_summ_info to tuple since namedtuples can't be
-            # pickled for passing through a queue.
             getter_conns[mh.BC_NAME].put((
                 sig_info.read_id, r_seq[::-1], r_qual[::-1], mods_scores,
                 tuple(seq_summ_info)))
@@ -343,12 +341,8 @@ def _get_bc_queue(bc_q, bc_info, aux_failed_q):
             seq_summ_fp.write('\t'.join(map(str, seq_summ_info)) + '\n')
 
         if bc_info.do_output.mod_basecalls:
-            try:
-                mods_fp.create_dataset(
-                    'Reads/' + read_id, data=mods_scores, compression="gzip")
-            except RuntimeError:
-                # same read_id encountered previously
-                pass
+            mods_fp.write(mapping.prepare_unaligned_mod_mapping(
+                read_id, r_seq, r_qual, mods_scores))
 
     try:
         LOGGER.debug('GetterStarting')
@@ -359,13 +353,10 @@ def _get_bc_queue(bc_q, bc_info, aux_failed_q):
                 mh.get_megalodon_fn(bc_info.out_dir, mh.SEQ_SUMM_NAME), 'w')
             seq_summ_fp.write('\t'.join(mh.SEQ_SUMM_INFO._fields) + '\n')
         if bc_info.do_output.mod_basecalls:
-            # TODO convert this to writing un-aligned sam with htseq format
-            mods_fp = h5py.File(
-                mh.get_megalodon_fn(bc_info.out_dir, mh.BC_MODS_NAME), 'w')
-            mods_fp.create_group('Reads')
-            mods_fp.create_dataset(
-                'mod_long_names', dtype=h5py.special_dtype(vlen=str),
-                data=np.array(bc_info.mod_long_names, dtype='S'))
+            LOGGER.debug('outputting mod basecalls')
+            mods_fp = mapping.open_unaligned_alignment_file(
+                mh.get_megalodon_fn(bc_info.out_dir, mh.BC_MODS_NAME),
+                bc_info.mod_bc_fmt, bc_info.mod_long_names)
         LOGGER.debug('GetterInitComplete')
     except Exception as e:
         aux_failed_q.put((
@@ -464,7 +455,8 @@ def _fill_files_queue(input_info, read_file_q, num_reads_conn, aux_failed_q):
     try:
         # fill queue with read filename and read id tuples
         for fast5_fn, read_id in fast5_io.iterate_fast5_reads(
-                input_info.fast5s_dir, recursive=input_info.recursive):
+                input_info.fast5s_dir, recursive=input_info.recursive,
+                do_it_live=input_info.do_it_live):
             do_break = mh.log_errors(put_read, fast5_fn, read_id)
             if do_break:
                 break
@@ -646,11 +638,6 @@ def _get_fail_queue(
         if q_bars is not None:
             for q_bar in q_bars.values():
                 q_bar.close()
-        # print newlines to avoid tqdm issue 719
-        num_extra_bars = (0 if q_bars is None else len(q_bars)) + (
-            0 if err_statuses is None else len(err_statuses))
-        if num_extra_bars > 0:
-            tqdm.write('\n' * num_extra_bars)
 
     if len(failed_reads[_UNEXPECTED_ERROR_CODE]) >= 1:
         LOGGER.warning((
@@ -1206,6 +1193,11 @@ def parse_ref_out_args(args, model_info):
 
 
 def parse_basecall_args(args, mods_info):
+    if mh.BC_MODS_NAME in args.outputs and mods_info.nmod_base == 0:
+        LOGGER.warning('mod_basecalls requested, but specified model does ' +
+                       'not support calling modified bases. Removing ' +
+                       'mod_basecalls from outputs.')
+        args.outputs.remove(mh.BC_MODS_NAME)
     bc_do_output = mh.BASECALL_DO_OUTPUT(
         any=mh.BC_NAME in args.outputs or mh.BC_MODS_NAME in args.outputs,
         basecalls=mh.BC_NAME in args.outputs,
@@ -1213,7 +1205,8 @@ def parse_basecall_args(args, mods_info):
     return mh.BASECALL_INFO(
         do_output=bc_do_output,
         out_dir=args.output_directory,
-        bc_fmt=args.basecalls_format,
+        bc_fmt=args.basecalls_format, mod_bc_fmt=args.mappings_format,
+        mod_bc_min_prob=args.mod_basecalls_min_prob,
         mod_long_names=mods_info.mod_long_names, rev_sig=args.rna)
 
 
@@ -1221,7 +1214,7 @@ def parse_input_args(args):
     return mh.INPUT_INFO(
         fast5s_dir=args.fast5s_dir, recursive=not args.not_recursive,
         num_reads=args.num_reads, read_ids_fn=args.read_ids_filename,
-        num_ps=args.processes)
+        num_ps=args.processes, do_it_live=args.live_processing)
 
 
 def parse_status_args(args):
@@ -1247,10 +1240,12 @@ def _main(args):
     if _DO_PROFILE:
         LOGGER.warning('Running profiling. This may slow processing.')
 
-    status_info = parse_status_args(args)
-    input_info = parse_input_args(args)
-    backend_params = backends.parse_backend_params(args)
-    with backends.ModelInfo(backend_params, args.processes) as model_info:
+    model_info = None
+    try:
+        status_info = parse_status_args(args)
+        input_info = parse_input_args(args)
+        backend_params = backends.parse_backend_params(args)
+        model_info = backends.ModelInfo(backend_params, args.processes)
         # process ref out first as it might add mods or variants to outputs
         args, ref_out_info = parse_ref_out_args(args, model_info)
         args, mods_info = parse_mod_args(args, model_info, ref_out_info)
@@ -1262,6 +1257,15 @@ def _main(args):
         process_all_reads(
             status_info, input_info, model_info, bc_info, aligner, map_info,
             mods_info, vars_info, ref_out_info)
+        model_info.close()
+    except mh.MegaError as e:
+        LOGGER.error(str(e))
+        if model_info is not None:
+            model_info.close()
+        sys.exit(1)
+    finally:
+        if model_info is not None:
+            model_info.close()
 
     if aligner is None:
         # all other tasks require reference mapping

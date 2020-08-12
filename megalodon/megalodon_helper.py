@@ -32,6 +32,7 @@ DEFAULT_INDEL_CONTEXT = 30
 DEFAULT_VAR_CONTEXT_BASES = [DEFAULT_SNV_CONTEXT, DEFAULT_INDEL_CONTEXT]
 DEFAULT_MOD_CONTEXT = 15
 DEFAULT_CONTEXT_MIN_ALT_PROB = 0.0
+DEFAULT_MOD_BC_PROB = 0.01
 MOD_BIN_THRESH_NAME = 'binary_threshold'
 MOD_EM_NAME = 'expectation_maximization'
 MOD_AGG_METHOD_NAMES = set((MOD_BIN_THRESH_NAME, MOD_EM_NAME))
@@ -111,7 +112,7 @@ PR_REF_NAME = 'per_read_refs'
 OUTPUT_FNS = {
     BC_NAME: 'basecalls',
     SEQ_SUMM_NAME: 'sequencing_summary.txt',
-    BC_MODS_NAME: 'basecalls.modified_base_scores.hdf5',
+    BC_MODS_NAME: 'mod_basecalls',
     MAP_NAME: 'mappings',
     MAP_SUMM_NAME: 'mappings.summary.txt',
     PR_VAR_NAME: 'per_read_variant_calls.db',
@@ -167,11 +168,13 @@ GETTER_INFO.__new__.__defaults__ = (_MAX_QUEUE_SIZE, )
 STATUS_INFO = namedtuple('STATUS_INFO', (
     'suppress_prog_bar', 'suppress_queues', 'num_prog_errs'))
 INPUT_INFO = namedtuple('INPUT_INFO', (
-    'fast5s_dir', 'recursive', 'num_reads', 'read_ids_fn', 'num_ps'))
+    'fast5s_dir', 'recursive', 'num_reads', 'read_ids_fn', 'num_ps',
+    'do_it_live'))
 BASECALL_DO_OUTPUT = namedtuple('BASECALL_DO_OUTPUT', (
     'any', 'basecalls', 'mod_basecalls'))
 BASECALL_INFO = namedtuple('BASECALL_INFO', (
-    'do_output', 'out_dir', 'bc_fmt', 'mod_long_names', 'rev_sig'))
+    'do_output', 'out_dir', 'bc_fmt', 'mod_bc_fmt', 'mod_bc_min_prob',
+    'mod_long_names', 'rev_sig'))
 REF_DO_OUTPUT = namedtuple('REF_DO_OUTPUT', (
     'pr_refs', 'can_pr_refs', 'mod_pr_refs', 'var_pr_refs',
     'sig_maps', 'can_sig_maps', 'mod_sig_maps', 'var_sig_maps'))
@@ -222,6 +225,10 @@ READ_STATUS.__new__.__defaults__ = (False, True, None, None, None, 0)
 
 TRUE_TEXT_VALUES = set(('y', 'yes', 't', 'true', 'on', '1'))
 FALSE_TEXT_VALUES = set(('n', 'no', 'f', 'false', 'off', '0'))
+
+# original modified base models used 5mC=Z and 6mA=Y. This has now been
+# standardized here https://github.com/samtools/hts-specs/pull/418
+LEGACY_MOD_BASES = dict(zip(map(ord, 'ZY'), map(ord, 'ma')))
 
 
 class MegaError(Exception):
@@ -320,6 +327,10 @@ def compile_rev_comp_motif_pat(raw_motif):
     return re.compile(''.join(
         '[{}]'.format(''.join(comp(b) for b in SINGLE_LETTER_CODE[letter]))
         for letter in raw_motif[::-1]))
+
+
+def convert_legacy_mods(mod_base):
+    return mod_base .translate(LEGACY_MOD_BASES)
 
 
 #######################

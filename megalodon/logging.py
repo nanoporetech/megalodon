@@ -10,8 +10,8 @@ class CustomFormatter(logging.Formatter):
     err_fmt = "*" * 100 + "\n\tERROR: %(msg)s\n" + "*" * 100
     warn_fmt = "*" * 20 + " WARNING: %(msg)s " + "*" * 20
     info_fmt = "[%(asctime)s] %(message)s"
-    dbg_fmt = ("%(processName)s-%(threadName)s: %(msg)s    " +
-               "%(module)s.py:%(lineno)d")
+    dbg_fmt = ("DBG %(asctime)s : %(msg)s --- %(processName)s-" +
+               "%(threadName)s %(module)s.py:%(lineno)d")
 
     def __init__(self, fmt='[%(asctime)s] %(levelname)-8s: %(message)s'):
         super().__init__(fmt=fmt, datefmt='%H:%M:%S', style='%')

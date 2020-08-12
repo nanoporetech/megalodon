@@ -1,0 +1,57 @@
+image: python:latest
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+cache:
+  paths:
+    - .cache/pip
+    - venv/
+
+stages:
+    - build
+    - format
+
+build:
+    stage: build
+    script:
+        - python -V  # Print out python version for debugging
+        - pip install virtualenv
+        - virtualenv venv
+        - source venv/bin/activate
+
+pep8:
+    stage: format
+    script:
+        - source venv/bin/activate && pip uninstall --yes flake8 && pip install 'autopep8>1.5'
+        - source venv/bin/activate && find megalodon/ megalodon_extras/ -name \*.py | xargs -P 1 autopep8 -j 2 --diff | tee pep8_differences.txt
+        - if [ -s pep8_differences.txt ]; then false; fi
+    artifacts:
+        paths:
+            - pep8_differences.txt
+        expire_in: 1 week
+        when: on_failure
+
+flake8:
+    stage: format
+    script:
+        - source venv/bin/activate && pip install flake8 &&
+          find megalodon/ megalodon_extras/ -name \*.py |
+          flake8 -j 2 --show-source --statistics --tee --output-file=flake_results.txt
+    artifacts:
+        paths:
+            - flake_results.txt
+        expire_in: 1 week
+        when: on_failure
+
+docs:
+    stage: format
+    script:
+        - pip install sphinx sphinx-rtd-theme
+        - cd docs ; make html
+        - mv build/html/ ../public/
+    artifacts:
+        paths:
+        - public
+    only:
+        - master

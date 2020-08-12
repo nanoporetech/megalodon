@@ -30,7 +30,7 @@ install_requires = [
     "pysam >= 0.15",
     "ont_fast5_api >= 1.1",
     "tqdm",
-    "pyguppyclient",
+    "ont-pyguppy-client-lib",
     "sklearn",
     "seaborn"
 ]

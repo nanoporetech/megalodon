@@ -2,15 +2,16 @@ import os
 import sys
 import traceback
 import subprocess
-from collections import namedtuple
 from functools import total_ordering
 from distutils.version import LooseVersion
+from collections import namedtuple, OrderedDict
 
 import mappy
 import pysam
 import numpy as np
 
 from megalodon import megalodon_helper as mh, logging
+from megalodon._version import MEGALODON_VERSION
 
 
 LOGGER = logging.get_logger()
@@ -33,6 +34,9 @@ MAP_SUMM_TMPLT = (
 MAP_SUMM_TYPES = dict(zip(
     MAP_SUMM._fields,
     (str, float, int, int, int, int, float, str, str, int, int)))
+
+MOD_POS_TAG = 'Mm'
+MOD_PROB_TAG = 'Ml'
 
 
 @total_ordering
@@ -58,6 +62,49 @@ class RefName(str):
                 if type(svi) != type(ovi):
                     return str(type(svi)) < str(type(ovi))
             return len(svi) < len(ovi)
+
+
+def get_mapping_mode(map_fmt):
+    if map_fmt == 'bam':
+        return 'wb'
+    elif map_fmt == 'cram':
+        return 'wc'
+    elif map_fmt == 'sam':
+        return 'w'
+    raise mh.MegaError('Invalid mapping output format: {}'.format(map_fmt))
+
+
+def open_unaligned_alignment_file(basename, map_fmt, mod_long_names=None):
+    fn = '{}.{}'.format(basename, map_fmt)
+    header_dict = OrderedDict([('PG', [OrderedDict([
+        ('ID', 'megalodon'), ('PN', 'megalodon'), ('VN', MEGALODON_VERSION),
+        ('CL', ' '.join(sys.argv))])])])
+    if mod_long_names is not None:
+        header_dict['CO'] = [
+            'Modified base "{}" encoded as "{}"'.format(
+                mln, mh.convert_legacy_mods(mod_base))
+            for mod_base, mln in mod_long_names]
+    header = pysam.AlignmentHeader.from_dict(header_dict)
+    return pysam.AlignmentFile(fn, get_mapping_mode(map_fmt), header=header,
+                               add_sq_text=False)
+
+
+def prepare_unaligned_mod_mapping(read_id, q_seq, q_qual, mod_scores):
+    # TODO add option to provide mapping position and plumb in mod_mappings
+    a = pysam.AlignedSegment()
+    a.query_name = read_id
+    a.query_sequence = q_seq
+    a.query_qualities = [ord(q) - 33 for q in q_qual]
+    # 4 indicates unmapped
+    a.flag = 4
+    a.cigartuples = [(0, len(q_seq)), ]
+    # Add modified base tags
+    #  see https://github.com/samtools/hts-specs/pull/418
+    tags = [(MOD_POS_TAG, mod_scores[0], 'Z'), ]
+    if len(mod_scores[1]) > 0:
+        tags.append((MOD_PROB_TAG, mod_scores[1]))
+    a.set_tags(tags)
+    return a
 
 
 def get_map_pos_from_res(map_res):
@@ -91,14 +138,7 @@ class MapInfo:
     def open_alignment_out_file(self):
         map_fn = '{}.{}'.format(
             mh.get_megalodon_fn(self.out_dir, mh.MAP_NAME), self.map_fmt)
-        if self.map_fmt == 'bam':
-            w_mode = 'wb'
-        elif self.map_fmt == 'cram':
-            w_mode = 'wc'
-        elif self.map_fmt == 'sam':
-            w_mode = 'w'
-        else:
-            raise mh.MegaError('Invalid mapping output format')
+        w_mode = get_mapping_mode(self.map_fmt)
         try:
             align_file = pysam.AlignmentFile(
                 map_fn, w_mode, reference_names=self.ref_names_and_lens[0],

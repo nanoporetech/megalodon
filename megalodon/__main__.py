@@ -66,6 +66,12 @@ def get_parser():
 
     out_grp = parser.add_argument_group('Output Arguments')
     out_grp.add_argument(
+        '--live-processing', action='store_true',
+        help='Process reads from a live sequencing run. The [fast5s_dir] ' +
+        'must be the base MinKNOW output directory. Megalodon will continue ' +
+        'searching for FAST5 files until the file starting with ' +
+        '"final_summary" is found.')
+    out_grp.add_argument(
         '--outputs', nargs='+',
         default=['basecalls', ], choices=tuple(mh.OUTPUT_DESCS.keys()),
         # note 'O|' triggers raw formatting for this option alone
@@ -218,6 +224,10 @@ def get_parser():
         help=hidden_help('Compute forwards algorithm all paths score for ' +
                          'modified base calls. (Default: Viterbi ' +
                          'best-path score)'))
+    out_grp.add_argument(
+        '--mod-basecalls-min-prob', type=float, default=mh.DEFAULT_MOD_BC_PROB,
+        help=hidden_help('Only include modified base probabilities greater ' +
+                         'than this value.'))
     mod_grp.add_argument(
         '--mod-binary-threshold', type=float,
         default=mh.DEFAULT_MOD_BINARY_THRESH,
