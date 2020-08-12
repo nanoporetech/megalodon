@@ -40,7 +40,9 @@ GUPPY_HOST = 'localhost'
 PYGUPPY_PER_TRY_TIMEOUT = 0.0001
 GUPPY_LOG_BASE = 'guppy_log'
 GUPPY_PORT_PAT = re.compile(r'Starting server on port:\W+(\d+)')
-GUPPY_VERSION_PAT = re.compile(r'Version\W+(.+\..+\..+),\W+')
+GUPPY_VERSION_PAT = re.compile(
+    r'Oxford Nanopore Technologies, Limited. ' +
+    r'Version\W+([0-9]+\.[0-9]+\.[0-9]+)\+[0-9a-z]+')
 MIN_GUPPY_VERSION = LooseVersion('4.0')
 
 PYGUPPY_CLIENT_KWARGS = {
