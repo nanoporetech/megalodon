@@ -5,6 +5,7 @@ import array
 import subprocess
 from abc import ABC
 from time import sleep
+from distutils.version import LooseVersion
 from collections import defaultdict, namedtuple
 
 import numpy as np
@@ -39,8 +40,15 @@ GUPPY_HOST = 'localhost'
 PYGUPPY_PER_TRY_TIMEOUT = 0.0001
 GUPPY_LOG_BASE = 'guppy_log'
 GUPPY_PORT_PAT = re.compile(r'Starting server on port:\W+(\d+)')
-PYGUPPY_SHIFT_NAME = 'median'
-PYGUPPY_SCALE_NAME = 'med_abs_dev'
+GUPPY_VERSION_PAT = re.compile(
+    r'Oxford Nanopore Technologies, Limited. ' +
+    r'Version\W+([0-9]+\.[0-9]+\.[0-9]+)\+[0-9a-z]+')
+MIN_GUPPY_VERSION = LooseVersion('4.0')
+
+PYGUPPY_CLIENT_KWARGS = {
+    'move_and_trace_enabled': True,
+    'state_data_enabled': True
+}
 
 # maximum time (in seconds) to wait before assigning device
 # over different processes. Actual time choosen randomly
@@ -155,6 +163,39 @@ def _log_softmax_axis1(x):
     e_x = np.exp((x.T - np.max(x, axis=1)).T)
     with np.errstate(divide='ignore'):
         return np.log((e_x.T / e_x.sum(axis=1)).T)
+
+
+def get_pyguppy_read(read_id, raw_data, channel_info):
+    return {
+        'read_tag': np.random.randint(0, int(2**32 - 1)),
+        'read_id': read_id,
+        'raw_data': raw_data,
+        'daq_offset': float(channel_info[mh.CHAN_INFO_OFFSET]),
+        'daq_scaling': float(channel_info[mh.CHAN_INFO_RANGE]) / channel_info[
+            mh.CHAN_INFO_DIGI]}
+
+
+class PyguppyCalledRead(object):
+    def __init__(self, called_read):
+        """ Convert pyguppy_client_lib dict to python object
+        """
+        read_metadata = called_read['metadata']
+        self.model_type = read_metadata['basecall_type']
+        self.model_stride = read_metadata['model_stride']
+        self.mod_long_names = read_metadata['base_mod_long_names'].split()
+        self.output_alphabet = read_metadata['base_mod_alphabet']
+        if len(self.output_alphabet) == 0:
+            self.output_alphabet = mh.ALPHABET
+        self.state_size = read_metadata['state_size']
+        self.trimmed_samples = read_metadata['trimmed_samples']
+        self.scaling_shift = read_metadata['scaling_median']
+        self.scaling_scale = read_metadata['scaling_med_abs_dev']
+
+        read_datasets = called_read['datasets']
+        self.move = read_datasets['movement']
+        self.state = read_datasets['state_data']
+        self.seq = read_datasets['sequence']
+        self.qual = read_datasets['qstring']
 
 
 class AbstractModelInfo(ABC):
@@ -425,6 +466,26 @@ class ModelInfo(AbstractModelInfo):
         self._parse_minimal_alphabet_info()
 
     def _load_pyguppy(self, init_sig_len=1000):
+        def _check_guppy_version():
+            try:
+                check_vers_proc = subprocess.Popen(
+                    [self.params.pyguppy.bin_path, '--version'], shell=False,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            except FileNotFoundError:
+                raise mh.MegaError(
+                    'Guppy server executable not found. Please specify path ' +
+                    'via `--guppy-server-path` argument.')
+            version_out = str(check_vers_proc.stdout.read())
+            version_match = GUPPY_VERSION_PAT.search(version_out)
+            if version_match is None:
+                raise mh.MegaError(
+                    'Guppy version string does not match expected ' +
+                    'pattern: "{}"'.format(version_out))
+            if LooseVersion(version_match.groups()[0]) < MIN_GUPPY_VERSION:
+                raise mh.MegaError(
+                    'Megalodon requires Guppy version>=4.0. Got: "{}"'.format(
+                        version_match.groups()[0]))
+
         def start_guppy_server():
             def get_server_port():
                 next_line = guppy_out_read_fp.readline()
@@ -435,6 +496,7 @@ class ModelInfo(AbstractModelInfo):
                 except AttributeError:
                     return None
 
+            _check_guppy_version()
             # set guppy logs output locations
             self.guppy_log = os.path.join(
                 self.params.pyguppy.out_dir, GUPPY_LOG_BASE)
@@ -457,14 +519,9 @@ class ModelInfo(AbstractModelInfo):
                 server_args.extend(('-x', devices_str))
             if self.params.pyguppy.server_params is not None:
                 server_args.extend(self.params.pyguppy.server_params.split())
-            try:
-                self.guppy_server_proc = subprocess.Popen(
-                    server_args, shell=False,
-                    stdout=self.guppy_out_fp, stderr=self.guppy_err_fp)
-            except FileNotFoundError:
-                raise mh.MegaError(
-                    'Guppy server executable not found. Please specify path ' +
-                    'via `--guppy-server-path` argument.')
+            self.guppy_server_proc = subprocess.Popen(
+                server_args, shell=False,
+                stdout=self.guppy_out_fp, stderr=self.guppy_err_fp)
             # wait until server is successfully started or fails
             while True:
                 used_port = get_server_port()
@@ -481,48 +538,59 @@ class ModelInfo(AbstractModelInfo):
 
         def set_pyguppy_model_attributes():
             init_client = self.pyguppy_GuppyBasecallerClient(
-                self.params.pyguppy.config, host=GUPPY_HOST,
-                port=self.params.pyguppy.port,
-                timeout=PYGUPPY_PER_TRY_TIMEOUT,
-                retries=self.pyguppy_retries)
+                '{}:{}'.format(GUPPY_HOST, self.params.pyguppy.port),
+                self.params.pyguppy.config, **PYGUPPY_CLIENT_KWARGS)
             try:
                 init_client.connect()
-                init_read = init_client.basecall(
-                    ReadData(np.zeros(init_sig_len, dtype=np.int16), 'a'),
-                    state=True, trace=True)
-            except (TimeoutError, self.zmqAgainError):
+                init_read = get_pyguppy_read(
+                    'a', np.zeros(init_sig_len, dtype=np.int16),
+                    {mh.CHAN_INFO_OFFSET: 0, mh.CHAN_INFO_RANGE: 1,
+                     mh.CHAN_INFO_DIGI: 1})
+                try:
+                    init_called_read = self.pyguppy_basecall(
+                        init_client, init_read)
+                except mh.MegaError:
+                    raise mh.MegaError(
+                        'Failed to run test read with Guppy. See Guppy logs ' +
+                        'in --output-directory.')
+            except ConnectionError:
+                self.close()
                 raise mh.MegaError(
-                    'Failed to run test read with guppy. See guppy logs in ' +
-                    '--output-directory.')
-            init_client.disconnect()
-            if init_read.model_type not in COMPAT_GUPPY_MODEL_TYPES:
+                    'Error connecting to Guppy server. Server unavailable.')
+            except ValueError:
+                self.close()
+                raise mh.MegaError(
+                    'Error connecting to Guppy server. Missing barcode kit.')
+            except RuntimeError as e:
+                self.close()
+                raise mh.MegaError(
+                    'Error connecting to Guppy server. Undefined error: ' +
+                    str(e))
+            finally:
+                init_client.disconnect()
+
+            if init_called_read.model_type not in COMPAT_GUPPY_MODEL_TYPES:
                 raise mh.MegaError((
                     'Megalodon is not compatible with guppy model type: ' +
-                    '{}').format(init_read.model_type))
+                    '{}').format(init_called_read.model_type))
 
-            self.stride = init_read.model_stride
-            self.ordered_mod_long_names = init_read.mod_long_names
-            self.output_alphabet = init_read.mod_alphabet
-            self.output_size = init_read.state_size
+            self.stride = init_called_read.model_stride
+            self.ordered_mod_long_names = init_called_read.mod_long_names
+            self.output_alphabet = init_called_read.output_alphabet
+            self.output_size = init_called_read.state_size
             if self.ordered_mod_long_names is None:
                 self.ordered_mod_long_names = []
-            if self.output_alphabet is None:
-                self.output_alphabet = mh.ALPHABET
 
         LOGGER.info('Loading guppy basecalling backend')
         self.model_type = PYGUPPY_NAME
         self.process_devices = [None, ] * self.num_proc
 
         # load necessary packages and store in object attrs
-        from zmq.error import Again
-        from pyguppyclient.decode import ReadData
-        from pyguppyclient.client import GuppyBasecallerClient
-        self.zmqAgainError = Again
-        self.pyguppy_ReadData = ReadData
-        self.pyguppy_GuppyBasecallerClient = GuppyBasecallerClient
-
         self.pyguppy_retries = max(
             1, int(self.params.pyguppy.timeout / PYGUPPY_PER_TRY_TIMEOUT))
+        from pyguppy_client_lib.pyclient import PyGuppyClient
+        self.pyguppy_GuppyBasecallerClient = PyGuppyClient
+
         start_guppy_server()
         set_pyguppy_model_attributes()
         self._parse_minimal_alphabet_info()
@@ -565,12 +633,9 @@ class ModelInfo(AbstractModelInfo):
             # open guppy client interface (None indicates using config
             # from server)
             self.client = self.pyguppy_GuppyBasecallerClient(
-                self.params.pyguppy.config, host=GUPPY_HOST,
-                port=self.params.pyguppy.port, timeout=PYGUPPY_PER_TRY_TIMEOUT,
-                retries=self.pyguppy_retries)
+                '{}:{}'.format(GUPPY_HOST, self.params.pyguppy.port),
+                self.params.pyguppy.config, **PYGUPPY_CLIENT_KWARGS)
             self.client.connect()
-
-        return
 
     def extract_signal_info(self, fast5_fp, read_id, extract_dacs=False):
         """ Extract signal information from fast5 file pointer.
@@ -668,6 +733,46 @@ class ModelInfo(AbstractModelInfo):
                     raw_mod_weights[:, lab_indices]))
         return np.concatenate(mod_layers, axis=1)
 
+    def pyguppy_basecall(self, client, read):
+        def do_sleep():
+            # function for profiling purposes
+            sleep(PYGUPPY_PER_TRY_TIMEOUT)
+
+        try:
+            client.pass_read(read)
+        except ValueError:
+            raise mh.MegaError(
+                'Failed to send read to guppy server. Likely malformated ' +
+                'read.')
+        except ConnectionError:
+            raise mh.MegaError(
+                'Failed to send read to guppy server. No guppy server.')
+        except RuntimeError:
+            raise mh.MegaError(
+                'Failed to send read to guppy server. Undefined guppy ' +
+                'server response.')
+
+        try:
+            call_failed = True
+            for _ in range(self.pyguppy_retries):
+                try:
+                    called_read = client.get_completed_reads()[0]
+                    call_failed = False
+                    break
+                except IndexError:
+                    do_sleep()
+            if call_failed:
+                raise mh.MegaError('Guppy server timeout')
+        except ConnectionError:
+            raise mh.MegaError(
+                'Failed to retrieve read from guppy server. No guppy server ' +
+                'connection.')
+        except RuntimeError as e:
+            raise mh.MegaError(
+                'Failed to retrieve read from guppy server. Unexpected ' +
+                'error: ' + str(e))
+        return PyguppyCalledRead(called_read)
+
     def _run_pyguppy_model(
             self, sig_info, return_post_w_mods, return_mod_scores,
             update_sig_info, signal_reversed, seq_summ_info, mod_bc_min_prob):
@@ -677,17 +782,8 @@ class ModelInfo(AbstractModelInfo):
                 'initialization.')
 
         post_w_mods = mods_scores = None
-        try:
-            called_read = self.client.basecall(
-                self.pyguppy_ReadData(
-                    sig_info.dacs, sig_info.read_id,
-                    offset=float(sig_info.channel_info[mh.CHAN_INFO_OFFSET]),
-                    scaling=float(sig_info.channel_info[mh.CHAN_INFO_RANGE]) /
-                    sig_info.channel_info[mh.CHAN_INFO_DIGI]),
-                state=True, trace=True)
-        except (TimeoutError, self.zmqAgainError):
-            raise mh.MegaError(
-                'Pyguppy server timeout. See --guppy-timeout option')
+        called_read = self.pyguppy_basecall(self.client, get_pyguppy_read(
+            sig_info.read_id, sig_info.dacs, sig_info.channel_info))
 
         # compute rl_cumsum from move table
         rl_cumsum = np.where(called_read.move)[0]
@@ -728,8 +824,8 @@ class ModelInfo(AbstractModelInfo):
             trimmed_dacs = sig_info.dacs[called_read.trimmed_samples:]
             # guppy does not apply the med norm factor
             scale_params = (
-                called_read.scaling[PYGUPPY_SHIFT_NAME],
-                called_read.scaling[PYGUPPY_SCALE_NAME] * mh.MED_NORM_FACTOR)
+                called_read.scaling_shift,
+                called_read.scaling_scale * mh.MED_NORM_FACTOR)
             sig_info = sig_info._replace(
                 raw_len=trimmed_dacs.shape[0], dacs=trimmed_dacs,
                 scale_params=scale_params)
@@ -739,8 +835,6 @@ class ModelInfo(AbstractModelInfo):
             called_read.qual = called_read.qual[::-1]
 
         # update seq summary info with basecalling info
-        # TODO add scaling_median_template, scaling_mad_template when guppy
-        # client is released
         try:
             samp_rate = sig_info.channel_info[mh.CHAN_INFO_SAMP_RATE]
             try:
@@ -755,8 +849,8 @@ class ModelInfo(AbstractModelInfo):
             seq_len = len(called_read.seq)
             mean_q_score = '{:.6f}'.format(mh.get_mean_q_score(
                 called_read.qual))
-            med = '{:.6f}'.format(called_read.scaling[PYGUPPY_SHIFT_NAME])
-            mad = '{:.6f}'.format(called_read.scaling[PYGUPPY_SCALE_NAME])
+            med = '{:.6f}'.format(called_read.scaling_shift)
+            mad = '{:.6f}'.format(called_read.scaling_scale)
             seq_summ_info = seq_summ_info._replace(
                 template_start=tmplt_start, template_duration=tmplt_dur,
                 sequence_length_template=seq_len,
