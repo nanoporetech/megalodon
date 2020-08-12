@@ -1260,6 +1260,8 @@ def _main(args):
         model_info.close()
     except mh.MegaError as e:
         LOGGER.error(str(e))
+        if model_info is not None:
+            model_info.close()
         sys.exit(1)
     finally:
         if model_info is not None:
