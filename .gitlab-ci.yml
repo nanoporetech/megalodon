@@ -6,7 +6,7 @@ stages:
 
 cache:
   paths:
-    - .cache/pip
+    - $CI_PROJECT_DIR/.cache/pip
 
 build:
     stage: build
