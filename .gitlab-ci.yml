@@ -11,18 +11,17 @@ build:
     stage: build
     cache:
         paths:
-            - venv/
+            - $CI_PROJECT_DIR/venv/
     script:
         - python -V  # Print out python version for debugging
         - pip install virtualenv
-        - virtualenv venv
-        - source venv/bin/activate
+        - virtualenv $CI_PROJECT_DIR/venv
+        - source $CI_PROJECT_DIR/venv/bin/activate
 
 pep8:
     stage: format
     script:
-        - source venv/bin/activate && pip install 'autopep8>1.5'
-        - source venv/bin/activate &&
+        - source $CI_PROJECT_DIR/venv/bin/activate && pip install 'autopep8>1.5' &&
           find megalodon/ megalodon_extras/ -name \*.py | xargs -P 1 autopep8 -j 2 --diff | tee pep8_differences.txt
         - if [ -s pep8_differences.txt ]; then false; fi
     artifacts:
@@ -34,7 +33,7 @@ pep8:
 flake8:
     stage: format
     script:
-        - source venv/bin/activate && pip install flake8 &&
+        - source $CI_PROJECT_DIR/venv/bin/activate && pip install flake8 &&
           find megalodon/ megalodon_extras/ -name \*.py |
           flake8 -j 2 --show-source --statistics --tee --output-file=flake_results.txt
     artifacts:
