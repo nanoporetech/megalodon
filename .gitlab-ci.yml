@@ -4,9 +4,14 @@ stages:
     - build
     - format
 
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
 cache:
   paths:
-    - $CI_PROJECT_DIR/.cache/pip
+    - .cache/pip
+    - venv/
+
 
 build:
     stage: build
@@ -14,20 +19,17 @@ build:
         - python -V  # Print out python version for debugging
         - pip install --upgrade pip
         - pip install virtualenv
-        - virtualenv $CI_PROJECT_DIR/venv
-        - source $CI_PROJECT_DIR/venv/bin/activate
+        - virtualenv venv
+        - source venv/bin/activate
         - pip install numpy cython
-        - pip install -e $CI_PROJECT_DIR/
-    artifacts:
-        paths:
-            - $CI_PROJECT_DIR/venv/
-        expire_in: 1 hour
+        - pip install -e .
 
 pep8:
     stage: format
     script:
-        - source $CI_PROJECT_DIR/venv/bin/activate && pip install 'autopep8>1.5' &&
-          find megalodon/ megalodon_extras/ -name \*.py | xargs -P 1 autopep8 -j 2 --diff | tee pep8_differences.txt
+        - source venv/bin/activate && pip install 'autopep8>1.5' &&
+          find megalodon/ megalodon_extras/ -name \*.py |
+          xargs -P 1 autopep8 -j 2 --diff | tee pep8_differences.txt
         - if [ -s pep8_differences.txt ]; then false; fi
     artifacts:
         paths:
@@ -38,7 +40,7 @@ pep8:
 flake8:
     stage: format
     script:
-        - source $CI_PROJECT_DIR/venv/bin/activate && pip install flake8 &&
+        - source venv/bin/activate && pip install flake8 &&
           find megalodon/ megalodon_extras/ -name \*.py |
           flake8 -j 2 --show-source --statistics --tee --output-file=flake_results.txt
     artifacts:
@@ -50,11 +52,11 @@ flake8:
 docs:
     stage: format
     script:
-        - pip install sphinx sphinx-rtd-theme
-        - cd docs ; make html
-        - mv build/html/ ../public/
+        - source venv/bin/activate && pip install sphinx sphinx-rtd-theme
+        - sphinx-build -b html docs builddir && tar -zcf docs_build.tgz
     artifacts:
         paths:
-        - public
+            - docs_build.tgz
+        expire_in: 1 week
     only:
         - master
