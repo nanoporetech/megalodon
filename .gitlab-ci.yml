@@ -4,6 +4,10 @@ stages:
     - build
     - format
 
+cache:
+  paths:
+    - .cache/pip
+
 build:
     stage: build
     script:
