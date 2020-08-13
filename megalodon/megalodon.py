@@ -63,7 +63,7 @@ def start_sort_mapping_procs(map_info, mods_info, vars_info):
             '{}.{}'.format(mh.get_megalodon_fn(
                 mods_info.out_dir, mh.MOD_MAP_NAME), mln),
             map_info.map_fmt, map_info.cram_ref_fn, map_info.samtools_exec)[0]
-                      for _, mln in mods_info.mod_long_names]
+            for _, mln in mods_info.mod_long_names]
     if vars_info.do_output.var_map and map_info.do_sort_mappings:
         LOGGER.info('Spawning process to sort variant mappings')
         var_map_p, var_sort_fn = post_process_mapping(
@@ -552,7 +552,7 @@ def prep_errors_bar(status_info, getter_qs):
         valid_q_names = [
             q_name for q_name, q in getter_qs.items()
             if q_name == _SIG_EXTRACT_GETTER_NAME or (
-                    q.return_conns and q_name != _FAILED_READ_GETTER_NAME)]
+                q.return_conns and q_name != _FAILED_READ_GETTER_NAME)]
         q_labs = [
             (q_num, q_name, ' input queue capacity {}'.format(q_name))
             if q_name == _SIG_EXTRACT_GETTER_NAME else
@@ -867,7 +867,7 @@ def parse_aligner_args(args):
             LOGGER.error(
                 ('Output(s) requiring reference alignment requested ({}), ' +
                  'but --reference not provided.').format(', '.join(
-                    mh.ALIGN_OUTPUTS.intersection(args.outputs))))
+                     mh.ALIGN_OUTPUTS.intersection(args.outputs))))
             sys.exit(1)
         LOGGER.info('Loading reference')
         if not (os.path.exists(args.reference) and
@@ -1015,7 +1015,7 @@ def parse_mod_args(args, model_info, ref_out_info):
     mod_calib_fn = (mh.get_mod_calibration_fn(
         model_info.params.pyguppy.config, args.mod_calibration_filename,
         args.disable_mod_calibration)
-                    if mh.PR_MOD_NAME in args.outputs else None)
+        if mh.PR_MOD_NAME in args.outputs else None)
     if args.mod_aggregate_method == mh.MOD_EM_NAME:
         agg_info = mods.AGG_INFO(mh.MOD_EM_NAME, None)
     elif args.mod_aggregate_method == mh.MOD_BIN_THRESH_NAME:

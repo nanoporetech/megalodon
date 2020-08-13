@@ -151,7 +151,7 @@ def extract_seq_summary_info(read, na_str='NA'):
     except Exception:
         # if anything goes wrong set all values to na_str
         fn = read_id = run_id = batch_id = chan = mux = start_time = \
-                       dur = na_str
+            dur = na_str
     return mh.SEQ_SUMM_INFO(
         filename=fn, read_id=read_id, run_id=run_id, batch_id=batch_id,
         channel=chan, mux=mux, start_time=start_time, duration=dur)
@@ -331,6 +331,7 @@ class DetachedModelInfo(AbstractModelInfo):
     """ DetachedModelInfo represents a wrapper similar to ModelInfo, but allows
     manual setting of attributes instead of loading from a real model.
     """
+
     def __init__(self, alphabet=mh.ALPHABET, mod_long_names=None):
         self.output_alphabet = alphabet
         self.ordered_mod_long_names = mod_long_names
@@ -354,6 +355,7 @@ class ModelInfo(AbstractModelInfo):
             values, basecall positions within posterior matrix, posterior
             matrix, and serveral other bits of information.
     """
+
     def _load_taiyaki_model(self):
         LOGGER.info('Loading taiyaki basecalling backend')
         self.model_type = TAI_NAME

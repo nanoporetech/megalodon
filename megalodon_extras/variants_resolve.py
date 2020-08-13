@@ -47,7 +47,7 @@ class Variant(object):
                 b1 != b2 for b1, b2 in
                 zip(allele_seq[:-1], allele_seq[1:])]))[0],
             [len(allele_seq) - 1, ]])))
-                       for allele_seq in [self.ref, ] + self.alts])
+            for allele_seq in [self.ref, ] + self.alts])
 
     @property
     def do_output(self):

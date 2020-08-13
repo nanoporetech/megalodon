@@ -1319,7 +1319,7 @@ def _get_mods_queue(mods_q, mods_info, map_info, ref_out_info, aux_failed_q):
                 'HD': {'VN': '1.4'},
                 'SQ': [{'LN': ref_len, 'SN': ref_name}
                        for ref_name, ref_len in sorted(
-                               zip(*map_info.ref_names_and_lens))],
+                    zip(*map_info.ref_names_and_lens))],
                 'RG': [{'ID': MOD_MAP_RG_ID, 'SM': SAMPLE_NAME}, ]}
             mod_map_fns = [
                 (mod_base, '{}.{}.'.format(
@@ -1521,6 +1521,7 @@ class ModSite:
     """ Modified base site for entry into Mod Writers.
     Currently only handles a single sample.
     """
+
     def __init__(
             self, chrom, pos, strand, ref_seq, mod_bases,
             id='.', qual='.', filter='.', info=None, sample_dict=None,
@@ -1697,6 +1698,7 @@ class ModBedMethylWriter:
     Note that the bedMethyl format cannot store more than one modification
     type, so multiple file handles will be opened.
     """
+
     def __init__(
             self, basename, mods, mode='w', buffer_limit=OUT_BUFFER_LIMIT):
         self.basename = basename
@@ -1710,7 +1712,7 @@ class ModBedMethylWriter:
             (mod_short_name, open('{}.{}.{}'.format(
                 self.basename, mod_long_name,
                 mh.MOD_OUTPUT_EXTNS[mh.MOD_BEDMETHYL_NAME]),
-                                  self.mode, encoding='utf-8'))
+                self.mode, encoding='utf-8'))
             for mod_short_name, mod_long_name in self.mods)
 
     def write_mod_site(self, mod_site):
@@ -1747,6 +1749,7 @@ class ModWigWriter:
     modification type or multiple strands, so multiple file handles will
     be opened.
     """
+
     def __init__(
             self, basename, mods, mode='w',
             strands={'+': 'fwd_strand', '-': 'rev_strand'}):
@@ -1778,12 +1781,12 @@ class ModWigWriter:
         # write all data on close since all data is required to write
         # wiggle format
         for (mod_base, strand), all_cs_mod_sites in \
-              self.mod_sites_data.items():
+                self.mod_sites_data.items():
             with open('{}.{}.{}.{}'.format(
                     self.basename, self.mods_lookup[mod_base],
                     self.strands[strand],
                     mh.MOD_OUTPUT_EXTNS[mh.MOD_WIG_NAME]),
-                      self.mode, encoding='utf-8') as wig_fp:
+                    self.mode, encoding='utf-8') as wig_fp:
                 # write header
                 track_name = ('Modified Base {} Proportion Modified ' +
                               '({})').format(
@@ -1808,6 +1811,7 @@ class AggMods(mh.AbstractAggregationClass):
     """ Class to assist in database queries for per-site aggregation of
     modified base calls over reads.
     """
+
     def __init__(self, mods_db_fn, agg_info=DEFAULT_AGG_INFO,
                  write_mod_lp=False, load_uuid_index_in_memory=False):
         if load_uuid_index_in_memory:
