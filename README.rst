@@ -39,6 +39,11 @@ Megalodon is a command line tool.
    # or
    conda install megalodon
 
+..
+
+    ``conda`` installation requires the ``ont-pyguppy-client-lib`` package not available on ``conda``.
+    Install with ``pip install ont-pyguppy-client-lib`` after Megalodon installation.
+
 Getting Started
 ---------------
 
@@ -122,7 +127,7 @@ Live Processing
 
 As of version 2.2, Megalodon now supports live run processing.
 Activate live processing mode by simply adding the ``--live-processing`` argument and specifying the MinKNOW output directory as the Megalodon FAST5 directory.
-Megalodon will continue to search for FAST5s until the ``final_summary*`` file is created by MinKNOW indicating data production has completed.
+Megalodon will continue to search for FAST5s until the ``final_summary*`` file is created by MinKNOW, indicating data production has completed.
 
 Guppy Models and Parameters
 ---------------------------

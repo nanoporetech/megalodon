@@ -9,7 +9,7 @@ Base Calling
 ------------
 
 Basecalling is performed exactly as in guppy.
-Raw nanopore signal is normalized, chunked, processed with a recurrent neural network and decoded using the forward-backward algorithm followed by Viterbi decoding.
+Raw nanopore signal is normalized, chunked, processed with a recurrent neural network and decoded using Viterbi decoding.
 Currently megalodon is only compatible with flip-flop basecalling networks (excluding RLE and k-mer based networks)
 See `guppy documentation on the community page (login required) <https://community.nanoporetech.com/protocols/Guppy-protocol>`_ for more details.
 
@@ -30,13 +30,13 @@ This constitutes the reference anchoring used for modified base and sequence var
 Sequence Variant Calling
 ------------------------
 
-Megalodon currently filters alleles over a certain maximum size (default 50) as performance on larger indels has not currently been validated.
+Megalodon currently filters alleles over a certain maximum size (default ``50``) as performance on larger indels has not currently been validated.
 Note also that variants are converted into an "atomic" form (containing minimal unique variant sequence for indels).
 Thus atomic variants do not contain context sequence and are expanded to include regions of ambiguity (indel within a repetitive region).
 
 At each valid variant a region of context sequence around the variant is extracted.
 The context sequence allows the scoring algorithm to traverse slightly different paths through the local neural network output.
-The width of this sequence of interest is defined by the ``--variant-context-bases`` argument (specified individually for single base and insertion/deletion variants; defaults 10 and 30 respectively).
+The width of this sequence of interest is defined by the ``--variant-context-bases`` argument (specified individually for single base and insertion/deletion variants; defaults ``10`` and ``30`` respectively).
 
 Next the neural network output corresponding to the reference sequence of interest is extracted.
 The fuzzy reference anchoring described above identifies the range of the neural network output containing the sequence of interest.
@@ -72,6 +72,9 @@ Modified Base Calling
 Modified base calling is performed largely in the same manner as variant calling above in terms of sequence and associated neural network output extraction.
 The main difference is that instead of proposing alternative bases in the sequence, a modification is proposed.
 This means that in order to identify a particular modification the model must be aware of this modification.
-Training models for particular modifications of interest is described in the taiyaki software documentation.
+Training models for particular modifications of interest is described in `Megalodon documentation here <https://nanoporetech.github.io/megalodon/model_training.html>`_.
 
 Use the ``--mod-motif`` argument in order to restrict tested locations to certain relevant motifs (e.g. ``--mod-motif Z CG 0`` to test only in CpG locations).
+
+Modified bases can also be output anchored to the basecalls as in Guppy, but these calls are generally not as accurate than the reference anchored calls.
+These ``mod_basecalls`` are output in the BAM ``Mm`` and ``Ml`` tags as specified by hts-specs.

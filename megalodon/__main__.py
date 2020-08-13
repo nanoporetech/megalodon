@@ -135,11 +135,6 @@ def get_parser():
         '--variant-filename',
         help='Sequence variants to call for each read in VCF/BCF format ' +
         '(required for variant output).')
-    var_grp.add_argument(
-        '--variant-calibration-filename',
-        help='File containing emperical calibration for variant scores. ' +
-        'See `megalodon_extras calibrate variants` command. Default: ' +
-        'Load default calibration for specified guppy config.')
 
     var_grp.add_argument(
         '--context-min-alt-prob', type=float,
@@ -174,6 +169,12 @@ def get_parser():
                          'This saves compute time, but has unpredictable ' +
                          'behavior if variants are not atomized.'))
     var_grp.add_argument(
+        '--variant-calibration-filename',
+        help=hidden_help('File containing emperical calibration for ' +
+                         'variant scores. See `megalodon_extras calibrate ' +
+                         'variants` command. Default: Load default ' +
+                         'calibration for specified guppy config.'))
+    var_grp.add_argument(
         '--variant-context-bases', type=int, nargs=2,
         default=mh.DEFAULT_VAR_CONTEXT_BASES,
         help=hidden_help('Context bases for single base variant and indel ' +
@@ -203,11 +204,6 @@ def get_parser():
         '2) sequence motif and 3) relative modified base position. Multiple ' +
         '--mod-motif arguments may be provided to a single command. For ' +
         'example to restrict to CpG sites use "--mod-motif Z CG 0".')
-    mod_grp.add_argument(
-        '--mod-calibration-filename',
-        help='File containing emperical calibration for modified base ' +
-        'scores. See `megalodon_extras calibrate modified_bases` command. ' +
-        'Default: Load default calibration for specified guppy config.')
 
     mod_grp.add_argument(
         '--disable-mod-calibration', action='store_true',
@@ -235,6 +231,13 @@ def get_parser():
                          '(probability of modified/canonical base). ' +
                          'Only applicable for "--mod-aggregate-method ' +
                          'binary_threshold". Default: %(default)s'))
+    mod_grp.add_argument(
+        '--mod-calibration-filename',
+        help=hidden_help('File containing emperical calibration for ' +
+                         'modified base scores. See `megalodon_extras ' +
+                         'calibrate modified_bases` command. Default: ' +
+                         'Load default calibration for specified guppy ' +
+                         'config.'))
     mod_grp.add_argument(
         '--mod-database-timeout', type=float,
         default=mh.DEFAULT_MOD_DATABASE_TIMEOUT,

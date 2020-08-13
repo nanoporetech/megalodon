@@ -30,23 +30,26 @@ Guppy Backend Argument
 Output Arguments
 ----------------
 
+- ``--live-processing``
+
+  - As of version 2.2, Megalodon now supports live run processing.
+  - Activate live processing mode by simply adding the ``--live-processing`` argument and specifying the MinKNOW output directory as the Megalodon FAST5 directory.
+  - Megalodon will continue to search for FAST5s until the ``final_summary*`` file is created by MinKNOW, indicating data production has completed.
 - ``--outputs``
 
   - Specify desired outputs.
   - Options are ``basecalls``, ``mod_basecalls``, ``mappings``, ``variant_mappings``, ``mod_mappings``, ``per_read_variants``, ``per_read_mods``, ``variants``, and ``mods``.
 
-    - ``mod_basecalls`` are currently output in an HDF5 file with a data set corresponding to each read (accessed via the ``read_id``).
+    - ``mod_basecalls`` are output in a BAM file via the ``Mm`` and ``Ml`` tags `described by hts-specs here <https://github.com/samtools/hts-specs/pull/418>`_.
+    - ``variant_mappings`` are intended for obtaining highly accurate phased variant genotypes, but also provide a nice genome browser visualiztion of per-read variant calls.
 
-      - This format is likely to change in the future.
-    - ``variant_mappings`` are intended only for obtaining highly accurate phased variant genotypes.
-
-      - These mappings contain reference sequence at all positions except for per-read called variants. The base quality scores encode the likelihood for that reference anchored variant for use in the whathap phasing algorithm.
-      - This file is useful for visualizing per-read variant calls as well as potential variant phasing.
+      - These mappings contain reference sequence at all positions except for per-read called variants. The base quality scores encode the likelihood for that reference anchored variant for use in the ``whathap`` phasing algorithm.
     - ``mod_mappings`` provide reference-anchored per-read modified base calls.
 
       - These mappings contain the mapped reference sequence annotated with modified base calls at all instances of ``--mod-motif``s.
       - This file is useful for visualizing per-read modified base calls (e.g. IGV bisulfite mode for CpG calls).
       - This file may also allow a port to standard bisulfite pipelines that are capable of processing long-reads.
+      - hts-spec modified base output coming soon.
   - Default output is basecalls only.
 - ``--output-directory``
 
@@ -83,11 +86,6 @@ Sequence Variant Arguments
     - Variants file must be sorted.
     - If variant file is not compressed and indexed this will be performed before further processing.
   - Variants must be matched to the ``--reference`` provided.
-- ``--variant-calibration-filename``
-
-  - File containing empirical calibration for sequence variant scores.
-  - As created by the ``megalodon_extras calibrate variants`` command.
-  - Default: Load default calibration file for guppy config.
 
 -----------------------
 Modified Base Arguments
@@ -105,11 +103,6 @@ Modified Base Arguments
   - If not provided (and ``per_read_mods`` or ``mods`` outputs requested) all relevant sites are tested (e.g. all ``C`` bases for ``5mC``).
 
     - Note that restricting to motifs of interest can save computationally expensive steps and is considered more than a simple post-processing filter.
-- ``--mod-calibration-filename``
-
-  - File containing empirical calibration for modified base scores.
-  - As created by ``megalodon_extras calibrate modified_bases`` command.
-  - Default: Load default calibration file for guppy config.
 
 -----------------------
 Miscellaneous Arguments

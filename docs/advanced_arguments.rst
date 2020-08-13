@@ -80,6 +80,11 @@ Sequence Variant Arguments
 
   - Input variants have been atomized (with ``megalodon_extras variants atomize``).
   - This saves compute time, but has unpredictable behavior if variants are not atomized.
+- ``--variant-calibration-filename``
+
+  - File containing empirical calibration for sequence variant scores.
+  - As created by the ``megalodon_extras calibrate variants`` command.
+  - Default: Load default calibration file for guppy config.
 - ``--variant-context-bases``
 
   - Context bases for single base SNP and indel calling. Default: [15, 30]
@@ -128,6 +133,11 @@ Modified Base Arguments
 
     - Sites where no canonical or modified base achieves this level of confidence will be ignored in aggregation.
   - Default: 0.75
+- ``--mod-calibration-filename``
+
+  - File containing empirical calibration for modified base scores.
+  - As created by ``megalodon_extras calibrate modified_bases`` command.
+  - Default: Load default calibration file for guppy config.
 - ``--mod-database-timeout``
 
   - Timeout in seconds for modified base database operations.
