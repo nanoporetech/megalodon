@@ -11,13 +11,13 @@ cache:
 build:
     stage: build
     script:
-        - rm -rf venv
         - python -V  # Print out python version for debugging
+        - pip install --upgrade pip
         - pip install virtualenv
         - virtualenv $CI_PROJECT_DIR/venv
         - source $CI_PROJECT_DIR/venv/bin/activate
         - pip install numpy cython
-        - pip install -e megalodon/
+        - pip install -e $CI_PROJECT_DIR/megalodon/
     artifacts:
         paths:
             - $CI_PROJECT_DIR/venv/
