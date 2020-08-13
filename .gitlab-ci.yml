@@ -13,7 +13,7 @@ build:
         - source $CI_PROJECT_DIR/venv/bin/activate
     artifacts:
         paths:
-            - venv/
+            - $CI_PROJECT_DIR/venv/
         expire_in: 1 hour
 
 pep8:
