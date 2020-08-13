@@ -17,7 +17,7 @@ build:
         - virtualenv $CI_PROJECT_DIR/venv
         - source $CI_PROJECT_DIR/venv/bin/activate
         - pip install numpy cython
-        - pip install -e $CI_PROJECT_DIR/megalodon/
+        - pip install -e $CI_PROJECT_DIR/
     artifacts:
         paths:
             - $CI_PROJECT_DIR/venv/
