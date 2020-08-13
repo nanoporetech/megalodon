@@ -11,7 +11,6 @@ build:
         - pip install virtualenv
         - virtualenv $CI_PROJECT_DIR/venv
         - source $CI_PROJECT_DIR/venv/bin/activate
-        - pip install numpy cython
     artifacts:
         paths:
             - venv/
