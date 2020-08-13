@@ -1,7 +1,8 @@
-image: python:latest
+image: python:3.6
 
-variables:
-  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+cache:
+    paths:
+        - $CI_PROJECT_DIR/venv/
 
 stages:
     - build
@@ -9,9 +10,6 @@ stages:
 
 build:
     stage: build
-    cache:
-        paths:
-            - $CI_PROJECT_DIR/venv/
     script:
         - python -V  # Print out python version for debugging
         - pip install virtualenv
