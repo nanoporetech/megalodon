@@ -1235,22 +1235,15 @@ def init_mods_db(mods_info, ref_names_and_lens):
 def _get_mods_queue(mods_q, mods_info, map_info, ref_out_info, aux_failed_q):
     def write_mod_alignment(
             read_id, mod_seq, mod_quals, chrm, strand, r_st, fp):
-        a = pysam.AlignedSegment()
-        a.query_name = read_id
-        a.flag = 0 if strand == 1 else 16
-        a.reference_id = fp.get_tid(chrm)
-        a.reference_start = r_st
-        a.template_length = len(mod_seq)
-        a.mapping_quality = MOD_MAP_MAX_QUAL
-        a.set_tags([('RG', MOD_MAP_RG_ID)])
-
         # convert to reference based sequence
         if strand == -1:
             mod_seq = mh.revcomp(mod_seq)
             mod_quals = mod_quals[::-1]
-        a.query_sequence = mod_seq
-        a.query_qualities = array('B', mod_quals)
-        a.cigartuples = [(0, len(mod_seq)), ]
+        a = mapping.prepare_mapping(
+            read_id, mod_seq, flag=0 if strand == 1 else 16,
+            ref_id=fp.get_tid(chrm), ref_st=r_st,
+            qual=array('B', mod_quals), map_qual=MOD_MAP_MAX_QUAL,
+            tags=[('RG', MOD_MAP_RG_ID)])
         fp.write(a)
 
     def store_mod_call(mod_res, been_warned_timeout, been_warned_other):

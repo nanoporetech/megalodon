@@ -90,21 +90,36 @@ def open_unaligned_alignment_file(basename, map_fmt, mod_long_names=None):
                                add_sq_text=False)
 
 
-def prepare_unaligned_mod_mapping(read_id, q_seq, q_qual, mod_scores):
-    # TODO add option to provide mapping position and plumb in mod_mappings
+def prepare_mapping(
+        read_id, seq, flag=0, ref_id=None, ref_st=None, qual=None,
+        map_qual=None, mods_scores=None, cigartuples=None, tags=None):
     a = pysam.AlignedSegment()
     a.query_name = read_id
-    a.query_sequence = q_seq
-    a.query_qualities = [ord(q) - 33 for q in q_qual]
-    # 4 indicates unmapped
-    a.flag = 4
-    a.cigartuples = [(0, len(q_seq)), ]
-    # Add modified base tags
-    #  see https://github.com/samtools/hts-specs/pull/418
-    tags = [(MOD_POS_TAG, mod_scores[0], 'Z'), ]
-    if len(mod_scores[1]) > 0:
-        tags.append((MOD_PROB_TAG, mod_scores[1]))
+    a.query_sequence = seq
+    a.template_length = len(seq)
+    a.flag = flag
+    if ref_id is not None:
+        a.reference_id = ref_id
+    if ref_st is not None:
+        a.reference_start = ref_st
+    if map_qual is not None:
+        a.mapping_quality = map_qual
+    if qual is not None:
+        a.query_qualities = qual
+    if cigartuples is None:
+        cigartuples = [(0, len(seq)), ]
+    a.cigartuples = cigartuples
+
+    if tags is None:
+        tags = []
+    if mods_scores is not None:
+        # Add modified base tags
+        #  see https://github.com/samtools/hts-specs/pull/418
+        tags.append((MOD_POS_TAG, mods_scores[0], 'Z'))
+        if len(mods_scores[1]) > 0:
+            tags.append((MOD_PROB_TAG, mods_scores[1]))
     a.set_tags(tags)
+
     return a
 
 
@@ -336,16 +351,13 @@ def _get_map_queue(mo_q, map_info, ref_out_info, aux_failed_q):
         bc_len = len(map_res.q_seq)
         q_seq = map_res.q_seq[map_res.q_st:map_res.q_en]
 
-        a = pysam.AlignedSegment()
-        a.query_name = map_res.read_id
-        a.query_sequence = q_seq if map_res.strand == 1 else mh.revcomp(q_seq)
-        a.flag = 0 if map_res.strand == 1 else 16
-        a.reference_id = map_fp.get_tid(map_res.ctg)
-        a.reference_start = map_res.r_st
-        a.cigartuples = [(op, op_l) for op_l, op in map_res.cigar]
-        a.template_length = map_res.q_en - map_res.q_st
-        # add NM tag containing edit distance to the reference
-        a.tags = (('NM', nalign - nmatch), )
+        a = prepare_mapping(
+            map_res.read_id,
+            q_seq if map_res.strand == 1 else mh.revcomp(q_seq),
+            flag=0 if map_res.strand == 1 else 16,
+            ref_id=map_fp.get_tid(map_res.ctg), ref_st=map_res.r_st,
+            cigartuples=[(op, op_l) for op_l, op in map_res.cigar],
+            tags=[('NM', nalign - nmatch)])
         map_fp.write(a)
 
         # compute alignment stats
@@ -413,7 +425,7 @@ def sort_and_index_mapping(
             LOGGER.debug(
                 'MappingSortFail:\ncall_stdout:\n{}\ncall_stderr:\n{}'.format(
                     sort_res.stdout.decode(), sort_res.stderr.decode()))
-        if map_fmt == mh.MAP_OUT_BAM:
+        if map_fmt in (mh.MAP_OUT_BAM, mh.MAP_OUT_CRAM):
             index_args = [samtools_exec, 'index', out_fn]
             index_res = subprocess.run(
                 index_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)

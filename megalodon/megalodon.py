@@ -341,8 +341,10 @@ def _get_bc_queue(bc_q, bc_info, aux_failed_q):
             seq_summ_fp.write('\t'.join(map(str, seq_summ_info)) + '\n')
 
         if bc_info.do_output.mod_basecalls:
-            mods_fp.write(mapping.prepare_unaligned_mod_mapping(
-                read_id, r_seq, r_qual, mods_scores))
+            # 4 indicates unmapped
+            mods_fp.write(mapping.prepare_mapping(
+                read_id, r_seq, qual=[ord(q) - 33 for q in r_qual],
+                mods_scores=mods_scores, flag=4))
 
     try:
         LOGGER.debug('GetterStarting')

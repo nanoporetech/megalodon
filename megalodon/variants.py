@@ -1002,23 +1002,16 @@ def _get_variants_queue(
         vars_q, vars_info, ref_out_info, map_info, aux_failed_q):
     def write_var_alignment(
             read_id, var_seq, var_quals, chrm, strand, r_st, var_cigar):
-        a = pysam.AlignedSegment()
-        a.query_name = read_id
-        a.flag = 0 if strand == 1 else 16
-        a.reference_id = var_map_fp.get_tid(chrm)
-        a.reference_start = r_st
-        a.template_length = len(var_seq)
-        a.mapping_quality = VAR_MAP_MAX_QUAL
-        a.set_tags([('RG', VAR_MAP_RG_ID)])
-
         # convert to reference based sequence
         if strand == -1:
             var_seq = mh.revcomp(var_seq)
             var_quals = var_quals[::-1]
             var_cigar = var_cigar[::-1]
-        a.query_sequence = var_seq
-        a.query_qualities = array('B', var_quals)
-        a.cigartuples = var_cigar
+        a = mapping.prepare_mapping(
+            read_id, var_seq, flag=0 if strand == 1 else 16,
+            ref_id=var_map_fp.get_tid(chrm), ref_st=r_st,
+            qual=array('B', var_quals), map_qual=VAR_MAP_MAX_QUAL,
+            tags=[('RG', VAR_MAP_RG_ID)], cigartuples=var_cigar)
         var_map_fp.write(a)
 
     def store_var_call(
@@ -1049,12 +1042,11 @@ def _get_variants_queue(
                         alt_lps, var_alt_seqs))) + '\n'
             vars_txt_fp.write(var_out_text)
         if ref_out_info.do_output.var_pr_refs or vars_info.do_output.var_map:
-            if not mapping.read_passes_filters(
-                    ref_out_info.filt_params, read_len, q_st, q_en, cigar):
-                return
             var_seq, var_quals, var_cigar = annotate_variants(
                 r_start, ref_seq, r_var_calls, strand)
-            if ref_out_info.do_output.var_pr_refs:
+            if ref_out_info.do_output.var_pr_refs and \
+               mapping.read_passes_filters(
+                   ref_out_info.filt_params, read_len, q_st, q_en, cigar):
                 pr_refs_fp.write('>{}\n{}\n'.format(read_id, var_seq))
             if vars_info.do_output.var_map:
                 write_var_alignment(
