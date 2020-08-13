@@ -3,7 +3,7 @@ import argparse
 from importlib import import_module
 
 from megalodon import _version
-from . import _extras_parsers as ep
+from megalodon_extras import _extras_parsers as ep
 
 
 NESTED_COMMANDS = [

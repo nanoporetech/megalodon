@@ -178,11 +178,11 @@ def compute_smooth_mono_density(
         np.mean(np.stack([
             np.maximum.accumulate(smooth_vals[:peak_site]),
             np.minimum.accumulate(smooth_vals[:peak_site][::-1])[::-1]]),
-                axis=0),
+            axis=0),
         np.mean(np.stack([
             np.minimum.accumulate(smooth_vals[peak_site:]),
             np.maximum.accumulate(smooth_vals[peak_site:][::-1])[::-1]]),
-                axis=0)])
+            axis=0)])
 
     return mono_smooth_vals, smooth_vals
 

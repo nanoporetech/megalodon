@@ -45,6 +45,7 @@ class RefName(str):
     This is roughly determined by distutils.version.LooseVersion, with handling
     for mismatching derived types (int cannot compare to str).
     """
+
     def __eq__(self, other):
         return (tuple(LooseVersion(self).version) ==
                 tuple(LooseVersion(other).version))

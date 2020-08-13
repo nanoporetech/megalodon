@@ -22,6 +22,7 @@ class CountingMPQueue(mpQueue):
     """ Minimal version of multiprocessing queue maintaining a queue size
     counter
     """
+
     def __init__(self, **kwargs):
         super().__init__(ctx=mp.get_context(), **kwargs)
         self._size = mp.Value('i', 0)
@@ -110,6 +111,7 @@ class SimplexManyToOneQueue:
     The get_conn class function will return a ConnWithSize object which can
     send information to be recieved by the wait_recv function of this class.
     """
+
     def __init__(
             self, return_conns=True, max_size=mh._MAX_QUEUE_SIZE,
             name='SimplexQueue'):

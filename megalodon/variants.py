@@ -226,8 +226,8 @@ class VarsDb:
             self.loc_idx.update(
                 (chrm_id, {})
                 for chrm_id in range(
-                        next_chrm_id,
-                        next_chrm_id + len(ref_names_and_lens[0])))
+                    next_chrm_id,
+                    next_chrm_id + len(ref_names_and_lens[0])))
 
     def get_loc_id_or_insert(
             self, chrm_id, test_start, test_end, pos, ref_seq, var_name):
@@ -267,12 +267,12 @@ class VarsDb:
             cs_loc_idx = dict((
                 ((test_start, test_end), loc_id)
                 for test_start, test_end, loc_id in self.cur.execute(
-                        ('SELECT test_start, test_end, loc_id ' +
-                         'FROM loc WHERE loc_chrm=? AND ' +
-                         'test_start in ({0}) AND test_end in ({1})').format(
-                             ','.join(['?', ] * len(test_starts)),
-                             ','.join(['?', ] * len(test_ends))),
-                        (chrm_id, *test_starts, *test_ends)).fetchall()))
+                    ('SELECT test_start, test_end, loc_id ' +
+                     'FROM loc WHERE loc_chrm=? AND ' +
+                     'test_start in ({0}) AND test_end in ({1})').format(
+                        ','.join(['?', ] * len(test_starts)),
+                        ','.join(['?', ] * len(test_ends))),
+                    (chrm_id, *test_starts, *test_ends)).fetchall()))
         locs_to_add = tuple(set(r_locs).difference(cs_loc_idx))
 
         if len(locs_to_add) > 0:
@@ -321,10 +321,10 @@ class VarsDb:
             alt_idx = dict((
                 (alt_seq, alt_id)
                 for alt_seq, alt_id in self.cur.execute(
-                        ('SELECT alt_seq, alt_id ' +
-                         'FROM alt WHERE alt_seq in ({})').format(
-                             ','.join(['?', ] * len(r_uniq_seqs))),
-                        r_uniq_seqs).fetchall()))
+                    ('SELECT alt_seq, alt_id ' +
+                     'FROM alt WHERE alt_seq in ({})').format(
+                        ','.join(['?', ] * len(r_uniq_seqs))),
+                    r_uniq_seqs).fetchall()))
             alts_to_add = tuple(r_uniq_seqs.difference(alt_idx))
 
         if len(alts_to_add) > 0:
@@ -552,8 +552,8 @@ class VarsDb:
                 score, pos, ref_seq, var_name, read_id_conv(read_id),
                 chrm, self.get_alt_seq(alt_id), test_start != pos)
             for score, read_id, alt_id, loc_id in self.cur.execute(
-                    'SELECT score, score_read, score_alt, score_loc ' +
-                    'FROM data WHERE score_loc=?', (loc_id,)).fetchall()]
+                'SELECT score, score_read, score_alt, score_loc ' +
+                'FROM data WHERE score_loc=?', (loc_id,)).fetchall()]
 
     def close(self):
         self.db.commit()
@@ -711,9 +711,9 @@ def score_variants_independently(
         if blk_end - blk_start <= max(
                 len(up_seq) + len(dn_seq)
                 for up_seq, dn_seq in np_s_context_seqs) + max(
-                        np_s_var_ref_seq.shape[0], max(
-                            var_alt_seq.shape[0]
-                            for var_alt_seq in np_s_var_alt_seqs)):
+            np_s_var_ref_seq.shape[0], max(
+                var_alt_seq.shape[0]
+                for var_alt_seq in np_s_var_alt_seqs)):
             # no valid mapping over large inserted query bases
             # i.e. need as many "events/strides" as bases for valid mapping
             continue
@@ -834,7 +834,7 @@ def score_all_single_deletions(
 
     return [(scores[0], pos)
             for pos, scores, _, _, _, _, _ in score_variants_independently(
-                    vars_iter, ref_to_block, r_post, read_np_seq)[0]]
+        vars_iter, ref_to_block, r_post, read_np_seq)[0]]
 
 
 def score_all_single_insertions(
@@ -1046,7 +1046,7 @@ def _get_variants_queue(
                         read_id, chrm, strand, pos, ref_lp, alt_lp,
                         var_ref_seq, var_alt_seq, var_id)
                     for alt_lp, var_alt_seq in zip(
-                            alt_lps, var_alt_seqs))) + '\n'
+                        alt_lps, var_alt_seqs))) + '\n'
             vars_txt_fp.write(var_out_text)
         if ref_out_info.do_output.var_pr_refs or vars_info.do_output.var_map:
             if not mapping.read_passes_filters(
@@ -1088,7 +1088,7 @@ def _get_variants_queue(
                 'HD': {'VN': '1.4'},
                 'SQ': [{'LN': ref_len, 'SN': ref_name}
                        for ref_name, ref_len in sorted(
-                               zip(*map_info.ref_names_and_lens))],
+                    zip(*map_info.ref_names_and_lens))],
                 'RG': [{'ID': VAR_MAP_RG_ID, 'SM': SAMPLE_NAME}, ]}
             var_map_fp = pysam.AlignmentFile(
                 '{}.{}'.format(
@@ -1717,7 +1717,7 @@ class VarInfo:
                     for seq in cntxt_seqs]).max() > len(mh.ALPHABET):
                 # some sequence contained invalid characters
                 LOGGER.debug('VarSeqMismatchError {}:{}:{}'.format(
-                        variant.id, variant.chrom, variant.start))
+                    variant.id, variant.chrom, variant.start))
                 continue
 
             yield (
@@ -1737,6 +1737,7 @@ class Variant:
     """ Variant for entry into VcfWriter.
     Currently only handles a single sample.
     """
+
     def __init__(
             self, chrom, pos, ref, alts, id='.', qual='.', filter='.',
             info=None, sample_dict=None):
@@ -1915,6 +1916,7 @@ class AggVars(mh.AbstractAggregationClass):
     """ Class to assist in database queries for per-site aggregation of
     variant calls over reads.
     """
+
     def __init__(
             self, vars_db_fn, write_vcf_log_probs=False,
             load_uuid_index_in_memory=False, no_indices_in_mem=False):
