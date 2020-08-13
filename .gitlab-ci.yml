@@ -1,9 +1,5 @@
 image: python:3.6
 
-cache:
-    paths:
-        - $CI_PROJECT_DIR/venv/
-
 stages:
     - build
     - format
@@ -16,7 +12,10 @@ build:
         - virtualenv $CI_PROJECT_DIR/venv
         - source $CI_PROJECT_DIR/venv/bin/activate
         - pip install numpy cython
-        - pip install -e megalodon/
+    artifacts:
+        paths:
+            - venv/
+        expire_in: 1 hour
 
 pep8:
     stage: format
