@@ -1,11 +1,11 @@
 import os
 import re
 import sys
+import array
 import pysam
 import sqlite3
 import datetime
 import traceback
-from array import array
 from collections import defaultdict, namedtuple, OrderedDict
 
 import numpy as np
@@ -1023,6 +1023,58 @@ def annotate_mods_per_mod(r_start, ref_seq, r_mod_scores, strand, mods_info):
     return per_mod_ret_data
 
 
+def format_mm_ml_tags(r_start, ref_seq, r_mod_scores, strand, mods_info):
+    """ Format Mm and Ml tags for BAM output. See
+    https://github.com/samtools/hts-specs/pull/418 for format details.
+
+    Args:
+        r_start (int): Reference start position for this read.
+        ref_seq (str): Read-centric reference sequence corresponding to
+            this read.
+        r_mod_scores (list): Per-reference position read modified base calls
+            including postiion (on chrm/strand), modbase log probs and modified
+            base single letter codes
+        strand (int): 1 for forward strand -1 for reverse strand
+        mods_info (mods.ModInfo): Object containing information about modified
+            base processing
+
+    Returns:
+        Mm string tag and Ml array tag
+    """
+
+    per_mod_probs = defaultdict(list)
+    for mod_pos, mod_lps, mod_bases in sorted(r_mod_scores):
+        for mod_lp, mod_base in zip(mod_lps, mod_bases):
+            mod_prob = np.exp(mod_lp)
+            if mod_prob < mods_info.map_min_prob:
+                continue
+            read_pos = mod_pos - r_start
+            if strand == -1:
+                read_pos = len(ref_seq) - 1 - read_pos
+            per_mod_probs[mod_base].append((read_pos, mod_prob))
+
+    mm_tag, ml_tag = '', array.array('B')
+    for mod_base, pos_probs in per_mod_probs.items():
+        mod_poss, probs = zip(*sorted(pos_probs))
+        can_base = mods_info.mod_base_to_can[mod_base]
+        # compute modified base positions relative to the running total of the
+        # associated canonical base
+        can_base_mod_poss = np.cumsum(
+            [1 if b == can_base else 0 for b in ref_seq])[
+                np.array(mod_poss)] - 1
+        mm_tag += '{}+{}{};'.format(
+            can_base, mh.convert_legacy_mods(mod_base),
+            ''.join(',{}'.format(d) for d in np.diff(np.insert(
+                can_base_mod_poss, 0, -1)) - 1))
+        # extract mod scores and scale to 0-255 range
+        scaled_probs = np.floor(np.array(probs) * 256)
+        # last interval includes prob=1
+        scaled_probs[scaled_probs == 256] = 255
+        ml_tag.extend(scaled_probs.astype(np.uint8))
+
+    return mm_tag, ml_tag
+
+
 ########################
 # Per-read Mod Scoring #
 ########################
@@ -1151,8 +1203,13 @@ def call_read_mods(
                 r_ref_pos.start, r_ref_seq, r_mod_scores,
                 r_ref_pos.strand, mods_info)
     if mods_info.do_output.mod_map:
-        with np.errstate(divide='ignore'):
-            per_mod_seqs = annotate_mods_per_mod(
+        if mods_info.map_emulate_bisulfite:
+            with np.errstate(divide='ignore'):
+                per_mod_seqs = annotate_mods_per_mod(
+                    r_ref_pos.start, r_ref_seq, r_mod_scores,
+                    r_ref_pos.strand, mods_info)
+        else:
+            per_mod_seqs = format_mm_ml_tags(
                 r_ref_pos.start, r_ref_seq, r_mod_scores,
                 r_ref_pos.strand, mods_info)
 
@@ -1242,8 +1299,20 @@ def _get_mods_queue(mods_q, mods_info, map_info, ref_out_info, aux_failed_q):
         a = mapping.prepare_mapping(
             read_id, mod_seq, flag=0 if strand == 1 else 16,
             ref_id=fp.get_tid(chrm), ref_st=r_st,
-            qual=array('B', mod_quals), map_qual=MOD_MAP_MAX_QUAL,
+            qual=array.array('B', mod_quals), map_qual=MOD_MAP_MAX_QUAL,
             tags=[('RG', MOD_MAP_RG_ID)])
+        fp.write(a)
+
+    def write_alignment_w_tags(
+            read_id, ref_seq, chrm, strand, r_st, fp, mods_scores):
+        # convert to reference based sequence
+        if strand == -1:
+            ref_seq = mh.revcomp(ref_seq)
+        a = mapping.prepare_mapping(
+            read_id, ref_seq, flag=0 if strand == 1 else 16,
+            ref_id=fp.get_tid(chrm), ref_st=r_st,
+            map_qual=MOD_MAP_MAX_QUAL,
+            tags=[('RG', MOD_MAP_RG_ID)], mods_scores=mods_scores)
         fp.write(a)
 
     def store_mod_call(mod_res, been_warned_timeout, been_warned_other):
@@ -1281,11 +1350,16 @@ def _get_mods_queue(mods_q, mods_info, map_info, ref_out_info, aux_failed_q):
                 ref_out_info.filt_params, read_len, q_st, q_en, cigar):
             pr_refs_fp.write('>{}\n{}\n'.format(read_id, all_mods_seq.mod_seq))
         if mods_info.do_output.mod_map:
-            for mod_base, _ in mods_info.mod_long_names:
-                mod_seq, mod_qual = per_mod_seqs[mod_base]
-                write_mod_alignment(
-                    read_id, mod_seq, mod_qual, chrm, strand, r_start,
-                    mod_map_fps[mod_base])
+            if mods_info.map_emulate_bisulfite:
+                for mod_base, _ in mods_info.mod_long_names:
+                    mod_seq, mod_qual = per_mod_seqs[mod_base]
+                    write_mod_alignment(
+                        read_id, mod_seq, mod_qual, chrm, strand, r_start,
+                        mod_map_fps[mod_base])
+            else:
+                write_alignment_w_tags(
+                    read_id, ref_seq, chrm, strand, r_start,
+                    mod_map_fp, per_mod_seqs)
 
         return been_warned_timeout, been_warned_other
 
@@ -1314,15 +1388,22 @@ def _get_mods_queue(mods_q, mods_info, map_info, ref_out_info, aux_failed_q):
                        for ref_name, ref_len in sorted(
                     zip(*map_info.ref_names_and_lens))],
                 'RG': [{'ID': MOD_MAP_RG_ID, 'SM': SAMPLE_NAME}, ]}
-            mod_map_fns = [
-                (mod_base, '{}.{}.'.format(
-                    mh.get_megalodon_fn(mods_info.out_dir, mh.MOD_MAP_NAME),
-                    mln)) for mod_base, mln in mods_info.mod_long_names]
-            mod_map_fps = dict((
-                (mod_base, pysam.AlignmentFile(
-                    mod_map_fn + map_info.map_fmt, w_mode, header=header,
-                    reference_filename=map_info.cram_ref_fn))
-                for mod_base, mod_map_fn in mod_map_fns))
+            mod_map_bn = mh.get_megalodon_fn(
+                mods_info.out_dir, mh.MOD_MAP_NAME)
+            if mods_info.map_emulate_bisulfite:
+                mod_map_fns = [
+                    (mod_base, '{}.{}.'.format(mod_map_bn, mln))
+                    for mod_base, mln in mods_info.mod_long_names]
+                mod_map_fps = dict((
+                    (mod_base, pysam.AlignmentFile(
+                        mod_map_fn + map_info.map_fmt, w_mode, header=header,
+                        reference_filename=map_info.cram_ref_fn))
+                    for mod_base, mod_map_fn in mod_map_fns))
+            else:
+                mod_map_fp = pysam.AlignmentFile(
+                    '{}.{}'.format(mod_map_bn, map_info.map_fmt),
+                    w_mode, header=header,
+                    reference_filename=map_info.cram_ref_fn)
         been_warned_timeout = been_warned_other = False
         LOGGER.debug('GetterInitComplete')
     except Exception as e:
@@ -1347,7 +1428,10 @@ def _get_mods_queue(mods_q, mods_info, map_info, ref_out_info, aux_failed_q):
         if ref_out_info.do_output.mod_pr_refs:
             pr_refs_fp.close()
         if mods_info.do_output.mod_map:
-            for mod_map_fp in mod_map_fps.values():
+            if mods_info.map_emulate_bisulfite:
+                for mod_map_fp in mod_map_fps.values():
+                    mod_map_fp.close()
+            else:
                 mod_map_fp.close()
         LOGGER.debug('CreatingIndex')
         mods_db.create_data_covering_index()
@@ -1434,9 +1518,10 @@ class ModInfo:
             mod_context_bases=None, mods_calib_fn=None,
             mod_output_fmts=[mh.MOD_BEDMETHYL_NAME],
             edge_buffer=mh.DEFAULT_EDGE_BUFFER, agg_info=DEFAULT_AGG_INFO,
-            mod_thresh=0.0, do_ann_all_mods=False, map_base_conv=None,
-            mod_db_timeout=mh.DEFAULT_MOD_DATABASE_TIMEOUT, db_safety=0,
-            out_dir=None, do_output=None):
+            mod_thresh=0.0, do_ann_all_mods=False, map_emulate_bisulfite=False,
+            map_base_conv=None, map_min_prob=mh.DEFAULT_MOD_MIN_PROB,
+            mod_db_timeout=mh.DEFAULT_MOD_DATABASE_TIMEOUT,
+            db_safety=0, out_dir=None, do_output=None):
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other modbase info
         # don't want to pass all of these parameters around individually though
@@ -1451,7 +1536,9 @@ class ModInfo:
         self.mod_thresh = mod_thresh
         # TODO move these attributes to do_output
         self.do_ann_all_mods = do_ann_all_mods
+        self.map_emulate_bisulfite = map_emulate_bisulfite
         self.map_base_conv_raw = map_base_conv
+        self.map_min_prob = map_min_prob
         self.mod_db_timeout = mod_db_timeout
         self.db_safety = db_safety
         self.out_dir = out_dir

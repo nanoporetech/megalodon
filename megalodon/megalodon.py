@@ -59,11 +59,17 @@ def start_sort_mapping_procs(map_info, mods_info, vars_info):
             map_info.map_fmt, map_info.cram_ref_fn, map_info.samtools_exec)
     if mods_info.do_output.mod_map and map_info.do_sort_mappings:
         LOGGER.info('Spawning process to sort modified base mappings')
+        mod_map_bn = mh.get_megalodon_fn(
+            mods_info.out_dir, mh.MOD_MAP_NAME)
+        if mods_info.map_emulate_bisulfite:
+            mod_map_bns = [
+                '{}.{}'.format(mod_map_bn, mln)
+                for mod_base, mln in mods_info.mod_long_names]
+        else:
+            mod_map_bns = [mod_map_bn]
         mod_map_ps = [post_process_mapping(
-            '{}.{}'.format(mh.get_megalodon_fn(
-                mods_info.out_dir, mh.MOD_MAP_NAME), mln),
-            map_info.map_fmt, map_info.cram_ref_fn, map_info.samtools_exec)[0]
-            for _, mln in mods_info.mod_long_names]
+            mod_map_bn, map_info.map_fmt, map_info.cram_ref_fn,
+            map_info.samtools_exec)[0] for mod_map_bn in mod_map_bns]
     if vars_info.do_output.var_map and map_info.do_sort_mappings:
         LOGGER.info('Spawning process to sort variant mappings')
         var_map_p, var_sort_fn = post_process_mapping(
@@ -1013,6 +1019,11 @@ def parse_mod_args(args, model_info, ref_out_info):
         LOGGER.warning(('--mod-motif provided, but {} not requested. ' +
                         'Ignoring --mod-motif.').format(mh.PR_MOD_NAME))
         args.mod_motif = None
+    if not args.mod_map_emulate_bisulfite and \
+       args.mod_map_base_conv is not None:
+        LOGGER.warning(
+            '--mod-map-base-conv provided, but --mod-map-emulate-bisulfite ' +
+            'not set. --mod-map-base-conv will be ignored.')
 
     mod_calib_fn = (mh.get_mod_calibration_fn(
         model_info.params.pyguppy.config, args.mod_calibration_filename,
@@ -1035,7 +1046,9 @@ def parse_mod_args(args, model_info, ref_out_info):
         edge_buffer=args.edge_buffer, agg_info=agg_info,
         mod_thresh=args.ref_mod_threshold,
         do_ann_all_mods=args.ref_include_mods,
+        map_emulate_bisulfite=args.mod_map_emulate_bisulfite,
         map_base_conv=args.mod_map_base_conv,
+        map_min_prob=args.mod_min_prob,
         mod_db_timeout=args.mod_database_timeout,
         db_safety=args.database_safety, out_dir=args.output_directory,
         do_output=do_output)
@@ -1208,7 +1221,7 @@ def parse_basecall_args(args, mods_info):
         do_output=bc_do_output,
         out_dir=args.output_directory,
         bc_fmt=args.basecalls_format, mod_bc_fmt=args.mappings_format,
-        mod_bc_min_prob=args.mod_basecalls_min_prob,
+        mod_bc_min_prob=args.mod_min_prob,
         mod_long_names=mods_info.mod_long_names, rev_sig=args.rna)
 
 
