@@ -10,18 +10,22 @@ from ._extras_parsers import get_parser_phase_variants_merge_haploid_variants
 
 LOGGER = logging.get_logger()
 
-HEADER = """##fileformat=VCFv4.1
-##source=megalodon_haploid_merge
-{}
-##phasing=megalodon_haploid_merge
-##INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">
-##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
-##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype Quality">
-##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read Depth">
-##FORMAT=<ID=GL,Number=G,Type=Float,Description="Log10 likelihoods for genotypes">
-##FORMAT=<ID=PL,Number=G,Type=Integer,Description="Normalized, Phred-scaled likelihoods for genotypes">
-#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	SAMPLE
-"""
+_HEADER_LINES = (
+    '##fileformat=VCFv4.1',
+    '##source=megalodon_haploid_merge',
+    '{}',
+    '##phasing=megalodon_haploid_merge',
+    '##INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">',
+    '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
+    '##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype Quality">',
+    '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read Depth">',
+    '##FORMAT=<ID=GL,Number=G,Type=Float,Description="Log10 likelihoods ' +
+    'for genotypes">',
+    '##FORMAT=<ID=PL,Number=G,Type=Integer,Description="Normalized, ' +
+    'Phred-scaled likelihoods for genotypes">',
+    '#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	' +
+    'FORMAT	SAMPLE')
+HEADER = '\n'.join(_HEADER_LINES)
 
 CONTIG_HEADER_LINE = "##contig=<ID={},length={}>"
 

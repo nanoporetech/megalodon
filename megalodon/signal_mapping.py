@@ -1,6 +1,5 @@
 import sys
 import traceback
-import multiprocessing as mp
 from collections import namedtuple
 
 import numpy as np
@@ -9,6 +8,8 @@ from ont_fast5_api import fast5_interface
 from megalodon import megalodon_helper as mh, logging
 try:
     import taiyaki
+    # appease flake8
+    taiyaki
 except ImportError:
     raise mh.MegaError(
         'Taiyaki installation required for signal mapping not found.')
