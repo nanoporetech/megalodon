@@ -33,7 +33,7 @@ Output Arguments
 - ``--live-processing``
 
   - As of version 2.2, Megalodon now supports live run processing.
-  - Activate live processing mode by simply adding the ``--live-processing`` argument and specifying the MinKNOW output directory as the Megalodon FAST5 directory.
+  - Activate live processing mode by simply adding the ``--live-processing`` argument and specifying the MinKNOW output directory as the input FAST5 directory.
   - Megalodon will continue to search for FAST5s until the ``final_summary*`` file is created by MinKNOW, indicating data production has completed.
 - ``--outputs``
 
@@ -46,11 +46,12 @@ Output Arguments
       - These mappings contain reference sequence at all positions except for per-read called variants. The base quality scores encode the likelihood for that reference anchored variant for use in the ``whathap`` phasing algorithm.
     - ``mod_mappings`` provide reference-anchored per-read modified base calls.
 
-      - These mappings contain the mapped reference sequence annotated with modified base calls at all instances of ``--mod-motif``s.
-      - This file is useful for visualizing per-read modified base calls (e.g. IGV bisulfite mode for CpG calls).
-      - This file may also allow a port to standard bisulfite pipelines that are capable of processing long-reads.
-      - hts-spec modified base output coming soon.
-  - Default output is basecalls only.
+      - As of version 2.2, the default output uses the ``Mm`` and ``Ml`` hts-specs tags (see above) with all modified bases in one output file.
+      - Specify the ``--mod-map-emulate-bisulfite`` option to output one BAM per modified base with modified bases converted using ``--mod-map-base-conv``
+
+        - This file is useful for visualizing per-read modified base calls (e.g. IGV bisulfite mode for CpG calls).
+        - This file may also allow a port to standard bisulfite pipelines that are capable of processing long-reads.
+  - Default output is ``basecalls`` only.
 - ``--output-directory``
 
   - Specify the directory to output results.
@@ -68,9 +69,14 @@ Mapping Arguments
 
   - Format for ``mapping`` output.
   - Options include ``bam`` (default), ``cram``, and ``sam``.
+  - As of version 2.2, mappings are no longer sorted by default.
+
+    - Set ``--sort-mappings`` to sort mappings. If ``samtools`` is not in ``$PATH`` provide path to executable via the ``--samtools-executable`` argument.
 - ``--reference``
 
-  - Reference genome or transcriptome in FASTA format.
+  - Reference genome or transcriptome in FASTA or minimap2 index format.
+
+    - If ``--reference`` is a minimap2 index and ``--mapping-format`` is ``cram``, provide FASTA reference via ``--cram-reference``.
 
 --------------------------
 Sequence Variant Arguments
@@ -98,7 +104,7 @@ Modified Base Arguments
 
     1. Modified base single letter codes (see ``megalodon_extras modified_bases describe_alphabet`` command)
     2. Canonical sequence motif (may contain `ambiguity codes <https://droog.gs.washington.edu/parc/images/iupac.html>`_)
-    3. Relative position (0-based) for the modified base within the canonical sequence motif
+    3. Relative position (0-based) of the modified base within the canonical sequence motif
   - Multiple ``--mod-motif`` arguments can be provided to a single ``megalodon`` command.
   - If not provided (and ``per_read_mods`` or ``mods`` outputs requested) all relevant sites are tested (e.g. all ``C`` bases for ``5mC``).
 
@@ -117,6 +123,3 @@ Miscellaneous Arguments
   - If not provided CPU basecalling will be performed.
   - Device names can be provided in the following formats: ``0``, ``cuda0`` or ``cuda:0``.
   - Multiple devices can be specified separated by a space.
-- ``--verbose-read-progress``
-
-  - Output dynamic updates to potential issues during processing.

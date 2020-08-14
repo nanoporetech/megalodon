@@ -344,11 +344,6 @@ def get_parser():
         '--devices', nargs='+',
         help='GPU devices for guppy or taiyaki basecalling backends.')
     misc_grp.add_argument(
-        '--verbose-read-progress', type=int, default=3,
-        help='Output verbose output on read progress. Outputs N most ' +
-        'common points where reads could not be processed further. ' +
-        'Default: %(default)d')
-    misc_grp.add_argument(
         '--rna', action='store_true',
         help='RNA input data. Requires RNA model. Default: DNA input data')
     misc_grp.add_argument(
@@ -379,6 +374,11 @@ def get_parser():
         '--suppress-queues-status', action='store_true',
         help=hidden_help('Suppress dynamic status of output queues. Helpful ' +
                          'for diagnosing I/O issues.'))
+    misc_grp.add_argument(
+        '--verbose-read-progress', type=int, default=3,
+        help=hidden_help('Output verbose output on read progress. Outputs ' +
+                         'N most common points where reads could not be ' +
+                         'processed further. Default: %(default)d'))
 
     return parser
 
