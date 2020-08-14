@@ -44,7 +44,7 @@ flake8:
     stage: format
     script:
         - source venv/bin/activate && pip install flake8 &&
-          flake8 -j 2 --show-source --statistics --tee --output-file=flake_results.txt --exclude venv,.svn,CVS,.bzr,.hg,.git,__pycache__,.tox,.eggs,*.egg
+          flake8 -j 2 --show-source --statistics --tee --output-file=flake_results.txt --exclude docs,venv,.svn,CVS,.bzr,.hg,.git,__pycache__,.tox,.eggs,*.egg
     artifacts:
         paths:
             - flake_results.txt
