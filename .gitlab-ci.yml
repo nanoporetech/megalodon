@@ -23,6 +23,9 @@ build:
         - source venv/bin/activate
         - pip install numpy cython
         - pip install -e .
+    artifacts:
+        paths:
+            - venv
 
 pep8:
     stage: format
