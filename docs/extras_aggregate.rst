@@ -4,7 +4,6 @@
 
 The ``megalodon_extras aggregate`` command group contains a single command, ``run``, to perform aggregation of per-read sequence variant or modified base results.
 
-
 ----------------------------------
 ``megalodon_extras aggregate run``
 ----------------------------------

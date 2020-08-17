@@ -61,3 +61,9 @@ Since this phased variant pipeline is recommended in order to obtain the highest
 If the aim is to achieve a balance of homozygous and heterozygous calls, this command can be used to evaluate this balance for a particular ``--heterozygous-factors`` setting.
 This command will output the number of called homozygous and heterozygous calls compared to their ground truth from a provided set of variants.
 As a guide, previous Megalodon version had the default value of ``--heterozygous-factors 2.1 1.6`` which achieves a better balance than the current default of ``--heterozygous-factors 1.0 1.0`` which minimizes false homozygous calls.
+
+--------------------------------------------
+``megalodon_extras variants index_database``
+--------------------------------------------
+
+This command is not currently implemented, but will be in a future release.
