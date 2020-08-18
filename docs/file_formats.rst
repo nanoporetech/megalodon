@@ -24,7 +24,7 @@ Basecalls will be output into the ``mappings.sam``, ``mappings.bam``, or ``mappi
 Modified Base Mapping
 ~~~~~~~~~~~~~~~~~~~~~
 
-As of version 2.2, the default output for the ``mod_mappings`` output type will be a single unmapped BAM file with modified base probabilities stored via the ``Mm`` and ``Ml`` tags, as in ``mod_basecalls`` above.
+As of version 2.2, the default output for the ``mod_mappings`` output type will be a single BAM file with modified base probabilities stored via the ``Mm`` and ``Ml`` tags, as in ``mod_basecalls`` above.
 This format can be output in SAM, BAM or CRAM format as specified by the ``--mappings-format`` argument (which also applies to the ``mappings`` and ``mod_basecalls`` outputs).
 
 In order to obtain ``mod_mappings`` in the same format as Meglodon version < 2.2 use the ``--mod-map-emulate-bisulfite`` flag.
