@@ -2,7 +2,7 @@ import os
 import re
 import sys
 
-from setuptools import setup, find_packages
+from setuptools import setup
 from setuptools.extension import Extension
 
 
