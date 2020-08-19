@@ -4,18 +4,18 @@ Welcome to Megalodon's documentation!
 
 Megalodon is a research command line tool to extract high accuracy modified base and sequence variant calls from raw nanopore reads by anchoring the information rich basecalling neural network output to a reference genome/transcriptome.
 
-Raw nanopore reads are processed by a single command to produce basecalls (FASTA/Q), reference mappings (SAM/BAM/CRAM), sequence variant calls (per-read and VCF) and modified base calls (per-read and bedgraph/bedmethyl/modVCF).
+Raw nanopore reads are processed by a single command to produce basecalls (FASTA/Q), reference mappings (SAM/BAM/CRAM), modified base calls (per-read and bedgraph/bedmethyl/modVCF), sequence variant calls (per-read and VCF) and more.
 
 -------------
 Prerequisites
 -------------
 
-As of version 2.0, the primary megalodon run mode requires the guppy basecaller.
+As of version 2.0, the primary megalodon run mode requires the Guppy basecaller (as of version 2.2 Megalodon requires Guppy version>=4.0).
 See the `community page for download/installation instructions <https://community.nanoporetech.com/downloads>`_.
 
 All other requirements are handled by ``pip`` or ``conda`` installation.
 If installing from source, ``numpy`` must be installed before running installation for cython optimizations.
-Required python packages are: ``cython``, ``h5py``, ``mappy``, ``numpy``, ``ont_fast5_api``, ``pyguppyclient``, ``pysam``, ``scipy``, and ``tqdm``.
+Required python packages are: ``cython``, ``h5py``, ``mappy``, ``numpy``, ``ont_fast5_api``, ``ont_pyguppy_client_lib``, ``pysam``, ``scipy``, ``seaborn``, ``sklearn``, and ``tqdm``.
 
 .. note::
 
@@ -36,14 +36,16 @@ Megalodon is a command line tool.
    # or
    conda install megalodon
 
+..
+
+    ``conda`` installation requires the ``ont-pyguppy-client-lib`` package not available on ``conda``.
+    Install with ``pip install ont-pyguppy-client-lib`` after Megalodon installation.
+
 ===========
 Quick Start
 ===========
 
 Megalodon is accessed via the command line interface ``megalodon`` command.
-The path to the ``guppy_basecall_server`` executable is required to run megalodon.
-By default, megalodon assumes this path is ``./ont-guppy/bin/guppy_basecall_server``.
-Use the ``--guppy-server-path`` argument to specify a different path.
 
 ::
 
@@ -57,15 +59,20 @@ Use the ``--guppy-server-path`` argument to specify a different path.
     megalodon raw_fast5s/ \
         --outputs basecalls mappings variants mods \
         --reference reference.fa --variant-filename variants.vcf.gz \
-        --mod-motif Z CG 0 --devices 0 1 --processes 40 \
-        --verbose-read-progress 3
+        --mod-motif Z CG 0 --devices 0 1 --processes 40
 
-This command produces the ``megalodon_results`` output directory containing all requested output files and logs.
+This command produces the ``megalodon_results`` output directory containing all requested output files and logs (change output location with ``--output-directory``).
 
 The majority of Megalodon's functionality is accessed via the ``megalodon`` command (exemplified above), though a number of additional operations are made available via the ``megalodon_extras`` command.
-These operations include modified base or variant aggregation (much faster than re-computing per-read calls), modified base result validation, and model statistic calibration.
+These operations include modified base or variant aggregation (much faster than re-computing per-read calls), modified base result validation, model statistic calibration, and more.
 Helper commands to perform sequence variant phasing (details here :doc:`variant_phasing`) are also included in ``megalodon_extras``.
 In the future these script will move to a dedicated command line interface (likely ``megalodon_extras``).
+
+..
+
+    The path to the ``guppy_basecall_server`` executable is required to run megalodon.
+    By default, megalodon assumes this path is ``./ont-guppy/bin/guppy_basecall_server``.
+    Use the ``--guppy-server-path`` argument to specify a different path.
 
 --------
 Contents

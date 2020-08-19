@@ -135,11 +135,6 @@ def get_parser():
         '--variant-filename',
         help='Sequence variants to call for each read in VCF/BCF format ' +
         '(required for variant output).')
-    var_grp.add_argument(
-        '--variant-calibration-filename',
-        help='File containing emperical calibration for variant scores. ' +
-        'See `megalodon_extras calibrate variants` command. Default: ' +
-        'Load default calibration for specified guppy config.')
 
     var_grp.add_argument(
         '--context-min-alt-prob', type=float,
@@ -174,6 +169,12 @@ def get_parser():
                          'This saves compute time, but has unpredictable ' +
                          'behavior if variants are not atomized.'))
     var_grp.add_argument(
+        '--variant-calibration-filename',
+        help=hidden_help('File containing emperical calibration for ' +
+                         'variant scores. See `megalodon_extras calibrate ' +
+                         'variants` command. Default: Load default ' +
+                         'calibration for specified guppy config.'))
+    var_grp.add_argument(
         '--variant-context-bases', type=int, nargs=2,
         default=mh.DEFAULT_VAR_CONTEXT_BASES,
         help=hidden_help('Context bases for single base variant and indel ' +
@@ -203,11 +204,6 @@ def get_parser():
         '2) sequence motif and 3) relative modified base position. Multiple ' +
         '--mod-motif arguments may be provided to a single command. For ' +
         'example to restrict to CpG sites use "--mod-motif Z CG 0".')
-    mod_grp.add_argument(
-        '--mod-calibration-filename',
-        help='File containing emperical calibration for modified base ' +
-        'scores. See `megalodon_extras calibrate modified_bases` command. ' +
-        'Default: Load default calibration for specified guppy config.')
 
     mod_grp.add_argument(
         '--disable-mod-calibration', action='store_true',
@@ -225,9 +221,10 @@ def get_parser():
                          'modified base calls. (Default: Viterbi ' +
                          'best-path score)'))
     out_grp.add_argument(
-        '--mod-basecalls-min-prob', type=float, default=mh.DEFAULT_MOD_BC_PROB,
+        '--mod-min-prob', type=float, default=mh.DEFAULT_MOD_MIN_PROB,
         help=hidden_help('Only include modified base probabilities greater ' +
-                         'than this value.'))
+                         'than this value in mod_basecalls and mod_mappings ' +
+                         'outputs. Default: %(default)f'))
     mod_grp.add_argument(
         '--mod-binary-threshold', type=float,
         default=mh.DEFAULT_MOD_BINARY_THRESH,
@@ -235,6 +232,13 @@ def get_parser():
                          '(probability of modified/canonical base). ' +
                          'Only applicable for "--mod-aggregate-method ' +
                          'binary_threshold". Default: %(default)s'))
+    mod_grp.add_argument(
+        '--mod-calibration-filename',
+        help=hidden_help('File containing emperical calibration for ' +
+                         'modified base scores. See `megalodon_extras ' +
+                         'calibrate modified_bases` command. Default: ' +
+                         'Load default calibration for specified guppy ' +
+                         'config.'))
     mod_grp.add_argument(
         '--mod-database-timeout', type=float,
         default=mh.DEFAULT_MOD_DATABASE_TIMEOUT,
@@ -244,6 +248,19 @@ def get_parser():
         '--mod-context-bases', type=int, default=mh.DEFAULT_MOD_CONTEXT,
         help=hidden_help('Context bases for modified base calling. ' +
                          'Default: %(default)d'))
+    mod_grp.add_argument(
+        '--mod-map-emulate-bisulfite', action='store_true',
+        help=hidden_help('For mod_mappings output, emulate bisulfite output ' +
+                         'by converting called bases setting ' +
+                         '"--mod-map-base-conv" argument.'))
+    mod_grp.add_argument(
+        '--mod-map-base-conv', action='append', nargs=2,
+        metavar=('FROM_BASE', 'TO_BASE'),
+        help=hidden_help('For mod_mappings output, convert called modified ' +
+                         'bases. Only applicable when ' +
+                         '--mod-map-emulate-bisulfite is set.For example, ' +
+                         'to emulate bisulfite output use: ' +
+                         '"--mod-map-base-conv C T --mod-map-base-conv m C"'))
     mod_grp.add_argument(
         '--mod-output-formats', nargs='+',
         default=[mh.MOD_BEDMETHYL_NAME, ],
@@ -317,15 +334,6 @@ def get_parser():
                          'modified_bases estimate_threshold` command. ' +
                          'Default: %(default)f'))
 
-    modmap_grp = parser.add_argument_group('Mod Mapping Arguments')
-    # TODO add official output type once finalized in hts-specs #418
-    modmap_grp.add_argument(
-        '--mod-map-base-conv', action='append', nargs=2,
-        metavar=('FROM_BASE', 'TO_BASE'),
-        help=hidden_help('For mod_mappings output, convert called bases. ' +
-                         'For example, to mimic bisulfite output use: ' +
-                         '"--mod-map-base-conv C T --mod-map-base-conv Z C"'))
-
     misc_grp = parser.add_argument_group('Miscellaneous Arguments')
     misc_grp.add_argument(
         '--help-long', help='Show all options.', action='help')
@@ -335,11 +343,6 @@ def get_parser():
     misc_grp.add_argument(
         '--devices', nargs='+',
         help='GPU devices for guppy or taiyaki basecalling backends.')
-    misc_grp.add_argument(
-        '--verbose-read-progress', type=int, default=3,
-        help='Output verbose output on read progress. Outputs N most ' +
-        'common points where reads could not be processed further. ' +
-        'Default: %(default)d')
     misc_grp.add_argument(
         '--rna', action='store_true',
         help='RNA input data. Requires RNA model. Default: DNA input data')
@@ -371,6 +374,11 @@ def get_parser():
         '--suppress-queues-status', action='store_true',
         help=hidden_help('Suppress dynamic status of output queues. Helpful ' +
                          'for diagnosing I/O issues.'))
+    misc_grp.add_argument(
+        '--verbose-read-progress', type=int, default=3,
+        help=hidden_help('Output verbose output on read progress. Outputs ' +
+                         'N most common points where reads could not be ' +
+                         'processed further. Default: %(default)d'))
 
     return parser
 

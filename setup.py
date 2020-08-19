@@ -2,7 +2,7 @@ import os
 import re
 import sys
 
-from setuptools import setup, find_packages
+from setuptools import setup
 from setuptools.extension import Extension
 
 
@@ -63,21 +63,28 @@ extensions = [
 ]
 extensions[0].cython_directives = {"embedsignature": True}
 
+
+def readme():
+    with open('README.rst') as f:
+        return f.read()
+
+
 setup(
     name=__pkg_name__,
     version=__version__,
     description='Nanopore base calling augmentation',
+    long_description=readme(),
+    keywords='nanopore sequencing basecalling mapping methylation variants',
+    author='Marcus Stoiber',
     maintainer='Marcus Stoiber',
     maintainer_email='marcus.stoiber@nanoporetech.com',
-    url='http://www.nanoporetech.com',
-    long_description=(
-        'Megalodon contains base calling augmentation capabilities, mainly ' +
-        'including direct, reference-guided sequence variant and modified ' +
-        'base detection.'),
+    url='https://github.com/nanoporetech/megalodon',
+    license='mpl-2.0',
 
     classifiers=[
-        'Development Status :: 3 - Alpha',
+        'Development Status :: 4 - Beta',
         'Environment :: Console',
+        'Environment :: GPU',
         'Intended Audience :: Developers',
         'Intended Audience :: Science/Research',
         'License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)',
@@ -86,16 +93,13 @@ setup(
         'Programming Language :: Python :: 3 :: Only',
         'Topic :: Scientific/Engineering :: Artificial Intelligence',
         'Topic :: Scientific/Engineering :: Bio-Informatics',
-        'Topic :: Scientific/Engineering :: Mathematics'
     ],
 
-    packages=find_packages(exclude=[
-        "*.test", "*.test.*", "test.*", "test", "bin"]),
+    packages=['megalodon', 'megalodon_extras'],
     package_data={__pkg_name__: ['model_data/*/*', ]},
     exclude_package_data={'': ['*.hdf', '*.c', '*.h']},
     ext_modules=extensions,
     install_requires=install_requires,
-    dependency_links=[],
     zip_safe=False,
     entry_points={
         'console_scripts': [

@@ -51,6 +51,26 @@ Output Arguments
 
   - A file containing ``read_ids`` to process (one per line).
   - Used in the variant phasing pipeline.
+- ``--mod-min-prob``
+
+  - Only include modified base probabilities greater than this value in ``mod_basecalls`` and ``mod_mappings`` outputs.
+  - Default: ``0.01`` (``1%``)
+
+-----------------
+Mapping Arguments
+-----------------
+
+- ``--cram-reference``
+
+  - If ``--reference`` is a minimap2 index, the associated FASTA reference needs to be provided for ``--mappings-format cram``.
+- ``--samtools-executable``
+
+  - Samtools executable or path for sorting and indexing all mappings.
+  - Default: ``samtools``
+- ``--sort-mappings``
+
+  - Perform sorting and indexing of mapping output files.
+  - This can take considerable time for larger runs and thus is off by default.
 
 --------------------------
 Sequence Variant Arguments
@@ -80,6 +100,11 @@ Sequence Variant Arguments
 
   - Input variants have been atomized (with ``megalodon_extras variants atomize``).
   - This saves compute time, but has unpredictable behavior if variants are not atomized.
+- ``--variant-calibration-filename``
+
+  - File containing empirical calibration for sequence variant scores.
+  - As created by the ``megalodon_extras calibrate variants`` command.
+  - Default: Load default calibration file for guppy config.
 - ``--variant-context-bases``
 
   - Context bases for single base SNP and indel calling. Default: [15, 30]
@@ -117,7 +142,6 @@ Modified Base Arguments
 
   - Modified base aggregation method.
   - Choices: expectation_maximization (default), binary_threshold
-
 - ``--mod-all-paths``
 
   - Compute forwards algorithm all paths score for modified base calls.
@@ -128,6 +152,11 @@ Modified Base Arguments
 
     - Sites where no canonical or modified base achieves this level of confidence will be ignored in aggregation.
   - Default: 0.75
+- ``--mod-calibration-filename``
+
+  - File containing empirical calibration for modified base scores.
+  - As created by ``megalodon_extras calibrate modified_bases`` command.
+  - Default: Load default calibration file for guppy config.
 - ``--mod-database-timeout``
 
   - Timeout in seconds for modified base database operations.
@@ -136,7 +165,17 @@ Modified Base Arguments
 
   - Context bases for modified base calling.
   - Default: 15
+- ``--mod-map-emulate-bisulfite``
 
+  - For ``mod_mappings`` output, emulate bisulfite output by converting called modified bases using "--mod-map-base-conv" argument.
+  - As of version 2.2, the default ``mod_mappings`` output uses the ``Mm`` and ``Ml`` hts-specs tags (see above) with all modified bases in one output file.
+- ``--mod-map-base-conv``
+
+  - For ``mod_mappings`` output, convert called bases.
+
+    - For example, to mimic bisulfite output use: ``--mod-map-base-conv C T --mod-map-base-conv Z C``
+    - This is option useful since the BAM format does support modified bases and will convert all alternative bases to ``N``s for storage in BAM/CRAM format.
+  - Note additional formats may be supported in the future once finalized in hts-specs.
 - ``--mod-output-formats``
 
   - Modified base aggregated output format(s).
@@ -152,10 +191,6 @@ Modified Base Arguments
       - The format adds a ``SN`` info field as modified bases occur in a stranded manner unlike sequence variants (e.g. hemi-methylation).
       - A genotype field ``VALID_DP`` indicates the number of reads included in the proportion modified calculation.
       - Modified base proportion estimates are stored in genotype fields specified by the single letter modified base encodings (defined in the model file).
-
-- ``--mod-positions-on-disk``
-
-  - Force modified base positions to be stored only within on disk database table. This option will reduce the RAM memory requirement, but may drastically slow processing. Default: Store positions in memory and on disk.
 - ``--write-mod-log-probs``
 
   - Write per-read modified base log probabilities out in non-standard VCF field.
@@ -234,18 +269,6 @@ This output category is intended for use in generating reference sequences or si
   - See ``megalodon_extras modified_bases estimate_threshold`` command for help computing this threshold.
   - Requires that `--ref-include-mods`` is set.
 
----------------------
-Mod Mapping Arguments
----------------------
-
-- ``--mod-map-base-conv``
-
-  - For ``mod_mappings`` output, convert called bases.
-
-    - For example, to mimic bisulfite output use: ``--mod-map-base-conv C T --mod-map-base-conv Z C``
-    - This is option useful since the BAM format does support modified bases and will convert all alternative bases to ``N``s for storage in BAM/CRAM format.
-  - Note additional formats may be supported in the future once finalized in hts-specs.
-
 -----------------------
 Miscellaneous Arguments
 -----------------------
@@ -262,7 +285,7 @@ Miscellaneous Arguments
 - ``--edge-buffer``
 
   - Do not process sequence variant or modified base calls near edge of read mapping.
-  - Default: 0
+  - Default: 30
 - ``--not-recursive``
 
   - Only search for fast5 read files directly found within the fast5 directory.
@@ -274,3 +297,7 @@ Miscellaneous Arguments
 
   - Suppress dynamic status of output queues.
   - These queues are helpful for diagnosing I/O issues.
+- ``--verbose-read-progress``
+
+  - Output dynamic updates to potential issues during processing.
+  - Default: 3

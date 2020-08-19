@@ -151,7 +151,7 @@ def extract_seq_summary_info(read, na_str='NA'):
     except Exception:
         # if anything goes wrong set all values to na_str
         fn = read_id = run_id = batch_id = chan = mux = start_time = \
-                       dur = na_str
+            dur = na_str
     return mh.SEQ_SUMM_INFO(
         filename=fn, read_id=read_id, run_id=run_id, batch_id=batch_id,
         channel=chan, mux=mux, start_time=start_time, duration=dur)
@@ -295,6 +295,9 @@ class AbstractModelInfo(ABC):
             mods_scores (np.ndarray): 2D array with basecall position rows and
                 modbase columns.
             min_prob (float): Minimum probability to include modified base
+
+        Returns:
+            Mm string tag and Ml array tag
         """
         mm_tag, ml_tag = '', array.array('B')
         prev_bases = 0
@@ -308,10 +311,10 @@ class AbstractModelInfo(ABC):
                     'Number of modified bases ({}) associated with {} does ' +
                     'not match expected number of columns in mod scores: ' +
                     '{}.').format(','.join(mod_bases), can_base, can_nmods))
-            can_bs_pos = np.array([b == can_base for b in bc_seq], dtype=bool)
+            can_bc_pos = np.array([b == can_base for b in bc_seq], dtype=bool)
             for mod_base, mod_index in zip(mod_bases, range(
                     prev_bases + 1, prev_bases + 1 + can_nmods)):
-                probs = np.exp(mods_scores[can_bs_pos, mod_index])
+                probs = np.exp(mods_scores[can_bc_pos, mod_index])
                 valid_prob_locs = np.where(probs > min_prob)[0]
                 mm_tag += '{}+{}{};'.format(
                     can_base, mh.convert_legacy_mods(mod_base),
@@ -331,6 +334,7 @@ class DetachedModelInfo(AbstractModelInfo):
     """ DetachedModelInfo represents a wrapper similar to ModelInfo, but allows
     manual setting of attributes instead of loading from a real model.
     """
+
     def __init__(self, alphabet=mh.ALPHABET, mod_long_names=None):
         self.output_alphabet = alphabet
         self.ordered_mod_long_names = mod_long_names
@@ -354,6 +358,7 @@ class ModelInfo(AbstractModelInfo):
             values, basecall positions within posterior matrix, posterior
             matrix, and serveral other bits of information.
     """
+
     def _load_taiyaki_model(self):
         LOGGER.info('Loading taiyaki basecalling backend')
         self.model_type = TAI_NAME
@@ -866,7 +871,7 @@ class ModelInfo(AbstractModelInfo):
     def basecall_read(
             self, sig_info, return_post_w_mods=True, return_mod_scores=False,
             update_sig_info=False, signal_reversed=False, seq_summ_info=None,
-            mod_bc_min_prob=mh.DEFAULT_MOD_BC_PROB):
+            mod_bc_min_prob=mh.DEFAULT_MOD_MIN_PROB):
         if self.model_type not in (TAI_NAME, FAST5_NAME, PYGUPPY_NAME):
             raise mh.MegaError('Invalid model backend')
 

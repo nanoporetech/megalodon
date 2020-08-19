@@ -59,11 +59,17 @@ def start_sort_mapping_procs(map_info, mods_info, vars_info):
             map_info.map_fmt, map_info.cram_ref_fn, map_info.samtools_exec)
     if mods_info.do_output.mod_map and map_info.do_sort_mappings:
         LOGGER.info('Spawning process to sort modified base mappings')
+        mod_map_bn = mh.get_megalodon_fn(
+            mods_info.out_dir, mh.MOD_MAP_NAME)
+        if mods_info.map_emulate_bisulfite:
+            mod_map_bns = [
+                '{}.{}'.format(mod_map_bn, mln)
+                for mod_base, mln in mods_info.mod_long_names]
+        else:
+            mod_map_bns = [mod_map_bn]
         mod_map_ps = [post_process_mapping(
-            '{}.{}'.format(mh.get_megalodon_fn(
-                mods_info.out_dir, mh.MOD_MAP_NAME), mln),
-            map_info.map_fmt, map_info.cram_ref_fn, map_info.samtools_exec)[0]
-                      for _, mln in mods_info.mod_long_names]
+            mod_map_bn, map_info.map_fmt, map_info.cram_ref_fn,
+            map_info.samtools_exec)[0] for mod_map_bn in mod_map_bns]
     if vars_info.do_output.var_map and map_info.do_sort_mappings:
         LOGGER.info('Spawning process to sort variant mappings')
         var_map_p, var_sort_fn = post_process_mapping(
@@ -341,8 +347,10 @@ def _get_bc_queue(bc_q, bc_info, aux_failed_q):
             seq_summ_fp.write('\t'.join(map(str, seq_summ_info)) + '\n')
 
         if bc_info.do_output.mod_basecalls:
-            mods_fp.write(mapping.prepare_unaligned_mod_mapping(
-                read_id, r_seq, r_qual, mods_scores))
+            # 4 indicates unmapped
+            mods_fp.write(mapping.prepare_mapping(
+                read_id, r_seq, qual=[ord(q) - 33 for q in r_qual],
+                mods_scores=mods_scores, flag=4))
 
     try:
         LOGGER.debug('GetterStarting')
@@ -552,7 +560,7 @@ def prep_errors_bar(status_info, getter_qs):
         valid_q_names = [
             q_name for q_name, q in getter_qs.items()
             if q_name == _SIG_EXTRACT_GETTER_NAME or (
-                    q.return_conns and q_name != _FAILED_READ_GETTER_NAME)]
+                q.return_conns and q_name != _FAILED_READ_GETTER_NAME)]
         q_labs = [
             (q_num, q_name, ' input queue capacity {}'.format(q_name))
             if q_name == _SIG_EXTRACT_GETTER_NAME else
@@ -867,7 +875,7 @@ def parse_aligner_args(args):
             LOGGER.error(
                 ('Output(s) requiring reference alignment requested ({}), ' +
                  'but --reference not provided.').format(', '.join(
-                    mh.ALIGN_OUTPUTS.intersection(args.outputs))))
+                     mh.ALIGN_OUTPUTS.intersection(args.outputs))))
             sys.exit(1)
         LOGGER.info('Loading reference')
         if not (os.path.exists(args.reference) and
@@ -1011,11 +1019,16 @@ def parse_mod_args(args, model_info, ref_out_info):
         LOGGER.warning(('--mod-motif provided, but {} not requested. ' +
                         'Ignoring --mod-motif.').format(mh.PR_MOD_NAME))
         args.mod_motif = None
+    if not args.mod_map_emulate_bisulfite and \
+       args.mod_map_base_conv is not None:
+        LOGGER.warning(
+            '--mod-map-base-conv provided, but --mod-map-emulate-bisulfite ' +
+            'not set. --mod-map-base-conv will be ignored.')
 
     mod_calib_fn = (mh.get_mod_calibration_fn(
         model_info.params.pyguppy.config, args.mod_calibration_filename,
         args.disable_mod_calibration)
-                    if mh.PR_MOD_NAME in args.outputs else None)
+        if mh.PR_MOD_NAME in args.outputs else None)
     if args.mod_aggregate_method == mh.MOD_EM_NAME:
         agg_info = mods.AGG_INFO(mh.MOD_EM_NAME, None)
     elif args.mod_aggregate_method == mh.MOD_BIN_THRESH_NAME:
@@ -1033,7 +1046,9 @@ def parse_mod_args(args, model_info, ref_out_info):
         edge_buffer=args.edge_buffer, agg_info=agg_info,
         mod_thresh=args.ref_mod_threshold,
         do_ann_all_mods=args.ref_include_mods,
+        map_emulate_bisulfite=args.mod_map_emulate_bisulfite,
         map_base_conv=args.mod_map_base_conv,
+        map_min_prob=args.mod_min_prob,
         mod_db_timeout=args.mod_database_timeout,
         db_safety=args.database_safety, out_dir=args.output_directory,
         do_output=do_output)
@@ -1206,7 +1221,7 @@ def parse_basecall_args(args, mods_info):
         do_output=bc_do_output,
         out_dir=args.output_directory,
         bc_fmt=args.basecalls_format, mod_bc_fmt=args.mappings_format,
-        mod_bc_min_prob=args.mod_basecalls_min_prob,
+        mod_bc_min_prob=args.mod_min_prob,
         mod_long_names=mods_info.mod_long_names, rev_sig=args.rna)
 
 

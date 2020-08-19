@@ -108,7 +108,7 @@ def _main(args):
              generic_var_llrs, int(len(generic_var_llrs) / 12), replace=False)
     max_indel_len = max(ins_ref_llrs)
     assert set(ins_ref_llrs) == set(del_ref_llrs), (
-            'Must test same range of lengths for insertions and deletions')
+        'Must test same range of lengths for insertions and deletions')
     assert set(ins_ref_llrs) == set(range(1, max_indel_len + 1)), (
         'Must test every length in length range for indels')
 

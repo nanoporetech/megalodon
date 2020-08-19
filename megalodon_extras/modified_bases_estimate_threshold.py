@@ -21,7 +21,7 @@ def _main(args):
     scores = []
     bar = tqdm(total=args.num_statistics, smoothing=0)
     for (chrm, strand, pos), mod_llrs in mods_db.iter_pos_scores(
-                convert_pos=True, compute_llrs=True):
+            convert_pos=True, compute_llrs=True):
         for mod_base, reads_llrs in mod_llrs.items():
             if mod_base != args.mod_base:
                 continue
