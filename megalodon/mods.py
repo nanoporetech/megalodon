@@ -1055,6 +1055,10 @@ def format_mm_ml_tags(r_start, ref_seq, r_mod_scores, strand, mods_info):
 
     per_mod_probs = defaultdict(list)
     for mod_pos, mod_lps, mod_bases in sorted(r_mod_scores):
+        # mod_lps is set to None if invalid sequence is encountered or too
+        # few events are found around a mod
+        if mod_lps is None:
+            continue
         for mod_lp, mod_base in zip(mod_lps, mod_bases):
             mod_prob = np.exp(mod_lp)
             if mod_prob < mods_info.map_min_prob:
