@@ -6,11 +6,11 @@
 Megalodon
 """""""""
 
-.. image:: https://img.shields.io/pypi/v/megalodon   :alt: PyPI
-.. image:: https://img.shields.io/pypi/dm/megalodon   :alt: PyPI - Downloads
+.. image:: https://img.shields.io/pypi/v/megalodon
+.. image:: https://img.shields.io/pypi/dm/megalodon
 
-.. image:: https://img.shields.io/conda/vn/bioconda/megalodon   :alt: Conda
-.. image:: https://img.shields.io/conda/dn/bioconda/megalodon   :alt: Conda - Downloads
+.. image:: https://img.shields.io/conda/vn/bioconda/megalodon
+.. image:: https://img.shields.io/conda/dn/bioconda/megalodon
 
 Megalodon is a research command line tool to extract high accuracy modified base and sequence variant calls from raw nanopore reads by anchoring the information rich basecalling neural network output to a reference genome/transcriptome.
 
