@@ -200,7 +200,7 @@ In order to process an RNA sample specify the ``--rna`` flag as well as an RNA m
 Megalodon performs mapping using the standard minimap2 option, ``map-ont``, and not the ``splice`` option, so a transcriptome reference must be provided.
 The Megalodon code supports RNA modified base detection, but currently no RNA modified base basecalling models are released.
 
-.. note::
+..
 
    Megalodon does not currently perform checking that a set of reads agree with the provided model or options specified (e.g. ``--rna``).
    Users should take care to ensure that the correct options are specified for each sample processed.
