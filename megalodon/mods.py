@@ -1532,8 +1532,8 @@ class ModInfo:
             edge_buffer=mh.DEFAULT_EDGE_BUFFER, agg_info=DEFAULT_AGG_INFO,
             mod_thresh=0.0, do_ann_all_mods=False, map_emulate_bisulfite=False,
             map_base_conv=None, map_min_prob=mh.DEFAULT_MOD_MIN_PROB,
-            mod_db_timeout=mh.DEFAULT_MOD_DATABASE_TIMEOUT,
-            db_safety=0, out_dir=None, skip_db_index=False, do_output=None):
+            mod_db_timeout=mh.DEFAULT_MOD_DATABASE_TIMEOUT, db_safety=0,
+            out_dir=None, skip_db_index=False, do_output=None):
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other modbase info
         # don't want to pass all of these parameters around individually though

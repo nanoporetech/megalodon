@@ -1142,6 +1142,7 @@ def parse_ref_out_args(args, model_info):
     sig_map_getter = sm_alphabet_info = None
     do_out_csm = do_out_msm = do_out_vsm = False
     if mh.SIG_MAP_NAME in args.outputs:
+        LOGGER.info('Loading signal mapping settings.')
         if args.ref_include_mods:
             do_out_msm = True
         elif args.ref_include_variants:
@@ -1163,6 +1164,7 @@ def parse_ref_out_args(args, model_info):
             args.outputs.append(mh.PR_MOD_NAME)
     do_out_cpr = do_out_mpr = do_out_vpr = False
     if mh.PR_REF_NAME in args.outputs:
+        LOGGER.info('Loading per-read reference output settings.')
         if args.ref_include_mods:
             do_out_mpr = True
         elif args.ref_include_variants:
