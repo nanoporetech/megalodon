@@ -1114,8 +1114,9 @@ def _get_variants_queue(
         if vars_db.loc_idx_in_mem:
             vars_db.create_loc_index()
 
-        LOGGER.debug('CreatingIndex')
-        vars_db.create_data_covering_index()
+        if not vars_info.skip_db_index:
+            LOGGER.debug('CreatingIndex')
+            vars_db.create_data_covering_index()
         LOGGER.debug('ClosingDB')
         vars_db.close()
 
@@ -1152,7 +1153,8 @@ class VarInfo:
             edge_buffer=mh.DEFAULT_EDGE_BUFFER,
             context_min_alt_prob=mh.DEFAULT_CONTEXT_MIN_ALT_PROB,
             loc_index_in_memory=True, variants_are_atomized=False,
-            db_safety=0, do_output=mh.VAR_DO_OUTPUT(), out_dir=None):
+            db_safety=0, do_output=mh.VAR_DO_OUTPUT(), out_dir=None,
+            skip_db_index=False):
         self.max_indel_size = max_indel_size
         self.all_paths = all_paths
         self.vars_calib_fn = vars_calib_fn
@@ -1172,6 +1174,7 @@ class VarInfo:
         self.db_safety = db_safety
         self.do_output = do_output
         self.out_dir = out_dir
+        self.skip_db_index = skip_db_index
         if self.variant_fn is None:
             return
 

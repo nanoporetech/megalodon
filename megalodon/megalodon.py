@@ -937,6 +937,18 @@ def parse_var_args(args, model_info, aligner, ref_out_info):
             'Variant calling from naive modified base flip-flop model is ' +
             'not supported.')
         sys.exit(1)
+    skip_db_index = args.skip_database_index
+    if skip_db_index and mh.PR_VAR_NAME in args.outputs:
+        LOGGER.warning(
+            'Database index skipping is not currently implemented for ' +
+            'variants output. Ignoring --skip-database-index.')
+        skip_db_index = False
+    if skip_db_index and mh.VAR_NAME in args.outputs:
+        LOGGER.warning(
+            'Cannot skip database indexing when aggregated output ' +
+            '"variants" is requested. Ignoring --skip-database-index.')
+        skip_db_index = False
+
     var_calib_fn = mh.get_var_calibration_fn(
         model_info.params.pyguppy.config, args.variant_calibration_filename,
         args.disable_variant_calibration) \
@@ -957,7 +969,7 @@ def parse_var_args(args, model_info, aligner, ref_out_info):
             loc_index_in_memory=not args.variant_locations_on_disk,
             variants_are_atomized=args.variants_are_atomized,
             db_safety=args.database_safety, do_output=do_output,
-            out_dir=args.output_directory)
+            out_dir=args.output_directory, skip_db_index=skip_db_index)
     except mh.MegaError as e:
         # catch potential errors reading in variant file
         LOGGER.error(str(e))
@@ -1024,6 +1036,12 @@ def parse_mod_args(args, model_info, ref_out_info):
         LOGGER.warning(
             '--mod-map-base-conv provided, but --mod-map-emulate-bisulfite ' +
             'not set. --mod-map-base-conv will be ignored.')
+    skip_db_index = args.skip_database_index
+    if skip_db_index and mh.MOD_NAME in args.outputs:
+        LOGGER.warning(
+            'Cannot skip database indexing when aggregated output "mods" is ' +
+            'requested. Ignoring --skip-database-index.')
+        skip_db_index = False
 
     mod_calib_fn = (mh.get_mod_calibration_fn(
         model_info.params.pyguppy.config, args.mod_calibration_filename,
@@ -1051,7 +1069,7 @@ def parse_mod_args(args, model_info, ref_out_info):
         map_min_prob=args.mod_min_prob,
         mod_db_timeout=args.mod_database_timeout,
         db_safety=args.database_safety, out_dir=args.output_directory,
-        do_output=do_output)
+        skip_db_index=skip_db_index, do_output=do_output)
     return args, mods_info
 
 

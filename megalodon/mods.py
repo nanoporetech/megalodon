@@ -677,10 +677,6 @@ class ModsDb:
     def create_chrm_index(self):
         self.cur.execute('CREATE UNIQUE INDEX chrm_idx ON chrm(chrm)')
 
-    def create_pos_index(self):
-        self.cur.execute('CREATE UNIQUE INDEX pos_idx ON pos' +
-                         '(pos_chrm, strand, pos)')
-
     def create_mod_index(self):
         self.cur.execute('CREATE UNIQUE INDEX mod_idx ON ' +
                          'mod_long_names(mod_base)')
@@ -1448,8 +1444,9 @@ def _get_mods_queue(mods_q, mods_info, map_info, ref_out_info, aux_failed_q):
                     mod_map_fp.close()
             else:
                 mod_map_fp.close()
-        LOGGER.debug('CreatingIndex')
-        mods_db.create_data_covering_index()
+        if not mods_info.skip_db_index:
+            LOGGER.debug('CreatingIndex')
+            mods_db.create_data_covering_index()
         LOGGER.debug('ClosingDB')
         mods_db.close()
 
@@ -1536,7 +1533,7 @@ class ModInfo:
             mod_thresh=0.0, do_ann_all_mods=False, map_emulate_bisulfite=False,
             map_base_conv=None, map_min_prob=mh.DEFAULT_MOD_MIN_PROB,
             mod_db_timeout=mh.DEFAULT_MOD_DATABASE_TIMEOUT,
-            db_safety=0, out_dir=None, do_output=None):
+            db_safety=0, out_dir=None, skip_db_index=False, do_output=None):
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other modbase info
         # don't want to pass all of these parameters around individually though
@@ -1557,6 +1554,7 @@ class ModInfo:
         self.mod_db_timeout = mod_db_timeout
         self.db_safety = db_safety
         self.out_dir = out_dir
+        self.skip_db_index = skip_db_index
         self.do_output = do_output
 
         self.mods_db_fn = mh.get_megalodon_fn(self.out_dir, mh.PR_MOD_NAME)

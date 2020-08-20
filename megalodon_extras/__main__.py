@@ -80,6 +80,8 @@ NESTED_COMMANDS = [
        'Resolve potentially conflicting variants'),
       (ep.CMD_VAR_HET_FACTOR,
        'Estimate optimal heterozygous factors for diploid variant calling'),
+      # TODO variant database API does not allow opening for writing once
+      # database exists.
       (ep.CMD_VAR_INDEX,
        '***** Stub for future implementation *****')])
 ]

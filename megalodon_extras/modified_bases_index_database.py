@@ -15,11 +15,10 @@ def _main(args):
     mods_db = mods.ModsDb(mods_db_fn, read_only=False)
     try:
         mods_db.check_data_covering_index_exists()
+        LOGGER.info('Modified bases database index already exists')
     except mh.MegaError:
         LOGGER.info('Creating modified bases database index')
         mods_db.create_data_covering_index()
-    else:
-        LOGGER.info('Modified bases database index already exists')
     LOGGER.debug('Closing database')
     mods_db.close()
 

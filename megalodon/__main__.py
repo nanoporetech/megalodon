@@ -358,6 +358,15 @@ def get_parser():
                          'on application crash), 1 (DB corruption on system ' +
                          'crash), 2 (DB safe mode). Default: %(default)d'))
     misc_grp.add_argument(
+        '--skip-database-index', action='store_true',
+        help=hidden_help('When outputting per_read_mods and not aggregated ' +
+                         'mods output, skip database indexing. ' +
+                         '"megalodon_extras modified_bases index_database" ' +
+                         'must be run before downstream processing. This ' +
+                         'can be useful to minimize time on GPU compute ' +
+                         'resources. Will apply to variants output in ' +
+                         'the future.'))
+    misc_grp.add_argument(
         '--edge-buffer', type=int, default=mh.DEFAULT_EDGE_BUFFER,
         help=hidden_help('Do not process sequence variant or modified base ' +
                          'calls near edge of read mapping. ' +

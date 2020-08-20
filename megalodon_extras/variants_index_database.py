@@ -18,11 +18,10 @@ def _main(args):
     vars_db = variants.VarsDb(vars_db_fn, read_only=False)
     try:
         vars_db.check_data_covering_index_exists()
+        LOGGER.info('Variants database index already exists')
     except mh.MegaError:
         LOGGER.info('Creating variants database index')
         vars_db.create_data_covering_index()
-    else:
-        LOGGER.info('Variants database index already exists')
     LOGGER.debug('Closing database')
     vars_db.close()
 

@@ -159,3 +159,59 @@ megalodon_extras \
     --processes ${NPROC}
 
 # TODO add tests for more megalodon_extras commands
+
+
+##############################
+# test megalodon as pipeline #
+##############################
+
+# test running megalodon in separate steps
+#   - useful to minimize time on GPU compute resources
+megalodon \
+    `# input reads (limit reads for tiny test)` \
+    ${CTRL_READS} \
+    --num-reads 5 \
+    `# output location + overwrite` \
+    --output-directory ${CTRL_READS}.pipeline \
+    --overwrite \
+    `# output only per_read databases` \
+    --outputs per_read_mods per_read_variants \
+    `# guppy options` \
+    --guppy-server-path ${GUPPY_PATH} \
+    --guppy-config ${GUPPY_MOD_CONFIG} \
+    --guppy-timeout ${GUPPY_TIMEOUT} \
+    `# number of megalodon read processing workers` \
+    --processes ${NPROC} \
+    `# minimap2 index reference (recommended for memory efficiency)` \
+    --reference ${MINIMAP_INDEX} \
+    `# modified base settings` \
+    --mod-motif Z CCWGG 1 \
+    --mod-motif Y GATC 1 \
+    `# sequence variant settings` \
+    --variant-filename ${VARS} \
+    `# skip database index to run as a pipeline` \
+    --skip-database-index
+# Create modified base database index
+#   - Can be performed on CPU-only compute resources
+megalodon_extras \
+    modified_bases index_database \
+    --megalodon-directory ${CTRL_READS}.pipeline
+# Create sequence variants database index (not currently implemented)
+#megalodon_extras \
+#    variants index_database \
+#    --megalodon-directory ${CTRL_READS}.pipeline
+# aggregate mods and variants
+#   - Can be performed on CPU-only compute resources
+megalodon_extras \
+    aggregate run \
+    `# specify output options` \
+    --megalodon-directory ${CTRL_READS}.pipeline \
+    --output-suffix pipeline \
+    --outputs mods variants \
+    `# compute resources` \
+    --processes ${NPROC} \
+    `# modified base ouput options` \
+    --mod-output-formats bedmethyl modvcf wiggle \
+    --write-mod-log-probs \
+    `# sequence variant ouput options` \
+    --haploid
