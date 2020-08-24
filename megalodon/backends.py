@@ -547,10 +547,11 @@ class ModelInfo(AbstractModelInfo):
                 self.params.pyguppy.config, **PYGUPPY_CLIENT_KWARGS)
             try:
                 init_client.connect()
-                init_read = get_pyguppy_read(
-                    'a', np.zeros(init_sig_len, dtype=np.int16),
-                    {mh.CHAN_INFO_OFFSET: 0, mh.CHAN_INFO_RANGE: 1,
-                     mh.CHAN_INFO_DIGI: 1})
+                init_read = [(SIGNAL_DATA(
+                    read_id='a', dacs=np.zeros(init_sig_len, dtype=np.int16),
+                    channel_info={mh.CHAN_INFO_OFFSET: 0,
+                                  mh.CHAN_INFO_RANGE: 1,
+                                  mh.CHAN_INFO_DIGI: 1}), None)]
                 try:
                     init_called_read = self.pyguppy_basecall(
                         init_client, init_read)
@@ -594,7 +595,9 @@ class ModelInfo(AbstractModelInfo):
         self.pyguppy_retries = max(
             1, int(self.params.pyguppy.timeout / PYGUPPY_PER_TRY_TIMEOUT))
         from pyguppy_client_lib.pyclient import PyGuppyClient
+        from pyguppy_client_lib.client_lib import GuppyClient
         self.pyguppy_GuppyBasecallerClient = PyGuppyClient
+        self.pyguppy_GuppyClient = GuppyClient
 
         start_guppy_server()
         set_pyguppy_model_attributes()
@@ -738,35 +741,52 @@ class ModelInfo(AbstractModelInfo):
                     raw_mod_weights[:, lab_indices]))
         return np.concatenate(mod_layers, axis=1)
 
-    def pyguppy_basecall(self, client, read):
+    def pyguppy_basecall_reads(self, client, reads_batch):
         def do_sleep():
             # function for profiling purposes
             sleep(PYGUPPY_PER_TRY_TIMEOUT)
 
-        try:
-            client.pass_read(read)
-        except ValueError:
-            raise mh.MegaError(
-                'Failed to send read to guppy server. Likely malformated ' +
-                'read.')
-        except ConnectionError:
-            raise mh.MegaError(
-                'Failed to send read to guppy server. No guppy server.')
-        except RuntimeError:
-            raise mh.MegaError(
-                'Failed to send read to guppy server. Undefined guppy ' +
-                'server response.')
+        saved_input_data = {}
+        for sig_info, seq_summ_info in reads_batch:
+            try:
+                res = client.pass_read(get_pyguppy_read(
+                    sig_info.read_id, sig_info.dacs, sig_info.channel_info))
+                if res == self.pyguppy_GuppyClient.success:
+                    saved_input_data[sig_info.read_id] = (
+                        sig_info, seq_summ_info)
+                else:
+                    raise mh.MegaError(
+                        'Attempt to pass read to server failed. Return ' +
+                        'value is {}.'.format(res))
+            except ValueError:
+                raise mh.MegaError(
+                    'Failed to send read to guppy server. Likely ' +
+                    'malformated read.')
+            except ConnectionError:
+                raise mh.MegaError(
+                    'Failed to send read to guppy server. No guppy server.')
+            except RuntimeError:
+                raise mh.MegaError(
+                    'Failed to send read to guppy server. Undefined guppy ' +
+                    'server response.')
 
         try:
-            call_failed = True
             for _ in range(self.pyguppy_retries):
-                try:
-                    called_read = client.get_completed_reads()[0]
-                    call_failed = False
+                completed_reads, res = client.get_completed_reads()
+                if res != self.pyguppy_GuppyClient.success:
+                    raise mh.MegaError(
+                        'Attempt to pass read to server failed. Return ' +
+                        'value is {}.'.format(res))
+                for called_read in completed_reads:
+                    read_id = called_read["metadata"]["read_id"]
+                    sig_info, seq_summ_info = saved_input_data[read_id]
+                    yield (PyguppyCalledRead(called_read), sig_info,
+                           seq_summ_info)
+                    del saved_input_data[read_id]
+                if len(saved_input_data) == 0:
                     break
-                except IndexError:
-                    do_sleep()
-            if call_failed:
+                do_sleep()
+            if len(saved_input_data) > 0:
                 raise mh.MegaError('Guppy server timeout')
         except ConnectionError:
             raise mh.MegaError(
@@ -776,25 +796,17 @@ class ModelInfo(AbstractModelInfo):
             raise mh.MegaError(
                 'Failed to retrieve read from guppy server. Unexpected ' +
                 'error: ' + str(e))
-        return PyguppyCalledRead(called_read)
 
-    def _run_pyguppy_model(
-            self, sig_info, return_post_w_mods, return_mod_scores,
-            update_sig_info, signal_reversed, seq_summ_info, mod_bc_min_prob):
-        if self.model_type != PYGUPPY_NAME:
-            raise mh.MegaError(
-                'Attempted to run pyguppy model with non-pyguppy ' +
-                'initialization.')
-
-        post_w_mods = mods_scores = None
-        called_read = self.pyguppy_basecall(self.client, get_pyguppy_read(
-            sig_info.read_id, sig_info.dacs, sig_info.channel_info))
-
+    def _postprocess_pyguppy_called_read(
+            self, called_read, sig_info, seq_summ_info, return_post_w_mods,
+            return_mod_scores, update_sig_info, signal_reversed,
+            mod_bc_min_prob):
         # compute rl_cumsum from move table
         rl_cumsum = np.where(called_read.move)[0]
         rl_cumsum = np.insert(rl_cumsum, rl_cumsum.shape[0],
                               called_read.move.shape[0])
 
+        post_w_mods = mods_scores = None
         if self.is_cat_mod:
             # split canonical posteriors and mod transition weights
             can_post = np.ascontiguousarray(
@@ -865,24 +877,28 @@ class ModelInfo(AbstractModelInfo):
             # if anything goes wrong don't let it fail the read
             pass
 
-        return (called_read.seq, called_read.qual, rl_cumsum, can_post,
-                sig_info, post_w_mods, mods_scores, seq_summ_info)
+        return (sig_info, seq_summ_info, called_read.seq, called_read.qual,
+                rl_cumsum, can_post, post_w_mods, mods_scores)
 
-    def basecall_read(
-            self, sig_info, return_post_w_mods=True, return_mod_scores=False,
-            update_sig_info=False, signal_reversed=False, seq_summ_info=None,
-            mod_bc_min_prob=mh.DEFAULT_MOD_MIN_PROB):
-        if self.model_type not in (TAI_NAME, FAST5_NAME, PYGUPPY_NAME):
-            raise mh.MegaError('Invalid model backend')
+    def _run_pyguppy_model(
+            self, reads_batch, return_post_w_mods, return_mod_scores,
+            update_sig_info, signal_reversed, mod_bc_min_prob):
+        if self.model_type != PYGUPPY_NAME:
+            raise mh.MegaError(
+                'Attempted to run pyguppy model with non-pyguppy ' +
+                'initialization.')
 
-        # decoding is performed within pyguppy server, so shortcurcuit return
-        # here as other methods require megalodon decoding.
-        if self.model_type == PYGUPPY_NAME:
-            return self._run_pyguppy_model(
-                sig_info, return_post_w_mods, return_mod_scores,
-                update_sig_info, signal_reversed, seq_summ_info,
+        # TODO send errors so whole batch doesn't fail
+        for called_read, sig_info, seq_summ_info in self.pyguppy_basecall():
+            yield self._postprocess_pyguppy_called_read(
+                called_read, sig_info, seq_summ_info, return_post_w_mods,
+                return_mod_scores, update_sig_info, signal_reversed,
                 mod_bc_min_prob)
 
+    def _call_read_non_pyguppy(
+            self, sig_info, seq_summ_info, return_post_w_mods=True,
+            return_mod_scores=False, update_sig_info=False,
+            signal_reversed=False, mod_bc_min_prob=mh.DEFAULT_MOD_MIN_PROB):
         post_w_mods = mod_weights = None
         if self.model_type == TAI_NAME:
             # run neural network with taiyaki
@@ -942,8 +958,29 @@ class ModelInfo(AbstractModelInfo):
             except Exception:
                 pass
 
-        return (r_seq, r_qual, rl_cumsum, can_post, sig_info, post_w_mods,
-                mods_scores, seq_summ_info)
+        return (sig_info, seq_summ_info, r_seq, r_qual, rl_cumsum, can_post,
+                post_w_mods, mods_scores)
+
+    def iter_basecalled_reads(
+            self, reads_batch, return_post_w_mods=True,
+            return_mod_scores=False, update_sig_info=False,
+            signal_reversed=False, mod_bc_min_prob=mh.DEFAULT_MOD_MIN_PROB):
+        if self.model_type not in (TAI_NAME, FAST5_NAME, PYGUPPY_NAME):
+            raise mh.MegaError('Invalid model backend')
+
+        if self.model_type == PYGUPPY_NAME:
+            for read_id, bc_res in self._run_pyguppy_model(
+                    reads_batch, return_post_w_mods, return_mod_scores,
+                    update_sig_info, signal_reversed, mod_bc_min_prob):
+                yield read_id, bc_res
+        else:
+            # TODO handle errors so full batch doesn't fail
+            for sig_info, seq_summ_info in reads_batch:
+                for called_read in self._call_read_non_pyguppy(
+                        sig_info, seq_summ_info, return_post_w_mods,
+                        return_mod_scores, update_sig_info, signal_reversed,
+                        mod_bc_min_prob):
+                    yield called_read
 
     def close(self):
         if self.model_type == PYGUPPY_NAME:

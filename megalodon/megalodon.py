@@ -150,18 +150,12 @@ def interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum):
 
 
 def process_read(
-        getter_conns, caller_conn, sig_info, seq_summ_info, model_info,
-        ref_out_info, vars_info, mods_info, bc_info):
+        getter_conns, caller_conn, bc_res, model_info, ref_out_info, vars_info,
+        mods_info, bc_info):
     """ Workhorse per-read megalodon function (connects all the parts)
     """
-    # perform basecalling using loaded backend
-    (r_seq, r_qual, rl_cumsum, can_post, sig_info, post_w_mods,
-     mods_scores, seq_summ_info) = model_info.basecall_read(
-         sig_info, return_post_w_mods=mods_info.do_output.db,
-         return_mod_scores=bc_info.do_output.mod_basecalls,
-         update_sig_info=ref_out_info.do_output.sig_maps,
-         signal_reversed=bc_info.rev_sig, seq_summ_info=seq_summ_info,
-         mod_bc_min_prob=bc_info.mod_bc_min_prob)
+    (sig_info, seq_summ_info, r_seq, r_qual, rl_cumsum, can_post, post_w_mods,
+     mods_scores) = bc_res
     if bc_info.do_output.any:
         # convert seq_summ_info to tuple since namedtuples can't be
         # pickled for passing through a queue.
@@ -256,19 +250,35 @@ def process_read(
 def _process_reads_worker(
         signal_q, getter_conns, caller_conn, ref_out_info, model_info,
         vars_info, mods_info, bc_info, device):
-    def iter_sig_data():
-        while True:
-            try:
-                read_sig_data = signal_q.get(block=True, timeout=0.01)
-            except queue.Empty:
-                continue
-            if read_sig_data is None:
-                LOGGER.debug('Closing')
-                break
-            sig_info, seq_summ_info = read_sig_data
-            # convert tuples back to namedtuples after multiprocessing queue
-            yield (backends.SIGNAL_DATA(*sig_info),
-                   mh.SEQ_SUMM_INFO(*seq_summ_info))
+    def iter_bc_res():
+        reads_remaining = False
+        while reads_remaining:
+            reads_batch = []
+            for _ in bc_info.reads_per_batch:
+                try:
+                    read_sig_data = signal_q.get(block=True, timeout=0.01)
+                except queue.Empty:
+                    continue
+                if read_sig_data is None:
+                    LOGGER.debug('Closing')
+                    reads_remaining = False
+                    break
+                sig_info, seq_summ_info = read_sig_data
+                # convert tuples back to namedtuples after multiprocessing
+                reads_batch.append((
+                    backends.SIGNAL_DATA(*sig_info),
+                    mh.SEQ_SUMM_INFO(*seq_summ_info)))
+
+            # TODO send failed_reads_q here and handle per-read errors in
+            # basecalling iterator for batched reads
+            # perform basecalling using loaded backend
+            for bc_res in model_info.iter_basecalled_reads(
+                    reads_batch, return_post_w_mods=mods_info.do_output.db,
+                    return_mod_scores=bc_info.do_output.mod_basecalls,
+                    update_sig_info=ref_out_info.do_output.sig_maps,
+                    signal_reversed=bc_info.rev_sig,
+                    mod_bc_min_prob=bc_info.mod_bc_min_prob):
+                yield bc_res
 
     failed_reads_q = getter_conns[_FAILED_READ_GETTER_NAME]
     # wrap process prep in try loop to avoid stalled command
@@ -281,11 +291,11 @@ def _process_reads_worker(
         LOGGER.debug('InitFailed traceback: {}'.format(traceback.format_exc()))
         return
 
-    for sig_info, seq_summ_info in iter_sig_data():
+    for bc_res in iter_bc_res():
         try:
-            LOGGER.debug('{} Processing'.format(sig_info.read_id))
+            LOGGER.debug('{} Processing'.format(bc_res[0].read_id))
             process_read(
-                getter_conns, caller_conn, sig_info, seq_summ_info, model_info,
+                getter_conns, caller_conn, bc_res, model_info,
                 ref_out_info, vars_info, mods_info, bc_info)
             failed_reads_q.put(tuple(mh.READ_STATUS(n_sig=sig_info.raw_len)))
             LOGGER.debug('{} Success'.format(sig_info.read_id))
