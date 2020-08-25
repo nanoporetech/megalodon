@@ -56,6 +56,11 @@ def get_parser():
         '--guppy-server-port', type=int,
         help=hidden_help('Guppy server port. Default: Guppy auto'))
     pyg_grp.add_argument(
+        '--reads-per-guppy-batch', type=int,
+        default=mh.DEFAULT_GUPPY_BATCH_SIZE,
+        help=hidden_help('Number of reads to send to guppy per batch within ' +
+                         'each worker processes. Default: %(default)d'))
+    pyg_grp.add_argument(
         '--guppy-timeout', type=float, default=mh.DEFAULT_GUPPY_TIMEOUT,
         help=hidden_help('Timeout to wait for guppy server to call a single ' +
                          'read in seconds. Default: %(default)f'))

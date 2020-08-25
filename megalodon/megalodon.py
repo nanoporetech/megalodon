@@ -251,10 +251,10 @@ def _process_reads_worker(
         signal_q, getter_conns, caller_conn, ref_out_info, model_info,
         vars_info, mods_info, bc_info, device):
     def iter_bc_res():
-        reads_remaining = False
+        reads_remaining = True
         while reads_remaining:
             reads_batch = []
-            for _ in bc_info.reads_per_batch:
+            for _ in range(bc_info.reads_per_batch):
                 try:
                     read_sig_data = signal_q.get(block=True, timeout=0.01)
                 except queue.Empty:
@@ -269,15 +269,14 @@ def _process_reads_worker(
                     backends.SIGNAL_DATA(*sig_info),
                     mh.SEQ_SUMM_INFO(*seq_summ_info)))
 
-            # TODO send failed_reads_q here and handle per-read errors in
-            # basecalling iterator for batched reads
             # perform basecalling using loaded backend
             for bc_res in model_info.iter_basecalled_reads(
                     reads_batch, return_post_w_mods=mods_info.do_output.db,
                     return_mod_scores=bc_info.do_output.mod_basecalls,
                     update_sig_info=ref_out_info.do_output.sig_maps,
                     signal_reversed=bc_info.rev_sig,
-                    mod_bc_min_prob=bc_info.mod_bc_min_prob):
+                    mod_bc_min_prob=bc_info.mod_bc_min_prob,
+                    failed_reads_q=failed_reads_q):
                 yield bc_res
 
     failed_reads_q = getter_conns[_FAILED_READ_GETTER_NAME]
@@ -286,14 +285,14 @@ def _process_reads_worker(
         model_info.prep_model_worker(device)
         vars_info.reopen_variant_index()
         LOGGER.debug('Starting')
-        sig_info = None
     except Exception:
         LOGGER.debug('InitFailed traceback: {}'.format(traceback.format_exc()))
         return
 
     for bc_res in iter_bc_res():
+        sig_info = bc_info[0]
         try:
-            LOGGER.debug('{} Processing'.format(bc_res[0].read_id))
+            LOGGER.debug('{} Processing'.format(bc_res.read_id))
             process_read(
                 getter_conns, caller_conn, bc_res, model_info,
                 ref_out_info, vars_info, mods_info, bc_info)
@@ -1252,7 +1251,8 @@ def parse_basecall_args(args, mods_info):
         out_dir=args.output_directory,
         bc_fmt=args.basecalls_format, mod_bc_fmt=args.mappings_format,
         mod_bc_min_prob=args.mod_min_prob,
-        mod_long_names=mods_info.mod_long_names, rev_sig=args.rna)
+        mod_long_names=mods_info.mod_long_names, rev_sig=args.rna,
+        reads_per_batch=args.reads_per_guppy_batch)
 
 
 def parse_input_args(args):

@@ -174,7 +174,7 @@ BASECALL_DO_OUTPUT = namedtuple('BASECALL_DO_OUTPUT', (
     'any', 'basecalls', 'mod_basecalls'))
 BASECALL_INFO = namedtuple('BASECALL_INFO', (
     'do_output', 'out_dir', 'bc_fmt', 'mod_bc_fmt', 'mod_bc_min_prob',
-    'mod_long_names', 'rev_sig'))
+    'mod_long_names', 'rev_sig', 'reads_per_batch'))
 REF_DO_OUTPUT = namedtuple('REF_DO_OUTPUT', (
     'pr_refs', 'can_pr_refs', 'mod_pr_refs', 'var_pr_refs',
     'sig_maps', 'can_sig_maps', 'mod_sig_maps', 'var_sig_maps'))
@@ -216,7 +216,8 @@ SEQ_SUMM_INFO.__new__.__defaults__ = tuple(['NA', ] * 12)
 # default guppy settings
 DEFAULT_GUPPY_SERVER_PATH = './ont-guppy/bin/guppy_basecall_server'
 DEFAULT_GUPPY_CFG = 'dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg'
-DEFAULT_GUPPY_TIMEOUT = 5.0
+DEFAULT_GUPPY_TIMEOUT = 30.0
+DEFAULT_GUPPY_BATCH_SIZE = 50
 
 # completed read information
 READ_STATUS = namedtuple('READ_STATUS', (
