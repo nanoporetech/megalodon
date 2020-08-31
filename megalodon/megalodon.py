@@ -264,10 +264,11 @@ def _process_reads_worker(
                     reads_remaining = False
                     break
                 sig_info, seq_summ_info = read_sig_data
+                sig_info = backends.SIGNAL_DATA(*sig_info)
                 # convert tuples back to namedtuples after multiprocessing
                 reads_batch.append((
-                    backends.SIGNAL_DATA(*sig_info),
-                    mh.SEQ_SUMM_INFO(*seq_summ_info)))
+                    sig_info, mh.SEQ_SUMM_INFO(*seq_summ_info)))
+                LOGGER.debug('{} Processing'.format(sig_info.read_id))
 
             # perform basecalling using loaded backend
             for bc_res in model_info.iter_basecalled_reads(
@@ -290,9 +291,8 @@ def _process_reads_worker(
         return
 
     for bc_res in iter_bc_res():
-        sig_info = bc_info[0]
+        sig_info = bc_res[0]
         try:
-            LOGGER.debug('{} Processing'.format(bc_res.read_id))
             process_read(
                 getter_conns, caller_conn, bc_res, model_info,
                 ref_out_info, vars_info, mods_info, bc_info)

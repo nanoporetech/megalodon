@@ -49,6 +49,10 @@ PYGUPPY_CLIENT_KWARGS = {
     'move_and_trace_enabled': True,
     'state_data_enabled': True
 }
+PYGUPPY_CALLED_READ = namedtuple('PYGUPPY_CALLED_READ', (
+    'model_type', 'model_stride', 'mod_long_names', 'output_alphabet',
+    'state_size', 'trimmed_samples', 'scaling_shift', 'scaling_scale',
+    'move', 'state', 'seq', 'qual'))
 
 # maximum time (in seconds) to wait before assigning device
 # over different processes. Actual time choosen randomly
@@ -175,27 +179,22 @@ def get_pyguppy_read(read_id, raw_data, channel_info):
             mh.CHAN_INFO_DIGI]}
 
 
-class PyguppyCalledRead(object):
-    def __init__(self, called_read):
-        """ Convert pyguppy_client_lib dict to python object
-        """
-        read_metadata = called_read['metadata']
-        self.model_type = read_metadata['basecall_type']
-        self.model_stride = read_metadata['model_stride']
-        self.mod_long_names = read_metadata['base_mod_long_names'].split()
-        self.output_alphabet = read_metadata['base_mod_alphabet']
-        if len(self.output_alphabet) == 0:
-            self.output_alphabet = mh.ALPHABET
-        self.state_size = read_metadata['state_size']
-        self.trimmed_samples = read_metadata['trimmed_samples']
-        self.scaling_shift = read_metadata['scaling_median']
-        self.scaling_scale = read_metadata['scaling_med_abs_dev']
-
-        read_datasets = called_read['datasets']
-        self.move = read_datasets['movement']
-        self.state = read_datasets['state_data']
-        self.seq = read_datasets['sequence']
-        self.qual = read_datasets['qstring']
+def parse_pyguppy_called_read(called_read):
+    read_metadata = called_read['metadata']
+    out_alphabet = read_metadata['base_mod_alphabet'] \
+        if len(read_metadata['base_mod_alphabet']) > 0 \
+        else mh.ALPHABET
+    read_datasets = called_read['datasets']
+    return PYGUPPY_CALLED_READ(
+        model_type=read_metadata['basecall_type'],
+        model_stride=read_metadata['model_stride'],
+        mod_long_names=read_metadata['base_mod_long_names'].split(),
+        output_alphabet=out_alphabet, state_size=read_metadata['state_size'],
+        trimmed_samples=read_metadata['trimmed_samples'],
+        scaling_shift=read_metadata['scaling_median'],
+        scaling_scale=read_metadata['scaling_med_abs_dev'],
+        move=read_datasets['movement'], state=read_datasets['state_data'],
+        seq=read_datasets['sequence'], qual=read_datasets['qstring'])
 
 
 class AbstractModelInfo(ABC):
@@ -596,9 +595,7 @@ class ModelInfo(AbstractModelInfo):
         self.pyguppy_retries = max(
             1, int(self.params.pyguppy.timeout / PYGUPPY_PER_TRY_TIMEOUT))
         from pyguppy_client_lib.pyclient import PyGuppyClient
-        from pyguppy_client_lib.client_lib import GuppyClient
         self.pyguppy_GuppyBasecallerClient = PyGuppyClient
-        self.pyguppy_GuppyClient = GuppyClient
 
         start_guppy_server()
         set_pyguppy_model_attributes()
@@ -747,17 +744,31 @@ class ModelInfo(AbstractModelInfo):
             # function for profiling purposes
             sleep(PYGUPPY_PER_TRY_TIMEOUT)
 
+        def get_completed_reads():
+            try:
+                completed_reads = client.get_completed_reads()
+            except ConnectionError as e:
+                None, str(e)
+            except RuntimeError as e:
+                None, str(e)
+            return completed_reads, None
+
         saved_input_data = {}
+        completed_reads = []
         for sig_info, seq_summ_info in reads_batch:
             err_str = None
+            read_sent = False
+            pyguppy_read = get_pyguppy_read(
+                sig_info.read_id, sig_info.dacs, sig_info.channel_info)
             try:
-                success = client.pass_read(get_pyguppy_read(
-                    sig_info.read_id, sig_info.dacs, sig_info.channel_info))
-                if success:
-                    saved_input_data[sig_info.read_id] = (
-                        sig_info, seq_summ_info)
-                else:
-                    err_str = 'Attempt to pass read to server failed.'
+                while not read_sent:
+                    read_sent = client.pass_read(pyguppy_read)
+                    # get completed reads while sending reads so server doesn't
+                    # back up indefinitely
+                    iter_comp_reads = get_completed_reads()[0]
+                    if iter_comp_reads is not None:
+                        completed_reads.extend(iter_comp_reads)
+                saved_input_data[sig_info.read_id] = (sig_info, seq_summ_info)
             except ValueError:
                 err_str = ('Failed to send read to guppy server. Likely ' +
                            'malformated read.')
@@ -770,37 +781,42 @@ class ModelInfo(AbstractModelInfo):
 
             if err_str is not None:
                 raw_len = sig_info.raw_len \
-                          if hasattr(sig_info, 'raw_len') else 0
+                    if hasattr(sig_info, 'raw_len') else 0
                 fn_rid = '{}:::{}'.format(sig_info.fast5_fn, sig_info.read_id)
                 if failed_reads_q is not None:
                     failed_reads_q.put(tuple(mh.READ_STATUS(
                         is_err=True, do_update_prog=True, err_type=err_str,
                         fast5_fn=fn_rid, n_sig=raw_len)))
-                LOGGER.debug('{} Failed "{}"'.format(
+                LOGGER.debug('{} BasecallingFailed "{}"'.format(
                     sig_info.read_id, err_str))
 
+        # send reads that have been called already
+        for called_read in completed_reads:
+            read_id = called_read["metadata"]["read_id"]
+            sig_info, seq_summ_info = saved_input_data[read_id]
+            LOGGER.debug('{} BasecallingCompleted'.format(read_id))
+            yield (parse_pyguppy_called_read(called_read), sig_info,
+                   seq_summ_info)
+            del saved_input_data[read_id]
+        # process reads until timeout for batch
         err_str = 'Guppy server timeout'
-        try:
-            for _ in range(self.pyguppy_retries):
-                completed_reads = client.get_completed_reads()
-                for called_read in completed_reads:
-                    read_id = called_read["metadata"]["read_id"]
-                    sig_info, seq_summ_info = saved_input_data[read_id]
-                    yield (PyguppyCalledRead(called_read), sig_info,
-                           seq_summ_info)
-                    LOGGER.debug('finished read id: {}'.format(read_id))
-                    del saved_input_data[read_id]
-                # if all reads have been processed break from loop
-                if len(saved_input_data) == 0:
-                    err_str = None
-                    break
-                do_sleep()
-        except ConnectionError:
-            err_str = ('Failed to retrieve read from guppy server. No ' +
-                       'guppy server connection.')
-        except RuntimeError as e:
-            err_str = ('Failed to retrieve read from guppy server. ' +
-                       'Unexpected error: ' + str(e))
+        for _ in range(self.pyguppy_retries):
+            completed_reads, comp_reads_err = get_completed_reads()
+            if comp_reads_err is not None:
+                err_str = comp_reads_err
+                break
+            for called_read in completed_reads:
+                read_id = called_read["metadata"]["read_id"]
+                sig_info, seq_summ_info = saved_input_data[read_id]
+                LOGGER.debug('{} BasecallingCompleted'.format(read_id))
+                yield (parse_pyguppy_called_read(called_read), sig_info,
+                       seq_summ_info)
+                del saved_input_data[read_id]
+            # if all reads have been processed break from loop
+            if len(saved_input_data) == 0:
+                err_str = None
+                break
+            do_sleep()
         # if there are any left over reads report the errors
         for read_id, (sig_info, _) in saved_input_data.items():
             raw_len = sig_info.raw_len if hasattr(sig_info, 'raw_len') else 0
@@ -809,7 +825,7 @@ class ModelInfo(AbstractModelInfo):
                 failed_reads_q.put(tuple(mh.READ_STATUS(
                     is_err=True, do_update_prog=True, fast5_fn=fn_rid,
                     n_sig=raw_len, err_type=err_str)))
-            LOGGER.debug('{} Failed {}'.format(read_id, err_str))
+            LOGGER.debug('{} BasecallingFailed {}'.format(read_id, err_str))
 
     def _postprocess_pyguppy_called_read(
             self, called_read, sig_info, seq_summ_info, return_post_w_mods,
