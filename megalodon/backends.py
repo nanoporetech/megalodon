@@ -748,9 +748,9 @@ class ModelInfo(AbstractModelInfo):
             try:
                 completed_reads = client.get_completed_reads()
             except ConnectionError as e:
-                None, str(e)
+                return None, str(e)
             except RuntimeError as e:
-                None, str(e)
+                return None, str(e)
             return completed_reads, None
 
         saved_input_data = {}
