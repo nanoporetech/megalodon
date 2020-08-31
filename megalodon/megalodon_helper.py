@@ -216,8 +216,8 @@ SEQ_SUMM_INFO.__new__.__defaults__ = tuple(['NA', ] * 12)
 # default guppy settings
 DEFAULT_GUPPY_SERVER_PATH = './ont-guppy/bin/guppy_basecall_server'
 DEFAULT_GUPPY_CFG = 'dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg'
-DEFAULT_GUPPY_TIMEOUT = 30.0
-DEFAULT_GUPPY_BATCH_SIZE = 50
+DEFAULT_GUPPY_TIMEOUT = 60.0
+DEFAULT_GUPPY_BATCH_SIZE = 200
 
 # completed read information
 READ_STATUS = namedtuple('READ_STATUS', (

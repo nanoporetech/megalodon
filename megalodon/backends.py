@@ -37,7 +37,8 @@ BACKEND_PARAMS = namedtuple('BACKEND_PARAMS', (
 
 COMPAT_GUPPY_MODEL_TYPES = set(('flipflop',))
 GUPPY_HOST = 'localhost'
-PYGUPPY_PER_TRY_TIMEOUT = 0.0001
+PYGUPPY_PER_TRY_TIMEOUT = 0.001
+PYGUPPY_MAX_RECONNECT_ATTEMPTS = 5
 GUPPY_LOG_BASE = 'guppy_log'
 GUPPY_PORT_PAT = re.compile(r'Starting server on port:\W+(\d+)')
 GUPPY_VERSION_PAT = re.compile(
@@ -745,41 +746,69 @@ class ModelInfo(AbstractModelInfo):
             sleep(PYGUPPY_PER_TRY_TIMEOUT)
 
         def get_completed_reads():
-            try:
-                completed_reads = client.get_completed_reads()
-            except ConnectionError as e:
-                return None, str(e)
-            except RuntimeError as e:
-                return None, str(e)
-            return completed_reads, None
+            do_retry = True
+            n_reconnect_attempts = 0
+            comp_reads = err_str = None
+            while do_retry:
+                try:
+                    comp_reads = client.get_completed_reads()
+                    do_retry = False
+                except ConnectionError as e:
+                    if n_reconnect_attempts < PYGUPPY_MAX_RECONNECT_ATTEMPTS:
+                        LOGGER.debug('Reconnecting to server (get reads)')
+                        client.connect()
+                        n_reconnect_attempts += 1
+                    else:
+                        err_str = ('Pyguppy pass read connection error ' +
+                                   '"{}"').format(str(e))
+                        do_retry = False
+                    err_str = ('Pyguppy get completed reads connection error ' +
+                               '"{}"').format(str(e))
+                except RuntimeError as e:
+                    err_str = ('Pyguppy get completed reads invalid error ' +
+                               '"{}"').format(str(e))
+                    do_retry = False
+            return comp_reads, err_str
 
         saved_input_data = {}
         completed_reads = []
         for sig_info, seq_summ_info in reads_batch:
             err_str = None
             read_sent = False
+            n_reconnect_attempts = 0
             pyguppy_read = get_pyguppy_read(
                 sig_info.read_id, sig_info.dacs, sig_info.channel_info)
-            try:
-                while not read_sent:
+            while not read_sent:
+                try:
                     read_sent = client.pass_read(pyguppy_read)
-                    # get completed reads while sending reads so server doesn't
-                    # back up indefinitely
-                    iter_comp_reads = get_completed_reads()[0]
-                    if iter_comp_reads is not None:
-                        completed_reads.extend(iter_comp_reads)
-                saved_input_data[sig_info.read_id] = (sig_info, seq_summ_info)
-            except ValueError:
-                err_str = ('Failed to send read to guppy server. Likely ' +
-                           'malformated read.')
-            except ConnectionError:
-                err_str = ('Failed to send read to guppy server. No ' +
-                           'guppy server.')
-            except RuntimeError:
-                err_str = ('Failed to send read to guppy server. Undefined ' +
-                           'guppy server response.')
+                except ValueError as e:
+                    err_str = ('Pyguppy pass read malformed error ' +
+                               '"{}"').format(str(e))
+                    read_sent = True
+                except ConnectionError as e:
+                    # attempt to reconnect to server when connection error
+                    # occurs
+                    if n_reconnect_attempts < PYGUPPY_MAX_RECONNECT_ATTEMPTS:
+                        LOGGER.debug('Reconnecting to server (pass read)')
+                        client.connect()
+                        n_reconnect_attempts += 1
+                    else:
+                        err_str = ('Pyguppy pass read connection error ' +
+                                   '"{}"').format(str(e))
+                        read_sent = True
+                except RuntimeError as e:
+                    err_str = ('Pyguppy pass read undefined error ' +
+                               '"{}"').format(str(e))
+                    read_sent = True
+                # get completed reads while sending reads so server doesn't
+                # back up indefinitely
+                iter_comp_reads = get_completed_reads()[0]
+                if iter_comp_reads is not None:
+                    completed_reads.extend(iter_comp_reads)
 
-            if err_str is not None:
+            if err_str is None:
+                saved_input_data[sig_info.read_id] = (sig_info, seq_summ_info)
+            else:
                 raw_len = sig_info.raw_len \
                     if hasattr(sig_info, 'raw_len') else 0
                 fn_rid = '{}:::{}'.format(sig_info.fast5_fn, sig_info.read_id)
@@ -799,7 +828,7 @@ class ModelInfo(AbstractModelInfo):
                    seq_summ_info)
             del saved_input_data[read_id]
         # process reads until timeout for batch
-        err_str = 'Guppy server timeout'
+        err_str = 'Guppy server timeout (see --guppy-timeout argument)'
         for _ in range(self.pyguppy_retries):
             completed_reads, comp_reads_err = get_completed_reads()
             if comp_reads_err is not None:
@@ -807,7 +836,19 @@ class ModelInfo(AbstractModelInfo):
                 break
             for called_read in completed_reads:
                 read_id = called_read["metadata"]["read_id"]
-                sig_info, seq_summ_info = saved_input_data[read_id]
+                try:
+                    sig_info, seq_summ_info = saved_input_data[read_id]
+                except KeyError:
+                    # read likely returned to wrong client
+                    LOGGER.debug(
+                        '{} Pyguppy invalid read ID encountered'.format(
+                            read_id))
+                    if failed_reads_q is not None:
+                        failed_reads_q.put(tuple(mh.READ_STATUS(
+                            is_err=True, do_update_prog=True, fast5_fn=read_id,
+                            n_sig=0,
+                            err_type='Pyguppy client recieved invalid read')))
+                    continue
                 LOGGER.debug('{} BasecallingCompleted'.format(read_id))
                 yield (parse_pyguppy_called_read(called_read), sig_info,
                        seq_summ_info)

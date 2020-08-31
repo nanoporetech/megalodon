@@ -62,8 +62,10 @@ def get_parser():
                          'each worker processes. Default: %(default)d'))
     pyg_grp.add_argument(
         '--guppy-timeout', type=float, default=mh.DEFAULT_GUPPY_TIMEOUT,
-        help=hidden_help('Timeout to wait for guppy server to call a single ' +
-                         'read in seconds. Default: %(default)f'))
+        help=hidden_help('Timeout (in seconds) to wait for guppy server to ' +
+                         'call a batch of reads. --processes and ' +
+                         '--reads-per-guppy-batch have a strong bearing on ' +
+                         'the appropriate value. Default: %(default)f'))
     pyg_grp.add_argument(
         '--list-supported-guppy-configs', action='store_true',
         help=hidden_help('List guppy configs with sequence variant and ' +
