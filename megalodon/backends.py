@@ -819,14 +819,20 @@ class ModelInfo(AbstractModelInfo):
                 LOGGER.debug('{} BasecallingFailed "{}"'.format(
                     sig_info.read_id, err_str))
 
-        # send reads that have been called already
+        # yield reads that have been called already
         for called_read in completed_reads:
             read_id = called_read["metadata"]["read_id"]
-            sig_info, seq_summ_info = saved_input_data[read_id]
+            try:
+                sig_info, seq_summ_info = saved_input_data[read_id]
+            except KeyError:
+                # read submitted in last batch now finished
+                LOGGER.debug('{} timeout read finished'.format(read_id))
+                continue
             LOGGER.debug('{} BasecallingCompleted'.format(read_id))
             yield (parse_pyguppy_called_read(called_read), sig_info,
                    seq_summ_info)
             del saved_input_data[read_id]
+
         # process reads until timeout for batch
         err_str = 'Guppy server timeout (see --guppy-timeout argument)'
         for _ in range(self.pyguppy_retries):
@@ -839,15 +845,8 @@ class ModelInfo(AbstractModelInfo):
                 try:
                     sig_info, seq_summ_info = saved_input_data[read_id]
                 except KeyError:
-                    # read likely returned to wrong client
-                    LOGGER.debug(
-                        '{} Pyguppy invalid read ID encountered'.format(
-                            read_id))
-                    if failed_reads_q is not None:
-                        failed_reads_q.put(tuple(mh.READ_STATUS(
-                            is_err=True, do_update_prog=True, fast5_fn=read_id,
-                            n_sig=0,
-                            err_type='Pyguppy client recieved invalid read')))
+                    # read submitted in last batch now finished
+                    LOGGER.debug('{} timeout read finished'.format(read_id))
                     continue
                 LOGGER.debug('{} BasecallingCompleted'.format(read_id))
                 yield (parse_pyguppy_called_read(called_read), sig_info,
@@ -858,7 +857,8 @@ class ModelInfo(AbstractModelInfo):
                 err_str = None
                 break
             do_sleep()
-        # if there are any left over reads report the errors
+
+        # if there are any left over reads report timeout errors
         for read_id, (sig_info, _) in saved_input_data.items():
             raw_len = sig_info.raw_len if hasattr(sig_info, 'raw_len') else 0
             fn_rid = '{}:::{}'.format(sig_info.fast5_fn, read_id)

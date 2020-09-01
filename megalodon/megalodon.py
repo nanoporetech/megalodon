@@ -250,29 +250,29 @@ def process_read(
 def _process_reads_worker(
         signal_q, getter_conns, caller_conn, ref_out_info, model_info,
         vars_info, mods_info, bc_info, device):
-    def iter_bc_res():
-        reads_remaining = True
-        while reads_remaining:
-            reads_batch = []
-            for _ in range(bc_info.reads_per_batch):
-                try:
-                    read_sig_data = signal_q.get(block=True, timeout=0.01)
-                except queue.Empty:
-                    continue
-                if read_sig_data is None:
-                    LOGGER.debug('Closing')
-                    reads_remaining = False
-                    break
-                sig_info, seq_summ_info = read_sig_data
-                sig_info = backends.SIGNAL_DATA(*sig_info)
-                # convert tuples back to namedtuples after multiprocessing
-                reads_batch.append((
-                    sig_info, mh.SEQ_SUMM_INFO(*seq_summ_info)))
-                LOGGER.debug('{} Processing'.format(sig_info.read_id))
+    def create_batch_gen():
+        for _ in range(bc_info.reads_per_batch):
+            try:
+                read_sig_data = signal_q.get(block=True, timeout=0.01)
+            except queue.Empty:
+                continue
+            if read_sig_data is None:
+                LOGGER.debug('Closing')
+                # send signal to end main loop then end this iterator
+                gen_conn.send(True)
+                break
+            sig_info, seq_summ_info = read_sig_data
+            # convert tuples back to namedtuples after multiprocessing
+            sig_info = backends.SIGNAL_DATA(*sig_info)
+            yield sig_info, mh.SEQ_SUMM_INFO(*seq_summ_info)
+            LOGGER.debug('{} Processing'.format(sig_info.read_id))
 
+    def iter_bc_res():
+        while not full_iter_conn.poll():
+            reads_batch_gen = create_batch_gen()
             # perform basecalling using loaded backend
             for bc_res in model_info.iter_basecalled_reads(
-                    reads_batch, return_post_w_mods=mods_info.do_output.db,
+                    reads_batch_gen, return_post_w_mods=mods_info.do_output.db,
                     return_mod_scores=bc_info.do_output.mod_basecalls,
                     update_sig_info=ref_out_info.do_output.sig_maps,
                     signal_reversed=bc_info.rev_sig,
@@ -280,9 +280,11 @@ def _process_reads_worker(
                     failed_reads_q=failed_reads_q):
                 yield bc_res
 
-    failed_reads_q = getter_conns[_FAILED_READ_GETTER_NAME]
     # wrap process prep in try loop to avoid stalled command
     try:
+        # prepare connection for communication with batch generator
+        full_iter_conn, gen_conn = mp.Pipe(duplex=False)
+        failed_reads_q = getter_conns[_FAILED_READ_GETTER_NAME]
         model_info.prep_model_worker(device)
         vars_info.reopen_variant_index()
         LOGGER.debug('Starting')
