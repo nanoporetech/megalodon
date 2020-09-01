@@ -1069,7 +1069,7 @@ class ModelInfo(AbstractModelInfo):
                 except mh.MegaError as e:
                     if failed_reads_q is not None:
                         raw_len = sig_info.raw_len \
-                                  if hasattr(sig_info, 'raw_len') else 0
+                            if hasattr(sig_info, 'raw_len') else 0
                         fn_rid = '{}:::{}'.format(
                             sig_info.fast5_fn, sig_info.read_id)
                         failed_reads_q.put(tuple(mh.READ_STATUS(
