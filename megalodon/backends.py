@@ -762,8 +762,8 @@ class ModelInfo(AbstractModelInfo):
                         err_str = ('Pyguppy pass read connection error ' +
                                    '"{}"').format(str(e))
                         do_retry = False
-                    err_str = ('Pyguppy get completed reads connection error ' +
-                               '"{}"').format(str(e))
+                    err_str = ('Pyguppy get completed reads connection ' +
+                               'error "{}"').format(str(e))
                 except RuntimeError as e:
                     err_str = ('Pyguppy get completed reads invalid error ' +
                                '"{}"').format(str(e))
@@ -969,7 +969,7 @@ class ModelInfo(AbstractModelInfo):
             # only catch Megalodon errors here, all others caught upstream
             except mh.MegaError as e:
                 raw_len = sig_info.raw_len \
-                          if hasattr(sig_info, 'raw_len') else 0
+                    if hasattr(sig_info, 'raw_len') else 0
                 fn_rid = '{}:::{}'.format(sig_info.fast5_fn, sig_info.read_id)
                 failed_reads_q.put(tuple(mh.READ_STATUS(
                     is_err=True, do_update_prog=True, err_type=str(e),
@@ -1066,7 +1066,7 @@ class ModelInfo(AbstractModelInfo):
                 # only catch Megalodon errors here, all others caught upstream
                 except mh.MegaError as e:
                     raw_len = sig_info.raw_len \
-                              if hasattr(sig_info, 'raw_len') else 0
+                        if hasattr(sig_info, 'raw_len') else 0
                     fn_rid = '{}:::{}'.format(
                         sig_info.fast5_fn, sig_info.read_id)
                     failed_reads_q.put(tuple(mh.READ_STATUS(

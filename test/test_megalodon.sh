@@ -15,7 +15,7 @@ CTRL_READS="amplified_reads"
 NAT_READS="native_reads"
 
 NPROC=8
-GUPPY_TIMEOUT=60
+GUPPY_TIMEOUT=240
 
 
 ######################
