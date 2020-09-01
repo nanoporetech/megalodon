@@ -272,7 +272,7 @@ def parse_cigar(r_cigar, strand, ref_len):
     return r_to_q_poss
 
 
-def map_read(caller_conn, mo_q, q_seq, read_id, signal_reversed=False):
+def map_read(caller_conn, q_seq, read_id, mo_q=None, signal_reversed=False):
     """ Map read (query) sequence
 
     Returns:

@@ -174,7 +174,7 @@ def process_read(
 
     # map read and record mapping from reference to query positions
     r_ref_seq, r_to_q_poss, r_ref_pos, r_cigar = mapping.map_read(
-        caller_conn, getter_conns[mh.MAP_NAME], r_seq, sig_info.read_id,
+        caller_conn, r_seq, sig_info.read_id, getter_conns[mh.MAP_NAME],
         bc_info.rev_sig)
     np_ref_seq = mh.seq_to_int(r_ref_seq, error_on_invalid=False)
 

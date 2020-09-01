@@ -354,9 +354,11 @@ class ModelInfo(AbstractModelInfo):
     Useful methods include:
         - `prep_model_worker`: Load model onto GPU device
         - `extract_signal_info`: Extract signal information
-        - `basecall_read`: Perform basecalling returning sequence, quality
-            values, basecall positions within posterior matrix, posterior
-            matrix, and serveral other bits of information.
+        - `iter_basecalled_reads`: Basecall a batch of reads yielding
+            signal info, sequencing summary info, sequence, quality values,
+            basecall positions within posterior array, canonical only posterior
+            array, posterior array with modified base scores, and basecall
+            anchored modified base scores.
     """
 
     def _load_taiyaki_model(self):
@@ -951,7 +953,7 @@ class ModelInfo(AbstractModelInfo):
         return (sig_info, seq_summ_info, called_read.seq, called_read.qual,
                 rl_cumsum, can_post, post_w_mods, mods_scores)
 
-    def _run_pyguppy_model(
+    def _run_pyguppy_backend(
             self, reads_batch, return_post_w_mods, return_mod_scores,
             update_sig_info, signal_reversed, mod_bc_min_prob, failed_reads_q):
         if self.model_type != PYGUPPY_NAME:
@@ -976,7 +978,7 @@ class ModelInfo(AbstractModelInfo):
                     fast5_fn=fn_rid, n_sig=raw_len)))
                 LOGGER.debug('{} Failed {}'.format(sig_info.read_id, str(e)))
 
-    def _call_read_non_pyguppy(
+    def _run_non_pyguppy_backend(
             self, sig_info, seq_summ_info, return_post_w_mods=True,
             return_mod_scores=False, update_sig_info=False,
             signal_reversed=False, mod_bc_min_prob=mh.DEFAULT_MOD_MIN_PROB):
@@ -1051,7 +1053,7 @@ class ModelInfo(AbstractModelInfo):
             raise mh.MegaError('Invalid model backend')
 
         if self.model_type == PYGUPPY_NAME:
-            for bc_res in self._run_pyguppy_model(
+            for bc_res in self._run_pyguppy_backend(
                     reads_batch, return_post_w_mods, return_mod_scores,
                     update_sig_info, signal_reversed, mod_bc_min_prob,
                     failed_reads_q):
@@ -1059,19 +1061,20 @@ class ModelInfo(AbstractModelInfo):
         else:
             for sig_info, seq_summ_info in reads_batch:
                 try:
-                    yield self._call_read_non_pyguppy(
+                    yield self._run_non_pyguppy_backend(
                         sig_info, seq_summ_info, return_post_w_mods,
                         return_mod_scores, update_sig_info, signal_reversed,
                         mod_bc_min_prob)
                 # only catch Megalodon errors here, all others caught upstream
                 except mh.MegaError as e:
-                    raw_len = sig_info.raw_len \
-                        if hasattr(sig_info, 'raw_len') else 0
-                    fn_rid = '{}:::{}'.format(
-                        sig_info.fast5_fn, sig_info.read_id)
-                    failed_reads_q.put(tuple(mh.READ_STATUS(
-                        is_err=True, do_update_prog=True, err_type=str(e),
-                        fast5_fn=fn_rid, n_sig=raw_len)))
+                    if failed_reads_q is not None:
+                        raw_len = sig_info.raw_len \
+                                  if hasattr(sig_info, 'raw_len') else 0
+                        fn_rid = '{}:::{}'.format(
+                            sig_info.fast5_fn, sig_info.read_id)
+                        failed_reads_q.put(tuple(mh.READ_STATUS(
+                            is_err=True, do_update_prog=True, err_type=str(e),
+                            fast5_fn=fn_rid, n_sig=raw_len)))
                     LOGGER.debug('{} Failed {}'.format(
                         sig_info.read_id, str(e)))
 
