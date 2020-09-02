@@ -6,11 +6,14 @@
 Megalodon
 """""""""
 
-.. image:: https://img.shields.io/pypi/v/megalodon   :alt: PyPI
-.. image:: https://img.shields.io/pypi/dm/megalodon   :alt: PyPI - Downloads
+|pypi_v| |pypi_dm|
 
-.. image:: https://img.shields.io/conda/vn/bioconda/megalodon   :alt: Conda
-.. image:: https://img.shields.io/conda/dn/bioconda/megalodon   :alt: Conda - Downloads
+|conda_v| |conda_dn|
+
+.. |pypi_v| image:: https://img.shields.io/pypi/v/megalodon
+.. |pypi_dm| image:: https://img.shields.io/pypi/dm/megalodon
+.. |conda_v| image:: https://img.shields.io/conda/vn/bioconda/megalodon
+.. |conda_dn| image:: https://img.shields.io/conda/dn/bioconda/megalodon
 
 Megalodon is a research command line tool to extract high accuracy modified base and sequence variant calls from raw nanopore reads by anchoring the information rich basecalling neural network output to a reference genome/transcriptome.
 
@@ -197,7 +200,7 @@ In order to process an RNA sample specify the ``--rna`` flag as well as an RNA m
 Megalodon performs mapping using the standard minimap2 option, ``map-ont``, and not the ``splice`` option, so a transcriptome reference must be provided.
 The Megalodon code supports RNA modified base detection, but currently no RNA modified base basecalling models are released.
 
-.. note::
+..
 
    Megalodon does not currently perform checking that a set of reads agree with the provided model or options specified (e.g. ``--rna``).
    Users should take care to ensure that the correct options are specified for each sample processed.
