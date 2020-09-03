@@ -252,7 +252,6 @@ def plot_acc(pdf_fp, samps_val_data):
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
 
-
     plt.figure(figsize=(8, 5))
     for samp_val_data in samps_val_data:
         if samp_val_data.aligned_lens is not None:
@@ -276,7 +275,7 @@ def report_acc_metrics(res_dir, out_fp, samp_lab):
             100 * (r_data.num_match - r_data.num_ins) /
             (r_data.num_align - r_data.num_ins) for r_data in bc_data])
         aligned_lens = np.array([r_data.num_align - r_data.num_ins
-                                for r_data in bc_data])
+                                 for r_data in bc_data])
         # crude mode by rounding to 1 decimal
         uniq_acc, acc_counts = np.unique(np.around(
             bc_acc, 1), return_counts=True)
