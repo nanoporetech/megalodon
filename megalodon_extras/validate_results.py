@@ -1,3 +1,4 @@
+import os
 import sys
 from collections import defaultdict, namedtuple
 
@@ -26,15 +27,16 @@ DEFAULT_VS_LABEL = 'All Sites'
 ACC_METRICS_HEADER = (
     '{: <17}{: <15}{: <15}{: <11}{}\n'.format(
         'Median_Accuracy', 'Mean_Accuracy', 'Mode_Accuracy', 'Num_Reads',
+        'Longest_Aligned_Len', 'Median_Aligned_Len', 'Mean_Aligned_Len',
         'Sample_Label'))
 ACC_METRICS_TMPLT = (
-    '{: <17.4}{: <15.4f}{: <15.1f}{: <11d}{}\n')
+    '{: <17.4}{: <15.4f}{: <15.1f}{: <11d}{: <15.1f}{: <15.1f}{: <15.1f}{}\n')
 
 MOD_MISSING_MSG = ('{0} not found in "{1}", "{2}", "{3}" sites. ' +
                    'Skipping validation for "{0}" + "{1}" + "{2}".')
 
 VAL_MOD_DATA = namedtuple('VAL_MOD_DATA', (
-    'acc', 'parsim_acc', 'mod_data', 'ctrl_data', 'label'))
+    'acc', 'parsim_acc', 'aligned_lens', 'mod_data', 'ctrl_data', 'label'))
 
 MOD_VAL_METRICS_HEADER = (
     '{: <12}{: <19}{: <20}{: <9}{: <20}{: <19}{: <10}{}  {}\n'.format(
@@ -251,6 +253,20 @@ def plot_acc(pdf_fp, samps_val_data):
     plt.close()
 
 
+    plt.figure(figsize=(8, 5))
+    for samp_val_data in samps_val_data:
+        if samp_val_data.aligned_lens is not None:
+            sns.kdeplot(samp_val_data.aligned_lens, shade=True, bw=BC_BANDWIDTH,
+                        gridsize=BC_GRIDSIZE, label=samp_val_data.label)
+    plt.legend(title=BC_LEGEND_LABEL)
+    plt.xlabel('Aligned Length (Log10 scale)')
+    plt.ylabel('Density')
+    plt.title('Aligned Length (alignment_length - num_insertions)')
+    plt.xscale('log', basex=10)
+    pdf_fp.savefig(bbox_inches='tight')
+    plt.close()
+
+
 def report_acc_metrics(res_dir, out_fp, samp_lab):
     try:
         bc_data = mapping.parse_map_summary_file(mh.get_megalodon_fn(
@@ -259,29 +275,32 @@ def report_acc_metrics(res_dir, out_fp, samp_lab):
         parsim_acc = np.array([
             100 * (r_data.num_match - r_data.num_ins) /
             (r_data.num_align - r_data.num_ins) for r_data in bc_data])
-        mean_bc_acc = np.mean(bc_acc)
-        med_bc_acc = np.median(bc_acc)
+        aligned_lens = np.array([r_data.num_align - r_data.num_ins
+                                for r_data in bc_data])
         # crude mode by rounding to 1 decimal
         uniq_acc, acc_counts = np.unique(np.around(
             bc_acc, 1), return_counts=True)
         mode_bc_acc = uniq_acc[np.argmax(acc_counts)]
         out_fp.write(ACC_METRICS_TMPLT.format(
-            med_bc_acc, mean_bc_acc, mode_bc_acc, len(bc_data), samp_lab))
+            np.median(bc_acc), np.mean(bc_acc), mode_bc_acc, len(bc_data),
+            np.max(aligned_lens), np.median(aligned_lens),
+            np.mean(aligned_lens), samp_lab))
     except FileNotFoundError:
         bc_acc = parsim_acc = None
         LOGGER.info('Mappings not found for {}'.format(res_dir))
 
-    return bc_acc, parsim_acc
+    return bc_acc, parsim_acc, aligned_lens
 
 
 def parse_mod_data(
         res_dir, out_fp, valid_sites, include_strand, samp_lab,
         ctrl_sites=None):
-    mod_acc, parsim_acc = report_acc_metrics(res_dir, out_fp, samp_lab)
+    mod_acc, parsim_acc, aligned_lens = report_acc_metrics(
+        res_dir, out_fp, samp_lab)
 
     ctrl_data = None
     mods_db_fn = mh.get_megalodon_fn(res_dir, mh.PR_MOD_NAME)
-    try:
+    if os.path.exists(mods_db_fn):
         if ctrl_sites is not None:
             all_site_stats = mods.extract_stats_at_valid_sites(
                 mods_db_fn, valid_sites + ctrl_sites,
@@ -293,10 +312,11 @@ def parse_mod_data(
                 mods_db_fn, valid_sites, include_strand=include_strand)
         else:
             mods_data = [mods.extract_all_stats(mods_db_fn), ]
-    except (FileNotFoundError, mh.MegaError):
+    else:
         mods_data = None
 
-    return VAL_MOD_DATA(mod_acc, parsim_acc, mods_data, ctrl_data, samp_lab)
+    return VAL_MOD_DATA(
+        mod_acc, parsim_acc, aligned_lens, mods_data, ctrl_data, samp_lab)
 
 
 def parse_valid_sites(valid_sites_fns, gt_data_fn, include_strand):
