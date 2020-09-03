@@ -445,48 +445,109 @@ def _extract_signal(
             signal_q.put(None)
 
 
+def _fill_files_file_enum_worker(fast5_fn_q, reads_q):
+    LOGGER.debug('ReadEnumWorkerStarting')
+    while True:
+        try:
+            fast5_fn = fast5_fn_q.get(block=False, timeout=0.01)
+        except queue.Empty:
+            continue
+        if fast5_fn is None:
+            LOGGER.debug('ReadEnumWorkerClosing')
+            break
+        file_read_ids = fast5_io.get_read_ids(fast5_fn)
+        reads_q.put((fast5_fn, file_read_ids))
+
+
+def _fill_files_queue_worker(fast5_fn_q, input_info):
+    LOGGER.debug('FileEnumStarting')
+    input_info = mh.INPUT_INFO(*input_info)
+    used_fns = set()
+    try:
+        for fast5_fn in fast5_io.iterate_fast5_filenames(
+                input_info.fast5s_dir, recursive=input_info.recursive,
+                do_it_live=input_info.do_it_live):
+            fast5_fn_q.put(fast5_fn)
+    except fast5_io.LiveDoneError:
+        LOGGER.debug('LiveProcessingComplete')
+        for fast5_fn in fast5_io.iterate_fast5_filenames(
+                input_info.fast5s_dir, recursive=input_info.recursive):
+            if fast5_fn not in used_fns:
+                fast5_fn_q.put(fast5_fn)
+
+    for _ in range(input_info.num_read_enum_ts):
+        fast5_fn_q.put(None)
+    LOGGER.debug('FileEnumClosing')
+
+
 def _fill_files_queue(input_info, read_file_q, num_reads_conn, aux_failed_q):
+    """ Fill read_file_q with (fast5_fn, read_id) tuples. When finished send
+    total number of reads to num_reads_conn.
+
+    In order to maximize performance, read enumeration is spread over a
+    multi-threading interface.
+    """
     try:
         LOGGER.debug('Starting')
         valid_read_ids = mh.parse_read_ids(input_info.read_ids_fn)
         used_read_ids = set()
+        fast5_fn_q = mp.Queue()
+        reads_q = mp.Queue()
+        # spawn thread to enumerate files
+        file_enum_t = threading.Thread(
+            target=_fill_files_queue_worker,
+            args=(fast5_fn_q, tuple(input_info)), daemon=True, name='FileEnum')
+        file_enum_t.start()
+        # spawn threads to enumerate reads within files
+        enum_ts = [file_enum_t]
+        for re_i in range(input_info.num_read_enum_ts):
+            enum_ts.append(threading.Thread(
+                target=_fill_files_file_enum_worker,
+                args=(fast5_fn_q, reads_q),
+                daemon=True, name='ReadEnum{:03d}'.format(re_i)))
+            enum_ts[-1].start()
         LOGGER.debug('InitComplete')
     except Exception as e:
         aux_failed_q.put((
             'FillFilesInitError', str(e), traceback.format_exc()))
         return
 
-    def put_read(fast5_fn, read_id):
-        if read_id in used_read_ids:
-            LOGGER.debug('{} RepeatedReadID'.format(read_id))
-            return False
-        if (valid_read_ids is not None and read_id not in valid_read_ids) or (
-                fast5_fn is None or read_id is None):
-            return False
-        read_file_q.put((fast5_fn, read_id))
-        used_read_ids.add(read_id)
-        if input_info.num_reads is not None and \
-           len(used_read_ids) >= input_info.num_reads:
-            LOGGER.debug('NumReadsLimit')
-            return True
-        return False
-
     try:
         # fill queue with read filename and read id tuples
-        for fast5_fn, read_id in fast5_io.iterate_fast5_reads(
-                input_info.fast5s_dir, recursive=input_info.recursive,
-                do_it_live=input_info.do_it_live):
-            do_break = mh.log_errors(put_read, fast5_fn, read_id)
-            if do_break:
-                break
-        LOGGER.debug('Closing')
+        while any(t.is_alive() for t in enum_ts):
+            try:
+                fast5_fn, file_read_ids = reads_q.get(
+                    block=False, timeout=0.01)
+            except queue.Empty:
+                continue
+            for read_id in file_read_ids:
+                if read_id in used_read_ids:
+                    LOGGER.debug('{} RepeatedReadID'.format(read_id))
+                    return False
+                if (valid_read_ids is not None and
+                    read_id not in valid_read_ids) or (
+                        fast5_fn is None or read_id is None):
+                    continue
+                read_file_q.put((fast5_fn, read_id))
+                used_read_ids.add(read_id)
+                if input_info.num_reads is not None and \
+                   len(used_read_ids) >= input_info.num_reads:
+                    LOGGER.debug('NumReadsLimit')
+    except KeyboardInterrupt:
+        raise
+    except mh.MegaError as e:
+        LOGGER.debug('MegaError {}'.format(str(e)))
+    except Exception as e:
+        LOGGER.debug('UnexpectedError {}\nFull traceback:\n{}'.format(
+            str(e), traceback.format_exc()))
     except Exception as e:
         aux_failed_q.put((
             'FillFilesProcessingError', str(e), traceback.format_exc()))
     finally:
-        # add None to indicate end of read enumeration
         num_reads_conn.send(len(used_read_ids))
-        read_file_q.put(None)
+        # add None to indicate end of read enumeration
+        for _ in range(input_info.num_read_enum_ts):
+            read_file_q.put(None)
 
 
 ####################
@@ -1261,7 +1322,8 @@ def parse_input_args(args):
     return mh.INPUT_INFO(
         fast5s_dir=args.fast5s_dir, recursive=not args.not_recursive,
         num_reads=args.num_reads, read_ids_fn=args.read_ids_filename,
-        num_ps=args.processes, do_it_live=args.live_processing)
+        num_ps=args.processes, do_it_live=args.live_processing,
+        num_read_enum_ts=args.num_read_enumeration_threads)
 
 
 def parse_status_args(args):

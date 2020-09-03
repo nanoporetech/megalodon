@@ -21,6 +21,11 @@ class LiveDoneError(Exception):
     pass
 
 
+def get_read_ids(fast5_fn):
+    with ont_get_fast5_file(fast5_fn, 'r') as fast5_fp:
+        return fast5_fp.get_read_ids()
+
+
 def iterate_fast5_filenames(input_path, recursive=True, do_it_live=False):
     """ Iterate over fast5 file from the base directory
 
@@ -67,12 +72,11 @@ def _iterate_fast5_reads_core(
     for fast5_fn in iterate_fast5_filenames(fast5s_dir, recursive, do_it_live):
         if skip_fns is not None and fast5_fn in skip_fns:
             continue
-        with ont_get_fast5_file(fast5_fn, 'r') as fast5_fp:
-            for read_id in fast5_fp.get_read_ids():
-                yield fast5_fn, read_id
-                nreads += 1
-                if limit is not None and nreads >= limit:
-                    return
+        for read_id in get_read_ids(fast5_fn):
+            yield fast5_fn, read_id
+            nreads += 1
+            if limit is not None and nreads >= limit:
+                return
 
 
 def iterate_fast5_reads(

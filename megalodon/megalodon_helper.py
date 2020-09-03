@@ -37,6 +37,7 @@ MOD_BIN_THRESH_NAME = 'binary_threshold'
 MOD_EM_NAME = 'expectation_maximization'
 MOD_AGG_METHOD_NAMES = set((MOD_BIN_THRESH_NAME, MOD_EM_NAME))
 DEFAULT_MOD_BINARY_THRESH = 0.8
+DEFAULT_READ_ENUM_TS = 8
 
 MED_NORM_FACTOR = 1.4826
 
@@ -162,14 +163,14 @@ ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, SIG_MAP_NAME,
 MOD_OUTPUTS = set((MOD_NAME, PR_MOD_NAME, BC_MODS_NAME, MOD_MAP_NAME))
 
 _MAX_QUEUE_SIZE = 10000
-GETTER_INFO = namedtuple('INPUT_INFO', (
+GETTER_INFO = namedtuple('GETTER_INFO', (
     'name', 'do_output', 'func', 'args',  'max_size'))
 GETTER_INFO.__new__.__defaults__ = (_MAX_QUEUE_SIZE, )
 STATUS_INFO = namedtuple('STATUS_INFO', (
     'suppress_prog_bar', 'suppress_queues', 'num_prog_errs'))
 INPUT_INFO = namedtuple('INPUT_INFO', (
     'fast5s_dir', 'recursive', 'num_reads', 'read_ids_fn', 'num_ps',
-    'do_it_live'))
+    'do_it_live', 'num_read_enum_ts'))
 BASECALL_DO_OUTPUT = namedtuple('BASECALL_DO_OUTPUT', (
     'any', 'basecalls', 'mod_basecalls'))
 BASECALL_INFO = namedtuple('BASECALL_INFO', (
