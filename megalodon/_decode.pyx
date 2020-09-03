@@ -764,17 +764,18 @@ def rle(x, tol=0):
 
 @cython.wraparound(True)
 def decode_post(
-        np.ndarray[np.float32_t, ndim=2, mode="c"] r_post, alphabet=ALPHABET,
+        np.ndarray[np.float32_t, ndim=2, mode="c"] r_post,
+        can_alphabet=ALPHABET,
         np.ndarray[np.float32_t, ndim=2, mode="c"] mod_weights=None,
         np.ndarray[np.int64_t, ndim=1, mode="c"] can_nmods=None):
     """Decode a posterior using Viterbi algorithm for transducer.
     :param r_post: numpy array containing transducer posteriors.
-    :param alphabet: alphabet corresponding to flip-flop labels.
+    :param can_alphabet: canonical alphabet corresponding to flip-flop labels.
     :returns: tuple containing (base calls, score and raw block positions).
     """
     nblock, nstate = r_post.shape[:2]
-    nbase = len(set(alphabet))
-    if nbase != nstate_to_nbase(nstate):
+    cdef size_t n_can_base = len(can_alphabet)
+    if n_can_base != nstate_to_nbase(nstate):
         raise NotImplementedError(
             'Incompatible decoding alphabet and posterior states.')
 
@@ -787,32 +788,15 @@ def decode_post(
     # first position doesn't have a score anyways
     # This aligned the indices of path and the posterior matricies
     runval, runlen = rle(path)
-    basecall = ''.join(alphabet[int(b) % nbase] for b in runval)
+    basecall = ''.join(can_alphabet[int(b) % n_can_base] for b in runval)
     rl_cumsum = np.cumsum(np.concatenate([[0], runlen]))
 
-    cdef size_t base_i, can_nmod, curr_can_pos, mod_i, len_can_nmods, all_mods_i
-    cdef np.ndarray[np.float32_t, ndim=2] bc_matched_mod_weights
     mods_scores = None
     if mod_weights is not None:
-        mods_scores = np.full((runval.shape[0], sum(can_nmods)), np.NAN,
-                             dtype=np.float32)
-        len_can_nmods = len(can_nmods)
-        all_mods_i = 0
-        # extract modified base probabilities for each modification included in
-        # the input model
-        # don't test first base since it is never "moved into"
-        # and subtract 1 to align "moved into" indices
-        bc_matched_mod_weights = mod_weights[rl_cumsum[1:-1] - 1]
-        curr_can_pos = 0
-        for base_i in range(len_can_nmods):
-            can_nmod = can_nmods[base_i]
-            if can_nmod > 0:
-                base_poss = np.where(np.equal(np.mod(
-                    runval[1:], len_can_nmods), base_i))[0]
-            for mod_i in range(can_nmod):
-                mods_scores[base_poss + 1, all_mods_i] = bc_matched_mod_weights[
-                    base_poss, curr_can_pos + 1 + mod_i]
-                all_mods_i += 1
-            curr_can_pos += 1 + can_nmod
+        mods_scores = np.empty(
+            (runval.shape[0], len(can_alphabet) + sum(can_nmods)),
+            dtype=np.float32)
+        mods_scores[0] = 0
+        mods_scores[1:] = mod_weights[rl_cumsum[1:-1] - 1]
 
     return basecall, score, rl_cumsum, mods_scores
