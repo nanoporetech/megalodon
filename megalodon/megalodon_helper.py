@@ -171,6 +171,7 @@ STATUS_INFO = namedtuple('STATUS_INFO', (
 INPUT_INFO = namedtuple('INPUT_INFO', (
     'fast5s_dir', 'recursive', 'num_reads', 'read_ids_fn', 'num_ps',
     'do_it_live', 'num_read_enum_ts'))
+INPUT_INFO.__new__.__defaults__ = (False, DEFAULT_READ_ENUM_TS)
 BASECALL_DO_OUTPUT = namedtuple('BASECALL_DO_OUTPUT', (
     'any', 'basecalls', 'mod_basecalls'))
 BASECALL_INFO = namedtuple('BASECALL_INFO', (
