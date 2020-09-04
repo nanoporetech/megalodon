@@ -286,7 +286,7 @@ def report_acc_metrics(res_dir, out_fp, samp_lab):
             np.max(aligned_lens), np.median(aligned_lens),
             np.mean(aligned_lens), samp_lab))
     except FileNotFoundError:
-        bc_acc = parsim_acc = None
+        bc_acc = parsim_acc = aligned_lens = None
         LOGGER.info('Mappings not found for {}'.format(res_dir))
 
     return bc_acc, parsim_acc, aligned_lens
