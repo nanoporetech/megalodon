@@ -384,6 +384,13 @@ def get_parser():
                          'within the fast5 directory. Default: search ' +
                          'recursively'))
     misc_grp.add_argument(
+        '--num-read-enumeration-threads', type=int,
+        default=mh.DEFAULT_READ_ENUM_TS,
+        help=hidden_help('Number of parallel threads to use for read ' +
+                         'enumeration. Increase if input queue remains ' +
+                         'empty, generally due to single read format FAST5s ' +
+                         'or slow disk. Default: %(default)d'))
+    misc_grp.add_argument(
         '--suppress-progress-bars', action='store_true',
         help=hidden_help('Suppress progress bars output.'))
     misc_grp.add_argument(
