@@ -526,6 +526,8 @@ class ModelInfo(AbstractModelInfo):
                 server_args.extend(('-x', devices_str))
             if self.params.pyguppy.server_params is not None:
                 server_args.extend(self.params.pyguppy.server_params.split())
+            LOGGER.debug('guppy server init command: "{}"'.format(
+                ' '.join(server_args)))
             self.guppy_server_proc = subprocess.Popen(
                 server_args, shell=False,
                 stdout=self.guppy_out_fp, stderr=self.guppy_err_fp)

@@ -25,7 +25,7 @@ BC_LEGEND_LABEL = 'Sample'
 DEFAULT_VS_LABEL = 'All Sites'
 
 ACC_METRICS_HEADER = (
-    '{: <17}{: <15}{: <15}{: <11}{: <15.1f}{: <15.1f}{: <15.1f}{}\n'.format(
+    '{: <17}{: <15}{: <15}{: <11}{: <15}{: <15}{: <15}{}\n'.format(
         'Median_Accuracy', 'Mean_Accuracy', 'Mode_Accuracy', 'Num_Reads',
         'Longest_Aligned_Len', 'Median_Aligned_Len', 'Mean_Aligned_Len',
         'Sample_Label'))
@@ -286,7 +286,7 @@ def report_acc_metrics(res_dir, out_fp, samp_lab):
             np.max(aligned_lens), np.median(aligned_lens),
             np.mean(aligned_lens), samp_lab))
     except FileNotFoundError:
-        bc_acc = parsim_acc = None
+        bc_acc = parsim_acc = aligned_lens = None
         LOGGER.info('Mappings not found for {}'.format(res_dir))
 
     return bc_acc, parsim_acc, aligned_lens
