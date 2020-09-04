@@ -25,7 +25,7 @@ BC_LEGEND_LABEL = 'Sample'
 DEFAULT_VS_LABEL = 'All Sites'
 
 ACC_METRICS_HEADER = (
-    '{: <17}{: <15}{: <15}{: <11}{}\n'.format(
+    '{: <17}{: <15}{: <15}{: <11}{: <15}{: <15}{: <15}{}\n'.format(
         'Median_Accuracy', 'Mean_Accuracy', 'Mode_Accuracy', 'Num_Reads',
         'Longest_Aligned_Len', 'Median_Aligned_Len', 'Mean_Aligned_Len',
         'Sample_Label'))
@@ -252,12 +252,12 @@ def plot_acc(pdf_fp, samps_val_data):
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
 
-
     plt.figure(figsize=(8, 5))
     for samp_val_data in samps_val_data:
         if samp_val_data.aligned_lens is not None:
-            sns.kdeplot(samp_val_data.aligned_lens, shade=True, bw=BC_BANDWIDTH,
-                        gridsize=BC_GRIDSIZE, label=samp_val_data.label)
+            sns.kdeplot(samp_val_data.aligned_lens, shade=True,
+                        bw=BC_BANDWIDTH, gridsize=BC_GRIDSIZE,
+                        label=samp_val_data.label)
     plt.legend(title=BC_LEGEND_LABEL)
     plt.xlabel('Aligned Length (Log10 scale)')
     plt.ylabel('Density')
@@ -276,7 +276,7 @@ def report_acc_metrics(res_dir, out_fp, samp_lab):
             100 * (r_data.num_match - r_data.num_ins) /
             (r_data.num_align - r_data.num_ins) for r_data in bc_data])
         aligned_lens = np.array([r_data.num_align - r_data.num_ins
-                                for r_data in bc_data])
+                                 for r_data in bc_data])
         # crude mode by rounding to 1 decimal
         uniq_acc, acc_counts = np.unique(np.around(
             bc_acc, 1), return_counts=True)
