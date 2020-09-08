@@ -150,18 +150,12 @@ def interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum):
 
 
 def process_read(
-        getter_conns, caller_conn, sig_info, seq_summ_info, model_info,
-        ref_out_info, vars_info, mods_info, bc_info):
+        getter_conns, caller_conn, bc_res, model_info, ref_out_info, vars_info,
+        mods_info, bc_info):
     """ Workhorse per-read megalodon function (connects all the parts)
     """
-    # perform basecalling using loaded backend
-    (r_seq, r_qual, rl_cumsum, can_post, sig_info, post_w_mods,
-     mods_scores, seq_summ_info) = model_info.basecall_read(
-         sig_info, return_post_w_mods=mods_info.do_output.db,
-         return_mod_scores=bc_info.do_output.mod_basecalls,
-         update_sig_info=ref_out_info.do_output.sig_maps,
-         signal_reversed=bc_info.rev_sig, seq_summ_info=seq_summ_info,
-         mod_bc_min_prob=bc_info.mod_bc_min_prob)
+    (sig_info, seq_summ_info, r_seq, r_qual, rl_cumsum, can_post, post_w_mods,
+     mods_scores) = bc_res
     if bc_info.do_output.any:
         # convert seq_summ_info to tuple since namedtuples can't be
         # pickled for passing through a queue.
@@ -180,7 +174,7 @@ def process_read(
 
     # map read and record mapping from reference to query positions
     r_ref_seq, r_to_q_poss, r_ref_pos, r_cigar = mapping.map_read(
-        caller_conn, getter_conns[mh.MAP_NAME], r_seq, sig_info.read_id,
+        caller_conn, r_seq, sig_info.read_id, getter_conns[mh.MAP_NAME],
         bc_info.rev_sig)
     np_ref_seq = mh.seq_to_int(r_ref_seq, error_on_invalid=False)
 
@@ -256,36 +250,53 @@ def process_read(
 def _process_reads_worker(
         signal_q, getter_conns, caller_conn, ref_out_info, model_info,
         vars_info, mods_info, bc_info, device):
-    def iter_sig_data():
-        while True:
+    def create_batch_gen():
+        for _ in range(bc_info.reads_per_batch):
             try:
                 read_sig_data = signal_q.get(block=True, timeout=0.01)
             except queue.Empty:
                 continue
             if read_sig_data is None:
                 LOGGER.debug('Closing')
+                # send signal to end main loop then end this iterator
+                gen_conn.send(True)
                 break
             sig_info, seq_summ_info = read_sig_data
-            # convert tuples back to namedtuples after multiprocessing queue
-            yield (backends.SIGNAL_DATA(*sig_info),
-                   mh.SEQ_SUMM_INFO(*seq_summ_info))
+            # convert tuples back to namedtuples after multiprocessing
+            sig_info = backends.SIGNAL_DATA(*sig_info)
+            yield sig_info, mh.SEQ_SUMM_INFO(*seq_summ_info)
+            LOGGER.debug('{} Processing'.format(sig_info.read_id))
 
-    failed_reads_q = getter_conns[_FAILED_READ_GETTER_NAME]
+    def iter_bc_res():
+        while not full_iter_conn.poll():
+            reads_batch_gen = create_batch_gen()
+            # perform basecalling using loaded backend
+            for bc_res in model_info.iter_basecalled_reads(
+                    reads_batch_gen, return_post_w_mods=mods_info.do_output.db,
+                    return_mod_scores=bc_info.do_output.mod_basecalls,
+                    update_sig_info=ref_out_info.do_output.sig_maps,
+                    signal_reversed=bc_info.rev_sig,
+                    mod_bc_min_prob=bc_info.mod_bc_min_prob,
+                    failed_reads_q=failed_reads_q):
+                yield bc_res
+
     # wrap process prep in try loop to avoid stalled command
     try:
+        # prepare connection for communication with batch generator
+        full_iter_conn, gen_conn = mp.Pipe(duplex=False)
+        failed_reads_q = getter_conns[_FAILED_READ_GETTER_NAME]
         model_info.prep_model_worker(device)
         vars_info.reopen_variant_index()
         LOGGER.debug('Starting')
-        sig_info = None
     except Exception:
         LOGGER.debug('InitFailed traceback: {}'.format(traceback.format_exc()))
         return
 
-    for sig_info, seq_summ_info in iter_sig_data():
+    for bc_res in iter_bc_res():
+        sig_info = bc_res[0]
         try:
-            LOGGER.debug('{} Processing'.format(sig_info.read_id))
             process_read(
-                getter_conns, caller_conn, sig_info, seq_summ_info, model_info,
+                getter_conns, caller_conn, bc_res, model_info,
                 ref_out_info, vars_info, mods_info, bc_info)
             failed_reads_q.put(tuple(mh.READ_STATUS(n_sig=sig_info.raw_len)))
             LOGGER.debug('{} Success'.format(sig_info.read_id))
@@ -386,29 +397,10 @@ def _get_bc_queue(bc_q, bc_info, aux_failed_q):
             mods_fp.close()
 
 
-def _extract_signal(
-        read_file_q, signal_q, aux_failed_q, input_info, model_info,
-        extract_dacs):
-    try:
-        LOGGER.debug('Starting')
-        prev_fast5_fn = fast5_fp = None
-        LOGGER.debug('InitComplete')
-    except Exception as e:
-        aux_failed_q.put((
-            'SignalExtractorInitError', str(e), traceback.format_exc()))
-        return
-
-    def get_signal(prev_fast5_fn, fast5_fp, fast5_fn, read_id):
-        if prev_fast5_fn != fast5_fn:
-            if fast5_fp is not None:
-                fast5_fp.close()
-            # if new fast5 file, open new file
-            fast5_fp = fast5_io.get_fast5_file(fast5_fn)
-        sig_info, seq_summ_info = model_info.extract_signal_info(
-            fast5_fp, read_id, extract_dacs)
-        signal_q.put((tuple(sig_info), tuple(seq_summ_info)))
-        return fast5_fn, fast5_fp
-
+def _extract_signal_worker(
+        read_file_q, signal_q, model_info, extract_dacs, aux_failed_q):
+    LOGGER.debug('Starting')
+    prev_fast5_fn = fast5_fp = None
     try:
         # while there are reads to process continue extracting signal
         while True:
@@ -422,10 +414,50 @@ def _extract_signal(
                     fast5_fp.close()
                 LOGGER.debug('Closing')
                 break
-            log_err_res = mh.log_errors(
-                get_signal, prev_fast5_fn, fast5_fp, *fn_rid)
-            if log_err_res is not None:
-                prev_fast5_fn, fast5_fp = log_err_res
+
+            fast5_fn, read_id = fn_rid
+            if prev_fast5_fn != fast5_fn:
+                if fast5_fp is not None:
+                    fast5_fp.close()
+                # if new fast5 file, open new file
+                fast5_fp = fast5_io.get_fast5_file(fast5_fn)
+            sig_info, seq_summ_info = model_info.extract_signal_info(
+                fast5_fp, read_id, extract_dacs)
+            signal_q.put((tuple(sig_info), tuple(seq_summ_info)))
+            prev_fast5_fn = fast5_fn
+    except Exception as e:
+        aux_failed_q.put((
+            'ExtractSignalProcessingError', str(e), traceback.format_exc()))
+
+
+def _extract_signal(
+        read_file_q, signal_q, aux_failed_q, input_info, model_info,
+        extract_dacs):
+    try:
+        LOGGER.debug('Starting')
+        sig_extract_ts = list()
+        for se_i in range(input_info.num_read_enum_ts):
+            sig_extract_ts.append(threading.Thread(
+                target=_extract_signal_worker,
+                args=(read_file_q, signal_q, model_info, extract_dacs,
+                      aux_failed_q),
+                daemon=True, name='ExtractSigThread{:03d}'.format(se_i)))
+            sig_extract_ts[-1].start()
+        LOGGER.debug('InitComplete')
+    except KeyboardInterrupt:
+        raise
+    except Exception as e:
+        aux_failed_q.put((
+            'ExtractSignalInitError', str(e), traceback.format_exc()))
+        return
+
+    try:
+        # while there are reads to process continue extracting signal
+        while any(t.is_alive() for t in sig_extract_ts):
+            sleep(0.01)
+        LOGGER.debug('Closing')
+    except KeyboardInterrupt:
+        raise
     except Exception as e:
         aux_failed_q.put((
             'ExtractSignalProcessingError', str(e), traceback.format_exc()))
@@ -434,48 +466,108 @@ def _extract_signal(
             signal_q.put(None)
 
 
+def _fill_files_file_enum_worker(fast5_fn_q, reads_q):
+    LOGGER.debug('ReadEnumWorkerStarting')
+    while True:
+        try:
+            fast5_fn = fast5_fn_q.get(block=False, timeout=0.01)
+        except queue.Empty:
+            continue
+        if fast5_fn is None:
+            LOGGER.debug('ReadEnumWorkerClosing')
+            break
+        file_read_ids = fast5_io.get_read_ids(fast5_fn)
+        reads_q.put((fast5_fn, file_read_ids))
+
+
+def _fill_files_queue_worker(fast5_fn_q, input_info):
+    LOGGER.debug('FileEnumStarting')
+    input_info = mh.INPUT_INFO(*input_info)
+    used_fns = set()
+    try:
+        for fast5_fn in fast5_io.iterate_fast5_filenames(
+                input_info.fast5s_dir, recursive=input_info.recursive,
+                do_it_live=input_info.do_it_live):
+            fast5_fn_q.put(fast5_fn)
+            if input_info.do_it_live:
+                used_fns.add(fast5_fn)
+    except fast5_io.LiveDoneError:
+        LOGGER.debug('LiveProcessingComplete')
+        for fast5_fn in fast5_io.iterate_fast5_filenames(
+                input_info.fast5s_dir, recursive=input_info.recursive):
+            if fast5_fn not in used_fns:
+                fast5_fn_q.put(fast5_fn)
+
+    for _ in range(input_info.num_read_enum_ts):
+        fast5_fn_q.put(None)
+    LOGGER.debug('FileEnumClosing')
+
+
 def _fill_files_queue(input_info, read_file_q, num_reads_conn, aux_failed_q):
+    """ Fill read_file_q with (fast5_fn, read_id) tuples. When finished, send
+    total number of reads to num_reads_conn.
+
+    In order to maximize performance, read enumeration is spread over a
+    multi-threading interface.
+    """
     try:
         LOGGER.debug('Starting')
         valid_read_ids = mh.parse_read_ids(input_info.read_ids_fn)
         used_read_ids = set()
+        fast5_fn_q = mp.Queue()
+        reads_q = mp.Queue()
+        # spawn thread to enumerate files
+        file_enum_t = threading.Thread(
+            target=_fill_files_queue_worker,
+            args=(fast5_fn_q, tuple(input_info)), daemon=True, name='FileEnum')
+        file_enum_t.start()
+        # spawn threads to enumerate reads within files
+        enum_ts = [file_enum_t]
+        for re_i in range(input_info.num_read_enum_ts):
+            enum_ts.append(threading.Thread(
+                target=_fill_files_file_enum_worker,
+                args=(fast5_fn_q, reads_q),
+                daemon=True, name='ReadEnumThread{:03d}'.format(re_i)))
+            enum_ts[-1].start()
         LOGGER.debug('InitComplete')
+    except KeyboardInterrupt:
+        raise
     except Exception as e:
         aux_failed_q.put((
             'FillFilesInitError', str(e), traceback.format_exc()))
         return
 
-    def put_read(fast5_fn, read_id):
-        if read_id in used_read_ids:
-            LOGGER.debug('{} RepeatedReadID'.format(read_id))
-            return False
-        if (valid_read_ids is not None and read_id not in valid_read_ids) or (
-                fast5_fn is None or read_id is None):
-            return False
-        read_file_q.put((fast5_fn, read_id))
-        used_read_ids.add(read_id)
-        if input_info.num_reads is not None and \
-           len(used_read_ids) >= input_info.num_reads:
-            LOGGER.debug('NumReadsLimit')
-            return True
-        return False
-
     try:
         # fill queue with read filename and read id tuples
-        for fast5_fn, read_id in fast5_io.iterate_fast5_reads(
-                input_info.fast5s_dir, recursive=input_info.recursive,
-                do_it_live=input_info.do_it_live):
-            do_break = mh.log_errors(put_read, fast5_fn, read_id)
-            if do_break:
-                break
-        LOGGER.debug('Closing')
+        while any(t.is_alive() for t in enum_ts):
+            try:
+                fast5_fn, file_read_ids = reads_q.get(
+                    block=False, timeout=0.01)
+            except queue.Empty:
+                continue
+            for read_id in file_read_ids:
+                if read_id in used_read_ids:
+                    LOGGER.debug('{} RepeatedReadID'.format(read_id))
+                    return False
+                if (valid_read_ids is not None and
+                    read_id not in valid_read_ids) or (
+                        fast5_fn is None or read_id is None):
+                    continue
+                read_file_q.put((fast5_fn, read_id))
+                used_read_ids.add(read_id)
+                if input_info.num_reads is not None and \
+                   len(used_read_ids) >= input_info.num_reads:
+                    LOGGER.debug('NumReadsLimit')
+    except KeyboardInterrupt:
+        raise
     except Exception as e:
         aux_failed_q.put((
             'FillFilesProcessingError', str(e), traceback.format_exc()))
     finally:
-        # add None to indicate end of read enumeration
         num_reads_conn.send(len(used_read_ids))
-        read_file_q.put(None)
+        # add None to indicate end of read enumeration
+        for _ in range(input_info.num_read_enum_ts):
+            read_file_q.put(None)
 
 
 ####################
@@ -1242,14 +1334,16 @@ def parse_basecall_args(args, mods_info):
         out_dir=args.output_directory,
         bc_fmt=args.basecalls_format, mod_bc_fmt=args.mappings_format,
         mod_bc_min_prob=args.mod_min_prob,
-        mod_long_names=mods_info.mod_long_names, rev_sig=args.rna)
+        mod_long_names=mods_info.mod_long_names, rev_sig=args.rna,
+        reads_per_batch=args.reads_per_guppy_batch)
 
 
 def parse_input_args(args):
     return mh.INPUT_INFO(
         fast5s_dir=args.fast5s_dir, recursive=not args.not_recursive,
         num_reads=args.num_reads, read_ids_fn=args.read_ids_filename,
-        num_ps=args.processes, do_it_live=args.live_processing)
+        num_ps=args.processes, do_it_live=args.live_processing,
+        num_read_enum_ts=args.num_read_enumeration_threads)
 
 
 def parse_status_args(args):

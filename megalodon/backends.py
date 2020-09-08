@@ -37,7 +37,8 @@ BACKEND_PARAMS = namedtuple('BACKEND_PARAMS', (
 
 COMPAT_GUPPY_MODEL_TYPES = set(('flipflop',))
 GUPPY_HOST = 'localhost'
-PYGUPPY_PER_TRY_TIMEOUT = 0.0001
+PYGUPPY_PER_TRY_TIMEOUT = 0.01
+PYGUPPY_MAX_RECONNECT_ATTEMPTS = 5
 GUPPY_LOG_BASE = 'guppy_log'
 GUPPY_PORT_PAT = re.compile(r'Starting server on port:\W+(\d+)')
 GUPPY_VERSION_PAT = re.compile(
@@ -49,6 +50,10 @@ PYGUPPY_CLIENT_KWARGS = {
     'move_and_trace_enabled': True,
     'state_data_enabled': True
 }
+PYGUPPY_CALLED_READ = namedtuple('PYGUPPY_CALLED_READ', (
+    'model_type', 'model_stride', 'mod_long_names', 'output_alphabet',
+    'state_size', 'trimmed_samples', 'scaling_shift', 'scaling_scale',
+    'move', 'state', 'seq', 'qual'))
 
 # maximum time (in seconds) to wait before assigning device
 # over different processes. Actual time choosen randomly
@@ -175,27 +180,22 @@ def get_pyguppy_read(read_id, raw_data, channel_info):
             mh.CHAN_INFO_DIGI]}
 
 
-class PyguppyCalledRead(object):
-    def __init__(self, called_read):
-        """ Convert pyguppy_client_lib dict to python object
-        """
-        read_metadata = called_read['metadata']
-        self.model_type = read_metadata['basecall_type']
-        self.model_stride = read_metadata['model_stride']
-        self.mod_long_names = read_metadata['base_mod_long_names'].split()
-        self.output_alphabet = read_metadata['base_mod_alphabet']
-        if len(self.output_alphabet) == 0:
-            self.output_alphabet = mh.ALPHABET
-        self.state_size = read_metadata['state_size']
-        self.trimmed_samples = read_metadata['trimmed_samples']
-        self.scaling_shift = read_metadata['scaling_median']
-        self.scaling_scale = read_metadata['scaling_med_abs_dev']
-
-        read_datasets = called_read['datasets']
-        self.move = read_datasets['movement']
-        self.state = read_datasets['state_data']
-        self.seq = read_datasets['sequence']
-        self.qual = read_datasets['qstring']
+def parse_pyguppy_called_read(called_read):
+    read_metadata = called_read['metadata']
+    out_alphabet = read_metadata['base_mod_alphabet'] \
+        if len(read_metadata['base_mod_alphabet']) > 0 \
+        else mh.ALPHABET
+    read_datasets = called_read['datasets']
+    return PYGUPPY_CALLED_READ(
+        model_type=read_metadata['basecall_type'],
+        model_stride=read_metadata['model_stride'],
+        mod_long_names=read_metadata['base_mod_long_names'].split(),
+        output_alphabet=out_alphabet, state_size=read_metadata['state_size'],
+        trimmed_samples=read_metadata['trimmed_samples'],
+        scaling_shift=read_metadata['scaling_median'],
+        scaling_scale=read_metadata['scaling_med_abs_dev'],
+        move=read_datasets['movement'], state=read_datasets['state_data'],
+        seq=read_datasets['sequence'], qual=read_datasets['qstring'])
 
 
 class AbstractModelInfo(ABC):
@@ -354,9 +354,11 @@ class ModelInfo(AbstractModelInfo):
     Useful methods include:
         - `prep_model_worker`: Load model onto GPU device
         - `extract_signal_info`: Extract signal information
-        - `basecall_read`: Perform basecalling returning sequence, quality
-            values, basecall positions within posterior matrix, posterior
-            matrix, and serveral other bits of information.
+        - `iter_basecalled_reads`: Basecall a batch of reads yielding
+            signal info, sequencing summary info, sequence, quality values,
+            basecall positions within posterior array, canonical only posterior
+            array, posterior array with modified base scores, and basecall
+            anchored modified base scores.
     """
 
     def _load_taiyaki_model(self):
@@ -549,13 +551,15 @@ class ModelInfo(AbstractModelInfo):
                 self.params.pyguppy.config, **PYGUPPY_CLIENT_KWARGS)
             try:
                 init_client.connect()
-                init_read = get_pyguppy_read(
-                    'a', np.zeros(init_sig_len, dtype=np.int16),
-                    {mh.CHAN_INFO_OFFSET: 0, mh.CHAN_INFO_RANGE: 1,
-                     mh.CHAN_INFO_DIGI: 1})
+                init_read = [(SIGNAL_DATA(
+                    fast5_fn='init_test_read', read_id='init_test_read',
+                    raw_len=0, dacs=np.zeros(init_sig_len, dtype=np.int16),
+                    channel_info={mh.CHAN_INFO_OFFSET: 0,
+                                  mh.CHAN_INFO_RANGE: 1,
+                                  mh.CHAN_INFO_DIGI: 1}), None)]
                 try:
-                    init_called_read = self.pyguppy_basecall(
-                        init_client, init_read)
+                    init_called_read, _, _ = next(self.pyguppy_basecall(
+                        init_client, init_read))
                 except mh.MegaError:
                     raise mh.MegaError(
                         'Failed to run test read with Guppy. See Guppy logs ' +
@@ -740,63 +744,144 @@ class ModelInfo(AbstractModelInfo):
                     raw_mod_weights[:, lab_indices]))
         return np.concatenate(mod_layers, axis=1)
 
-    def pyguppy_basecall(self, client, read):
+    def pyguppy_basecall(self, client, reads_batch, failed_reads_q=None):
         def do_sleep():
             # function for profiling purposes
             sleep(PYGUPPY_PER_TRY_TIMEOUT)
 
-        try:
-            client.pass_read(read)
-        except ValueError:
-            raise mh.MegaError(
-                'Failed to send read to guppy server. Likely malformated ' +
-                'read.')
-        except ConnectionError:
-            raise mh.MegaError(
-                'Failed to send read to guppy server. No guppy server.')
-        except RuntimeError:
-            raise mh.MegaError(
-                'Failed to send read to guppy server. Undefined guppy ' +
-                'server response.')
-
-        try:
-            call_failed = True
-            for _ in range(self.pyguppy_retries):
+        def get_completed_reads():
+            do_retry = True
+            n_reconnect_attempts = 0
+            comp_reads = err_str = None
+            while do_retry:
                 try:
-                    called_read = client.get_completed_reads()[0]
-                    call_failed = False
-                    break
-                except IndexError:
-                    do_sleep()
-            if call_failed:
-                raise mh.MegaError('Guppy server timeout')
-        except ConnectionError:
-            raise mh.MegaError(
-                'Failed to retrieve read from guppy server. No guppy server ' +
-                'connection.')
-        except RuntimeError as e:
-            raise mh.MegaError(
-                'Failed to retrieve read from guppy server. Unexpected ' +
-                'error: ' + str(e))
-        return PyguppyCalledRead(called_read)
+                    comp_reads = client.get_completed_reads()
+                    do_retry = False
+                except ConnectionError as e:
+                    if n_reconnect_attempts < PYGUPPY_MAX_RECONNECT_ATTEMPTS:
+                        LOGGER.debug('Reconnecting to server (get reads)')
+                        client.connect()
+                        n_reconnect_attempts += 1
+                    else:
+                        err_str = ('Pyguppy pass read connection error ' +
+                                   '"{}"').format(str(e))
+                        do_retry = False
+                    err_str = ('Pyguppy get completed reads connection ' +
+                               'error "{}"').format(str(e))
+                except RuntimeError as e:
+                    err_str = ('Pyguppy get completed reads invalid error ' +
+                               '"{}"').format(str(e))
+                    do_retry = False
+            return comp_reads, err_str
 
-    def _run_pyguppy_model(
-            self, sig_info, return_post_w_mods, return_mod_scores,
-            update_sig_info, signal_reversed, seq_summ_info, mod_bc_min_prob):
-        if self.model_type != PYGUPPY_NAME:
-            raise mh.MegaError(
-                'Attempted to run pyguppy model with non-pyguppy ' +
-                'initialization.')
+        saved_input_data = {}
+        completed_reads = []
+        for sig_info, seq_summ_info in reads_batch:
+            err_str = None
+            read_sent = False
+            n_reconnect_attempts = 0
+            pyguppy_read = get_pyguppy_read(
+                sig_info.read_id, sig_info.dacs, sig_info.channel_info)
+            while not read_sent:
+                try:
+                    read_sent = client.pass_read(pyguppy_read)
+                except ValueError as e:
+                    err_str = ('Pyguppy pass read malformed error ' +
+                               '"{}"').format(str(e))
+                    read_sent = True
+                except ConnectionError as e:
+                    # attempt to reconnect to server when connection error
+                    # occurs
+                    if n_reconnect_attempts < PYGUPPY_MAX_RECONNECT_ATTEMPTS:
+                        LOGGER.debug('Reconnecting to server (pass read)')
+                        client.connect()
+                        n_reconnect_attempts += 1
+                    else:
+                        err_str = ('Pyguppy pass read connection error ' +
+                                   '"{}"').format(str(e))
+                        read_sent = True
+                except RuntimeError as e:
+                    err_str = ('Pyguppy pass read undefined error ' +
+                               '"{}"').format(str(e))
+                    read_sent = True
+                # get completed reads while sending reads so server doesn't
+                # back up indefinitely
+                iter_comp_reads = get_completed_reads()[0]
+                if iter_comp_reads is not None:
+                    completed_reads.extend(iter_comp_reads)
 
-        post_w_mods = mods_scores = None
-        called_read = self.pyguppy_basecall(self.client, get_pyguppy_read(
-            sig_info.read_id, sig_info.dacs, sig_info.channel_info))
+            if err_str is None:
+                saved_input_data[sig_info.read_id] = (sig_info, seq_summ_info)
+            else:
+                raw_len = sig_info.raw_len \
+                    if hasattr(sig_info, 'raw_len') else 0
+                fn_rid = '{}:::{}'.format(sig_info.fast5_fn, sig_info.read_id)
+                if failed_reads_q is not None:
+                    failed_reads_q.put(tuple(mh.READ_STATUS(
+                        is_err=True, do_update_prog=True, err_type=err_str,
+                        fast5_fn=fn_rid, n_sig=raw_len)))
+                LOGGER.debug('{} BasecallingFailed "{}"'.format(
+                    sig_info.read_id, err_str))
 
-        # compute rl_cumsum from move table
+        # yield reads that have been called already
+        for called_read in completed_reads:
+            read_id = called_read["metadata"]["read_id"]
+            try:
+                sig_info, seq_summ_info = saved_input_data[read_id]
+            except KeyError:
+                # read submitted in last batch now finished
+                LOGGER.debug('{} timeout read finished'.format(read_id))
+                continue
+            LOGGER.debug('{} BasecallingCompleted'.format(read_id))
+            yield (parse_pyguppy_called_read(called_read), sig_info,
+                   seq_summ_info)
+            del saved_input_data[read_id]
+
+        # process reads until timeout for batch
+        err_str = 'Guppy server timeout (see --guppy-timeout argument)'
+        for _ in range(self.pyguppy_retries):
+            completed_reads, comp_reads_err = get_completed_reads()
+            if comp_reads_err is not None:
+                err_str = comp_reads_err
+                break
+            for called_read in completed_reads:
+                read_id = called_read["metadata"]["read_id"]
+                try:
+                    sig_info, seq_summ_info = saved_input_data[read_id]
+                except KeyError:
+                    # read submitted in last batch now finished
+                    LOGGER.debug('{} timeout read finished'.format(read_id))
+                    continue
+                LOGGER.debug('{} BasecallingCompleted'.format(read_id))
+                yield (parse_pyguppy_called_read(called_read), sig_info,
+                       seq_summ_info)
+                del saved_input_data[read_id]
+            # if all reads have been processed break from loop
+            if len(saved_input_data) == 0:
+                err_str = None
+                break
+            do_sleep()
+
+        # if there are any left over reads report timeout errors
+        for read_id, (sig_info, _) in saved_input_data.items():
+            raw_len = sig_info.raw_len if hasattr(sig_info, 'raw_len') else 0
+            fn_rid = '{}:::{}'.format(sig_info.fast5_fn, read_id)
+            if failed_reads_q is not None:
+                failed_reads_q.put(tuple(mh.READ_STATUS(
+                    is_err=True, do_update_prog=True, fast5_fn=fn_rid,
+                    n_sig=raw_len, err_type=err_str)))
+            LOGGER.debug('{} BasecallingFailed {}'.format(read_id, err_str))
+
+    def _postprocess_pyguppy_called_read(
+            self, called_read, sig_info, seq_summ_info, return_post_w_mods,
+            return_mod_scores, update_sig_info, signal_reversed,
+            mod_bc_min_prob):
+        # compute run length cumsum from move table
         rl_cumsum = np.where(called_read.move)[0]
         rl_cumsum = np.insert(rl_cumsum, rl_cumsum.shape[0],
                               called_read.move.shape[0])
 
+        post_w_mods = mods_scores = None
         if self.is_cat_mod:
             # split canonical posteriors and mod transition weights
             can_post = np.ascontiguousarray(
@@ -867,24 +952,38 @@ class ModelInfo(AbstractModelInfo):
             # if anything goes wrong don't let it fail the read
             pass
 
-        return (called_read.seq, called_read.qual, rl_cumsum, can_post,
-                sig_info, post_w_mods, mods_scores, seq_summ_info)
+        return (sig_info, seq_summ_info, called_read.seq, called_read.qual,
+                rl_cumsum, can_post, post_w_mods, mods_scores)
 
-    def basecall_read(
-            self, sig_info, return_post_w_mods=True, return_mod_scores=False,
-            update_sig_info=False, signal_reversed=False, seq_summ_info=None,
-            mod_bc_min_prob=mh.DEFAULT_MOD_MIN_PROB):
-        if self.model_type not in (TAI_NAME, FAST5_NAME, PYGUPPY_NAME):
-            raise mh.MegaError('Invalid model backend')
+    def _run_pyguppy_backend(
+            self, reads_batch, return_post_w_mods, return_mod_scores,
+            update_sig_info, signal_reversed, mod_bc_min_prob, failed_reads_q):
+        if self.model_type != PYGUPPY_NAME:
+            raise mh.MegaError(
+                'Attempted to run pyguppy model with non-pyguppy ' +
+                'initialization.')
 
-        # decoding is performed within pyguppy server, so shortcurcuit return
-        # here as other methods require megalodon decoding.
-        if self.model_type == PYGUPPY_NAME:
-            return self._run_pyguppy_model(
-                sig_info, return_post_w_mods, return_mod_scores,
-                update_sig_info, signal_reversed, seq_summ_info,
-                mod_bc_min_prob)
+        for called_read, sig_info, seq_summ_info in self.pyguppy_basecall(
+                self.client, reads_batch, failed_reads_q):
+            try:
+                yield self._postprocess_pyguppy_called_read(
+                    called_read, sig_info, seq_summ_info, return_post_w_mods,
+                    return_mod_scores, update_sig_info, signal_reversed,
+                    mod_bc_min_prob)
+            # only catch Megalodon errors here, all others caught upstream
+            except mh.MegaError as e:
+                raw_len = sig_info.raw_len \
+                    if hasattr(sig_info, 'raw_len') else 0
+                fn_rid = '{}:::{}'.format(sig_info.fast5_fn, sig_info.read_id)
+                failed_reads_q.put(tuple(mh.READ_STATUS(
+                    is_err=True, do_update_prog=True, err_type=str(e),
+                    fast5_fn=fn_rid, n_sig=raw_len)))
+                LOGGER.debug('{} Failed {}'.format(sig_info.read_id, str(e)))
 
+    def _run_non_pyguppy_backend(
+            self, sig_info, seq_summ_info, return_post_w_mods=True,
+            return_mod_scores=False, update_sig_info=False,
+            signal_reversed=False, mod_bc_min_prob=mh.DEFAULT_MOD_MIN_PROB):
         post_w_mods = mod_weights = None
         if self.model_type == TAI_NAME:
             # run neural network with taiyaki
@@ -944,8 +1043,42 @@ class ModelInfo(AbstractModelInfo):
             except Exception:
                 pass
 
-        return (r_seq, r_qual, rl_cumsum, can_post, sig_info, post_w_mods,
-                mods_scores, seq_summ_info)
+        return (sig_info, seq_summ_info, r_seq, r_qual, rl_cumsum, can_post,
+                post_w_mods, mods_scores)
+
+    def iter_basecalled_reads(
+            self, reads_batch, return_post_w_mods=True,
+            return_mod_scores=False, update_sig_info=False,
+            signal_reversed=False, mod_bc_min_prob=mh.DEFAULT_MOD_MIN_PROB,
+            failed_reads_q=None):
+        if self.model_type not in (TAI_NAME, FAST5_NAME, PYGUPPY_NAME):
+            raise mh.MegaError('Invalid model backend')
+
+        if self.model_type == PYGUPPY_NAME:
+            for bc_res in self._run_pyguppy_backend(
+                    reads_batch, return_post_w_mods, return_mod_scores,
+                    update_sig_info, signal_reversed, mod_bc_min_prob,
+                    failed_reads_q):
+                yield bc_res
+        else:
+            for sig_info, seq_summ_info in reads_batch:
+                try:
+                    yield self._run_non_pyguppy_backend(
+                        sig_info, seq_summ_info, return_post_w_mods,
+                        return_mod_scores, update_sig_info, signal_reversed,
+                        mod_bc_min_prob)
+                # only catch Megalodon errors here, all others caught upstream
+                except mh.MegaError as e:
+                    if failed_reads_q is not None:
+                        raw_len = sig_info.raw_len \
+                            if hasattr(sig_info, 'raw_len') else 0
+                        fn_rid = '{}:::{}'.format(
+                            sig_info.fast5_fn, sig_info.read_id)
+                        failed_reads_q.put(tuple(mh.READ_STATUS(
+                            is_err=True, do_update_prog=True, err_type=str(e),
+                            fast5_fn=fn_rid, n_sig=raw_len)))
+                    LOGGER.debug('{} Failed {}'.format(
+                        sig_info.read_id, str(e)))
 
     def close(self):
         if self.model_type == PYGUPPY_NAME:

@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from megalodon import (
     backends, fast5_io, logging, mapping, megalodon_helper as mh, megalodon,
-    variants)
+    megalodon_multiprocessing as mega_mp, variants)
 from ._extras_parsers import get_parser_calibrate_generate_variants_stats
 
 
@@ -123,16 +123,17 @@ def call_alt_true_indel(
 
 
 def process_read(
-        sig_info, model_info, caller_conn, map_thr_buf, do_false_ref,
-        context_bases=mh.DEFAULT_VAR_CONTEXT_BASES,
+        sig_info, seq_summ_info, model_info, caller_conn, map_thr_buf,
+        do_false_ref, context_bases=mh.DEFAULT_VAR_CONTEXT_BASES,
         edge_buffer=mh.DEFAULT_EDGE_BUFFER, max_indel_len=MAX_INDEL_LEN,
         all_paths=ALL_PATHS, every_n=TEST_EVERY_N_LOCS,
         max_pos_per_read=MAX_POS_PER_READ):
-    r_seq, _, rl_cumsum, can_post, _, _, _ = model_info.basecall_read(
-        sig_info, return_post_w_mods=False)
+    (_, _, r_seq, _, rl_cumsum, can_post, _, _) = next(
+        model_info.iter_basecalled_reads(
+            [(sig_info, seq_summ_info)], return_post_w_mods=False))
 
     r_ref_seq, r_to_q_poss, r_ref_pos, _ = mapping.map_read(
-        r_seq, sig_info.read_id, caller_conn)
+        caller_conn, r_seq, sig_info.read_id)
     np_ref_seq = mh.seq_to_int(r_ref_seq)
     if np_ref_seq.shape[0] < edge_buffer * 2:
         raise NotImplementedError(
@@ -237,26 +238,28 @@ def process_read(
 
 def _process_reads_worker(
         fast5_q, var_calls_q, caller_conn, model_info, device, do_false_ref):
+    LOGGER.debug('InitWorker')
     model_info.prep_model_worker(device)
     map_thr_buf = mappy.ThreadBuffer()
 
     while True:
         try:
-            fast5_fn, read_id = fast5_q.get(block=False)
+            fn_rid = fast5_q.get(block=True, timeout=0.1)
         except queue.Empty:
-            sleep(0.001)
             continue
-
-        if fast5_fn is None:
+        if fn_rid is None:
+            LOGGER.debug('Closing')
             if caller_conn is not None:
-                caller_conn.send(True)
+                caller_conn.close()
             break
 
         try:
-            sig_info = model_info.extract_signal_info(fast5_io.get_fast5_file(
-                fast5_fn), read_id)
+            fast5_fn, read_id = fn_rid
+            sig_info, seq_summ_info = model_info.extract_signal_info(
+                fast5_io.get_fast5_file(fast5_fn), read_id)
             read_var_calls = process_read(
-                sig_info, model_info, caller_conn, map_thr_buf, do_false_ref)
+                sig_info, seq_summ_info, model_info, caller_conn, map_thr_buf,
+                do_false_ref)
             var_calls_q.put((True, read_var_calls))
         except Exception as e:
             var_calls_q.put((False, str(e)))
@@ -328,19 +331,22 @@ def process_all_reads(
     # read filename queue filler
     fast5_q = mp.Queue()
     num_reads_conn, getter_num_reads_conn = mp.Pipe()
+    input_info = mh.INPUT_INFO(
+        fast5s_dir=fast5s_dir, recursive=recursive, num_reads=num_reads,
+        read_ids_fn=read_ids_fn, num_ps=num_ps, do_it_live=False)
+    aux_failed_q = mp.Queue()
     files_p = mp.Process(
         target=megalodon._fill_files_queue, args=(
-            fast5_q, fast5s_dir, num_reads, read_ids_fn, recursive, num_ps,
-            num_reads_conn),
-        daemon=True)
+            input_info, fast5_q, num_reads_conn, aux_failed_q),
+        daemon=True, name='FileFiller')
     files_p.start()
 
-    var_calls_q, var_calls_p, main_sc_conn = mh.create_getter_q(
+    var_calls_q, var_calls_p, main_sc_conn = mega_mp.create_getter_q(
         _get_variant_calls,
         (out_fn, getter_num_reads_conn, suppress_progress))
 
     proc_reads_ps, map_conns = [], []
-    for device in model_info.process_devices:
+    for pnum, device in enumerate(model_info.process_devices):
         if aligner is None:
             map_conn, caller_conn = None, None
         else:
@@ -349,33 +355,46 @@ def process_all_reads(
         p = mp.Process(
             target=_process_reads_worker, args=(
                 fast5_q, var_calls_q, caller_conn, model_info, device,
-                do_false_ref))
+                do_false_ref), name='ReadWorker{:03d}'.format(pnum))
         p.daemon = True
         p.start()
         proc_reads_ps.append(p)
+        if caller_conn is not None:
+            caller_conn.close()
+        del caller_conn
     sleep(0.1)
     map_read_ts = []
     for map_conn in map_conns:
-        t = threading.Thread(
-            target=mapping._map_read_worker,
-            args=(aligner, map_conn, None))
+        t = threading.Thread(target=mapping._map_read_worker,
+                             args=(aligner, map_conn))
         t.daemon = True
         t.start()
         map_read_ts.append(t)
 
+    LOGGER.debug('Waiting for read filler process to join.')
     files_p.join()
+    LOGGER.debug('Read filler process complete.')
+    # put extra None values in fast5_q to indicate completed processing
+    for _ in range(num_ps - 1):
+        fast5_q.put(None)
+    LOGGER.debug('Waiting for process reads processes to join.')
     for proc_reads_p in proc_reads_ps:
         proc_reads_p.join()
+    LOGGER.debug('Process reads processes complete.')
+    LOGGER.debug('Waiting for mapping threads to join.')
     if map_read_ts is not None:
         for map_t in map_read_ts:
             map_t.join()
+    LOGGER.debug('Mapping threads complete.')
+    LOGGER.debug('Waiting for output process to join.')
     if var_calls_p.is_alive():
         main_sc_conn.send(True)
         var_calls_p.join()
+    LOGGER.debug('Output process complete.')
 
 
 def _main(args):
-    logging.init_logger()
+    logging.init_logger(args.guppy_logs_output_directory)
     # add required attributes for loading guppy, but not valid options for
     # this script.
     args.do_not_use_guppy_server = False
@@ -391,7 +410,7 @@ def _main(args):
     backend_params = backends.parse_backend_params(args)
     with backends.ModelInfo(backend_params, args.processes) as model_info:
         LOGGER.info('Loading reference.')
-        aligner = mapping.alignerPlus(
+        aligner = mappy.Aligner(
             str(args.reference), preset=str('map-ont'), best_n=1)
 
         process_all_reads(

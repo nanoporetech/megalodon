@@ -29,6 +29,10 @@ Guppy Backend Argument
 
   - Guppy server port.
   - Default: ``auto``
+- ``--reads-per-guppy-batch``
+
+  - Number of reads to send to Guppy per batch within each worker processes.
+  - Default: ``50``
 - ``--guppy-timeout``
 
   - Timeout to wait for guppy server to call a single read in seconds.
@@ -293,6 +297,15 @@ Miscellaneous Arguments
 - ``--suppress-progress``
 
   - Suppress progress bar output.
+- ``--num-read-enumeration-threads``
+
+  - Number of parallel threads to use for read enumeration.
+
+    - Technically, twice this number of threads will be opened.
+
+      - One set of threads will be dedicated to read id enumeration and the second set of threads will perform raw signal extraction.
+  - Increase if input queue remains empty, generally due to single read format FAST5s or slow disk.
+  - Default: ``8``
 - ``--suppress-queues-status``
 
   - Suppress dynamic status of output queues.
@@ -300,4 +313,4 @@ Miscellaneous Arguments
 - ``--verbose-read-progress``
 
   - Output dynamic updates to potential issues during processing.
-  - Default: 3
+  - Default: ``3``

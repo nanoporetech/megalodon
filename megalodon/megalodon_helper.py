@@ -37,6 +37,7 @@ MOD_BIN_THRESH_NAME = 'binary_threshold'
 MOD_EM_NAME = 'expectation_maximization'
 MOD_AGG_METHOD_NAMES = set((MOD_BIN_THRESH_NAME, MOD_EM_NAME))
 DEFAULT_MOD_BINARY_THRESH = 0.8
+DEFAULT_READ_ENUM_TS = 8
 
 MED_NORM_FACTOR = 1.4826
 
@@ -162,19 +163,20 @@ ALIGN_OUTPUTS = set((MAP_NAME, PR_REF_NAME, SIG_MAP_NAME,
 MOD_OUTPUTS = set((MOD_NAME, PR_MOD_NAME, BC_MODS_NAME, MOD_MAP_NAME))
 
 _MAX_QUEUE_SIZE = 10000
-GETTER_INFO = namedtuple('INPUT_INFO', (
+GETTER_INFO = namedtuple('GETTER_INFO', (
     'name', 'do_output', 'func', 'args',  'max_size'))
 GETTER_INFO.__new__.__defaults__ = (_MAX_QUEUE_SIZE, )
 STATUS_INFO = namedtuple('STATUS_INFO', (
     'suppress_prog_bar', 'suppress_queues', 'num_prog_errs'))
 INPUT_INFO = namedtuple('INPUT_INFO', (
     'fast5s_dir', 'recursive', 'num_reads', 'read_ids_fn', 'num_ps',
-    'do_it_live'))
+    'do_it_live', 'num_read_enum_ts'))
+INPUT_INFO.__new__.__defaults__ = (False, DEFAULT_READ_ENUM_TS)
 BASECALL_DO_OUTPUT = namedtuple('BASECALL_DO_OUTPUT', (
     'any', 'basecalls', 'mod_basecalls'))
 BASECALL_INFO = namedtuple('BASECALL_INFO', (
     'do_output', 'out_dir', 'bc_fmt', 'mod_bc_fmt', 'mod_bc_min_prob',
-    'mod_long_names', 'rev_sig'))
+    'mod_long_names', 'rev_sig', 'reads_per_batch'))
 REF_DO_OUTPUT = namedtuple('REF_DO_OUTPUT', (
     'pr_refs', 'can_pr_refs', 'mod_pr_refs', 'var_pr_refs',
     'sig_maps', 'can_sig_maps', 'mod_sig_maps', 'var_sig_maps'))
@@ -216,7 +218,8 @@ SEQ_SUMM_INFO.__new__.__defaults__ = tuple(['NA', ] * 12)
 # default guppy settings
 DEFAULT_GUPPY_SERVER_PATH = './ont-guppy/bin/guppy_basecall_server'
 DEFAULT_GUPPY_CFG = 'dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg'
-DEFAULT_GUPPY_TIMEOUT = 5.0
+DEFAULT_GUPPY_TIMEOUT = 30.0
+DEFAULT_GUPPY_BATCH_SIZE = 50
 
 # completed read information
 READ_STATUS = namedtuple('READ_STATUS', (

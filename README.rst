@@ -1,5 +1,6 @@
 .. image:: /ONT_logo.png
   :width: 800
+  :alt: [Oxford Nanopore Technologies]
 
 ******************
 
@@ -32,8 +33,10 @@ Given a python (version >= 3.5) installation, all other requirements are handled
 
 ..
 
-   `Taiyaki <https://github.com/nanoporetech/taiyaki>`_ is no longer required to run megalodon, but installation is required for two specific run modes:
+   `Taiyaki <https://github.com/nanoporetech/taiyaki>`_ is no longer required to run Megalodon, but installation is required for two specific run modes:
+
    1) output mapped signal files (for basecall model training)
+
    2) running the Taiyaki basecalling backend (for neural network designs including experimental layers)
 
 Installation
@@ -167,7 +170,7 @@ In addition to the ``--guppy-config`` and ``--guppy-server-path`` options, a num
 The ``--guppy-params`` argument will pass arguments directly to the ``guppy_basecall_server`` initialization call.
 For example to optimize GPU usage, the following option might be specified: ``--guppy-params "--num_callers 5 --ipc_threads 6"``
 
-Finally the ``--guppy-timeout`` arguments ensures that a run will not stall on a small number of reads taking a very long time (default 5 seconds).
+Finally the ``--guppy-timeout`` arguments ensures that a run will not stall on a small number of reads taking a very long time (default 30 seconds per batch of 50 reads).
 
 High Quality Phased Variant Calls
 ---------------------------------
@@ -186,10 +189,15 @@ Disk Performance Considerations
 -------------------------------
 
 Per-read modified base and variant statistics are stored in an on-disk sqlite database.
-As of version 2.0, the status of output queues and as of version 2.2 the extract signal input queue are displayed by default.
+As of version 2.0 the status of output queues and as of version 2.2 the extract signal input queue are displayed by default.
+
 If the ``extract_signal`` input queue is often empty, Megalodon is waiting on reading raw signal from FAST5 files.
+As of version 2.2.1, the ``--num-read-enumeration-threads`` option was added.
+If the input queue remains empty and the system is not disk I/O bound (e.g. observed by ``iotop``), increasing this parameter (default ``8``) may improve performance.
+Alternatively and if available, the input FAST5s disk location could be moved to faster I/O disk.
+
 If any output status bars indicate a full queue, Megalodon will stall waiting on that process to write data to disk.
-Moving the input data directory or  ``--output-directory`` accordingly to a location with faster disk I/O performance should improve performance.
+Moving the ``--output-directory`` accordingly to a location with faster disk I/O performance should improve performance.
 
 RNA
 ---

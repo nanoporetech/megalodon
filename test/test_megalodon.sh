@@ -15,7 +15,7 @@ CTRL_READS="amplified_reads"
 NAT_READS="native_reads"
 
 NPROC=8
-GUPPY_TIMEOUT=60
+GUPPY_TIMEOUT=240
 
 
 ######################
@@ -126,7 +126,6 @@ megalodon \
 # megalodon_extras tests #
 ##########################
 
-# add extras commands to test
 megalodon_extras \
     aggregate run --outputs variants mods \
     --megalodon-directory ${CTRL_READS}.mega_res \
@@ -157,6 +156,19 @@ megalodon_extras \
     --megalodon-directory megalodon_results.split_by_motif.CCTGG_1 \
     --outputs mods \
     --processes ${NPROC}
+
+megalodon_extras \
+    calibrate generate_variant_stats \
+    ${CTRL_READS} \
+    --reference ${MINIMAP_INDEX} \
+    --num-reads 10 \
+    --processes ${NPROC} \
+    --guppy-server-path ${GUPPY_PATH}
+megalodon_extras \
+    calibrate variants \
+    --processes ${NPROC} \
+    --out-pdf megalodon_variant_calibration.pdf \
+    --overwrite
 
 # TODO add tests for more megalodon_extras commands
 
