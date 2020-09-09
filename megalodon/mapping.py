@@ -24,16 +24,19 @@ MAP_RES = namedtuple('MAP_RES', (
 MAP_SUMM = namedtuple('MAP_SUMM', (
     'read_id', 'pct_identity', 'num_align', 'num_match',
     'num_del', 'num_ins', 'read_pct_coverage', 'chrom', 'strand',
-    'start', 'end'))
+    'start', 'end', 'map_sig_start', 'map_sig_end', 'sig_len'))
 # Defaults for backwards compatibility when reading
-MAP_SUMM.__new__.__defaults__ = (None, None, None, None, None)
+MAP_SUMM.__new__.__defaults__ = (
+    None, None, None, None, None, None, None, None)
 MAP_SUMM_TMPLT = (
     '{0.read_id}\t{0.pct_identity:.2f}\t{0.num_align}\t{0.num_match}\t' +
     '{0.num_del}\t{0.num_ins}\t{0.read_pct_coverage:.2f}\t{0.chrom}\t' +
-    '{0.strand}\t{0.start}\t{0.end}\n')
+    '{0.strand}\t{0.start}\t{0.end}\t{0.map_sig_start}\t{0.map_sig_end}\t' +
+    '{0.sig_len}\n')
 MAP_SUMM_TYPES = dict(zip(
     MAP_SUMM._fields,
-    (str, float, int, int, int, int, float, str, str, int, int)))
+    (str, float, int, int, int, int, float, str, str, int, int,
+     int, int, int)))
 
 MOD_POS_TAG = 'Mm'
 MOD_PROB_TAG = 'Ml'
@@ -367,7 +370,8 @@ def _get_map_queue(mo_q, map_info, ref_out_info, aux_failed_q):
             read_pct_coverage=((map_res.q_en - map_res.q_st) * 100 /
                                float(bc_len)), chrom=map_res.ctg,
             strand=mh.int_strand_to_str(map_res.strand), start=map_res.r_st,
-            end=map_res.r_st + nalign - nins)
+            end=map_res.r_st + nalign - nins, map_sig_start=,
+            map_sig_end=, sig_len=)
         summ_fp.write(MAP_SUMM_TMPLT.format(r_map_summ))
 
         if ref_out_info.do_output.pr_refs and read_passes_filters(
