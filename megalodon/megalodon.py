@@ -466,28 +466,30 @@ def _extract_signal(
             signal_q.put(None)
 
 
-def _fill_files_file_enum_worker(fast5_fn_q, reads_q):
-    LOGGER.debug('ReadEnumWorkerStarting')
-    while True:
+def _fill_files_file_enum_worker(fast5_fn_q, reads_q, is_below_reads_limit):
+    LOGGER.debug('Starting')
+    while is_below_reads_limit():
         try:
             fast5_fn = fast5_fn_q.get(block=False, timeout=0.01)
         except queue.Empty:
             continue
         if fast5_fn is None:
-            LOGGER.debug('ReadEnumWorkerClosing')
             break
         file_read_ids = fast5_io.get_read_ids(fast5_fn)
         reads_q.put((fast5_fn, file_read_ids))
+    LOGGER.debug('Closing')
 
 
-def _fill_files_queue_worker(fast5_fn_q, input_info):
-    LOGGER.debug('FileEnumStarting')
+def _fill_files_queue_worker(fast5_fn_q, input_info, is_below_reads_limit):
+    LOGGER.debug('Starting')
     input_info = mh.INPUT_INFO(*input_info)
     used_fns = set()
     try:
         for fast5_fn in fast5_io.iterate_fast5_filenames(
                 input_info.fast5s_dir, recursive=input_info.recursive,
                 do_it_live=input_info.do_it_live):
+            if not is_below_reads_limit():
+                break
             fast5_fn_q.put(fast5_fn)
             if input_info.do_it_live:
                 used_fns.add(fast5_fn)
@@ -500,7 +502,7 @@ def _fill_files_queue_worker(fast5_fn_q, input_info):
 
     for _ in range(input_info.num_read_enum_ts):
         fast5_fn_q.put(None)
-    LOGGER.debug('FileEnumClosing')
+    LOGGER.debug('Closing')
 
 
 def _fill_files_queue(input_info, read_file_q, num_reads_conn, aux_failed_q):
@@ -516,17 +518,19 @@ def _fill_files_queue(input_info, read_file_q, num_reads_conn, aux_failed_q):
         used_read_ids = set()
         fast5_fn_q = mp.Queue()
         reads_q = mp.Queue()
+        below_reads_limit = True
         # spawn thread to enumerate files
         file_enum_t = threading.Thread(
             target=_fill_files_queue_worker,
-            args=(fast5_fn_q, tuple(input_info)), daemon=True, name='FileEnum')
+            args=(fast5_fn_q, tuple(input_info), lambda: below_reads_limit),
+            daemon=True, name='FileEnum')
         file_enum_t.start()
         # spawn threads to enumerate reads within files
         enum_ts = [file_enum_t]
         for re_i in range(input_info.num_read_enum_ts):
             enum_ts.append(threading.Thread(
                 target=_fill_files_file_enum_worker,
-                args=(fast5_fn_q, reads_q),
+                args=(fast5_fn_q, reads_q, lambda: below_reads_limit),
                 daemon=True, name='ReadEnumThread{:03d}'.format(re_i)))
             enum_ts[-1].start()
         LOGGER.debug('InitComplete')
@@ -539,7 +543,7 @@ def _fill_files_queue(input_info, read_file_q, num_reads_conn, aux_failed_q):
 
     try:
         # fill queue with read filename and read id tuples
-        while any(t.is_alive() for t in enum_ts):
+        while below_reads_limit and any(t.is_alive() for t in enum_ts):
             try:
                 fast5_fn, file_read_ids = reads_q.get(
                     block=False, timeout=0.01)
@@ -558,6 +562,8 @@ def _fill_files_queue(input_info, read_file_q, num_reads_conn, aux_failed_q):
                 if input_info.num_reads is not None and \
                    len(used_read_ids) >= input_info.num_reads:
                     LOGGER.debug('NumReadsLimit')
+                    below_reads_limit = False
+                    break
     except KeyboardInterrupt:
         raise
     except Exception as e:
@@ -823,17 +829,19 @@ def wait_for_completion(
                 # TODO check for failed workers and create mechanism to restart
                 sleep(1)
 
-        LOGGER.debug('JoiningMain: Starting workers and getters')
+        LOGGER.debug('JoiningMain: Workers')
         # join worker/getter processes
         for proc_reads_p in proc_reads_ps:
             LOGGER.debug('JoiningMain: {}'.format(proc_reads_p.name))
             proc_reads_p.join()
             LOGGER.debug('JoinedMain: {}'.format(proc_reads_p.name))
+        LOGGER.debug('JoiningMain: Mappers')
         if map_read_ts is not None:
             for map_t in map_read_ts:
                 LOGGER.debug('JoiningMain: {}'.format(map_t.name))
                 map_t.join()
                 LOGGER.debug('JoinedMain: {}'.format(map_t.name))
+        LOGGER.debug('JoiningMain: Getters')
         # comm to getter processes to return
         for out_name, getter_p in getter_ps.items():
             if getter_p.is_alive():
