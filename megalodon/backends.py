@@ -923,8 +923,8 @@ class ModelInfo(AbstractModelInfo):
                 scale_params=scale_params)
 
         if signal_reversed:
-            called_read.seq = called_read.seq[::-1]
-            called_read.qual = called_read.qual[::-1]
+            called_read = called_read._replace(
+                seq=called_read.seq[::-1], qual=called_read.qual[::-1])
 
         # update seq summary info with basecalling info
         try:

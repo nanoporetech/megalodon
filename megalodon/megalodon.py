@@ -160,6 +160,8 @@ def process_read(
         # convert seq_summ_info to tuple since namedtuples can't be
         # pickled for passing through a queue.
         if bc_info.rev_sig:
+            # sequence is stored internally in sequencing direction. Send to
+            # basecall output in reference direction.
             getter_conns[mh.BC_NAME].put((
                 sig_info.read_id, r_seq[::-1], r_qual[::-1], mods_scores,
                 tuple(seq_summ_info)))
