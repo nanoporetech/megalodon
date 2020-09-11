@@ -184,7 +184,7 @@ REF_OUT_FILTER_PARAMS = namedtuple('REF_OUT_FILTER_PARAMS', (
     'pct_idnt', 'pct_cov', 'min_len', 'max_len'))
 REF_OUT_INFO = namedtuple('ref_out_info', (
     'do_output', 'filt_params', 'ref_mods_all_motifs', 'alphabet_info',
-    'out_dir', 'get_sig_map_func'))
+    'out_dir', 'get_sig_map_func', 'per_site_threshs'))
 VAR_DO_OUTPUT = namedtuple('VAR_DO_OUTPUT', (
     'db', 'text', 'var_map'))
 VAR_DO_OUTPUT.__new__.__defaults__ = (False, False, False, False)
@@ -589,6 +589,29 @@ def int_strand_to_str(strand_str):
     return '.'
 
 
+def parse_bed_scores(bed_fn):
+    bed_scores = defaultdict(dict)
+    with open(bed_fn) as bed_fp:
+        for line in bed_fp:
+            chrm, pos, _, _, score, strand = line.split()[:6]
+            bed_scores[(chrm, str_strand_to_int(strand))][
+                int(pos)] = float(score)
+    return dict(bed_scores)
+
+
+def parse_bed_scores_np(bed_fn, ref_names_and_lens):
+    bed_scores = dict(
+        ((chrm, strand), np.zeros(chrm_len, dtype=np.float32))
+        for chrm, chrm_len in zip(*ref_names_and_lens)
+        for strand in (-1, 1))
+    with open(bed_fn) as bed_fp:
+        for line in bed_fp:
+            chrm, pos, _, _, score, strand = line.split()[:6]
+            bed_scores[(chrm, str_strand_to_int(strand))][
+                int(pos)] = float(score)
+    return bed_scores
+
+
 def parse_beds(bed_fns, ignore_strand=False, show_prog_bar=True):
     """ Parse bed files.
 
@@ -650,11 +673,11 @@ def parse_bed_methyls(
                 # convert to 1/-1 strand storage (matching mappy)
                 store_strand = str_strand_to_int(strand)
                 if strand_offset is not None:
+                    # apply offset to reverse strand positions
+                    if store_strand == -1:
+                        start -= strand_offset
                     # store both strand counts under None
                     store_strand = None
-                    # apply offset to reverse strand positions
-                    if strand == '-':
-                        start -= strand_offset
                 # skip any positions not found in valid_pos
                 if valid_pos is not None and (
                         (chrm, store_strand) not in valid_pos or
