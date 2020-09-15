@@ -6,6 +6,18 @@ This page describes the process to generate modified base training data and trai
 The options provided from Megalodon for modified base training data annotation are each linked to a specific sample type.
 If the provided options for do not perform sufficiently for a particular sample type, please open an issue on the `Megalodon issues page <https://github.com/nanoporetech/megalodon/issues>`_ with details for the sample type and intended training procedure.
 
+Currently two sample types are supported for modified base training data markup:
+
+1. Modified base in known sequence context (e.g. bacterial methylation)
+2. Native (fractionally modified) sample with existing modified base basecalling model
+
+Given the first sample above, a model will never be presented a modified and canonical base in close proximity (within the same training chunk).
+Thus the second sample type is often required to produce a final model with sufficient performance across biologically relevant samples.
+
+The highest accuracy markup of the native sample is imperative to achieve the highest performance modified base basecalling model.
+In version 2.3, an adaptation was added to allow for markup informed by a reference methylation ground truth (fraction of modified reads at each reference site).
+This ground truth can come from a number of sources and technologies.
+Find more details below on how to use this method.
 
 ------------------------------
 Modified Base in Known Context
@@ -21,7 +33,7 @@ These values are:
 4. Relative position for the modified base within the sequence motif (0-based coordinate)
 
 The first two values are simply stored in the training data file.
-When used for model training, these values will be saved for annotation of output files where appropriate (e.g. by Megalodon or Guppy output files).
+When used for model training, these values will be saved for annotation of output files where appropriate (e.g. Megalodon or Guppy output files).
 
 Using this mode of modified base annotation, the specified basecalling model can be either a standard (canonical bases only) model or a modified base model.
 Thus this method of annotation can be specified for modifications with no previous modeling (as long as the current basecalls map to the provided reference).
@@ -36,20 +48,107 @@ In order to annotate all of these modifications in a training data set the follo
        --outputs signal_mappings \
        --reference ecoli_k12_reference.fa \
        --devices 0 --processes 40 \
-       --ref-mods-all-motifs Z 5mC CCWGG 1 \
-       --ref-mods-all-motifs Y 6mA GATC 1 \
-       --ref-mods-all-motifs Y 6mA AACNNNNNNGTGC 1 \
-       --ref-mods-all-motifs Y 6mA GCACNNNNNNGTT 2
+       --ref-mods-all-motifs m 5mC CCWGG 1 \
+       --ref-mods-all-motifs a 6mA GATC 1 \
+       --ref-mods-all-motifs a 6mA AACNNNNNNGTGC 1 \
+       --ref-mods-all-motifs a 6mA GCACNNNNNNGTT 2
 
-Note that the single letter codes, ``Z`` and ``Y``, are arbitrary and can be set to any value desired by the user.
+Note that the single letter codes, ``m`` and ``a``, can be set to any value desired by the user.
+It is recommended that the values follow `specifications found in hts-specs <https://github.com/jkbonfield/hts-specs/blob/methylation/SAMtags.tex#L528>`_.
 These values will be stored in the trained model for outputs where appropriate.
+
+----------------------------------
+Bootstrap Modified Base Annotation
+----------------------------------
+
+Once a modified base model is trained (see above) and calibration file computed (see below), further models can be trained by marking modified base training data with this model.
+
+.. warning::
+
+  Great care should be taken when training a modified base basecalling model, especially with this method.
+  The accuracy of reference modified base markup is strongly indicative of the final modified base detection performance for a trained model.
+
+The following example assumes a trained model to detect 5mC (``m``) in ``CG`` sequence contexts (model specified in ``model_final.cfg``).
+In order to annotate 5mC sites in a modified base training data set (``signal_mapping``) using a modified base model the following command would be run:
+
+::
+
+   megalodon native_human_fast5s/ \
+       --outputs signal_mappings \
+       --reference reference.fa.mmi \
+       --devices 0 --processes 40 \
+       --mod-motif m CG 0 \
+       --ref-include-mods \
+       --guppy-config model_final.cfg
+
+The ``--ref-mod-threshold`` argument is provided to adjust the annotation based on modeling results.
+By default the threshold to annotate a base as modified is a log likelihood ratio of ``0`` (i.e. the modified base is more likely than the canonical base based on empirically calibrated statistics).
+In some samples this value may not be optimal.
+The ``megalodon_extras modified_bases estimate_threshold`` command is provided for assistance in determining a reasonable value for this parameter.
+
+-----------------------------------------------------
+Ground Truth Aided Bootstrap Modified Base Annotation
+-----------------------------------------------------
+
+To further improve modified base training data markup, a reference anchored ground truth can be leveraged.
+This method sets the modified base markup threshold at each reference position, informed by the provided ground truth.
+This is similar to the ``--ref-mod-threshold`` argument, but this threshold is global to all reference positions.
+
+The first step in this method is to call per-read modified bases on the native sample of interest.
+This sample should contain sufficient depth, such that the identified modified base threshold at each position will be robust.
+50X coverage is a rough target for sufficient coverage with this method.
+
+Given a completed Megalodon run (``megalodon_results`` with ``--outputs mappings per_read_mods``) and the ground truth bedmethyl file (``ground_truth_methylation.CG.bed``) the following command will compute per-site modified base thresholds and low coverage sites.
+
+::
+
+   # Compute per-site thresholds
+   megalodon_extras \
+       modified_bases per_site_thresholds \
+       megalodon_results \
+       ground_truth_methylation.CG.bed \
+       --strand-offset 1 \
+       --ground-truth-coverage-pdf gt_cov.CG.pdf \
+       --ground-truth-cov-min 50 \
+       --nanopore-cov-min 50 \
+       --out-blacklist-sites low_coverage_sites.CG.bed \
+       --out-per-site-mod-thresholds site_mod_thresholds.CG.bed
+   # sort low coverage sites for faster bedtools filtering
+   sort -S 25% --parallel=56 -T /tmp/ \
+       -k1,1V -k2,2n \
+       -o low_coverage_sites.CG.sorted.bed
+   # filter and sort first round mappings (% ident>90, read coverage>90%, length between 1000 and 20000)
+   awk '$2 > 90 && $7 > 90 && $3 - $6 > 1000 && $3 - $6 < 20000 {print $8"\t"$10"\t"$11"\t"$1"\t.\t"$9}' \
+       megalodon_results/mappings.summary.txt | \
+       sort -S 25% --parallel=56 -T /tmp/ -k1,1V -k2,2n > \
+       mappings.filtered.sorted.bed
+   intersectBed \
+       -a mappings.filtered.sorted.bed \
+       -b low_coverage_sites.CG.sorted.bed -s -sorted -v | \
+       awk '{print $4}' > train_read_ids.txt
+
+Finally the ground truth aided modified base markup training data set is produced with the following command.
+
+::
+
+   megalodon \
+       native_human_fast5s/ \
+       --reference reference.fa.mmi \
+       --output-directory per_site_markup_mega_res \
+       --outputs per_read_mods signal_mappings \
+       --mod-motif m CG 0 \
+       --guppy-config model_final.cfg \
+       --processes 40 --devices 0 \
+       --ref-include-mods \
+       --mod-per-site-threshold site_mod_thresholds.CG.bed \
+       --read-ids-filename train_read_ids.txt
 
 ----------------------------
 Modified Base Model Training
 ----------------------------
 
-Given the above modified base annotated mapped signal file, a new modified base model can be trained with `Taiyaki <https://github.com/nanoporetech/taiyaki>`_.
-Below is an example command to train a modified base model from the data prepared above.
+Given any of the above modified base annotated mapped signal files, a new modified base model can be trained with `Taiyaki <https://github.com/nanoporetech/taiyaki>`_.
+Below is an example command to train a modified base model from the data prepared above and convert the final model for use with Guppy or Megalodon.
 
 ::
 
@@ -59,77 +158,15 @@ Below is an example command to train a modified base model from the data prepare
    dump_json.py training/model_final.checkpoint \
        --output model_final.jsn
 
+The produced model should be referenced from a new Guppy config file.
+The easiest way to obtain this would be to copy and edit the closest existing Guppy config file in the ``data`` directory of Guppy.
 
 ---------------------
 Megalodon Calibration
 ---------------------
 
-In order to produce the most accurate modified base calls, Megalodon requires the computation of a calibration file.
+In order to produce the most accurate aggregated modified base calls, Megalodon requires the computation of a calibration file.
 A ground truth sample containing known modified reference sites as well as known canonical base sites is required.
-Similarly to sequence variant calibration, a modified base calibration file is created by running ``megalodon/scripts/generate_ground_truth_mod_llr_scores.py`` followed by ``megalodon/scripts/calibrate_mod_llr_scores.py``.
-
-The ground truth modified base positions can be provided in one of two ways.
-
-The first is by providing a single Megalodon results directory along with a CSV file containing ground truth modified and canonical sites.
-The ``megalodon/scripts/create_mod_ground_truth.py`` script is provided to generate a ground truth CSV file from a set of bedmethyl files.
-This first method is useful given a sample with variable methylation across the genome with alternative methylation evidence (e.g. human or plant methylation with bisulfite data).
-If sites provided are strand specific (no ``--strand-offset`` specified to the ``create_mod_ground_truth.py`` script) specify the ``--strand-specific-sites`` option.
-
-The second method to provide a modified base ground truth is via a control sample.
-Using this method all called modified base sites in the main Megalodon results directory are assumed to be modified and all called sites in the ``--control-megalodon-results-dir`` directory are assumed to be canonical bases.
-Called sites include only those specified via the ``--mod-motif`` argument to the main ``megalodon`` command.
-
-Calibration files are computed from the database files, so there is no need to output per-read text files for calibration.
-
-Using the generated ground truth statistics file, the ``calibrate_mod_llr_scores.py`` will then compute a calibration file for Megalodon use alongside this trained model.
-It is highly recommended that the ``--out-pdf`` option is specified and inspected to ensure valid model results/performance.
-
-Below an example of the calibration modified base plot is shown.
-The top panel of this figure shows the distribution of modified base scores for the ground truth modified and canonical base per-read calls.
-The distributions are modified slightly to force monotonicity to the peak of each distribution (original distributions are included in the plot).
-These distributions should show reasonable separation for a well trained model.
-
-The second panel shows the empirical (from ground truth data) and theoretical (from neural network scores).
-Note that these distributions often differ quite significantly.
-The theoretical/raw scores are what would be used given the ``--disable-mod-calibration`` option.
-This underscores the importance of the calibration step.
-
-The final panel shows the conversion from theoretical log likelihood ratio to empirical log likelihood ratio to be saved in the calibration file.
-Note that monotonic smoothing is applied to this function as well.
-
-The vertical bars on these plots, show the effect of common threshold choices on the ground truth data.
-
-TODO: Add calibration figure
-
-
-----------------------------------
-Bootstrap Modified Base Annotation
-----------------------------------
-
-Once a modified base model is trained and calibration file computed, further models can be trained by marking data with this model.
-
-.. warning::
-
-  Great care should be taken when training a modified base basecalling model, especially with this method.
-  The accuracy of reference modified base markup is strongly indicative of the final modified base detection performance for a trained model.
-
-In order to annotate modified bases using a modified base model the following command would be run:
-
-::
-
-   megalodon native_human_fast5s/ \
-       --outputs signal_mappings \
-       --reference human_reference.fa \
-       --devices 0 --processes 40 \
-       --mod-motif Z CG 0 \
-       --mod-motif Y A 0 \
-       --ref-include-mods \
-       --guppy-params "-m model_final.jsn"
-
-In this example 5mC calls are limited to CpG sites while 6mA calls are made at any motif.
-Thus no 5mC sites will be marked in the output signal mapping file outside of the ``CG`` context.
-
-The ``--ref-mod-threshold`` argument is provided to adjust the annotation based on modeling results.
-By default the threshold to annotate a base as modified is a log likelihood ratio of ``0`` (i.e. the modified base is more likely than the canonical base based on empirically calibrated statistics).
-In some samples this value may not be optimal.
-The ``scripts/compute_mod_thresh_score.py`` command is provided for assistance in determining a reasonable value for this parameter.
+This can be the same as the model training data.
+A modified base calibration file is created with the ``megalodon_extras calibrate generate_modified_base_stats`` and ``megalodon_extras calibrate modified_bases`` commands.
+Please see the `calibration documentation page <https://nanoporetech.github.io/megalodon/extras_calibrate.html>`_ for more details about this process.
