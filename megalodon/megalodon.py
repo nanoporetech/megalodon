@@ -255,7 +255,7 @@ def _process_reads_worker(
     def create_batch_gen():
         for _ in range(bc_info.reads_per_batch):
             try:
-                read_sig_data = signal_q.get(block=True, timeout=0.01)
+                read_sig_data = signal_q.get(timeout=0.01)
             except queue.Empty:
                 continue
             if read_sig_data is None:
@@ -407,17 +407,17 @@ def _extract_signal_worker(
         # while there are reads to process continue extracting signal
         while True:
             try:
-                fn_rid = read_file_q.get(block=True, timeout=0.01)
+                rid_fn = read_file_q.get(timeout=0.01)
             except queue.Empty:
                 continue
             # None indicates end of enumerated reads
-            if fn_rid is None:
+            if rid_fn is None:
                 if fast5_fp is not None:
                     fast5_fp.close()
                 LOGGER.debug('Closing')
                 break
 
-            fast5_fn, read_id = fn_rid
+            read_id, fast5_fn = rid_fn
             if prev_fast5_fn != fast5_fn:
                 if fast5_fp is not None:
                     fast5_fp.close()
@@ -468,17 +468,21 @@ def _extract_signal(
             signal_q.put(None)
 
 
-def _fill_files_file_enum_worker(fast5_fn_q, reads_q, is_below_reads_limit):
+def _fill_files_file_enum_worker(
+        fast5_fn_q, file_reads_q, is_below_reads_limit):
     LOGGER.debug('Starting')
     while is_below_reads_limit():
         try:
-            fast5_fn = fast5_fn_q.get(block=False, timeout=0.01)
+            fast5_fn = fast5_fn_q.get(timeout=0.01)
         except queue.Empty:
             continue
+        # None filename sent signifies end of file enumeration
         if fast5_fn is None:
             break
         file_read_ids = fast5_io.get_read_ids(fast5_fn)
-        reads_q.put((fast5_fn, file_read_ids))
+        file_reads_q.put((fast5_fn, file_read_ids))
+        LOGGER.debug('ReadIDsExtractedFrom: {} {}'.format(
+            fast5_fn, len(file_read_ids)))
     LOGGER.debug('Closing')
 
 
@@ -486,6 +490,7 @@ def _fill_files_queue_worker(fast5_fn_q, input_info, is_below_reads_limit):
     LOGGER.debug('Starting')
     input_info = mh.INPUT_INFO(*input_info)
     used_fns = set()
+    num_fns = 0
     try:
         for fast5_fn in fast5_io.iterate_fast5_filenames(
                 input_info.fast5s_dir, recursive=input_info.recursive,
@@ -493,6 +498,7 @@ def _fill_files_queue_worker(fast5_fn_q, input_info, is_below_reads_limit):
             if not is_below_reads_limit():
                 break
             fast5_fn_q.put(fast5_fn)
+            num_fns += 1
             if input_info.do_it_live:
                 used_fns.add(fast5_fn)
     except fast5_io.LiveDoneError:
@@ -504,6 +510,7 @@ def _fill_files_queue_worker(fast5_fn_q, input_info, is_below_reads_limit):
 
     for _ in range(input_info.num_read_enum_ts):
         fast5_fn_q.put(None)
+    LOGGER.debug('Found {} total FAST5 files'.format(num_fns))
     LOGGER.debug('Closing')
 
 
@@ -519,7 +526,7 @@ def _fill_files_queue(input_info, read_file_q, num_reads_conn, aux_failed_q):
         valid_read_ids = mh.parse_read_ids(input_info.read_ids_fn)
         used_read_ids = set()
         fast5_fn_q = mp.Queue()
-        reads_q = mp.Queue()
+        file_reads_q = mp.Queue()
         below_reads_limit = True
         # spawn thread to enumerate files
         file_enum_t = threading.Thread(
@@ -532,7 +539,7 @@ def _fill_files_queue(input_info, read_file_q, num_reads_conn, aux_failed_q):
         for re_i in range(input_info.num_read_enum_ts):
             enum_ts.append(threading.Thread(
                 target=_fill_files_file_enum_worker,
-                args=(fast5_fn_q, reads_q, lambda: below_reads_limit),
+                args=(fast5_fn_q, file_reads_q, lambda: below_reads_limit),
                 daemon=True, name='ReadEnumThread{:03d}'.format(re_i)))
             enum_ts[-1].start()
         LOGGER.debug('InitComplete')
@@ -545,21 +552,22 @@ def _fill_files_queue(input_info, read_file_q, num_reads_conn, aux_failed_q):
 
     try:
         # fill queue with read filename and read id tuples
-        while below_reads_limit and any(t.is_alive() for t in enum_ts):
+        while below_reads_limit and (
+                any(t.is_alive() for t in enum_ts) or
+                not file_reads_q.empty()):
             try:
-                fast5_fn, file_read_ids = reads_q.get(
-                    block=False, timeout=0.01)
+                fast5_fn, file_read_ids = file_reads_q.get(timeout=0.01)
             except queue.Empty:
                 continue
             for read_id in file_read_ids:
                 if read_id in used_read_ids:
                     LOGGER.debug('{} RepeatedReadID'.format(read_id))
-                    return False
+                    continue
                 if (valid_read_ids is not None and
                     read_id not in valid_read_ids) or (
                         fast5_fn is None or read_id is None):
                     continue
-                read_file_q.put((fast5_fn, read_id))
+                read_file_q.put((read_id, fast5_fn))
                 used_read_ids.add(read_id)
                 if input_info.num_reads is not None and \
                    len(used_read_ids) >= input_info.num_reads:
