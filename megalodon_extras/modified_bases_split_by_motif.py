@@ -83,7 +83,7 @@ def _main(args):
     alphabet, _, mod_long_names = in_mods_db.get_alphabet_info()
     ref_names_and_lens = list(zip(*in_mods_db.iter_chrms()))[1:]
     LOGGER.info('Extracting read uuid table')
-    in_uuids = set(uuid for _, uuid in in_mods_db.iter_uuids())
+    in_uuids = [uuid for _, uuid in in_mods_db.iter_uuids()]
 
     LOGGER.info('Opening new per-read modified base statistics databases')
     model_info = backends.DetachedModelInfo(
@@ -95,9 +95,9 @@ def _main(args):
         mh.mkdir(out_dir, overwrite=False)
         mods_info = mods.ModInfo(model_info, out_dir=out_dir)
         mods.init_mods_db(mods_info, ref_names_and_lens)
-        out_mods_dbs.append((mods.ModsDb(mods_info.mods_db_fn, read_only=False,
-                                         in_mem_uuid_to_dbid=True),
-                             motif_info))
+        out_mods_dbs.append((
+            mods.ModsDb(mods_info.mods_db_fn, read_only=False),
+            motif_info))
         out_mods_dbs[-1][0].insert_uuids(in_uuids)
         out_mods_dbs[-1][0].commit()
 
