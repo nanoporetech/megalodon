@@ -1,7 +1,11 @@
 import os
 import sys
+import queue
+import threading
+import traceback
 from glob import glob
 from time import sleep
+import multiprocessing as mp
 
 import numpy as np
 from ont_fast5_api.fast5_interface import get_fast5_file as ont_get_fast5_file
@@ -13,6 +17,8 @@ LOGGER = logging.get_logger()
 
 LIVE_COMP_FN_START = "final_summary_"
 LIVE_SLEEP = 0.1
+
+_PROFILE_EXTRACT_SIGNAL = False
 
 
 class LiveDoneError(Exception):
@@ -192,6 +198,205 @@ def get_signal_trim_coordiates(read):
     trim_len = read.get_summary_data(seg_name)['segmentation'][
         'duration_template']
     return trim_start, trim_len
+
+
+####################################
+# Threaded Read/Signal Enumeration #
+####################################
+
+def _extract_signal_worker(
+        fn_read_ids_q, signal_q, model_info, extract_dacs, aux_failed_q):
+    LOGGER.debug('Starting')
+    try:
+        # while there are reads to process continue extracting signal
+        while True:
+            try:
+                fn_rids = fn_read_ids_q.get(timeout=0.01)
+            except queue.Empty:
+                continue
+            # None indicates end of enumerated reads
+            if fn_rids is None:
+                LOGGER.debug('Closing')
+                break
+
+            fast5_fn, read_ids = fn_rids
+            with get_fast5_file(fast5_fn) as fast5_fp:
+                for read_id in read_ids:
+                    sig_info, seq_summ_info = model_info.extract_signal_info(
+                        fast5_fp, read_id, extract_dacs)
+                    signal_q.put((tuple(sig_info), tuple(seq_summ_info)))
+    except Exception as e:
+        aux_failed_q.put((
+            'ExtractSignalProcessingError', str(e), traceback.format_exc()))
+
+
+if _PROFILE_EXTRACT_SIGNAL:
+    _extract_signal_wrapper = _extract_signal_worker
+
+    def _extract_signal_worker(*args):
+        import cProfile
+        cProfile.runctx('_extract_signal_wrapper(*args)', globals(), locals(),
+                        filename='megalodon_extract_signal.prof')
+
+
+def _extract_signal(
+        fn_read_ids_q, signal_q, aux_failed_q, input_info, model_info,
+        extract_dacs):
+    try:
+        LOGGER.debug('Starting')
+        sig_extract_ts = list()
+        for se_i in range(input_info.num_read_enum_ts):
+            sig_extract_ts.append(threading.Thread(
+                target=_extract_signal_worker,
+                args=(fn_read_ids_q, signal_q, model_info, extract_dacs,
+                      aux_failed_q),
+                daemon=True, name='ExtractSigThread{:03d}'.format(se_i)))
+            sig_extract_ts[-1].start()
+        LOGGER.debug('InitComplete')
+    except KeyboardInterrupt:
+        raise
+    except Exception as e:
+        aux_failed_q.put((
+            'ExtractSignalInitError', str(e), traceback.format_exc()))
+        return
+
+    try:
+        # while there are reads to process continue extracting signal
+        while any(t.is_alive() for t in sig_extract_ts):
+            sleep(0.01)
+        LOGGER.debug('Closing')
+    except KeyboardInterrupt:
+        raise
+    except Exception as e:
+        aux_failed_q.put((
+            'ExtractSignalProcessingError', str(e), traceback.format_exc()))
+
+
+def _fill_files_file_enum_worker(
+        fast5_fn_q, file_reads_q, is_below_reads_limit):
+    LOGGER.debug('Starting')
+    while is_below_reads_limit():
+        try:
+            fast5_fn = fast5_fn_q.get(timeout=0.01)
+        except queue.Empty:
+            continue
+        # None filename sent signifies end of file enumeration
+        if fast5_fn is None:
+            break
+        file_read_ids = get_read_ids(fast5_fn)
+        file_reads_q.put((fast5_fn, file_read_ids))
+        LOGGER.debug('ReadIDsExtractedFrom: {} {}'.format(
+            fast5_fn, len(file_read_ids)))
+    LOGGER.debug('Closing')
+
+
+def _fill_files_queue_worker(fast5_fn_q, input_info, is_below_reads_limit):
+    LOGGER.debug('Starting')
+    input_info = mh.INPUT_INFO(*input_info)
+    used_fns = set()
+    num_fns = 0
+    try:
+        for fast5_fn in iterate_fast5_filenames(
+                input_info.fast5s_dir, recursive=input_info.recursive,
+                do_it_live=input_info.do_it_live):
+            if not is_below_reads_limit():
+                break
+            fast5_fn_q.put(fast5_fn)
+            num_fns += 1
+            if input_info.do_it_live:
+                used_fns.add(fast5_fn)
+    except LiveDoneError:
+        LOGGER.debug('LiveProcessingComplete')
+        for fast5_fn in iterate_fast5_filenames(
+                input_info.fast5s_dir, recursive=input_info.recursive):
+            if fast5_fn not in used_fns:
+                fast5_fn_q.put(fast5_fn)
+
+    # add None to indicate to read enumeration workers that file enumeration
+    # is complete
+    for _ in range(input_info.num_read_enum_ts):
+        fast5_fn_q.put(None)
+    LOGGER.debug('Found {} total FAST5 files'.format(num_fns))
+    LOGGER.debug('Closing')
+
+
+def _fill_files_queue(input_info, fn_read_ids_q, num_reads_conn, aux_failed_q):
+    """ Fill fn_read_ids_q with (fast5_fn, read_ids) tuples. When finished, send
+    total number of reads to num_reads_conn.
+
+    In order to maximize performance, read enumeration is spread over a
+    multi-threading interface.
+    """
+    try:
+        LOGGER.debug('Starting')
+        valid_read_ids = mh.parse_read_ids(input_info.read_ids_fn)
+        used_read_ids = set()
+        fast5_fn_q = mp.Queue()
+        file_reads_q = mp.Queue()
+        below_reads_limit = True
+        # spawn thread to enumerate files
+        file_enum_t = threading.Thread(
+            target=_fill_files_queue_worker,
+            args=(fast5_fn_q, tuple(input_info), lambda: below_reads_limit),
+            daemon=True, name='FileEnum')
+        file_enum_t.start()
+        # spawn threads to enumerate reads within files
+        enum_ts = [file_enum_t]
+        for re_i in range(input_info.num_read_enum_ts):
+            enum_ts.append(threading.Thread(
+                target=_fill_files_file_enum_worker,
+                args=(fast5_fn_q, file_reads_q, lambda: below_reads_limit),
+                daemon=True, name='ReadEnumThread{:03d}'.format(re_i)))
+            enum_ts[-1].start()
+        LOGGER.debug('InitComplete')
+    except KeyboardInterrupt:
+        raise
+    except Exception as e:
+        aux_failed_q.put((
+            'FillFilesInitError', str(e), traceback.format_exc()))
+        return
+
+    try:
+        # fill queue with read filename and read id tuples
+        while below_reads_limit and (
+                any(t.is_alive() for t in enum_ts) or
+                not file_reads_q.empty()):
+            try:
+                fast5_fn, file_read_ids = file_reads_q.get(timeout=0.01)
+            except queue.Empty:
+                continue
+            valid_file_read_ids = set(file_read_ids).difference(used_read_ids)
+            if len(valid_file_read_ids) < len(file_read_ids):
+                LOGGER.debug('RepeatedReadIDs {}'.format(','.join(
+                    set(file_read_ids).intersection(used_read_ids))))
+            if valid_read_ids is not None:
+                valid_file_read_ids.intersection_update(valid_read_ids)
+            if len(valid_file_read_ids) == 0:
+                continue
+            if input_info.num_reads is not None and \
+               len(used_read_ids) + len(valid_file_read_ids) >= \
+               input_info.num_reads:
+                LOGGER.debug('NumReadsLimitReached')
+                valid_file_read_ids = list(valid_file_read_ids)[
+                    :input_info.num_reads - len(used_read_ids)]
+                fn_read_ids_q.put((fast5_fn, valid_file_read_ids))
+                used_read_ids.update(valid_file_read_ids)
+                below_reads_limit = False
+                break
+            fn_read_ids_q.put((fast5_fn, valid_file_read_ids))
+            used_read_ids.update(valid_file_read_ids)
+    except KeyboardInterrupt:
+        raise
+    except Exception as e:
+        aux_failed_q.put((
+            'FillFilesProcessingError', str(e), traceback.format_exc()))
+    finally:
+        num_reads_conn.send(len(used_read_ids))
+        # add None to indicate to each signal enumeration thread that
+        # read enumeration is complete
+        for _ in range(input_info.num_read_enum_ts *
+                       input_info.num_extract_sig_proc):
+            fn_read_ids_q.put(None)
 
 
 if __name__ == '__main__':

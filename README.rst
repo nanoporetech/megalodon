@@ -25,7 +25,7 @@ Detailed documentation for all ``megalodon`` commands and algorithms can be foun
 Prerequisites
 -------------
 
-As of version 2.0, the primary Megalodon run mode requires the Guppy basecaller and as of version 2.2 Guppy version >= 4.0 is required.
+The primary Megalodon run mode requires the Guppy basecaller (version >= 4.0).
 See the `community page for download/installation instructions [login required] <https://community.nanoporetech.com/downloads>`_.
 
 Megalodon is a python-based command line software package.
@@ -141,14 +141,12 @@ All Megalodon outputs are written into the directory specified with the ``--outp
 Live Processing
 ---------------
 
-As of version 2.2, Megalodon now supports live run processing.
+Megalodon supports live run processing.
 Activate live processing mode by simply adding the ``--live-processing`` argument and specifying the MinKNOW output directory as the Megalodon FAST5 input directory.
 Megalodon will continue to search for FAST5s until the ``final_summary*`` file is created by MinKNOW, indicating data production has completed.
 
 Guppy Models and Parameters
 ---------------------------
-
-As of version 2.2, Megalodon requires Guppy version >= 4.0.
 
 The Guppy model defines the modified bases capable of being output by Megalodon.
 Basecalling models must be trained to specifically detect a type or types of modified bases.
@@ -175,6 +173,20 @@ The ``Pyguppy get completed reads invalid error "Something went wrong. return_co
 Consider lowering the ``--processes`` and/or ``--reads-per-guppy-batch`` values to reduce these errors.
 Finding the right balance for these parameters can help achieve optimal performance on a system.`
 
+Disk Performance Considerations
+-------------------------------
+
+The status of the extract signal input queue and output queues is displayed by default (suppress with ``--suppress-queues-status``).
+
+If the ``extract_signal`` input queue is often empty, Megalodon is waiting on reading raw signal from FAST5 files.
+If the input queue remains empty, increasing the ``--num-read-enumeration-threads`` and/or ``--num-extract-signal-processes`` parameters (defaults ``8`` and ``2``)) may improve performance.
+Note that ``[--num-read-enumeration-threads]`` threads will be opened within each extract signal process.
+Alternatively and if available, the input FAST5s disk location could be moved to faster I/O disk.
+
+If any output status bars indicate a full queue, Megalodon will stall waiting on that process to write data to disk.
+Moving the ``--output-directory`` accordingly to a location with faster disk I/O performance should improve performance.
+Per-read modified base and variant statistics are stored in an on-disk sqlite database, which can be very dependent on disk speed and configuration.
+
 High Quality Phased Variant Calls
 ---------------------------------
 
@@ -187,20 +199,6 @@ High-Density Variants
 
 When running Megalodon with a high density of variants (more than 1 variant per 100 reference bases), certain steps can be taken to increase performance.
 See `variant atomize documentation <https://nanoporetech.github.io/megalodon/extras_variants.html#megalodon-extras-variants-atomize>`_ for further details.
-
-Disk Performance Considerations
--------------------------------
-
-Per-read modified base and variant statistics are stored in an on-disk sqlite database.
-As of version 2.0 the status of output queues and as of version 2.2 the extract signal input queue are displayed by default.
-
-If the ``extract_signal`` input queue is often empty, Megalodon is waiting on reading raw signal from FAST5 files.
-As of version 2.2.1, the ``--num-read-enumeration-threads`` option was added.
-If the input queue remains empty and the system is not disk I/O bound (e.g. observed by ``iotop``), increasing this parameter (default ``8``) may improve performance.
-Alternatively and if available, the input FAST5s disk location could be moved to faster I/O disk.
-
-If any output status bars indicate a full queue, Megalodon will stall waiting on that process to write data to disk.
-Moving the ``--output-directory`` accordingly to a location with faster disk I/O performance should improve performance.
 
 RNA
 ---
