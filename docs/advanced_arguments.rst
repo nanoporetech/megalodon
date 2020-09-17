@@ -273,6 +273,25 @@ This output category is intended for use in generating reference sequences or si
   - See ``megalodon_extras modified_bases estimate_threshold`` command for help computing this threshold.
   - Requires that `--ref-include-mods`` is set.
 
+--------------------------
+Compute Resource Arguments
+--------------------------
+
+- ``--num-read-enumeration-threads``
+
+  - Number of parallel threads to use for read enumeration.
+
+    - This number of threads will be opened in a single read enumeration process and each signal extraction process (see next argument).
+  - This value can be increased if the input queue remains empty.
+  - Default: ``8``
+- ``--num-extract-signal-processes``
+
+  - Number of parallel processes to use for signal extraction.
+
+    - Accessing data and metadata from FAST5 files requires some compute resources. For this reason, multiple processes must be spawned to achieve the highest performance on some systems.
+  - This value can be increased if the input queue remains empty.
+  - Default: ``2``
+
 -----------------------
 Miscellaneous Arguments
 -----------------------
@@ -297,15 +316,6 @@ Miscellaneous Arguments
 - ``--suppress-progress``
 
   - Suppress progress bar output.
-- ``--num-read-enumeration-threads``
-
-  - Number of parallel threads to use for read enumeration.
-
-    - Technically, twice this number of threads will be opened.
-
-      - One set of threads will be dedicated to read id enumeration and the second set of threads will perform raw signal extraction.
-  - Increase if input queue remains empty, generally due to single read format FAST5s or slow disk.
-  - Default: ``8``
 - ``--suppress-queues-status``
 
   - Suppress dynamic status of output queues.
