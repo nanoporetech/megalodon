@@ -346,15 +346,34 @@ def get_parser():
                          'modified_bases estimate_threshold` command. ' +
                          'Default: %(default)f'))
 
+    mp_grp = parser.add_argument_group('Compute Resource Arguments')
+    mp_grp.add_argument(
+        '--processes', type=int, default=1,
+        help='Number of parallel processes. Default: %(default)d')
+    mp_grp.add_argument(
+        '--devices', nargs='+',
+        help='GPU devices for guppy or taiyaki basecalling backends.')
+
+    mp_grp.add_argument(
+        '--num-read-enumeration-threads', type=int,
+        default=mh.DEFAULT_READ_ENUM_TS,
+        help=hidden_help('Number of parallel threads to use for read ' +
+                         'enumeration. Increase if input queue remains ' +
+                         'empty, generally due to single read format FAST5s ' +
+                         'or slow disk. Default: %(default)d'))
+    mp_grp.add_argument(
+        '--num-extract-signal-processes', type=int,
+        default=mh.DEFAULT_EXTRACT_SIG_PROC,
+        help=hidden_help('Number of parallel processes to use for signal ' +
+                         'extraction. Increasing this value can allow more ' +
+                         'efficient raw data extraction. Note that ' +
+                         '[--num-read-enumeration-threads] will be opened ' +
+                         'in each extract signal process. ' +
+                         'Default: %(default)d'))
+
     misc_grp = parser.add_argument_group('Miscellaneous Arguments')
     misc_grp.add_argument(
         '--help-long', help='Show all options.', action='help')
-    misc_grp.add_argument(
-        '--processes', type=int, default=1,
-        help='Number of parallel processes. Default: %(default)d')
-    misc_grp.add_argument(
-        '--devices', nargs='+',
-        help='GPU devices for guppy or taiyaki basecalling backends.')
     misc_grp.add_argument(
         '--rna', action='store_true',
         help='RNA input data. Requires RNA model. Default: DNA input data')
@@ -388,13 +407,6 @@ def get_parser():
         help=hidden_help('Only search for fast5 read files directly found ' +
                          'within the fast5 directory. Default: search ' +
                          'recursively'))
-    misc_grp.add_argument(
-        '--num-read-enumeration-threads', type=int,
-        default=mh.DEFAULT_READ_ENUM_TS,
-        help=hidden_help('Number of parallel threads to use for read ' +
-                         'enumeration. Increase if input queue remains ' +
-                         'empty, generally due to single read format FAST5s ' +
-                         'or slow disk. Default: %(default)d'))
     misc_grp.add_argument(
         '--suppress-progress-bars', action='store_true',
         help=hidden_help('Suppress progress bars output.'))

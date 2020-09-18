@@ -130,14 +130,13 @@ def parse_backend_params(args, num_fast5_startup_reads=5):
     return BACKEND_PARAMS(tai_params, fast5_params, pyguppy_params)
 
 
-def extract_seq_summary_info(read, na_str='NA'):
+def extract_seq_summary_info(read, channel_info, na_str='NA'):
     """ Extract non-basecalling sequencing summary information from
     ont_fast5_api read object
     """
     try:
         fn = read.filename
         read_id = read.read_id
-        channel_info = read.get_channel_info()
         samp_rate = channel_info[mh.CHAN_INFO_SAMP_RATE]
         try:
             raw_attrs = read.handle[read.raw_dataset_group_name].attrs
@@ -146,7 +145,7 @@ def extract_seq_summary_info(read, na_str='NA'):
             dur = '{:.6f}'.format(raw_attrs['duration'] / samp_rate)
         except AttributeError:
             mux = start_time = dur = na_str
-        run_id = read.get_run_id()
+        run_id = read.run_id
         try:
             run_id = run_id.decode()
         except AttributeError:
@@ -661,21 +660,22 @@ class ModelInfo(AbstractModelInfo):
             backends.SIGNAL_DATA and backends.SEQ_SUMM_INFO namedtuples
         """
         read = fast5_fp.get_read(read_id)
-        seq_summ_info = extract_seq_summary_info(read)
+        channel_info = read.get_channel_info()
+        seq_summ_info = extract_seq_summary_info(read, channel_info)
         dacs = scale_params = raw_sig = None
         if extract_dacs:
             # if not processing signal mappings, don't save dacs
             dacs = fast5_io.get_signal(read, scale=False)
             # scale parameters and trimming computed by guppy
-            if not self.model_type == PYGUPPY_NAME:
+            if self.model_type != PYGUPPY_NAME:
                 med, mad = mh.med_mad(dacs)
                 raw_sig = (dacs - med) / mad
                 # scale_params are relative to current
-                channel_info = read.get_channel_info()
-                rd_factor = channel_info['range'] / \
-                    channel_info['digitisation']
-                scale_params = ((med + channel_info['offset']) * rd_factor,
-                                mad * rd_factor)
+                rd_factor = channel_info[mh.CHAN_INFO_RANGE] / \
+                    channel_info[mh.CHAN_INFO_DIGI]
+                scale_params = (
+                    (med + channel_info[mh.CHAN_INFO_OFFSET]) * rd_factor,
+                    mad * rd_factor)
 
         if self.model_type == TAI_NAME:
             if raw_sig is None:
@@ -703,7 +703,7 @@ class ModelInfo(AbstractModelInfo):
             sig_data = SIGNAL_DATA(
                 dacs=dacs, raw_len=dacs.shape[0], fast5_fn=fast5_fp.filename,
                 read_id=read_id, stride=self.stride,
-                channel_info=read.get_channel_info())
+                channel_info=channel_info)
             return sig_data, seq_summ_info
 
         raise mh.MegaError('Invalid model type')

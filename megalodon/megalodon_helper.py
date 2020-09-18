@@ -38,6 +38,7 @@ MOD_EM_NAME = 'expectation_maximization'
 MOD_AGG_METHOD_NAMES = set((MOD_BIN_THRESH_NAME, MOD_EM_NAME))
 DEFAULT_MOD_BINARY_THRESH = 0.8
 DEFAULT_READ_ENUM_TS = 8
+DEFAULT_EXTRACT_SIG_PROC = 2
 
 MED_NORM_FACTOR = 1.4826
 
@@ -170,8 +171,9 @@ STATUS_INFO = namedtuple('STATUS_INFO', (
     'suppress_prog_bar', 'suppress_queues', 'num_prog_errs'))
 INPUT_INFO = namedtuple('INPUT_INFO', (
     'fast5s_dir', 'recursive', 'num_reads', 'read_ids_fn', 'num_ps',
-    'do_it_live', 'num_read_enum_ts'))
-INPUT_INFO.__new__.__defaults__ = (False, DEFAULT_READ_ENUM_TS)
+    'do_it_live', 'num_read_enum_ts', 'num_extract_sig_proc'))
+INPUT_INFO.__new__.__defaults__ = (
+    False, DEFAULT_READ_ENUM_TS, DEFAULT_EXTRACT_SIG_PROC)
 BASECALL_DO_OUTPUT = namedtuple('BASECALL_DO_OUTPUT', (
     'any', 'basecalls', 'mod_basecalls'))
 BASECALL_INFO = namedtuple('BASECALL_INFO', (

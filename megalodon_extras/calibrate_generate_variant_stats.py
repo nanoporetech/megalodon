@@ -10,7 +10,7 @@ import numpy as np
 from tqdm import tqdm
 
 from megalodon import (
-    backends, fast5_io, logging, mapping, megalodon_helper as mh, megalodon,
+    backends, fast5_io, logging, mapping, megalodon_helper as mh,
     megalodon_multiprocessing as mega_mp, variants)
 from ._extras_parsers import get_parser_calibrate_generate_variants_stats
 
@@ -237,30 +237,33 @@ def process_read(
 
 
 def _process_reads_worker(
-        fast5_q, var_calls_q, caller_conn, model_info, device, do_false_ref):
+        fn_read_ids_q, var_calls_q, caller_conn, model_info, device,
+        do_false_ref):
     LOGGER.debug('InitWorker')
     model_info.prep_model_worker(device)
     map_thr_buf = mappy.ThreadBuffer()
 
     while True:
         try:
-            fn_rid = fast5_q.get(block=True, timeout=0.1)
+            fn_rids = fn_read_ids_q.get(block=True, timeout=0.1)
         except queue.Empty:
             continue
-        if fn_rid is None:
+        if fn_rids is None:
             LOGGER.debug('Closing')
             if caller_conn is not None:
                 caller_conn.close()
             break
 
         try:
-            fast5_fn, read_id = fn_rid
-            sig_info, seq_summ_info = model_info.extract_signal_info(
-                fast5_io.get_fast5_file(fast5_fn), read_id)
-            read_var_calls = process_read(
-                sig_info, seq_summ_info, model_info, caller_conn, map_thr_buf,
-                do_false_ref)
-            var_calls_q.put((True, read_var_calls))
+            fast5_fn, read_ids = fn_rids
+            with fast5_io.get_fast5_file(fast5_fn) as fast5_fp:
+                for read_id in read_ids:
+                    sig_info, seq_summ_info = model_info.extract_signal_info(
+                        fast5_fp, read_id)
+                    read_var_calls = process_read(
+                        sig_info, seq_summ_info, model_info, caller_conn,
+                        map_thr_buf, do_false_ref)
+                    var_calls_q.put((True, read_var_calls))
         except Exception as e:
             var_calls_q.put((False, str(e)))
             pass
@@ -329,15 +332,15 @@ def process_all_reads(
         num_ps, out_fn, suppress_progress, do_false_ref):
     LOGGER.info('Preparing workers and calling reads.')
     # read filename queue filler
-    fast5_q = mp.Queue()
+    fn_read_ids_q = mega_mp.CountingMPQueue()
     num_reads_conn, getter_num_reads_conn = mp.Pipe()
     input_info = mh.INPUT_INFO(
         fast5s_dir=fast5s_dir, recursive=recursive, num_reads=num_reads,
         read_ids_fn=read_ids_fn, num_ps=num_ps, do_it_live=False)
     aux_failed_q = mp.Queue()
     files_p = mp.Process(
-        target=megalodon._fill_files_queue, args=(
-            input_info, fast5_q, num_reads_conn, aux_failed_q),
+        target=fast5_io._fill_files_queue, args=(
+            input_info, fn_read_ids_q, num_reads_conn, aux_failed_q),
         daemon=True, name='FileFiller')
     files_p.start()
 
@@ -354,7 +357,7 @@ def process_all_reads(
         map_conns.append(map_conn)
         p = mp.Process(
             target=_process_reads_worker, args=(
-                fast5_q, var_calls_q, caller_conn, model_info, device,
+                fn_read_ids_q, var_calls_q, caller_conn, model_info, device,
                 do_false_ref), name='ReadWorker{:03d}'.format(pnum))
         p.daemon = True
         p.start()
@@ -374,9 +377,9 @@ def process_all_reads(
     LOGGER.debug('Waiting for read filler process to join.')
     files_p.join()
     LOGGER.debug('Read filler process complete.')
-    # put extra None values in fast5_q to indicate completed processing
+    # put extra None values in fn_read_ids_q to indicate completed processing
     for _ in range(num_ps - 1):
-        fast5_q.put(None)
+        fn_read_ids_q.put(None)
     LOGGER.debug('Waiting for process reads processes to join.')
     for proc_reads_p in proc_reads_ps:
         proc_reads_p.join()
