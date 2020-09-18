@@ -42,6 +42,9 @@ NESTED_COMMANDS = [
        'Update modified base database from older versions of Megalodon'),
       (ep.CMD_MODS_GT,
        'Create ground truth modified base file from bedmethyl files'),
+      (ep.CMD_MODS_PER_SITE,
+       'Extract per-site modified base thresholds for signal mapping ' +
+       'sequence markup'),
       (ep.CMD_MODS_INDEX,
        'Create per-read modified base database index'),
       (ep.CMD_MODS_SPLIT,

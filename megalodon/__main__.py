@@ -275,6 +275,11 @@ def get_parser():
         help=hidden_help('Modified base aggregated output format(s). ' +
                          'Default: %(default)s'))
     mod_grp.add_argument(
+        '--mod-per-site-threshold',
+        help=hidden_help('BED file containing per-site thresholds for ' +
+                         'marking up modified base references. ' +
+                         'See scripts/per_site_markup.py'))
+    mod_grp.add_argument(
         '--write-mod-log-probs', action='store_true',
         help=hidden_help('Write per-read modified base log probabilities ' +
                          'out in non-standard modVCF field.'))

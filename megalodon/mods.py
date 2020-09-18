@@ -907,7 +907,9 @@ def extract_stats_at_valid_sites(
 # Reference Mod Markup #
 ########################
 
-def annotate_all_mods(r_start, ref_seq, r_mod_scores, strand, mods_info):
+def annotate_all_mods(
+        r_start, ref_seq, r_mod_scores, strand, mods_info,
+        per_site_thresh=None):
     """ Annotate reference sequence with called modified bases.
 
     Args:
@@ -920,6 +922,8 @@ def annotate_all_mods(r_start, ref_seq, r_mod_scores, strand, mods_info):
         strand (int): 1 for forward strand -1 for reverse strand
         mods_info (mods.ModInfo): Object containing information about modified
             base processing
+        per_site_thresh (np.ndarray): Score thresholds per position,
+            score := log(P_can/P_mod).
 
     Returns:
         mods.ANNOT_MODS object annotated with all modified bases.
@@ -937,7 +941,9 @@ def annotate_all_mods(r_start, ref_seq, r_mod_scores, strand, mods_info):
             base = ref_seq[mod_pos - r_start]
         else:
             can_lp = np.log1p(-np.exp(mod_lps).sum())
-            if can_lp - mod_lps.max() > mods_info.mod_thresh:
+            mod_thresh = (mods_info.mod_thresh if per_site_thresh is None else
+                          per_site_thresh[mod_pos])
+            if can_lp - mod_lps.max() > mod_thresh:
                 base_lp = can_lp
                 base = ref_seq[mod_pos - r_start]
             else:
@@ -962,7 +968,9 @@ def annotate_all_mods(r_start, ref_seq, r_mod_scores, strand, mods_info):
     return ANNOT_MODS(all_mods_seq, all_mods_qual)
 
 
-def annotate_mods_per_mod(r_start, ref_seq, r_mod_scores, strand, mods_info):
+def annotate_mods_per_mod(
+        r_start, ref_seq, r_mod_scores, strand, mods_info,
+        per_site_thresh=None):
     """ Annotate reference sequence with called modified bases. Produce one
     mods.ANNOT_MODS output for each modified base in mods_info.mod_long_names.
 
@@ -976,6 +984,8 @@ def annotate_mods_per_mod(r_start, ref_seq, r_mod_scores, strand, mods_info):
         strand (int): 1 for forward strand -1 for reverse strand
         mods_info (mods.ModInfo): Object containing information about modified
             base processing
+        per_site_thresh (np.ndarray): Score thresholds per position,
+            score := log(P_can/P_mod).
 
     Returns:
         Dictionary with mod_base single letter code pointing to
@@ -998,8 +1008,10 @@ def annotate_mods_per_mod(r_start, ref_seq, r_mod_scores, strand, mods_info):
                 base_lp = MOD_MAP_INVALID_BASE_LP
                 base = ref_seq[mod_pos - r_start]
             else:
+                mod_thresh = (mods_info.mod_thresh if per_site_thresh is None
+                              else per_site_thresh[mod_pos])
                 # called canonical
-                if can_lp - mod_lps[mod_idx] > mods_info.mod_thresh:
+                if can_lp - mod_lps[mod_idx] > mod_thresh:
                     base_lp = can_lp
                     base = ref_seq[mod_pos - r_start]
                 else:
@@ -1166,8 +1178,8 @@ def call_read_mods(
                 LOGGER.debug('InvalidSequence {}:{}'.format(
                     r_ref_pos.chrm, mod_ref_pos))
                 continue
-            pos_can_mods = np.zeros_like(pos_ref_seq)
 
+            pos_can_mods = np.zeros_like(pos_ref_seq)
             blk_start, blk_end = (ref_to_block[pos - pos_bb],
                                   ref_to_block[pos + pos_ab])
             if blk_end - blk_start < (mods_info.mod_context_bases * 2) + 1:
@@ -1194,7 +1206,6 @@ def call_read_mods(
                 if loc_mod_score is None:
                     raise mh.MegaError(
                         'Score computation error (memory error)')
-
                 # calibrate llr scores
                 calib_llrs.append(mods_info.calibrate_llr(
                     loc_can_score - loc_mod_score, mod_base))
@@ -1202,27 +1213,46 @@ def call_read_mods(
             # due to calibration mutli-mod log likelihoods could result in
             # inferred negative reference likelihood, so re-normalize here
             loc_mod_lps = calibration.compute_log_probs(np.array(calib_llrs))
-
             r_mod_scores.append((mod_ref_pos, loc_mod_lps, mod_bases))
 
-    all_mods_seq = per_mod_seqs = None
-    if mods_info.do_ann_all_mods:
-        # ignore divide around full annotate_mods call to avoid overhead
-        # on many calls to errstate
-        with np.errstate(divide='ignore'):
-            all_mods_seq = annotate_all_mods(
-                r_ref_pos.start, r_ref_seq, r_mod_scores,
-                r_ref_pos.strand, mods_info)
-    if mods_info.do_output.mod_map:
-        if mods_info.map_emulate_bisulfite:
+    all_mods_seq = per_mod_seqs = per_site_thresh = None
+    if (mods_info.do_ann_all_mods or mods_info.do_output.mod_map) and \
+       sig_map_res.ref_out_info.per_site_threshs is not None:
+        try:
+            per_site_thresh = sig_map_res.ref_out_info.per_site_threshs[(
+                r_ref_pos.chrm, r_ref_pos.strand)]
+        except KeyError:
+            cov_pos = '' if len(r_mod_scores) == 0 else ','.join(
+                map(str, sorted(list(zip(*r_mod_scores))[0])))
+            LOGGER.debug((
+                '{} PerSiteThreshContigNotFound {}:{} {}').format(
+                    sig_map_res.read_id, r_ref_pos.chrm,
+                    '+' if r_ref_pos.strand == 1 else '-', cov_pos))
+    try:
+        if mods_info.do_ann_all_mods:
+            # ignore divide around full annotate_mods call to avoid overhead
+            # on many calls to errstate
             with np.errstate(divide='ignore'):
-                per_mod_seqs = annotate_mods_per_mod(
+                all_mods_seq = annotate_all_mods(
+                    r_ref_pos.start, r_ref_seq, r_mod_scores,
+                    r_ref_pos.strand, mods_info, per_site_thresh)
+        if mods_info.do_output.mod_map:
+            if mods_info.map_emulate_bisulfite:
+                with np.errstate(divide='ignore'):
+                    per_mod_seqs = annotate_mods_per_mod(
+                        r_ref_pos.start, r_ref_seq, r_mod_scores,
+                        r_ref_pos.strand, mods_info, per_site_thresh)
+            else:
+                per_mod_seqs = format_mm_ml_tags(
                     r_ref_pos.start, r_ref_seq, r_mod_scores,
                     r_ref_pos.strand, mods_info)
-        else:
-            per_mod_seqs = format_mm_ml_tags(
-                r_ref_pos.start, r_ref_seq, r_mod_scores,
-                r_ref_pos.strand, mods_info)
+    except KeyError:
+        cov_pos = '' if len(r_mod_scores) == 0 else ','.join(
+            map(str, sorted(list(zip(*r_mod_scores))[0])))
+        LOGGER.debug((
+            '{} PerSiteThreshSiteNotFound {}:{} {}').format(
+                sig_map_res.read_id, r_ref_pos.chrm,
+                '+' if r_ref_pos.strand == 1 else '-', cov_pos))
 
     r_mod_scores = filter_mod_score(r_mod_scores)
 

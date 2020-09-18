@@ -503,6 +503,57 @@ def get_parser_modified_bases_create_ground_truth():
     return parser
 
 
+def get_parser_modified_bases_per_site_thresholds():
+    parser = argparse.ArgumentParser(
+        description='Extract Megalodon modified base score thresholds at ' +
+        'each covered site for marking up signal mapping sequences.')
+
+    parser.add_argument(
+        'megalodon_results_dir',
+        help='Output directory from megalodon with per_read_mods in output.')
+    parser.add_argument(
+        'ground_truth_beds', nargs='+',
+        help='BEDmethyl files containing ground truth fraction modified. ' +
+        'Multiple files will be aggregated.')
+
+    parser.add_argument(
+        '--ground-truth-cov-min', type=int, default=15,
+        help='Minimum coverage (both strands) to include a site from ' +
+        'ground truth data. Default: %(default)d')
+    parser.add_argument(
+        '--mod-base', default='Z',
+        help='Single letter code for the modified base. Default: %(default)s')
+    parser.add_argument(
+        '--nanopore-cov-min', type=int, default=30,
+        help='Minimum coverage (single strand) to include a site from ' +
+        'nanopore data. Default: %(default)d')
+    parser.add_argument(
+        '--ground-truth-coverage-pdf',
+        help='Filename to save ground truth coverage. Default: Do not ' +
+        'produce plot.')
+    parser.add_argument(
+        '--ground-truth-cov-only', action='store_true',
+        help='Compute ground truth coverage and exit.')
+    parser.add_argument(
+        '--strand-offset', type=int,
+        help='Offset to combine stranded results. Positive value indicates ' +
+        'reverse strand sites have higher position values. Default treat ' +
+        'strands independently.')
+    parser.add_argument(
+        '--skip-ground-truth-summary', action='store_true',
+        help='Skip summary and plotting of ground truth coverage.')
+    parser.add_argument(
+        '--out-blacklist-sites', default='low_coverage_blacklist_sites.bed',
+        help='Output filename for sites with low ground truth coverage. ' +
+        'Default: %(default)s')
+    parser.add_argument(
+        '--out-per-site-mod-thresholds', default='site_mod_thresholds.bed',
+        help='Output filename for per-site megalodon mod scoring ' +
+        'thresholds. Default: %(default)s')
+
+    return parser
+
+
 def get_parser_modified_bases_index_database():
     parser = argparse.ArgumentParser(
         description='Create per-read modified bases calls database index. ' +
@@ -876,6 +927,7 @@ CMD_MODS_ALPHABET = 'describe_alphabet'
 CMD_MODS_EST_THRESH = 'estimate_threshold'
 CMD_MODS_UPDATE_DB = 'update_database'
 CMD_MODS_GT = 'create_ground_truth'
+CMD_MODS_PER_SITE = 'per_site_thresholds'
 CMD_MODS_INDEX = 'index_database'
 CMD_MODS_SPLIT = 'split_by_motif'
 
@@ -916,6 +968,7 @@ PARSERS = {
         CMD_MODS_EST_THRESH: get_parser_modified_bases_estimate_threshold,
         CMD_MODS_UPDATE_DB: get_parser_modified_bases_update_database,
         CMD_MODS_GT: get_parser_modified_bases_create_ground_truth,
+        CMD_MODS_PER_SITE: get_parser_modified_bases_per_site_thresholds,
         CMD_MODS_INDEX: get_parser_modified_bases_index_database,
         CMD_MODS_SPLIT: get_parser_modified_bases_split_calls_by_motif},
     GRP_PHASE: {

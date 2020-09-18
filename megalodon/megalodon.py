@@ -1048,7 +1048,7 @@ def parse_ref_mods_all_motifs(ref_mod_motifs_raw, sm_alphabet_info):
     return ref_mod_motifs_w_ints, new_sm_alphabet_info
 
 
-def parse_ref_out_args(args, model_info):
+def parse_ref_out_args(args, model_info, map_info):
     if mh.SIG_MAP_NAME in args.outputs or mh.PR_REF_NAME in args.outputs:
         if args.ref_include_variants and args.ref_include_mods:
             LOGGER.error('Cannot output both modified base and variants in ' +
@@ -1145,6 +1145,12 @@ def parse_ref_out_args(args, model_info):
                 arg_flag = False
 
     # if motif based mod markup is requested parse here
+    per_site_threshs = None
+    if args.mod_per_site_threshold is not None:
+        LOGGER.info('Loading per-site thresholds.')
+        per_site_threshs = mh.parse_bed_scores_np(
+            args.mod_per_site_threshold, map_info.ref_names_and_lens)
+
     ref_mods_all_motifs = None
     if args.ref_mods_all_motifs is not None:
         ref_mods_all_motifs, sm_alphabet_info = parse_ref_mods_all_motifs(
@@ -1154,7 +1160,7 @@ def parse_ref_out_args(args, model_info):
         do_output=ref_outputs, filt_params=ref_filt_params,
         ref_mods_all_motifs=ref_mods_all_motifs,
         alphabet_info=sm_alphabet_info, out_dir=args.output_directory,
-        get_sig_map_func=sig_map_getter)
+        get_sig_map_func=sig_map_getter, per_site_threshs=per_site_threshs)
 
     return args, ref_out_info
 
@@ -1216,18 +1222,17 @@ def _main(args):
         input_info = parse_input_args(args)
         backend_params = backends.parse_backend_params(args)
         model_info = backends.ModelInfo(backend_params, args.processes)
-        # process ref out first as it might add mods or variants to outputs
-        args, ref_out_info = parse_ref_out_args(args, model_info)
-        args, mods_info = parse_mod_args(args, model_info, ref_out_info)
-        bc_info = parse_basecall_args(args, mods_info)
         # aligner can take a while to load, so load as late as possible
         aligner, map_info = parse_aligner_args(args)
+        # process ref out here as it might add mods or variants to outputs
+        args, ref_out_info = parse_ref_out_args(args, model_info, map_info)
+        args, mods_info = parse_mod_args(args, model_info, ref_out_info)
+        bc_info = parse_basecall_args(args, mods_info)
         args, vars_info = parse_var_args(
             args, model_info, aligner, ref_out_info)
         process_all_reads(
             status_info, input_info, model_info, bc_info, aligner, map_info,
             mods_info, vars_info, ref_out_info)
-        model_info.close()
     except mh.MegaError as e:
         LOGGER.error(str(e))
         if model_info is not None:
