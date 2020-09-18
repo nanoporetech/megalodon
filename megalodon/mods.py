@@ -1178,8 +1178,8 @@ def call_read_mods(
                 LOGGER.debug('InvalidSequence {}:{}'.format(
                     r_ref_pos.chrm, mod_ref_pos))
                 continue
-            pos_can_mods = np.zeros_like(pos_ref_seq)
 
+            pos_can_mods = np.zeros_like(pos_ref_seq)
             blk_start, blk_end = (ref_to_block[pos - pos_bb],
                                   ref_to_block[pos + pos_ab])
             if blk_end - blk_start < (mods_info.mod_context_bases * 2) + 1:
@@ -1206,7 +1206,6 @@ def call_read_mods(
                 if loc_mod_score is None:
                     raise mh.MegaError(
                         'Score computation error (memory error)')
-
                 # calibrate llr scores
                 calib_llrs.append(mods_info.calibrate_llr(
                     loc_can_score - loc_mod_score, mod_base))
@@ -1217,26 +1216,18 @@ def call_read_mods(
             r_mod_scores.append((mod_ref_pos, loc_mod_lps, mod_bases))
 
     all_mods_seq = per_mod_seqs = per_site_thresh = None
-    if (mods_info.do_ann_all_mods or mods_info.do_ann_per_mod) and \
+    if (mods_info.do_ann_all_mods or mods_info.do_output.mod_map) and \
        sig_map_res.ref_out_info.per_site_threshs is not None:
         try:
             per_site_thresh = sig_map_res.ref_out_info.per_site_threshs[(
                 r_ref_pos.chrm, r_ref_pos.strand)]
         except KeyError:
-            if len(r_mod_scores) == 0:
-                LOGGER.debug((
-                    '{} : Mapping contig {}:{} not found in ' +
-                    'per-site thresholds.').format(
-                        sig_map_res.read_id, r_ref_pos.chrm,
-                        '+' if r_ref_pos.strand == 1 else '-'))
-                return r_mod_scores
+            cov_pos = '' if len(r_mod_scores) == 0 else ','.join(
+                map(str, sorted(list(zip(*r_mod_scores))[0])))
             LOGGER.debug((
-                '{} : Mapping contig {}:{} not found in ' +
-                'per-site thresholds. Covered positions: {}').format(
+                '{} PerSiteThreshContigNotFound {}:{} {}').format(
                     sig_map_res.read_id, r_ref_pos.chrm,
-                    '+' if r_ref_pos.strand == 1 else '-',
-                    ', '.join(map(str, sorted(list(
-                        zip(*r_mod_scores))[0])))))
+                    '+' if r_ref_pos.strand == 1 else '-', cov_pos))
     try:
         if mods_info.do_ann_all_mods:
             # ignore divide around full annotate_mods call to avoid overhead
@@ -1245,7 +1236,7 @@ def call_read_mods(
                 all_mods_seq = annotate_all_mods(
                     r_ref_pos.start, r_ref_seq, r_mod_scores,
                     r_ref_pos.strand, mods_info, per_site_thresh)
-        if mods_info.do_ann_per_mod:
+        if mods_info.do_output.mod_map:
             if mods_info.map_emulate_bisulfite:
                 with np.errstate(divide='ignore'):
                     per_mod_seqs = annotate_mods_per_mod(
@@ -1256,13 +1247,12 @@ def call_read_mods(
                     r_ref_pos.start, r_ref_seq, r_mod_scores,
                     r_ref_pos.strand, mods_info)
     except KeyError:
+        cov_pos = '' if len(r_mod_scores) == 0 else ','.join(
+            map(str, sorted(list(zip(*r_mod_scores))[0])))
         LOGGER.debug((
-            '{} per-site markup encountered invalid position. ' +
-            '{}:{}: {}').format(
+            '{} PerSiteThreshSiteNotFound {}:{} {}').format(
                 sig_map_res.read_id, r_ref_pos.chrm,
-                '+' if r_ref_pos.strand == 1 else '-',
-                ', '.join(map(str, sorted(list(
-                    zip(*r_mod_scores))[0])))))
+                '+' if r_ref_pos.strand == 1 else '-', cov_pos))
 
     r_mod_scores = filter_mod_score(r_mod_scores)
 
