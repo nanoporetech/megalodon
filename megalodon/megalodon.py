@@ -1329,9 +1329,6 @@ def parse_ref_out_args(args, model_info, map_info):
         per_site_threshs = mh.parse_bed_scores_np(
             args.mod_per_site_threshold, map_info.ref_names_and_lens)
 
-    min_len, max_len = (args.ref_length_range
-                        if args.ref_length_range is not None else
-                        (None, None))
     ref_mods_all_motifs = None
     if args.ref_mods_all_motifs is not None:
         ref_mods_all_motifs, sm_alphabet_info = parse_ref_mods_all_motifs(
@@ -1405,18 +1402,14 @@ def _main(args):
         # aligner can take a while to load, so load as late as possible
         aligner, map_info = parse_aligner_args(args)
         # process ref out here as it might add mods or variants to outputs
-        args, ref_out_info = parse_ref_out_args(
-            args, model_info, map_info)
+        args, ref_out_info = parse_ref_out_args(args, model_info, map_info)
         args, mods_info = parse_mod_args(args, model_info, ref_out_info)
         bc_info = parse_basecall_args(args, mods_info)
-        # aligner can take a while to load, so load as late as possible
-        aligner, map_info = parse_aligner_args(args)
         args, vars_info = parse_var_args(
             args, model_info, aligner, ref_out_info)
         process_all_reads(
             status_info, input_info, model_info, bc_info, aligner, map_info,
             mods_info, vars_info, ref_out_info)
-        model_info.close()
     except mh.MegaError as e:
         LOGGER.error(str(e))
         if model_info is not None:

@@ -673,11 +673,11 @@ def parse_bed_methyls(
                 # convert to 1/-1 strand storage (matching mappy)
                 store_strand = str_strand_to_int(strand)
                 if strand_offset is not None:
-                    # apply offset to reverse strand positions
-                    if store_strand == -1:
-                        start -= strand_offset
                     # store both strand counts under None
                     store_strand = None
+                    # apply offset to reverse strand positions
+                    if strand == '-':
+                        start -= strand_offset
                 # skip any positions not found in valid_pos
                 if valid_pos is not None and (
                         (chrm, store_strand) not in valid_pos or

@@ -922,8 +922,8 @@ def annotate_all_mods(
         strand (int): 1 for forward strand -1 for reverse strand
         mods_info (mods.ModInfo): Object containing information about modified
             base processing
-        per_site_thresh (np.ndarray): Score thresholds per position
-            (score=log(P_can/P_mod).
+        per_site_thresh (np.ndarray): Score thresholds per position,
+            score := log(P_can/P_mod).
 
     Returns:
         mods.ANNOT_MODS object annotated with all modified bases.
@@ -984,8 +984,8 @@ def annotate_mods_per_mod(
         strand (int): 1 for forward strand -1 for reverse strand
         mods_info (mods.ModInfo): Object containing information about modified
             base processing
-        per_site_thresh (np.ndarray): Score thresholds per position
-            (score=log(P_can/P_mod).
+        per_site_thresh (np.ndarray): Score thresholds per position,
+            score := log(P_can/P_mod).
 
     Returns:
         Dictionary with mod_base single letter code pointing to
