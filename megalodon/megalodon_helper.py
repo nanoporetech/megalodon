@@ -38,6 +38,7 @@ MOD_EM_NAME = 'expectation_maximization'
 MOD_AGG_METHOD_NAMES = set((MOD_BIN_THRESH_NAME, MOD_EM_NAME))
 DEFAULT_MOD_BINARY_THRESH = 0.8
 DEFAULT_READ_ENUM_TS = 8
+DEFAULT_EXTRACT_SIG_PROC = 2
 
 MED_NORM_FACTOR = 1.4826
 
@@ -170,8 +171,9 @@ STATUS_INFO = namedtuple('STATUS_INFO', (
     'suppress_prog_bar', 'suppress_queues', 'num_prog_errs'))
 INPUT_INFO = namedtuple('INPUT_INFO', (
     'fast5s_dir', 'recursive', 'num_reads', 'read_ids_fn', 'num_ps',
-    'do_it_live', 'num_read_enum_ts'))
-INPUT_INFO.__new__.__defaults__ = (False, DEFAULT_READ_ENUM_TS)
+    'do_it_live', 'num_read_enum_ts', 'num_extract_sig_proc'))
+INPUT_INFO.__new__.__defaults__ = (
+    False, DEFAULT_READ_ENUM_TS, DEFAULT_EXTRACT_SIG_PROC)
 BASECALL_DO_OUTPUT = namedtuple('BASECALL_DO_OUTPUT', (
     'any', 'basecalls', 'mod_basecalls'))
 BASECALL_INFO = namedtuple('BASECALL_INFO', (
@@ -184,7 +186,7 @@ REF_OUT_FILTER_PARAMS = namedtuple('REF_OUT_FILTER_PARAMS', (
     'pct_idnt', 'pct_cov', 'min_len', 'max_len'))
 REF_OUT_INFO = namedtuple('ref_out_info', (
     'do_output', 'filt_params', 'ref_mods_all_motifs', 'alphabet_info',
-    'out_dir', 'get_sig_map_func'))
+    'out_dir', 'get_sig_map_func', 'per_site_threshs'))
 VAR_DO_OUTPUT = namedtuple('VAR_DO_OUTPUT', (
     'db', 'text', 'var_map'))
 VAR_DO_OUTPUT.__new__.__defaults__ = (False, False, False, False)
@@ -587,6 +589,29 @@ def int_strand_to_str(strand_str):
     elif strand_str == -1:
         return '-'
     return '.'
+
+
+def parse_bed_scores(bed_fn):
+    bed_scores = defaultdict(dict)
+    with open(bed_fn) as bed_fp:
+        for line in bed_fp:
+            chrm, pos, _, _, score, strand = line.split()[:6]
+            bed_scores[(chrm, str_strand_to_int(strand))][
+                int(pos)] = float(score)
+    return dict(bed_scores)
+
+
+def parse_bed_scores_np(bed_fn, ref_names_and_lens):
+    bed_scores = dict(
+        ((chrm, strand), np.zeros(chrm_len, dtype=np.float32))
+        for chrm, chrm_len in zip(*ref_names_and_lens)
+        for strand in (-1, 1))
+    with open(bed_fn) as bed_fp:
+        for line in bed_fp:
+            chrm, pos, _, _, score, strand = line.split()[:6]
+            bed_scores[(chrm, str_strand_to_int(strand))][
+                int(pos)] = float(score)
+    return bed_scores
 
 
 def parse_beds(bed_fns, ignore_strand=False, show_prog_bar=True):

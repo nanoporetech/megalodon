@@ -1,5 +1,6 @@
 import os
 import sys
+import array
 import traceback
 import subprocess
 from functools import total_ordering
@@ -108,8 +109,9 @@ def prepare_mapping(
         a.reference_start = ref_st
     if map_qual is not None:
         a.mapping_quality = map_qual
-    if qual is not None:
-        a.query_qualities = qual
+    if qual is None:
+        qual = array.array('B', [255] * len(seq))
+    a.query_qualities = qual
     if cigartuples is None:
         cigartuples = [(0, len(seq)), ]
     a.cigartuples = cigartuples

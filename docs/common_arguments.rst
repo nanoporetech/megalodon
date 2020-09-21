@@ -110,9 +110,9 @@ Modified Base Arguments
 
     - Note that restricting to motifs of interest can save computationally expensive steps and is considered more than a simple post-processing filter.
 
------------------------
-Miscellaneous Arguments
------------------------
+--------------------------
+Compute Resource Arguments
+--------------------------
 
 - ``--processes``
 
