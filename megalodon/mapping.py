@@ -296,13 +296,23 @@ def map_read(
     if map_res is None:
         raise mh.MegaError('No alignment')
     map_res = MAP_RES(*map_res)
+    # add signal coordinates to mapping output if run-length cumsum provided
     if rl_cumsum is not None:
+        # convert query start and end to signal-anchored locations
+        # Note that for signal_reversed reads, the start will be larger than
+        # the end
+        q_st = len(map_res.q_seq) - map_res.q_st if signal_reversed else \
+            map_res.q_st
+        q_en = len(map_res.q_seq) - map_res.q_en if signal_reversed else \
+            map_res.q_en
         map_res = map_res._replace(
-            map_sig_start=rl_cumsum[map_res.q_st],
-            map_sig_end=rl_cumsum[map_res.q_en], sig_len=rl_cumsum[-1])
+            map_sig_start=rl_cumsum[q_st], map_sig_end=rl_cumsum[q_en],
+            sig_len=rl_cumsum[-1])
     if mo_q is not None:
         mo_q.put(tuple(map_res))
     if signal_reversed:
+        # if signal is reversed compared to mapping, reverse coordinates so
+        # they are relative to signal/state_data
         map_res = map_res._replace(
             q_st=len(map_res.q_seq) - map_res.q_en,
             q_en=len(map_res.q_seq) - map_res.q_st,
