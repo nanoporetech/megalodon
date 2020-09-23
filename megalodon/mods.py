@@ -742,7 +742,11 @@ class ModsDb:
             'SELECT score_pos, score_mod, score_read, score FROM data ' +
             'ORDER BY score_pos')
         # initialize variables with first value
-        prev_pos, mod_dbid, read_dbid, lp = local_cursor.fetchone()
+        first_score = local_cursor.fetchone()
+        # if no scores are stored break out of iterator
+        if first_score is None:
+            return
+        prev_pos, mod_dbid, read_dbid, lp = first_score
         pos_lps.append((read_dbid, mod_dbid, lp))
         for curr_pos, mod_dbid, read_dbid, lp in local_cursor:
             if curr_pos != prev_pos:
