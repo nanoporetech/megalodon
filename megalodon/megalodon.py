@@ -915,7 +915,7 @@ def parse_var_args(args, model_info, aligner, ref_out_info):
     return args, vars_info
 
 
-def parse_mod_args(args, model_info, ref_out_info):
+def parse_mod_args(args, model_info, ref_out_info, map_info):
     if args.ref_include_mods and args.ref_mods_all_motifs is not None:
         LOGGER.warning(
             '--ref-include-mods and --ref-mods-all-motifs are not ' +
@@ -998,6 +998,12 @@ def parse_mod_args(args, model_info, ref_out_info):
         mod_db_timeout=args.mod_database_timeout,
         db_safety=args.database_safety, out_dir=args.output_directory,
         skip_db_index=skip_db_index, do_output=do_output)
+    # initialize the database tables
+    mods.init_mods_db(mods_info, map_info.ref_names_and_lens)
+    # load indices and close connection
+    mods_db = mods.ModsDb(mods_info.mods_db_fn, read_only=True)
+    mods_info.add_mods_db_arrays(mods_db)
+    mods_db.close()
     return args, mods_info
 
 
@@ -1222,7 +1228,8 @@ def _main(args):
         aligner, map_info = parse_aligner_args(args)
         # process ref out here as it might add mods or variants to outputs
         args, ref_out_info = parse_ref_out_args(args, model_info, map_info)
-        args, mods_info = parse_mod_args(args, model_info, ref_out_info)
+        args, mods_info = parse_mod_args(
+            args, model_info, ref_out_info, map_info)
         bc_info = parse_basecall_args(args, mods_info)
         args, vars_info = parse_var_args(
             args, model_info, aligner, ref_out_info)

@@ -61,7 +61,6 @@ DB_TIMEOUT_ERR_MSG = (
 OUT_BUFFER_LIMIT = 10000
 
 _PROFILE_MODS_QUEUE = False
-_PROFILE_MODS_AUX = False
 
 
 ###########
@@ -1139,10 +1138,6 @@ def score_mod_seq(
 def call_read_mods(
         r_ref_pos, r_ref_seq, ref_to_block, r_post, mods_info, mod_sig_map_q,
         sig_map_res, signal_reversed, uuid, failed_reads_q, fast5_fn):
-    # load indices and close connection
-    mods_db = ModsDb(mods_info.mods_db_fn, read_only=True)
-    mods_db.close()
-
     def iter_motif_sites():
         search_ref_seq = r_ref_seq[::-1] if signal_reversed else r_ref_seq
         for motif, rel_pos, mod_bases, raw_motif in mods_info.all_mod_motifs:
@@ -1289,9 +1284,9 @@ def call_read_mods(
             mod_sig_map_q.put(signal_mapping.get_remapping(*sig_map_res[1:]))
 
     r_insert_data = [
-        (mod_lp, mods_db.get_pos_dbid(
+        (mod_lp, mods_info.get_pos_dbid(
             r_ref_pos.chrm, r_ref_pos.strand, mod_pos),
-         mods_db.get_mod_base_dbid(mod_base))
+         mods_info.get_mod_base_dbid(mod_base))
         for mod_pos, mod_lps, mod_bases in r_mod_scores
         for mod_lp, mod_base in zip(mod_lps, mod_bases)]
 
@@ -1331,7 +1326,6 @@ def init_mods_db(mods_info, ref_names_and_lens):
     mods_db.insert_chrms(ref_names_and_lens)
     mods_db.insert_mod_long_names(
         mods_info.mod_long_names, mods_info.mod_base_to_can)
-    mods_db.commit()
     mods_db.close()
 
 
@@ -1412,8 +1406,6 @@ def _get_mods_queue(
 
     try:
         LOGGER.debug('GetterStarting')
-        # initialize the database tables
-        init_mods_db(mods_info, map_info.ref_names_and_lens)
         mods_db = ModsDb(
             mods_info.mods_db_fn, db_safety=mods_info.db_safety,
             read_only=False, mod_db_timeout=mods_info.mod_db_timeout)
@@ -1598,6 +1590,8 @@ class ModInfo:
         self.skip_db_index = skip_db_index
         self.do_output = do_output
 
+        self.mods_db_arrays_added = False
+
         self.mods_db_fn = mh.get_megalodon_fn(self.out_dir, mh.PR_MOD_NAME)
 
         self.alphabet = model_info.can_alphabet
@@ -1645,6 +1639,35 @@ class ModInfo:
 
     def calibrate_llr(self, score, mod_base):
         return self.calib_table.calibrate_llr(score, mod_base)
+
+    def add_mods_db_arrays(self, mods_db):
+        self.mod_to_dbid = mods_db.mod_to_dbid
+        self._chrm_len_lookup = mods_db._chrm_len_lookup
+        self._chrm_offset_lookup = mods_db._chrm_offset_lookup
+        self.mods_db_arrays_added = True
+
+    def get_pos_dbid(self, chrm, strand, pos):
+        """ Compute database ID for position
+        """
+        if not self.mods_db_arrays_added:
+            raise mh.MegaError(
+                'Must run add_mods_db_arrays to extract pos_dbid.')
+        if pos // 2 >= self._chrm_len_lookup[chrm]:
+            raise mh.MegaError((
+                'Attempt to extract position past the end of a chromosome.' +
+                ' {}:{}').format(chrm, pos))
+        strand_offset = 0 if strand == 1 else 1
+        return self._chrm_offset_lookup[chrm] + (pos * 2) + strand_offset
+
+    def get_mod_base_dbid(self, mod_base):
+        if not self.mods_db_arrays_added:
+            raise mh.MegaError(
+                'Must run add_mods_db_arrays to extract mod_base_dbid.')
+        try:
+            return self.mod_to_dbid[mod_base]
+        except KeyError:
+            raise mh.MegaError(
+                'Modified base not found in database: {}'.format(mod_base))
 
 
 #################
