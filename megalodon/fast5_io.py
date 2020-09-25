@@ -367,8 +367,9 @@ def _fill_files_queue(input_info, fn_read_ids_q, num_reads_conn, aux_failed_q):
                 continue
             valid_file_read_ids = set(file_read_ids).difference(used_read_ids)
             if len(valid_file_read_ids) < len(file_read_ids):
-                LOGGER.debug('RepeatedReadIDs {}'.format(','.join(
-                    set(file_read_ids).intersection(used_read_ids))))
+                LOGGER.debug('RepeatedReadIDs {} {}'.format(
+                    fast5_fn,
+                    len(set(file_read_ids).intersection(used_read_ids))))
             if valid_read_ids is not None:
                 valid_file_read_ids.intersection_update(valid_read_ids)
             if len(valid_file_read_ids) == 0:
