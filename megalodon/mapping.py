@@ -21,20 +21,24 @@ MAP_POS = namedtuple('MAP_POS', (
     'chrm', 'strand', 'start', 'end', 'q_trim_start', 'q_trim_end'))
 MAP_RES = namedtuple('MAP_RES', (
     'read_id', 'q_seq', 'ref_seq', 'ctg', 'strand', 'r_st', 'r_en',
-    'q_st', 'q_en', 'cigar'))
+    'q_st', 'q_en', 'cigar', 'map_sig_start', 'map_sig_end', 'sig_len'))
+MAP_RES.__new__.__defaults__ = (None, None, None)
 MAP_SUMM = namedtuple('MAP_SUMM', (
     'read_id', 'pct_identity', 'num_align', 'num_match',
     'num_del', 'num_ins', 'read_pct_coverage', 'chrom', 'strand',
-    'start', 'end'))
+    'start', 'end', 'map_sig_start', 'map_sig_end', 'sig_len'))
 # Defaults for backwards compatibility when reading
-MAP_SUMM.__new__.__defaults__ = (None, None, None, None, None)
+MAP_SUMM.__new__.__defaults__ = (
+    None, None, None, None, None, None, None, None)
 MAP_SUMM_TMPLT = (
     '{0.read_id}\t{0.pct_identity:.2f}\t{0.num_align}\t{0.num_match}\t' +
     '{0.num_del}\t{0.num_ins}\t{0.read_pct_coverage:.2f}\t{0.chrom}\t' +
-    '{0.strand}\t{0.start}\t{0.end}\n')
+    '{0.strand}\t{0.start}\t{0.end}\t{0.map_sig_start}\t{0.map_sig_end}\t' +
+    '{0.sig_len}\n')
 MAP_SUMM_TYPES = dict(zip(
     MAP_SUMM._fields,
-    (str, float, int, int, int, int, float, str, str, int, int)))
+    (str, float, int, int, int, int, float, str, str, int, int,
+     int, int, int)))
 
 MOD_POS_TAG = 'Mm'
 MOD_PROB_TAG = 'Ml'
@@ -274,7 +278,9 @@ def parse_cigar(r_cigar, strand, ref_len):
     return r_to_q_poss
 
 
-def map_read(caller_conn, q_seq, read_id, mo_q=None, signal_reversed=False):
+def map_read(
+        caller_conn, q_seq, read_id, mo_q=None, signal_reversed=False,
+        rl_cumsum=None):
     """ Map read (query) sequence
 
     Returns:
@@ -291,10 +297,24 @@ def map_read(caller_conn, q_seq, read_id, mo_q=None, signal_reversed=False):
     map_res = caller_conn.recv()
     if map_res is None:
         raise mh.MegaError('No alignment')
-    if mo_q is not None:
-        mo_q.put((map_res))
     map_res = MAP_RES(*map_res)
+    # add signal coordinates to mapping output if run-length cumsum provided
+    if rl_cumsum is not None:
+        # convert query start and end to signal-anchored locations
+        # Note that for signal_reversed reads, the start will be larger than
+        # the end
+        q_st = len(map_res.q_seq) - map_res.q_st if signal_reversed else \
+            map_res.q_st
+        q_en = len(map_res.q_seq) - map_res.q_en if signal_reversed else \
+            map_res.q_en
+        map_res = map_res._replace(
+            map_sig_start=rl_cumsum[q_st], map_sig_end=rl_cumsum[q_en],
+            sig_len=rl_cumsum[-1])
+    if mo_q is not None:
+        mo_q.put(tuple(map_res))
     if signal_reversed:
+        # if signal is reversed compared to mapping, reverse coordinates so
+        # they are relative to signal/state_data
         map_res = map_res._replace(
             q_st=len(map_res.q_seq) - map_res.q_en,
             q_en=len(map_res.q_seq) - map_res.q_st,
@@ -369,7 +389,9 @@ def _get_map_queue(mo_q, map_info, ref_out_info, aux_failed_q):
             read_pct_coverage=((map_res.q_en - map_res.q_st) * 100 /
                                float(bc_len)), chrom=map_res.ctg,
             strand=mh.int_strand_to_str(map_res.strand), start=map_res.r_st,
-            end=map_res.r_st + nalign - nins)
+            end=map_res.r_st + nalign - nins,
+            map_sig_start=map_res.map_sig_start,
+            map_sig_end=map_res.map_sig_end, sig_len=map_res.sig_len)
         summ_fp.write(MAP_SUMM_TMPLT.format(r_map_summ))
 
         if ref_out_info.do_output.pr_refs and read_passes_filters(
