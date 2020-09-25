@@ -472,7 +472,7 @@ class ModelInfo(AbstractModelInfo):
         self._parse_minimal_alphabet_info()
 
     def _load_pyguppy(self, init_sig_len=1000):
-        def _check_guppy_version():
+        def _check_guppy_version(pyguppy_version_str):
             try:
                 check_vers_proc = subprocess.Popen(
                     [self.params.pyguppy.bin_path, '--version'], shell=False,
@@ -487,10 +487,32 @@ class ModelInfo(AbstractModelInfo):
                 raise mh.MegaError(
                     'Guppy version string does not match expected ' +
                     'pattern: "{}"'.format(version_out))
-            if LooseVersion(version_match.groups()[0]) < MIN_GUPPY_VERSION:
+            guppy_version_str = version_match.groups()[0]
+            LOGGER.debug('Guppy version: "{}"'.format(guppy_version_str))
+            LOGGER.debug('Pyguppy version: "{}"'.format(pyguppy_version_str))
+            guppy_version = LooseVersion(guppy_version_str)
+            if guppy_version < MIN_GUPPY_VERSION:
                 raise mh.MegaError(
                     'Megalodon requires Guppy version>=4.0. Got: "{}"'.format(
-                        version_match.groups()[0]))
+                        guppy_version_str))
+            pyguppy_version = LooseVersion(pyguppy_version_str)
+            if len(pyguppy_version.version) < 2 or \
+               len(guppy_version.version) < 2:
+                LOGGER.warning('Invalid guppy or pyguppy versions.')
+            elif guppy_version.version[0] != pyguppy_version.version[0]:
+                LOGGER.warning(
+                    'Guppy and pyguppy major versions do not match. This ' +
+                    'will likely lead to a failure. Please install matching ' +
+                    'Guppy and pyguppy versions.')
+            elif guppy_version.version[1] != pyguppy_version.version[1]:
+                LOGGER.warning(
+                    'Guppy and pyguppy minor versions do not match. This ' +
+                    'may lead to a failure. Please install matching ' +
+                    'Guppy and pyguppy versions.')
+            elif guppy_version.version[2] != pyguppy_version.version[2]:
+                LOGGER.debug(
+                    'Guppy and pyguppy point versions do not match. ' +
+                    'Please install matching Guppy and pyguppy versions.')
 
         def start_guppy_server():
             def get_server_port():
@@ -502,7 +524,6 @@ class ModelInfo(AbstractModelInfo):
                 except AttributeError:
                     return None
 
-            _check_guppy_version()
             # set guppy logs output locations
             self.guppy_log = os.path.join(
                 self.params.pyguppy.out_dir, GUPPY_LOG_BASE)
@@ -599,8 +620,10 @@ class ModelInfo(AbstractModelInfo):
         self.pyguppy_retries = max(
             1, int(self.params.pyguppy.timeout / PYGUPPY_PER_TRY_TIMEOUT))
         from pyguppy_client_lib.pyclient import PyGuppyClient
+        from pyguppy_client_lib import __version__ as pyguppy_version_str
         self.pyguppy_GuppyBasecallerClient = PyGuppyClient
 
+        _check_guppy_version(pyguppy_version_str)
         start_guppy_server()
         set_pyguppy_model_attributes()
         self._parse_minimal_alphabet_info()
