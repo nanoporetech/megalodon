@@ -1,4 +1,5 @@
 import sys
+import queue
 import traceback
 from collections import namedtuple
 
@@ -99,12 +100,17 @@ def get_alphabet_info(output_alphabet, collapse_alphabet, mod_long_names):
         output_alphabet, collapse_alphabet, mod_long_names, do_reorder=True)
 
 
-def write_signal_mappings(sig_map_q, ref_out_info, aux_failed_q):
+def write_signal_mappings(sig_map_q, sig_map_conn, ref_out_info, aux_failed_q):
     def iter_mappings():
+        workers_active = True
         LOGGER.debug('GetterInitComplete')
-        while sig_map_q.has_valid_conns:
-            for read_mapping in sig_map_q.wait_recv():
+        while workers_active or not sig_map_q.empty():
+            try:
+                read_mapping = sig_map_q.get(timeout=0.1)
                 yield read_mapping
+            except queue.Empty:
+                if sig_map_conn.poll():
+                    workers_active = False
 
     try:
         LOGGER.debug('GetterStarting')

@@ -3,6 +3,7 @@ import re
 import sys
 import array
 import pysam
+import queue
 import sqlite3
 import datetime
 import traceback
@@ -1334,7 +1335,8 @@ def init_mods_db(mods_info, ref_names_and_lens):
     mods_db.close()
 
 
-def _get_mods_queue(mods_q, mods_info, map_info, ref_out_info, aux_failed_q):
+def _get_mods_queue(
+        mods_q, mods_conn, mods_info, map_info, ref_out_info, aux_failed_q):
     def write_mod_alignment(
             read_id, mod_seq, mod_quals, chrm, strand, r_st, fp):
         # convert to reference based sequence
@@ -1450,19 +1452,24 @@ def _get_mods_queue(mods_q, mods_info, map_info, ref_out_info, aux_failed_q):
                     w_mode, header=header,
                     reference_filename=map_info.cram_ref_fn)
         been_warned_timeout = been_warned_other = False
+        workers_active = True
         LOGGER.debug('GetterInitComplete')
     except Exception as e:
         aux_failed_q.put(('ModsInitError', str(e), traceback.format_exc()))
         return
 
     try:
-        while mods_q.has_valid_conns:
-            for mod_res in mods_q.wait_recv():
+        while workers_active or not mods_q.empty():
+            try:
+                mod_res = mods_q.get(timeout=0.1)
                 r_val = mh.log_errors(
                     store_mod_call, mod_res, been_warned_timeout,
                     been_warned_other)
                 if r_val is not None:
                     been_warned_timeout, been_warned_other = r_val
+            except queue.Empty:
+                if mods_conn.poll():
+                    workers_active = False
         LOGGER.debug('GetterClosing')
     except Exception as e:
         aux_failed_q.put((

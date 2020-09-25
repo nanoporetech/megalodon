@@ -277,7 +277,7 @@ def aggregate_stats(
         agg_vars.close()
         LOGGER.info('Spawning variant aggregation processes')
         # create process to collect var stats from workers
-        var_stats_q, var_stats_p, m_var_stats_conn = mega_mp.create_getter_q(
+        var_stats_q, var_stats_p, m_var_stats_conn = mega_mp.create_getter_qpc(
             _get_var_stats_queue, (
                 out_dir, ref_names_and_lens, out_suffix, write_vcf_lp))
         # create process to fill variant locs queue
@@ -308,7 +308,7 @@ def aggregate_stats(
         agg_mods.close()
         LOGGER.info('Spawning modified base aggregation processes')
         # create process to collect mods stats from workers
-        mod_stats_q, mod_stats_p, m_mod_stats_conn = mega_mp.create_getter_q(
+        mod_stats_q, mod_stats_p, m_mod_stats_conn = mega_mp.create_getter_qpc(
             _get_mod_stats_queue, (
                 out_dir, mod_long_names, ref_names_and_lens, out_suffix,
                 write_mod_lp, mod_output_fmts))

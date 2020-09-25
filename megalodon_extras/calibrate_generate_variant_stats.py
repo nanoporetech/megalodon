@@ -344,7 +344,7 @@ def process_all_reads(
         daemon=True, name='FileFiller')
     files_p.start()
 
-    var_calls_q, var_calls_p, main_sc_conn = mega_mp.create_getter_q(
+    var_calls_q, var_calls_p, main_sc_conn = mega_mp.create_getter_qpc(
         _get_variant_calls,
         (out_fn, getter_num_reads_conn, suppress_progress))
 
