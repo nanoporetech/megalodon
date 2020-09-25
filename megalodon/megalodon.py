@@ -150,7 +150,7 @@ def interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum):
 
 
 def process_read(
-        getter_conns, caller_conn, bc_res, model_info, ref_out_info, vars_info,
+        getter_qpcs, caller_conn, bc_res, model_info, ref_out_info, vars_info,
         mods_info, bc_info):
     """ Workhorse per-read megalodon function (connects all the parts)
     """
@@ -160,13 +160,13 @@ def process_read(
         # convert seq_summ_info to tuple since namedtuples can't be
         # pickled for passing through a queue.
         if bc_info.rev_sig:
-            # sequence is stored internally in sequencing direction. Send to
-            # basecall output in reference direction.
-            getter_conns[mh.BC_NAME].put((
+            # sequence is stored internally in sequencing direction. Send
+            # to basecall output in reference direction.
+            getter_qpcs[mh.BC_NAME].queue.put((
                 sig_info.read_id, r_seq[::-1], r_qual[::-1], mods_scores,
                 tuple(seq_summ_info)))
         else:
-            getter_conns[mh.BC_NAME].put((
+            getter_qpcs[mh.BC_NAME].queue.put((
                 sig_info.read_id, r_seq, r_qual, mods_scores,
                 tuple(seq_summ_info)))
 
@@ -175,12 +175,14 @@ def process_read(
         return
 
     # map read and record mapping from reference to query positions
+    map_q = getter_qpcs[mh.MAP_NAME].queue \
+        if mh.MAP_NAME in getter_qpcs else None
     r_ref_seq, r_to_q_poss, r_ref_pos, r_cigar = mapping.map_read(
-        caller_conn, r_seq, sig_info.read_id, getter_conns[mh.MAP_NAME],
-        bc_info.rev_sig, rl_cumsum)
+        caller_conn, r_seq, sig_info.read_id, map_q, bc_info.rev_sig,
+        rl_cumsum)
     np_ref_seq = mh.seq_to_int(r_ref_seq, error_on_invalid=False)
 
-    failed_reads_q = getter_conns[_FAILED_READ_GETTER_NAME]
+    failed_reads_q = getter_qpcs[_FAILED_READ_GETTER_NAME].queue
     sig_map_res = None
     if ref_out_info.do_output.sig_maps:
         pass_sig_map_filts = mapping.read_passes_filters(
@@ -192,7 +194,7 @@ def process_read(
             sig_info.read_id, r_to_q_poss, rl_cumsum, r_ref_pos, ref_out_info)
         if ref_out_info.do_output.can_sig_maps and pass_sig_map_filts:
             try:
-                getter_conns[mh.SIG_MAP_NAME].put(
+                getter_qpcs[mh.SIG_MAP_NAME].queue.put(
                     signal_mapping.get_remapping(*sig_map_res[1:]))
             except Exception as e:
                 LOGGER.debug('{} SignalMappingError {}'.format(
@@ -225,12 +227,12 @@ def process_read(
             r_vals=(sig_info.read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
-            out_q=getter_conns[mh.PR_VAR_NAME],
+            out_q=getter_qpcs[mh.PR_VAR_NAME].queue,
             fast5_fn=sig_info.fast5_fn + ':::' + sig_info.read_id,
             failed_reads_q=failed_reads_q)
     if mods_info.do_output.db:
         mapped_post_w_mods = post_w_mods[post_mapped_start:post_mapped_end]
-        mod_sig_map_q = getter_conns[mh.SIG_MAP_NAME] \
+        mod_sig_map_q = getter_qpcs[mh.SIG_MAP_NAME].queue \
             if ref_out_info.do_output.mod_sig_maps else None
         handle_errors(
             func=mods.call_read_mods,
@@ -240,7 +242,7 @@ def process_read(
             r_vals=(sig_info.read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(r_seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
-            out_q=getter_conns[mh.PR_MOD_NAME],
+            out_q=getter_qpcs[mh.PR_MOD_NAME].queue,
             fast5_fn=sig_info.fast5_fn + ':::' + sig_info.read_id,
             failed_reads_q=failed_reads_q)
 
@@ -250,12 +252,12 @@ def process_read(
 ########################
 
 def _process_reads_worker(
-        signal_q, getter_conns, caller_conn, ref_out_info, model_info,
+        signal_q, getter_qpcs, caller_conn, ref_out_info, model_info,
         vars_info, mods_info, bc_info, device):
     def create_batch_gen():
         for _ in range(bc_info.reads_per_batch):
             try:
-                read_sig_data = signal_q.get(timeout=0.01)
+                read_sig_data = signal_q.queue.get(timeout=0.01)
             except queue.Empty:
                 continue
             if read_sig_data is None:
@@ -286,7 +288,7 @@ def _process_reads_worker(
     try:
         # prepare connection for communication with batch generator
         full_iter_conn, gen_conn = mp.Pipe(duplex=False)
-        failed_reads_q = getter_conns[_FAILED_READ_GETTER_NAME]
+        failed_reads_q = getter_qpcs[_FAILED_READ_GETTER_NAME].queue
         model_info.prep_model_worker(device)
         vars_info.reopen_variant_index()
         LOGGER.debug('Starting')
@@ -298,18 +300,16 @@ def _process_reads_worker(
         sig_info = bc_res[0]
         try:
             process_read(
-                getter_conns, caller_conn, bc_res, model_info,
+                getter_qpcs, caller_conn, bc_res, model_info,
                 ref_out_info, vars_info, mods_info, bc_info)
-            failed_reads_q.put(tuple(mh.READ_STATUS(n_sig=sig_info.raw_len)))
+            failed_reads_q.put(
+                tuple(mh.READ_STATUS(n_sig=sig_info.raw_len)))
             LOGGER.debug('{} Success'.format(sig_info.read_id))
         except KeyboardInterrupt:
             failed_reads_q.put(tuple(mh.READ_STATUS(
                 is_err=True, do_update_prog=False,
                 err_type='Keyboard interrupt', fast5_fn=sig_info.fast5_fn)))
             LOGGER.debug('{} KeyboardInterrupt'.format(sig_info.read_id))
-            for getter_conn in getter_conns.values():
-                if getter_conn is not None:
-                    getter_conn.close()
             return
         except mh.MegaError as e:
             raw_len = sig_info.raw_len if hasattr(sig_info, 'raw_len') else 0
@@ -326,9 +326,6 @@ def _process_reads_worker(
                 err_tb=traceback.format_exc())))
             LOGGER.debug(
                 '{} UnexpectedFail {}'.format(sig_info.read_id, str(e)))
-    for getter_conn in getter_conns.values():
-        if getter_conn is not None:
-            getter_conn.close()
 
 
 if _DO_PROFILE:
@@ -344,7 +341,7 @@ if _DO_PROFILE:
 # Queue getters #
 #################
 
-def _get_bc_queue(bc_q, bc_info, aux_failed_q):
+def _get_bc_queue(bc_q, bc_conn, bc_info, aux_failed_q):
     def write_read(bc_res):
         read_id, r_seq, r_qual, mods_scores, seq_summ_info = bc_res
         # convert seq_summ_info back into namedtuple after passing
@@ -378,6 +375,7 @@ def _get_bc_queue(bc_q, bc_info, aux_failed_q):
             mods_fp = mapping.open_unaligned_alignment_file(
                 mh.get_megalodon_fn(bc_info.out_dir, mh.BC_MODS_NAME),
                 bc_info.mod_bc_fmt, bc_info.mod_long_names)
+        workers_active = True
         LOGGER.debug('GetterInitComplete')
     except Exception as e:
         aux_failed_q.put((
@@ -385,9 +383,13 @@ def _get_bc_queue(bc_q, bc_info, aux_failed_q):
         return
 
     try:
-        while bc_q.has_valid_conns:
-            for bc_res in bc_q.wait_recv():
+        while workers_active or not bc_q.empty():
+            try:
+                bc_res = bc_q.get(timeout=0.1)
                 mh.log_errors(write_read, bc_res)
+            except queue.Empty:
+                if bc_conn.poll():
+                    workers_active = False
         LOGGER.debug('GetterClosing')
     except Exception as e:
         aux_failed_q.put((
@@ -438,7 +440,7 @@ def update_err(failed_reads, err_type, fast5_fn, err_tb, unexp_err_fp):
 
 
 def update_prog(
-        err_statuses, bar, q_bars, sig_called, getter_qs, status_info,
+        err_statuses, bar, q_bars, sig_called, getter_qpcs, status_info,
         reads_called, failed_reads, last_err_write, read_called=True):
     try:
         bar.set_postfix(
@@ -449,7 +451,7 @@ def update_prog(
         pass
     if q_bars is not None:
         for q_name, q_bar in q_bars.items():
-            q_bar.n = getter_qs[q_name].qsize()
+            q_bar.n = getter_qpcs[q_name].queue.qsize()
             # trigger display refresh
             q_bar.update(0)
     if read_called:
@@ -469,24 +471,25 @@ def update_prog(
     return last_err_write
 
 
-def prep_errors_bar(status_info, getter_qs):
+def prep_errors_bar(status_info, getter_qpcs):
     if status_info.suppress_prog_bar:
         return None, None, None
 
     # prep queue capacity status bars if requested
     q_labs = None
     if not status_info.suppress_queues:
+        def io_str(q_name):
+            if q_name == _SIG_EXTRACT_GETTER_NAME:
+                return ' input queue capacity {}'
+            return 'output queue capacity {}'
+
         sys.stderr.write(
             'Full output or empty input queues indicate I/O bottleneck\n')
-        valid_q_names = [
-            q_name for q_name, q in getter_qs.items()
-            if q_name == _SIG_EXTRACT_GETTER_NAME or (
-                q.return_conns and q_name != _FAILED_READ_GETTER_NAME)]
         q_labs = [
-            (q_num, q_name, ' input queue capacity {}'.format(q_name))
-            if q_name == _SIG_EXTRACT_GETTER_NAME else
-            (q_num, q_name, 'output queue capacity {}'.format(q_name))
-            for q_num, q_name in enumerate(valid_q_names)]
+            (q_num, q_name, io_str(q_name).format(q_name))
+            for q_num, q_name in enumerate([
+                q_name for q_name in getter_qpcs
+                if q_name != _FAILED_READ_GETTER_NAME])]
 
     err_statuses = q_bars = None
     if status_info.num_prog_errs > 0:
@@ -513,20 +516,22 @@ def prep_errors_bar(status_info, getter_qs):
 
 
 def _get_fail_queue(
-        failed_reads_q, status_info, gnr_conn, getter_qs, signal_q):
+        failed_reads_q, f_conn, status_info, gnr_conn, getter_qpcs,
+        signal_q):
     LOGGER.info('Processing reads')
     LOGGER.debug('GetterStarting')
     reads_called = sig_called = last_err_write = 0
     unexp_err_fp = None
     failed_reads = defaultdict(list)
-    # add signal extraction queue to getter queues
-    getter_qs[_SIG_EXTRACT_GETTER_NAME] = signal_q
-    getter_qs.move_to_end(_SIG_EXTRACT_GETTER_NAME, last=False)
-    err_statuses, bar, q_bars = prep_errors_bar(status_info, getter_qs)
+    getter_qpcs[_SIG_EXTRACT_GETTER_NAME] = signal_q
+    getter_qpcs.move_to_end(_SIG_EXTRACT_GETTER_NAME, last=False)
+    err_statuses, bar, q_bars = prep_errors_bar(status_info, getter_qpcs)
+    workers_active = True
     LOGGER.debug('GetterInitComplete')
     try:
-        while failed_reads_q.has_valid_conns:
-            for read_status in failed_reads_q.wait_recv():
+        while workers_active or not failed_reads_q.empty():
+            try:
+                read_status = failed_reads_q.get(timeout=0.1)
                 read_status = mh.READ_STATUS(*read_status)
                 sig_called += read_status.n_sig
                 if read_status.do_update_prog:
@@ -538,13 +543,16 @@ def _get_fail_queue(
                 if read_status.do_update_prog and \
                    not status_info.suppress_prog_bar:
                     last_err_write = update_prog(
-                        err_statuses, bar, q_bars, sig_called, getter_qs,
+                        err_statuses, bar, q_bars, sig_called, getter_qpcs,
                         status_info, reads_called, failed_reads,
                         last_err_write)
                 # get total number of reads once all reads are enumerated
                 if bar is not None and bar.total is None:
                     if gnr_conn.poll():
                         bar.total = gnr_conn.recv()
+            except queue.Empty:
+                if f_conn.poll():
+                    workers_active = False
         LOGGER.debug('GetterClosing')
     except KeyboardInterrupt:
         # exit gracefully on keyboard inturrupt
@@ -554,10 +562,10 @@ def _get_fail_queue(
     if not status_info.suppress_prog_bar:
         # wait for getter queues to flush
         if q_bars is not None:
-            while any(not getter_qs[q_name].empty()
+            while any(not getter_qpcs[q_name].queue.empty()
                       for q_name in q_bars.keys()):
                 for q_name, q_bar in q_bars.items():
-                    q_bar.n = getter_qs[q_name].qsize()
+                    q_bar.n = getter_qpcs[q_name].queue.qsize()
                     q_bar.update(0)
         # close all open progressbars
         if err_statuses is not None:
@@ -588,12 +596,16 @@ def _get_fail_queue(
 
 def wait_for_completion(
         files_p, extract_sig_ps, signal_q, proc_reads_ps, map_read_ts,
-        getter_ps, aux_failed_q, input_info):
+        getter_qpcs, aux_failed_q, input_info):
     def kill_all_proc():
-        for p in [files_p, ] + proc_reads_ps + list(getter_ps.values()):
+        for p in [files_p, ] + proc_reads_ps:
             if p.is_alive():
                 p.terminate()
                 p.join()
+        for q in list(getter_qpcs.values()):
+            if q.proc.is_alive():
+                q.proc.terminate()
+                q.proc.join()
 
     try:
         # wait for file enumeration process to finish first
@@ -631,10 +643,10 @@ def wait_for_completion(
         # add None to indicate to read workers that signal extraction is
         # complete
         for _ in range(input_info.num_ps):
-            signal_q.put(None)
+            signal_q.queue.put(None)
 
         # wait for signal queue to be exhausted
-        while not signal_q.empty():
+        while not signal_q.queue.empty():
             try:
                 aux_err = aux_failed_q.get(block=False)
                 # if an auxiliary process fails exit megalodon
@@ -645,8 +657,9 @@ def wait_for_completion(
                 sys.exit(1)
             except queue.Empty:
                 # check that a getter queue has not failed with a segfault
-                for g_name, getter_p in getter_ps.items():
-                    if not getter_p.is_alive() and not signal_q.empty():
+                for g_name, getter_qpc in getter_qpcs.items():
+                    if not getter_qpc.proc.is_alive() and \
+                       not signal_q.queue.empty():
                         kill_all_proc()
                         sleep(0.01)
                         LOGGER.error((
@@ -669,19 +682,21 @@ def wait_for_completion(
                 LOGGER.debug('JoiningMain: {}'.format(map_t.name))
                 map_t.join()
                 LOGGER.debug('JoinedMain: {}'.format(map_t.name))
+        for out_name, getter_qpc in getter_qpcs.items():
+            getter_qpc.conn.send(True)
         LOGGER.debug('JoiningMain: Getters')
         # comm to getter processes to return
-        for out_name, getter_p in getter_ps.items():
-            if getter_p.is_alive():
+        for out_name, getter_qpc in getter_qpcs.items():
+            if getter_qpc.proc.is_alive():
                 if out_name == mh.PR_VAR_NAME:
                     LOGGER.info(
                         'Waiting for variants database to complete indexing')
                 elif out_name == mh.PR_MOD_NAME:
                     LOGGER.info(
                         'Waiting for mods database to complete indexing')
-                LOGGER.debug('JoiningMain: {}'.format(getter_p.name))
-                getter_p.join()
-                LOGGER.debug('JoinedMain: {}'.format(getter_p.name))
+                LOGGER.debug('JoiningMain: {}'.format(out_name))
+                getter_qpc.proc.join()
+                LOGGER.debug('JoinedMain: {}'.format(out_name))
         LOGGER.debug('JoiningMain: Complete')
 
     except KeyboardInterrupt:
@@ -706,13 +721,15 @@ def process_all_reads(
         args=(input_info, fn_read_ids_q, nr_conn, aux_failed_q))
     files_p.start()
     # set maxsize to limit memory usage from loaded raw signal
-    signal_q = mega_mp.CountingMPQueue(maxsize=mh._MAX_QUEUE_SIZE)
+    signal_q = mega_mp.GETTER_QPC(
+        queue=mega_mp.CountingMPQueue(maxsize=mh._MAX_QUEUE_SIZE),
+        proc=None, conn=None)
     extract_sig_ps = []
     for es_i in range(input_info.num_extract_sig_proc):
         extract_sig_ps.append(mp.Process(
             target=fast5_io._extract_signal, daemon=True,
             name='SignalExtractor{:03d}'.format(es_i),
-            args=(fn_read_ids_q, signal_q, aux_failed_q, input_info,
+            args=(fn_read_ids_q, signal_q.queue, aux_failed_q, input_info,
                   model_info, ref_out_info.do_output.sig_maps)))
         extract_sig_ps[-1].start()
 
@@ -737,48 +754,27 @@ def process_all_reads(
             name=mh.SIG_MAP_NAME, do_output=ref_out_info.do_output.sig_maps,
             func=ref_out_info.get_sig_map_func,
             args=(ref_out_info, aux_failed_q))]
-    # and create multiprocess simplex queue for each output
-    # note that if an output is not requested the simplex queue will
-    # not actully create connections
-    getter_qs = OrderedDict(
-        (gi.name, mega_mp.SimplexManyToOneQueue(gi.do_output, name=gi.name))
-        for gi in getters_info)
-    getters_info.append(mh.GETTER_INFO(
-        name=_FAILED_READ_GETTER_NAME, do_output=True, func=_get_fail_queue,
-        args=(status_info, gnr_conn, getter_qs, signal_q), max_size=None))
+    getter_qpcs = OrderedDict(
+        (gi.name, mega_mp.create_getter_qpc(gi.func, gi.args, name=gi.name))
+        for gi in getters_info if gi.do_output)
     # failed reads queue needs access to other getter queues
-    getter_qs[_FAILED_READ_GETTER_NAME] = mega_mp.SimplexManyToOneQueue(
-        True, None, name='FailedReads')
+    getter_qpcs[_FAILED_READ_GETTER_NAME] = mega_mp.create_getter_qpc(
+        _get_fail_queue, (status_info, gnr_conn, getter_qpcs, signal_q),
+        max_size=None, name=_FAILED_READ_GETTER_NAME)
 
     proc_reads_ps, map_conns = [], []
     for pnum, device in enumerate(model_info.process_devices):
-        # open dedicated connection for each valid getter type
-        # map connections openned below
-        getter_conns = OrderedDict(
-            (name, q.get_conn()) for name, q in getter_qs.items())
         map_conn, caller_conn = (None, None) if aligner is None else mp.Pipe()
         map_conns.append(map_conn)
         proc_reads_ps.append(mp.Process(
             target=_process_reads_worker, args=(
-                signal_q, getter_conns, caller_conn, ref_out_info,
+                signal_q, getter_qpcs, caller_conn, ref_out_info,
                 model_info, vars_info, mods_info, bc_info, device),
             daemon=True, name='ReadWorker{:03d}'.format(pnum)))
         proc_reads_ps[-1].start()
-        # delete objects so the only valid connections are in the workers
-        # thus when the workers complete the connections are closed
-        for getter_conn in getter_conns.values():
-            if getter_conn is not None:
-                getter_conn.close()
         if caller_conn is not None:
             caller_conn.close()
-        del getter_conns, caller_conn
-    getter_ps = OrderedDict()
-    for gi in getters_info:
-        if gi.do_output:
-            getter_ps[gi.name] = mp.Process(
-                target=gi.func, args=(getter_qs[gi.name], *gi.args),
-                daemon=True, name=gi.name)
-            getter_ps[gi.name].start()
+        del caller_conn
     # ensure process all start up before initializing mapping threads
     sleep(0.1)
     # perform mapping in threads for mappy shared memory interface
@@ -794,7 +790,7 @@ def process_all_reads(
 
     wait_for_completion(
         files_p, extract_sig_ps, signal_q, proc_reads_ps, map_read_ts,
-        getter_ps, aux_failed_q, input_info)
+        getter_qpcs, aux_failed_q, input_info)
 
 
 ############################

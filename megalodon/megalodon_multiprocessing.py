@@ -9,7 +9,7 @@ from megalodon import logging, megalodon_helper as mh
 
 _FULL_SLEEP_TIME = 1
 
-GETTER_PROC = namedtuple('getter_proc', ('queue', 'proc', 'conn'))
+GETTER_QPC = namedtuple('getter_qpc', ('queue', 'proc', 'conn'))
 
 LOGGER = logging.get_logger()
 
@@ -24,6 +24,10 @@ class CountingMPQueue(mpQueue):
     """
 
     def __init__(self, **kwargs):
+        self.name = None
+        if 'name' in kwargs:
+            self.name = kwargs['name']
+            del kwargs['name']
         super().__init__(ctx=mp.get_context(), **kwargs)
         self._size = mp.Value('i', 0)
         self.maxsize = None
@@ -51,15 +55,27 @@ class CountingMPQueue(mpQueue):
         return self.qsize() <= 0
 
 
-def create_getter_q(getter_func, args, max_size=mh._MAX_QUEUE_SIZE):
+def create_getter_qpc(
+        getter_func, args, max_size=mh._MAX_QUEUE_SIZE, name=None):
+    """ Spawn a new "getter" process. This process will use target=getter_func.
+    A new queue and pipe connection will be passed to this function as the
+    first two arguments, followed by *args. A mega_mp.GETTER_QPC will be
+    returned containing the created mp.Queue, the mp.Process object and the
+    other end of the mp.Pipe connection.
+
+    Note the connection object is intended to communicate to the getter process
+    that wroker processes have concluded. Send True or any value to the
+    connection trigger the getter process to exit after exhausting the queue.
+    """
     if max_size is None:
-        q = CountingMPQueue()
+        q = CountingMPQueue(name=name)
     else:
-        q = CountingMPQueue(maxsize=max_size)
+        q = CountingMPQueue(maxsize=max_size, name=name)
     main_conn, conn = mp.Pipe()
-    p = mp.Process(target=getter_func, daemon=True, args=(q, conn, *args))
+    p = mp.Process(
+        target=getter_func, daemon=True, args=(q, conn, *args), name=name)
     p.start()
-    return GETTER_PROC(q, p, main_conn)
+    return GETTER_QPC(q, p, main_conn)
 
 
 class ConnWithSize:

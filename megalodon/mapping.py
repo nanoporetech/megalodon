@@ -1,6 +1,7 @@
 import os
 import sys
 import array
+import queue
 import traceback
 import subprocess
 from functools import total_ordering
@@ -356,7 +357,7 @@ def read_passes_filters(filt_params, read_len, q_st, q_en, cigar):
     return True
 
 
-def _get_map_queue(mo_q, map_info, ref_out_info, aux_failed_q):
+def _get_map_queue(mo_q, mo_conn, map_info, ref_out_info, aux_failed_q):
     def write_alignment(map_res):
         # convert tuple back to namedtuple
         map_res = MAP_RES(*map_res)
@@ -410,6 +411,7 @@ def _get_map_queue(mo_q, map_info, ref_out_info, aux_failed_q):
         if ref_out_info.do_output.pr_refs:
             pr_ref_fp = open(mh.get_megalodon_fn(
                 map_info.out_dir, mh.PR_REF_NAME), 'w')
+        workers_active = True
         LOGGER.debug('GetterInitComplete')
     except Exception as e:
         aux_failed_q.put(('MappingsInitError', str(e), traceback.format_exc()))
@@ -417,9 +419,13 @@ def _get_map_queue(mo_q, map_info, ref_out_info, aux_failed_q):
 
     # loop to get alignments and write to requested files
     try:
-        while mo_q.has_valid_conns:
-            for map_res in mo_q.wait_recv():
+        while workers_active or not mo_q.empty():
+            try:
+                map_res = mo_q.get(timeout=0.1)
                 mh.log_errors(write_alignment, map_res)
+            except queue.Empty:
+                if mo_conn.poll():
+                    workers_active = False
         LOGGER.debug('GetterClosing')
     except Exception as e:
         aux_failed_q.put((

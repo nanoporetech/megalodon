@@ -1,5 +1,6 @@
 import os
 import sys
+import queue
 import sqlite3
 import datetime
 import traceback
@@ -999,7 +1000,7 @@ def annotate_variants(r_start, ref_seq, r_var_calls, strand):
 
 
 def _get_variants_queue(
-        vars_q, vars_info, ref_out_info, map_info, aux_failed_q):
+        vars_q, vars_conn, vars_info, ref_out_info, map_info, aux_failed_q):
     def write_var_alignment(
             read_id, var_seq, var_quals, chrm, strand, r_st, var_cigar):
         # convert to reference based sequence
@@ -1087,18 +1088,23 @@ def _get_variants_queue(
                     mh.get_megalodon_fn(vars_info.out_dir, mh.VAR_MAP_NAME),
                     map_info.map_fmt),
                 w_mode, header=header, reference_filename=map_info.cram_ref_fn)
+        workers_active = True
         LOGGER.debug('GetterInitComplete')
     except Exception as e:
         aux_failed_q.put(('VarsInitError', str(e), traceback.format_exc()))
         return
 
     try:
-        while vars_q.has_valid_conns:
-            for r_var_calls, r_var_res in vars_q.wait_recv():
+        while workers_active or not vars_q.empty():
+            try:
+                r_var_calls, r_var_res = vars_q.get(timeout=0.1)
                 r_val = mh.log_errors(
                     store_var_call, r_var_calls, *r_var_res, been_warned)
                 if r_val is not None:
                     been_warned = r_val
+            except queue.Empty:
+                if vars_conn.poll():
+                    workers_active = False
         LOGGER.debug('GetterClosing')
     except Exception as e:
         aux_failed_q.put((
