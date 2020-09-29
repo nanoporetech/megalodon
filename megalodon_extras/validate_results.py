@@ -47,6 +47,10 @@ MOD_VAL_METRICS_TMPLT = (
     '{: <12.6f}{: <19.4f}{: <20.6f}{: <9.6f}{: <20d}{: <19d}{: <10}{}  {}\n')
 
 
+def plot_nmap_reads(pdf_fp, samp_labs, nmapped_reads):
+    LOGGER.info('Plotting number of mapped reads')
+
+
 def plot_pr(pdf_fp, pr_data):
     for mod_base, mod_pr_data in pr_data.items():
         LOGGER.info('Plotting {} precision-recall curves'.format(mod_base))
@@ -229,7 +233,7 @@ def plot_acc(pdf_fp, samps_val_data):
     plt.figure(figsize=(8, 5))
     for samp_val_data in samps_val_data:
         if samp_val_data.acc is not None:
-            sns.kdeplot(samp_val_data.acc, shade=True, bw=BC_BANDWIDTH,
+            sns.kdeplot(samp_val_data.acc, shade=False, bw=BC_BANDWIDTH,
                         gridsize=BC_GRIDSIZE, label=samp_val_data.label)
     plt.legend(title=BC_LEGEND_LABEL)
     plt.xlabel('Mapping Accuracy')
@@ -242,7 +246,7 @@ def plot_acc(pdf_fp, samps_val_data):
     plt.figure(figsize=(8, 5))
     for samp_val_data in samps_val_data:
         if samp_val_data.parsim_acc is not None:
-            sns.kdeplot(samp_val_data.parsim_acc, shade=True, bw=BC_BANDWIDTH,
+            sns.kdeplot(samp_val_data.parsim_acc, shade=False, bw=BC_BANDWIDTH,
                         gridsize=BC_GRIDSIZE, label=samp_val_data.label)
     plt.legend(title=BC_LEGEND_LABEL)
     plt.xlabel('Mapping Accuracy')
@@ -255,7 +259,7 @@ def plot_acc(pdf_fp, samps_val_data):
     plt.figure(figsize=(8, 5))
     for samp_val_data in samps_val_data:
         if samp_val_data.aligned_lens is not None:
-            sns.kdeplot(samp_val_data.aligned_lens, shade=True,
+            sns.kdeplot(samp_val_data.aligned_lens, shade=False,
                         bw=BC_BANDWIDTH, gridsize=BC_GRIDSIZE,
                         label=samp_val_data.label)
     plt.legend(title=BC_LEGEND_LABEL)
@@ -263,6 +267,19 @@ def plot_acc(pdf_fp, samps_val_data):
     plt.ylabel('Density')
     plt.title('Aligned Length (alignment_length - num_insertions)')
     plt.xscale('log', basex=10)
+    pdf_fp.savefig(bbox_inches='tight')
+    plt.close()
+
+    samp_labs, nmapped_reads = [], []
+    for samp_val_data in samps_val_data:
+        if samp_val_data.acc is not None:
+            samp_labs.append(samp_val_data.label)
+            nmapped_reads.append(len(samp_val_data.acc))
+    plt.figure(figsize=(8, 5))
+    plt.bar(samp_labs, nmapped_reads)
+    plt.xlabel('Samples')
+    plt.ylabel('Number of Mapped Reads')
+    plt.title('Number of Mapped Reads')
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
 
