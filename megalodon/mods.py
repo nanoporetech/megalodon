@@ -1102,6 +1102,81 @@ def format_mm_ml_tags(r_start, ref_seq, r_mod_scores, strand, mods_info):
     return mm_tag, ml_tag
 
 
+def get_mod_annotated_seqs(
+        mods_info, sig_map_res, r_ref_pos, r_mod_scores, r_ref_seq):
+    all_mods_seq = per_mod_seqs = per_site_thresh = None
+    if (mods_info.do_ann_all_mods or mods_info.do_output.mod_map) and \
+       sig_map_res is not None and \
+       sig_map_res.ref_out_info.per_site_threshs is not None:
+        try:
+            per_site_thresh = sig_map_res.ref_out_info.per_site_threshs[(
+                r_ref_pos.chrm, r_ref_pos.strand)]
+        except KeyError:
+            cov_pos = '' if len(r_mod_scores) == 0 else ','.join(
+                map(str, sorted(list(zip(*r_mod_scores))[0])))
+            LOGGER.debug((
+                '{} PerSiteThreshContigNotFound {}:{} {}').format(
+                    sig_map_res.read_id, r_ref_pos.chrm,
+                    '+' if r_ref_pos.strand == 1 else '-', cov_pos))
+    try:
+        if mods_info.do_ann_all_mods:
+            # ignore divide around full annotate_mods call to avoid overhead
+            # on many calls to errstate
+            with np.errstate(divide='ignore'):
+                all_mods_seq = annotate_all_mods(
+                    r_ref_pos.start, r_ref_seq, r_mod_scores,
+                    r_ref_pos.strand, mods_info, per_site_thresh)
+        if mods_info.do_output.mod_map:
+            if mods_info.map_emulate_bisulfite:
+                with np.errstate(divide='ignore'):
+                    per_mod_seqs = annotate_mods_per_mod(
+                        r_ref_pos.start, r_ref_seq, r_mod_scores,
+                        r_ref_pos.strand, mods_info, per_site_thresh)
+            else:
+                per_mod_seqs = format_mm_ml_tags(
+                    r_ref_pos.start, r_ref_seq, r_mod_scores,
+                    r_ref_pos.strand, mods_info)
+    except KeyError:
+        cov_pos = '' if len(r_mod_scores) == 0 else ','.join(
+            map(str, sorted(list(zip(*r_mod_scores))[0])))
+        LOGGER.debug((
+            '{} PerSiteThreshSiteNotFound {}:{} {}').format(
+                sig_map_res.read_id, r_ref_pos.chrm,
+                '+' if r_ref_pos.strand == 1 else '-', cov_pos))
+
+    return all_mods_seq, per_mod_seqs
+
+
+def send_signal_mapping(
+        mod_sig_map_q, sig_map_res, all_mods_seq, failed_reads_q, fast5_fn):
+    # send mod annotated seqs to signal mapping queue if requested
+    if mod_sig_map_q is not None and sig_map_res.pass_filts:
+        is_valid_mapping = True
+        # import locally so that import of mods module does not require
+        # taiyaki install (required for signal_mapping module)
+        from megalodon import signal_mapping
+        if sig_map_res.ref_out_info.do_output.mod_sig_maps:
+            invalid_chars = set(all_mods_seq.mod_seq).difference(
+                sig_map_res.ref_out_info.alphabet_info.alphabet)
+            if len(invalid_chars) > 0:
+                is_valid_mapping = False
+                if failed_reads_q is not None:
+                    fail_msg = (
+                        'Invalid charcters for signal mapping found in ' +
+                        'mapped sequence: ({})').format(''.join(invalid_chars))
+                    # Send invalid character code to failed reads queue
+                    failed_reads_q.put(tuple(mh.READ_STATUS(
+                        is_err=True, do_update_prog=True, err_type=fail_msg,
+                        fast5_fn=fast5_fn)))
+            else:
+                # replace reference sequence with mod annotated sequence
+                sig_map_res = sig_map_res._replace(
+                    ref_seq=all_mods_seq.mod_seq)
+
+        if is_valid_mapping:
+            mod_sig_map_q.put(signal_mapping.get_remapping(*sig_map_res[1:]))
+
+
 ########################
 # Per-read Mod Scoring #
 ########################
@@ -1215,74 +1290,11 @@ def call_read_mods(
             loc_mod_lps = calibration.compute_log_probs(np.array(calib_llrs))
             r_mod_scores.append((mod_ref_pos, loc_mod_lps, mod_bases))
 
-    all_mods_seq = per_mod_seqs = per_site_thresh = None
-    if (mods_info.do_ann_all_mods or mods_info.do_output.mod_map) and \
-       sig_map_res.ref_out_info.per_site_threshs is not None:
-        try:
-            per_site_thresh = sig_map_res.ref_out_info.per_site_threshs[(
-                r_ref_pos.chrm, r_ref_pos.strand)]
-        except KeyError:
-            cov_pos = '' if len(r_mod_scores) == 0 else ','.join(
-                map(str, sorted(list(zip(*r_mod_scores))[0])))
-            LOGGER.debug((
-                '{} PerSiteThreshContigNotFound {}:{} {}').format(
-                    sig_map_res.read_id, r_ref_pos.chrm,
-                    '+' if r_ref_pos.strand == 1 else '-', cov_pos))
-    try:
-        if mods_info.do_ann_all_mods:
-            # ignore divide around full annotate_mods call to avoid overhead
-            # on many calls to errstate
-            with np.errstate(divide='ignore'):
-                all_mods_seq = annotate_all_mods(
-                    r_ref_pos.start, r_ref_seq, r_mod_scores,
-                    r_ref_pos.strand, mods_info, per_site_thresh)
-        if mods_info.do_output.mod_map:
-            if mods_info.map_emulate_bisulfite:
-                with np.errstate(divide='ignore'):
-                    per_mod_seqs = annotate_mods_per_mod(
-                        r_ref_pos.start, r_ref_seq, r_mod_scores,
-                        r_ref_pos.strand, mods_info, per_site_thresh)
-            else:
-                per_mod_seqs = format_mm_ml_tags(
-                    r_ref_pos.start, r_ref_seq, r_mod_scores,
-                    r_ref_pos.strand, mods_info)
-    except KeyError:
-        cov_pos = '' if len(r_mod_scores) == 0 else ','.join(
-            map(str, sorted(list(zip(*r_mod_scores))[0])))
-        LOGGER.debug((
-            '{} PerSiteThreshSiteNotFound {}:{} {}').format(
-                sig_map_res.read_id, r_ref_pos.chrm,
-                '+' if r_ref_pos.strand == 1 else '-', cov_pos))
-
+    all_mods_seq, per_mod_seqs = get_mod_annotated_seqs(
+        mods_info, sig_map_res, r_ref_pos, r_mod_scores, r_ref_seq)
     r_mod_scores = filter_mod_score(r_mod_scores)
-
-    # send mod annotated seqs to signal mapping queue if requested
-    if mod_sig_map_q is not None and sig_map_res.pass_filts:
-        is_valid_mapping = True
-        # import locally so that import of mods module does not require
-        # taiyaki install (required for signal_mapping module)
-        from megalodon import signal_mapping
-        if sig_map_res.ref_out_info.do_output.mod_sig_maps:
-            invalid_chars = set(all_mods_seq.mod_seq).difference(
-                sig_map_res.ref_out_info.alphabet_info.alphabet)
-            if len(invalid_chars) > 0:
-                is_valid_mapping = False
-                if failed_reads_q is not None:
-                    fail_msg = (
-                        'Invalid charcters for signal mapping found in ' +
-                        'mapped sequence: ({})').format(''.join(invalid_chars))
-                    # Send invalid character code to failed reads queue
-                    failed_reads_q.put(tuple(mh.READ_STATUS(
-                        is_err=True, do_update_prog=True, err_type=fail_msg,
-                        fast5_fn=fast5_fn)))
-            else:
-                # replace reference sequence with mod annotated sequence
-                sig_map_res = sig_map_res._replace(
-                    ref_seq=all_mods_seq.mod_seq)
-
-        if is_valid_mapping:
-            mod_sig_map_q.put(signal_mapping.get_remapping(*sig_map_res[1:]))
-
+    send_signal_mapping(
+        mod_sig_map_q, sig_map_res, all_mods_seq, failed_reads_q, fast5_fn)
     r_insert_data = [
         (mod_lp, mods_info.get_pos_dbid(
             r_ref_pos.chrm, r_ref_pos.strand, mod_pos),

@@ -998,12 +998,13 @@ def parse_mod_args(args, model_info, ref_out_info, map_info):
         mod_db_timeout=args.mod_database_timeout,
         db_safety=args.database_safety, out_dir=args.output_directory,
         skip_db_index=skip_db_index, do_output=do_output)
-    # initialize the database tables
-    mods.init_mods_db(mods_info, map_info.ref_names_and_lens)
-    # load indices and close connection
-    mods_db = mods.ModsDb(mods_info.mods_db_fn, read_only=True)
-    mods_info.add_mods_db_arrays(mods_db)
-    mods_db.close()
+    if do_output.db:
+        # initialize the database tables
+        mods.init_mods_db(mods_info, map_info.ref_names_and_lens)
+        # load indices and close connection
+        mods_db = mods.ModsDb(mods_info.mods_db_fn, read_only=True)
+        mods_info.add_mods_db_arrays(mods_db)
+        mods_db.close()
     return args, mods_info
 
 
