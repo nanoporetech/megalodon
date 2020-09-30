@@ -17,9 +17,9 @@ LOGGER = logging.get_logger()
 
 PLOT_MIN_BC_ACC = 80
 MOD_BANDWIDTH = 0.2
-MOD_GRIDSIZE = 1000
 BC_BANDWIDTH = 0.2
-BC_GRIDSIZE = 1000
+LEN_BANDWIDTH = 10
+GRIDSIZE = 1000
 
 BC_LEGEND_LABEL = 'Sample'
 DEFAULT_VS_LABEL = 'All Sites'
@@ -91,9 +91,9 @@ def plot_kde(pdf_fp, kde_data):
                 samp_lab))
         plt.figure(figsize=(8, 5))
         sns.kdeplot(mod_stats, shade=True, bw=MOD_BANDWIDTH,
-                    gridsize=MOD_GRIDSIZE, label='Yes')
+                    gridsize=GRIDSIZE, label='Yes')
         sns.kdeplot(ctrl_stats, shade=True, bw=MOD_BANDWIDTH,
-                    gridsize=MOD_GRIDSIZE, label='No')
+                    gridsize=GRIDSIZE, label='No')
         plt.legend(prop={'size': 16}, title='Is Modified')
         plt.xlabel('Log Likelihood Ratio\nMore Likely Modified <--> ' +
                    'More Likely Canonical')
@@ -234,7 +234,7 @@ def plot_acc(pdf_fp, samps_val_data):
     for samp_val_data in samps_val_data:
         if samp_val_data.acc is not None:
             sns.kdeplot(samp_val_data.acc, shade=False, bw=BC_BANDWIDTH,
-                        gridsize=BC_GRIDSIZE, label=samp_val_data.label)
+                        gridsize=GRIDSIZE, label=samp_val_data.label)
     plt.legend(title=BC_LEGEND_LABEL)
     plt.xlabel('Mapping Accuracy')
     plt.ylabel('Density')
@@ -247,7 +247,7 @@ def plot_acc(pdf_fp, samps_val_data):
     for samp_val_data in samps_val_data:
         if samp_val_data.parsim_acc is not None:
             sns.kdeplot(samp_val_data.parsim_acc, shade=False, bw=BC_BANDWIDTH,
-                        gridsize=BC_GRIDSIZE, label=samp_val_data.label)
+                        gridsize=GRIDSIZE, label=samp_val_data.label)
     plt.legend(title=BC_LEGEND_LABEL)
     plt.xlabel('Mapping Accuracy')
     plt.ylabel('Density')
@@ -260,7 +260,7 @@ def plot_acc(pdf_fp, samps_val_data):
     for samp_val_data in samps_val_data:
         if samp_val_data.aligned_lens is not None:
             sns.kdeplot(samp_val_data.aligned_lens, shade=False,
-                        bw=BC_BANDWIDTH, gridsize=BC_GRIDSIZE,
+                        bw=LEN_BANDWIDTH, gridsize=GRIDSIZE,
                         label=samp_val_data.label)
     plt.legend(title=BC_LEGEND_LABEL)
     plt.xlabel('Aligned Length (Log10 scale)')
@@ -276,7 +276,9 @@ def plot_acc(pdf_fp, samps_val_data):
             samp_labs.append(samp_val_data.label)
             nmapped_reads.append(len(samp_val_data.acc))
     plt.figure(figsize=(8, 5))
-    plt.bar(samp_labs, nmapped_reads)
+    with sns.axes_style("whitegrid"):
+        sns.barplot(x=samp_labs, y=nmapped_reads, hue=samp_labs, dodge=False)
+    plt.legend([], [], frameon=False)
     plt.xlabel('Samples')
     plt.ylabel('Number of Mapped Reads')
     plt.title('Number of Mapped Reads')
