@@ -281,7 +281,7 @@ def parse_cigar(r_cigar, strand, ref_len):
 
 def map_read(
         caller_conn, q_seq, read_id, mo_q=None, signal_reversed=False,
-        rl_cumsum=None):
+        rl_cumsum=None, model_stride=None):
     """ Map read (query) sequence
 
     Returns:
@@ -300,7 +300,7 @@ def map_read(
         raise mh.MegaError('No alignment')
     map_res = MAP_RES(*map_res)
     # add signal coordinates to mapping output if run-length cumsum provided
-    if rl_cumsum is not None:
+    if rl_cumsum is not None and model_stride is not None:
         # convert query start and end to signal-anchored locations
         # Note that for signal_reversed reads, the start will be larger than
         # the end
@@ -309,7 +309,8 @@ def map_read(
         q_en = len(map_res.q_seq) - map_res.q_en if signal_reversed else \
             map_res.q_en
         map_res = map_res._replace(
-            map_sig_start=rl_cumsum[q_st], map_sig_end=rl_cumsum[q_en],
+            map_sig_start=rl_cumsum[q_st] * model_stride,
+            map_sig_end=rl_cumsum[q_en] * model_stride,
             sig_len=rl_cumsum[-1])
     if mo_q is not None:
         mo_q.put(tuple(map_res))

@@ -22,20 +22,72 @@ GUPPY_TIMEOUT=240
 # Main command tests #
 ######################
 
-# test simple basecalling
+# test basecalls output
 megalodon \
     `# input reads` \
     ${CTRL_READS} \
     `# output location + overwrite` \
-    --output-directory ${CTRL_READS}.basecalls_only.mega_res \
+    --output-directory ${CTRL_READS}.basecalls_output \
     --overwrite \
     `# output just basecalls` \
-    --outputs basecalls \
+    --outputs basecalls mod_basecalls \
     `# guppy options` \
     --guppy-server-path ${GUPPY_PATH} \
     --guppy-config ${GUPPY_FAST_CONFIG} \
     `# number of megalodon workers` \
     --processes ${NPROC}
+
+# test mappings output
+megalodon \
+    `# input reads` \
+    ${CTRL_READS} \
+    `# output location + overwrite` \
+    --output-directory ${CTRL_READS}.mappings_output \
+    --overwrite \
+    `# output all the things` \
+    --outputs mappings per_read_refs signal_mappings \
+    `# guppy options` \
+    --guppy-server-path ${GUPPY_PATH} \
+    --guppy-config ${GUPPY_MOD_CONFIG} \
+    --guppy-timeout ${GUPPY_TIMEOUT} \
+    `# number of megalodon read processing workers` \
+    --processes ${NPROC} \
+    `# minimap2 index reference (recommended for memory efficiency)` \
+    --reference ${MINIMAP_INDEX} \
+    `# mapping settings (cram requires FASTA reference)` \
+    --sort-mappings \
+    --mappings-format cram \
+    --cram-reference ${FASTA_REF} \
+    `# per-read reference/signal mapping settings` \
+    --ref-length-range 500 3000 \
+    --ref-percent-identity-threshold 90 \
+    --ref-percent-coverage-threshold 90 \
+    --ref-mods-all-motifs m 5mC CCWGG 1 \
+    --ref-mods-all-motifs a 6mA GATC 1
+
+# test mods output
+megalodon \
+    `# input reads` \
+    ${CTRL_READS} \
+    `# output location + overwrite` \
+    --output-directory ${CTRL_READS}.mods_output \
+    --overwrite \
+    `# output all the things` \
+    --outputs per_read_mods mods mod_mappings \
+    `# guppy options` \
+    --guppy-server-path ${GUPPY_PATH} \
+    --guppy-config ${GUPPY_MOD_CONFIG} \
+    --guppy-timeout ${GUPPY_TIMEOUT} \
+    `# number of megalodon read processing workers` \
+    --processes ${NPROC} \
+    `# minimap2 index reference (recommended for memory efficiency)` \
+    --reference ${MINIMAP_INDEX} \
+    `# modified base settings` \
+    --mod-motif Z CCWGG 1 \
+    --mod-motif Y GATC 1 \
+    --mod-output-formats bedmethyl modvcf wiggle \
+    --write-mods-text \
+    --write-mod-log-probs
 
 # test outputting everything
 megalodon \
