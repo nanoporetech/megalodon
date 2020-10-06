@@ -154,7 +154,7 @@ def process_read(
         bc_info):
     """ Workhorse per-read megalodon function (connects all the parts)
     """
-    (sig_info, seq_summ_info, r_seq, r_qual, rl_cumsum, can_post, post_w_mods,
+    (sig_info, seq_summ_info, called_read, rl_cumsum, can_post, post_w_mods,
      mods_scores) = bc_res
     if bc_info.do_output.any:
         # convert seq_summ_info to tuple since namedtuples can't be
@@ -163,12 +163,12 @@ def process_read(
             # sequence is stored internally in sequencing direction. Send
             # to basecall output in reference direction.
             getter_qpcs[mh.BC_NAME].queue.put((
-                sig_info.read_id, r_seq[::-1], r_qual[::-1], mods_scores,
-                tuple(seq_summ_info)))
+                sig_info.read_id, called_read.seq[::-1],
+                called_read.qual[::-1], mods_scores, tuple(seq_summ_info)))
         else:
             getter_qpcs[mh.BC_NAME].queue.put((
-                sig_info.read_id, r_seq, r_qual, mods_scores,
-                tuple(seq_summ_info)))
+                sig_info.read_id, called_read.seq, called_read.qual,
+                mods_scores, tuple(seq_summ_info)))
 
     # if no mapping connection return after basecalls are passed out
     if caller_conn is None:
@@ -178,15 +178,15 @@ def process_read(
     map_q = getter_qpcs[mh.MAP_NAME].queue \
         if mh.MAP_NAME in getter_qpcs else None
     r_ref_seq, r_to_q_poss, r_ref_pos, r_cigar = mapping.map_read(
-        caller_conn, r_seq, sig_info, map_q, bc_info.rev_sig, rl_cumsum)
+        caller_conn, called_read, sig_info, map_q, bc_info.rev_sig, rl_cumsum)
     np_ref_seq = mh.seq_to_int(r_ref_seq, error_on_invalid=False)
 
     failed_reads_q = getter_qpcs[_FAILED_READ_GETTER_NAME].queue
     sig_map_res = None
     if ref_out_info.do_output.sig_maps:
         pass_sig_map_filts = mapping.read_passes_filters(
-            ref_out_info.filt_params, len(r_seq), r_ref_pos.q_trim_start,
-            r_ref_pos.q_trim_end, r_cigar)
+            ref_out_info.filt_params, len(called_read.seq),
+            r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar)
         sig_map_res = signal_mapping.SIG_MAP_RESULT(
             pass_sig_map_filts, sig_info.fast5_fn, sig_info.dacs,
             sig_info.scale_params, r_ref_seq, sig_info.stride,
@@ -224,7 +224,7 @@ def process_read(
             args=(vars_info, r_ref_pos, np_ref_seq, ref_to_block,
                   mapped_can_post),
             r_vals=(sig_info.read_id, r_ref_pos.chrm, r_ref_pos.strand,
-                    r_ref_pos.start, r_ref_seq, len(r_seq),
+                    r_ref_pos.start, r_ref_seq, len(called_read.seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
             out_q=getter_qpcs[mh.PR_VAR_NAME].queue,
             fast5_fn=sig_info.fast5_fn + ':::' + sig_info.read_id,
@@ -239,7 +239,7 @@ def process_read(
                   mods_info, mod_sig_map_q, sig_map_res, bc_info.rev_sig,
                   sig_info.read_id, failed_reads_q, sig_info.fast5_fn),
             r_vals=(sig_info.read_id, r_ref_pos.chrm, r_ref_pos.strand,
-                    r_ref_pos.start, r_ref_seq, len(r_seq),
+                    r_ref_pos.start, r_ref_seq, len(called_read.seq),
                     r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
             out_q=getter_qpcs[mh.PR_MOD_NAME].queue,
             fast5_fn=sig_info.fast5_fn + ':::' + sig_info.read_id,

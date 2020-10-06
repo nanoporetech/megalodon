@@ -984,8 +984,8 @@ class ModelInfo(AbstractModelInfo):
             # if anything goes wrong don't let it fail the read
             pass
 
-        return (sig_info, seq_summ_info, called_read.seq, called_read.qual,
-                rl_cumsum, can_post, post_w_mods, mods_scores)
+        return (sig_info, seq_summ_info, called_read, rl_cumsum, can_post,
+                post_w_mods, mods_scores)
 
     def _run_pyguppy_backend(
             self, reads_batch, return_post_w_mods, return_mod_scores,

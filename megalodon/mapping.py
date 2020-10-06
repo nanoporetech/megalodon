@@ -280,7 +280,7 @@ def parse_cigar(r_cigar, strand, ref_len):
 
 
 def map_read(
-        caller_conn, q_seq, sig_info, mo_q=None, signal_reversed=False,
+        caller_conn, called_read, sig_info, mo_q=None, signal_reversed=False,
         rl_cumsum=None):
     """ Map read (query) sequence
 
@@ -292,8 +292,7 @@ def map_read(
             4) cigar as produced by mappy
     """
     # send seq to _map_read_worker and receive mapped seq and pos
-    if signal_reversed:
-        q_seq = q_seq[::-1]
+    q_seq = called_read.seq[::-1] if signal_reversed else called_read.seq
     caller_conn.send((q_seq, sig_info.read_id))
     map_res = caller_conn.recv()
     if map_res is None:
@@ -309,11 +308,11 @@ def map_read(
         q_en = len(map_res.q_seq) - map_res.q_en if signal_reversed else \
             map_res.q_en
         map_res = map_res._replace(
-            map_sig_start=sig_info.trimmed_samples +
+            map_sig_start=called_read.trimmed_samples +
             rl_cumsum[q_st] * sig_info.stride,
-            map_sig_end=sig_info.trimmed_samples +
+            map_sig_end=called_read.trimmed_samples +
             rl_cumsum[q_en] * sig_info.stride,
-            sig_len=sig_info.trimmed_samples +
+            sig_len=called_read.trimmed_samples +
             rl_cumsum[-1] * sig_info.stride)
     if mo_q is not None:
         mo_q.put(tuple(map_res))
