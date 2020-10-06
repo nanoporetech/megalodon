@@ -6,7 +6,7 @@ LOGGER = logging.get_logger()
 
 
 def _main(args):
-    logging.init_logger()
+    logging.init_logger(args.log_directory)
     # set args that are not relevant to alphabet
     args.devices = None
 
@@ -27,17 +27,7 @@ def _main(args):
             'guppy logs.')
     backend_params = backends.parse_backend_params(args)
     with backends.ModelInfo(backend_params, 1) as model_info:
-        if model_info.is_cat_mod:
-            LOGGER.info(
-                'Using canonical alphabet {} and modified bases {}.'.format(
-                    model_info.can_alphabet, '; '.join(
-                        '{}={} (alt to {})'.format(
-                            mod_b, mln, model_info.mod_base_to_can[mod_b])
-                        for mod_b, mln in model_info.mod_long_names)))
-        else:
-            LOGGER.info(
-                'Model contains canonical alphabet {}.'.format(
-                    model_info.can_alphabet))
+        LOGGER.info(model_info.get_alphabet_str())
 
 
 if __name__ == '__main__':

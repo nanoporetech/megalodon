@@ -328,6 +328,15 @@ class AbstractModelInfo(ABC):
 
         return mm_tag, ml_tag
 
+    def get_alphabet_str(self):
+        if self.is_cat_mod:
+            return 'Using canonical alphabet {} and modified bases {}'.format(
+                self.can_alphabet, '; '.join(
+                    '{}={} (alt to {})'.format(
+                        mod_b, mln, self.mod_base_to_can[mod_b])
+                    for mod_b, mln in self.mod_long_names))
+        return 'Using canonical alphabet {}'.format(self.alphabet)
+
 
 class DetachedModelInfo(AbstractModelInfo):
     """ DetachedModelInfo represents a wrapper similar to ModelInfo, but allows
@@ -642,7 +651,7 @@ class ModelInfo(AbstractModelInfo):
         else:
             raise mh.MegaError('No basecall model backend enabled.')
 
-    def prep_model_worker(self, device):
+    def prep_model_worker(self, device=None):
         """ Load model onto device (when object is loaded into process to run
         basecaller).
         """

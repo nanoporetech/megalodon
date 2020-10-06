@@ -376,6 +376,11 @@ def get_parser_merge_variants():
 def get_parser_modified_bases_describe_alphabet():
     parser = argparse.ArgumentParser()
 
+    parser.add_argument(
+        '--log-directory', default='.',
+        help='Directory to output megalodon log. Default: current ' +
+        'working directory.')
+
     pyg_grp = parser.add_argument_group('Guppy Backend Arguments')
     pyg_grp.add_argument(
         '--guppy-config', default=mh.DEFAULT_GUPPY_CFG,

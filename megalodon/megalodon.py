@@ -150,8 +150,8 @@ def interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum):
 
 
 def process_read(
-        getter_qpcs, caller_conn, bc_res, model_info, ref_out_info, vars_info,
-        mods_info, bc_info):
+        getter_qpcs, caller_conn, bc_res, ref_out_info, vars_info, mods_info,
+        bc_info):
     """ Workhorse per-read megalodon function (connects all the parts)
     """
     (sig_info, seq_summ_info, r_seq, r_qual, rl_cumsum, can_post, post_w_mods,
@@ -300,8 +300,8 @@ def _process_reads_worker(
         sig_info = bc_res[0]
         try:
             process_read(
-                getter_qpcs, caller_conn, bc_res, model_info,
-                ref_out_info, vars_info, mods_info, bc_info)
+                getter_qpcs, caller_conn, bc_res, ref_out_info, vars_info,
+                mods_info, bc_info)
             failed_reads_q.put(
                 tuple(mh.READ_STATUS(n_sig=sig_info.raw_len)))
             LOGGER.debug('{} Success'.format(sig_info.read_id))

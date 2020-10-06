@@ -1612,16 +1612,7 @@ class ModInfo:
             self.alphabet = self.alphabet.decode()
         except AttributeError:
             pass
-        if model_info.is_cat_mod:
-            LOGGER.info(
-                'Using canonical alphabet {} and modified bases {}'.format(
-                    self.alphabet, '; '.join(
-                        '{}={} (alt to {})'.format(
-                            mod_b, mln, model_info.mod_base_to_can[mod_b])
-                        for mod_b, mln in model_info.mod_long_names)))
-        else:
-            LOGGER.info(
-                'Using canonical alphabet {}'.format(self.alphabet))
+        LOGGER.info(model_info.get_alphabet_str())
 
         self.nbase = len(self.alphabet)
         self.n_can_state = (self.ncan_base + self.ncan_base) * (
