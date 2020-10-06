@@ -335,7 +335,7 @@ class AbstractModelInfo(ABC):
                     '{}={} (alt to {})'.format(
                         mod_b, mln, self.mod_base_to_can[mod_b])
                     for mod_b, mln in self.mod_long_names))
-        return 'Using canonical alphabet {}'.format(self.alphabet)
+        return 'Using canonical alphabet {}'.format(self.can_alphabet)
 
 
 class DetachedModelInfo(AbstractModelInfo):
