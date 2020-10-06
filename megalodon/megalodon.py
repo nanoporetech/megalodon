@@ -178,8 +178,7 @@ def process_read(
     map_q = getter_qpcs[mh.MAP_NAME].queue \
         if mh.MAP_NAME in getter_qpcs else None
     r_ref_seq, r_to_q_poss, r_ref_pos, r_cigar = mapping.map_read(
-        caller_conn, r_seq, sig_info.read_id, map_q, bc_info.rev_sig,
-        rl_cumsum, sig_info.stride)
+        caller_conn, r_seq, sig_info, map_q, bc_info.rev_sig, rl_cumsum)
     np_ref_seq = mh.seq_to_int(r_ref_seq, error_on_invalid=False)
 
     failed_reads_q = getter_qpcs[_FAILED_READ_GETTER_NAME].queue

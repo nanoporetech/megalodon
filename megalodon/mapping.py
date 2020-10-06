@@ -280,8 +280,8 @@ def parse_cigar(r_cigar, strand, ref_len):
 
 
 def map_read(
-        caller_conn, q_seq, read_id, mo_q=None, signal_reversed=False,
-        rl_cumsum=None, model_stride=None):
+        caller_conn, q_seq, sig_info, mo_q=None, signal_reversed=False,
+        rl_cumsum=None):
     """ Map read (query) sequence
 
     Returns:
@@ -294,13 +294,13 @@ def map_read(
     # send seq to _map_read_worker and receive mapped seq and pos
     if signal_reversed:
         q_seq = q_seq[::-1]
-    caller_conn.send((q_seq, read_id))
+    caller_conn.send((q_seq, sig_info.read_id))
     map_res = caller_conn.recv()
     if map_res is None:
         raise mh.MegaError('No alignment')
     map_res = MAP_RES(*map_res)
     # add signal coordinates to mapping output if run-length cumsum provided
-    if rl_cumsum is not None and model_stride is not None:
+    if rl_cumsum is not None:
         # convert query start and end to signal-anchored locations
         # Note that for signal_reversed reads, the start will be larger than
         # the end
@@ -309,9 +309,12 @@ def map_read(
         q_en = len(map_res.q_seq) - map_res.q_en if signal_reversed else \
             map_res.q_en
         map_res = map_res._replace(
-            map_sig_start=rl_cumsum[q_st] * model_stride,
-            map_sig_end=rl_cumsum[q_en] * model_stride,
-            sig_len=rl_cumsum[-1])
+            map_sig_start=sig_info.trimmed_samples +
+            rl_cumsum[q_st] * sig_info.stride,
+            map_sig_end=sig_info.trimmed_samples +
+            rl_cumsum[q_en] * sig_info.stride,
+            sig_len=sig_info.trimmed_samples +
+            rl_cumsum[-1] * sig_info.stride)
     if mo_q is not None:
         mo_q.put(tuple(map_res))
     if signal_reversed:
@@ -327,7 +330,7 @@ def map_read(
         r_to_q_poss = parse_cigar(
             map_res.cigar, map_res.strand, map_res.r_en - map_res.r_st)
     except mh.MegaError as e:
-        LOGGER.debug('{} CigarParsingError'.format(read_id) + str(e))
+        LOGGER.debug('{} CigarParsingError'.format(sig_info.read_id) + str(e))
         raise mh.MegaError('Invalid cigar string encountered.')
     map_pos = get_map_pos_from_res(map_res)
 
