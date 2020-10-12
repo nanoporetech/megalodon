@@ -7,14 +7,18 @@
 Megalodon
 """""""""
 
-|pypi_v| |pypi_dm|
+|pypi_v|_ |pypi_dm|_
 
-|conda_v| |conda_dn|
+|conda_v|_ |conda_dn|_
 
 .. |pypi_v| image:: https://img.shields.io/pypi/v/megalodon
+.. _pypi_v: https://pypi.org/project/megalodon/2.2.3/
 .. |pypi_dm| image:: https://img.shields.io/pypi/dm/megalodon
+.. _pypi_dm: https://pypi.org/project/megalodon/2.2.3/
 .. |conda_v| image:: https://img.shields.io/conda/vn/bioconda/megalodon
+.. _conda_v: https://anaconda.org/bioconda/megalodon
 .. |conda_dn| image:: https://img.shields.io/conda/dn/bioconda/megalodon
+.. _conda_dn: https://anaconda.org/bioconda/megalodon
 
 Megalodon is a research command line tool to extract high accuracy modified base and sequence variant calls from raw nanopore reads by anchoring the information rich basecalling neural network output to a reference genome/transcriptome.
 
@@ -157,7 +161,7 @@ This config is compatible with DNA, R9.4.1, MinION/GridION reads and allows outp
 Use the ``--guppy-config`` option to specify a different guppy model config.
 The appropriate `Rerio model <https://github.com/nanoporetech/rerio>`_ is recommended for the highest accuracy modified base calls.
 
-All configs can be used to output ``basecalls`` and ``mappings`` (as well as ``signal_mappings`` and ``per_read_refs`` for `basecall training <https://nanoporetech.github.io/megalodon/model_training.html>`).
+All configs can be used to output ``basecalls`` and ``mappings`` (as well as ``signal_mappings`` and ``per_read_refs`` for `basecall training <https://nanoporetech.github.io/megalodon/model_training.html>`_).
 Modified base and sequence variant outputs require Megalodon calibration files.
 To list configs with default calibration files, run ``megalodon --list-supported-guppy-configs``.
 See `calibration documentation here <https://nanoporetech.github.io/megalodon/extras_calibrate.html>`_ for details on Megalodon model calibration.
@@ -171,7 +175,7 @@ For example to optimize GPU usage, the following option might be specified: ``--
 Finally the ``--guppy-timeout`` arguments ensures that a run will not stall on a small number of reads taking a very long time (default 30 seconds per batch of 50 reads).
 The ``Pyguppy get completed reads invalid error "Something went wrong. return_code: result.failed"`` error indicate that the Guppy server is overwhelmed.
 Consider lowering the ``--processes`` and/or ``--reads-per-guppy-batch`` values to reduce these errors.
-Finding the right balance for these parameters can help achieve optimal performance on a system.`
+Finding the right balance for these parameters can help achieve optimal performance on a system.
 
 Disk Performance Considerations
 -------------------------------
