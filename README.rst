@@ -69,6 +69,10 @@ To install from github source for development, the following commands can be run
 Getting Started
 ---------------
 
+Megalodon must obtain the intermediate basecalling neural network matrix.
+It is recommended that the Guppy basecalling backend be used to compute this from the raw nanopore signal.
+Nanopore basecalling is compute intensive and thus it is highly recommended that GPU resources are specified (``--devices``) for optimal Megalodon performance.
+
 Megalodon is accessed via the command line interface ``megalodon`` command.
 
 ::
