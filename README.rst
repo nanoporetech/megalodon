@@ -1,6 +1,7 @@
 .. image:: /ONT_logo.png
   :width: 800
   :alt: [Oxford Nanopore Technologies]
+  :target: https://nanoporetech.com/
 
 ******************
 
