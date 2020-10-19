@@ -401,7 +401,7 @@ def process_all_reads(
     for bcpi, device in enumerate(model_info.process_devices):
         bc_ps.append(mp.Process(
             target=basecall_worker, args=(sig_q, bc_q, model_info, device),
-            daemon=True, name='Basecaller{:03d}'.format(bspi)))
+            daemon=True, name='Basecaller{:03d}'.format(bcpi)))
         bc_ps[-1].start()
 
     var_calls_q, var_calls_p, main_sc_conn = mega_mp.create_getter_qpc(

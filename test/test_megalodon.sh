@@ -33,7 +33,7 @@ megalodon \
     --outputs basecalls mod_basecalls \
     `# guppy options` \
     --guppy-server-path ${GUPPY_PATH} \
-    --guppy-config ${GUPPY_FAST_CONFIG} \
+    --guppy-config ${GUPPY_MOD_CONFIG} \
     `# number of megalodon workers` \
     --processes ${NPROC}
 
