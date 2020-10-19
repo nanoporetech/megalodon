@@ -123,17 +123,14 @@ def call_alt_true_indel(
 
 
 def process_read(
-        sig_info, seq_summ_info, model_info, caller_conn, map_thr_buf,
-        do_false_ref, context_bases=mh.DEFAULT_VAR_CONTEXT_BASES,
+        bc_res, caller_conn, map_thr_buf, do_false_ref,
+        context_bases=mh.DEFAULT_VAR_CONTEXT_BASES,
         edge_buffer=mh.DEFAULT_EDGE_BUFFER, max_indel_len=MAX_INDEL_LEN,
         all_paths=ALL_PATHS, every_n=TEST_EVERY_N_LOCS,
         max_pos_per_read=MAX_POS_PER_READ):
-    (_, _, r_seq, _, rl_cumsum, can_post, _, _) = next(
-        model_info.iter_basecalled_reads(
-            [(sig_info, seq_summ_info)], return_post_w_mods=False))
-
+    sig_info, called_read, rl_cumsum, can_post, = bc_res
     r_ref_seq, r_to_q_poss, r_ref_pos, _ = mapping.map_read(
-        caller_conn, r_seq, sig_info.read_id)
+        caller_conn, called_read, backends.SIGNAL_DATA(*sig_info))
     np_ref_seq = mh.seq_to_int(r_ref_seq)
     if np_ref_seq.shape[0] < edge_buffer * 2:
         raise NotImplementedError(
@@ -156,7 +153,7 @@ def process_read(
             # first test single base swap SNPs
             try:
                 score, var_ref_seq, var_alt_seq = call_alt_true_indel(
-                    0, r_var_pos, r_ref_seq, r_seq, map_thr_buf,
+                    0, r_var_pos, r_ref_seq, called_read.seq, map_thr_buf,
                     context_bases, can_post, rl_cumsum, all_paths)
                 read_var_calls.append((False, score, var_ref_seq, var_alt_seq))
             except mh.MegaError:
@@ -168,16 +165,18 @@ def process_read(
             for indel_size in range(1, max_indel_len + 1):
                 try:
                     score, var_ref_seq, var_alt_seq = call_alt_true_indel(
-                        indel_size, r_var_pos, r_ref_seq, r_seq, map_thr_buf,
-                        context_bases, can_post, rl_cumsum, all_paths)
+                        indel_size, r_var_pos, r_ref_seq, called_read.seq,
+                        map_thr_buf, context_bases, can_post, rl_cumsum,
+                        all_paths)
                     read_var_calls.append((
                         False, score, var_ref_seq, var_alt_seq))
                 except mh.MegaError:
                     pass
                 try:
                     score, var_ref_seq, var_alt_seq = call_alt_true_indel(
-                        -indel_size, r_var_pos, r_ref_seq, r_seq, map_thr_buf,
-                        context_bases, can_post, rl_cumsum, all_paths)
+                        -indel_size, r_var_pos, r_ref_seq, called_read.seq,
+                        map_thr_buf, context_bases, can_post, rl_cumsum,
+                        all_paths)
                     read_var_calls.append((
                         False, score, var_ref_seq, var_alt_seq))
                 except mh.MegaError:
@@ -236,37 +235,27 @@ def process_read(
     return read_var_calls
 
 
-def _process_reads_worker(
-        fn_read_ids_q, var_calls_q, caller_conn, model_info, device,
-        do_false_ref):
+def _process_reads_worker(bc_q, var_calls_q, caller_conn, do_false_ref):
     LOGGER.debug('InitWorker')
-    model_info.prep_model_worker(device)
     map_thr_buf = mappy.ThreadBuffer()
 
     while True:
         try:
-            fn_rids = fn_read_ids_q.get(block=True, timeout=0.1)
+            bc_res = bc_q.get(block=True, timeout=0.1)
         except queue.Empty:
             continue
-        if fn_rids is None:
+        if bc_res is None:
             LOGGER.debug('Closing')
             if caller_conn is not None:
                 caller_conn.close()
             break
 
         try:
-            fast5_fn, read_ids = fn_rids
-            with fast5_io.get_fast5_file(fast5_fn) as fast5_fp:
-                for read_id in read_ids:
-                    sig_info, seq_summ_info = model_info.extract_signal_info(
-                        fast5_fp, read_id)
-                    read_var_calls = process_read(
-                        sig_info, seq_summ_info, model_info, caller_conn,
-                        map_thr_buf, do_false_ref)
-                    var_calls_q.put((True, read_var_calls))
+            read_var_calls = process_read(
+                bc_res, caller_conn, map_thr_buf, do_false_ref)
+            var_calls_q.put((True, read_var_calls))
         except Exception as e:
             var_calls_q.put((False, str(e)))
-            pass
 
 
 if _DO_PROFILE:
@@ -276,6 +265,60 @@ if _DO_PROFILE:
         import cProfile
         cProfile.runctx('_process_reads_wrapper(*args)', globals(), locals(),
                         filename='variant_calibration.prof')
+
+
+def basecall_worker(
+        sig_q, bc_q, model_info, device,
+        reads_per_batch=mh.DEFAULT_GUPPY_BATCH_SIZE):
+    def create_batch_gen():
+        for _ in range(reads_per_batch):
+            try:
+                read_sig_data = sig_q.get(timeout=0.01)
+            except queue.Empty:
+                continue
+            if read_sig_data is None:
+                LOGGER.debug('Closing')
+                # send signal to end main loop then end this iterator
+                gen_conn.send(True)
+                break
+            sig_info, seq_summ_info = read_sig_data
+            # convert tuples back to namedtuples after multiprocessing
+            sig_info = backends.SIGNAL_DATA(*sig_info)
+            yield sig_info, mh.SEQ_SUMM_INFO(*seq_summ_info)
+            LOGGER.debug('{} Processing'.format(sig_info.read_id))
+
+    def iter_bc_res():
+        while not full_iter_conn.poll():
+            reads_batch_gen = create_batch_gen()
+            # perform basecalling using loaded backend
+            for (sig_info, _, called_read, rl_cumsum,
+                 can_post, _, _) in model_info.iter_basecalled_reads(
+                     reads_batch_gen, return_post_w_mods=False):
+                yield tuple(sig_info), called_read, rl_cumsum, can_post
+
+    LOGGER.debug('InitBasecaller')
+    model_info.prep_model_worker(device)
+    full_iter_conn, gen_conn = mp.Pipe(duplex=False)
+    for bc_res in iter_bc_res():
+        bc_q.put(bc_res)
+
+
+def extract_signal_worker(fn_read_ids_q, sig_q, model_info):
+    while True:
+        try:
+            fn_rids = fn_read_ids_q.get(block=True, timeout=0.1)
+        except queue.Empty:
+            continue
+        if fn_rids is None:
+            LOGGER.debug('Closing')
+            break
+
+        fast5_fn, read_ids = fn_rids
+        with fast5_io.get_fast5_file(fast5_fn) as fast5_fp:
+            for read_id in read_ids:
+                sig_info, seq_summ_info = model_info.extract_signal_info(
+                    fast5_fp, read_id)
+                sig_q.put((tuple(sig_info), tuple(seq_summ_info)))
 
 
 def _get_variant_calls(
@@ -331,8 +374,12 @@ def process_all_reads(
         fast5s_dir, recursive, num_reads, read_ids_fn, model_info, aligner,
         num_ps, out_fn, suppress_progress, do_false_ref):
     LOGGER.info('Preparing workers and calling reads.')
+    num_extract_sig_ps = num_ps
+    num_bc_ps = num_ps
     # read filename queue filler
     fn_read_ids_q = mega_mp.CountingMPQueue()
+    sig_q = mega_mp.CountingMPQueue(maxsize=mh._MAX_QUEUE_SIZE)
+    bc_q = mega_mp.CountingMPQueue(maxsize=mh._MAX_QUEUE_SIZE)
     num_reads_conn, getter_num_reads_conn = mp.Pipe()
     input_info = mh.INPUT_INFO(
         fast5s_dir=fast5s_dir, recursive=recursive, num_reads=num_reads,
@@ -343,6 +390,19 @@ def process_all_reads(
             input_info, fn_read_ids_q, num_reads_conn, aux_failed_q),
         daemon=True, name='FileFiller')
     files_p.start()
+    extract_sig_ps = []
+    for espi in range(num_extract_sig_ps):
+        extract_sig_ps.append(mp.Process(
+            target=extract_signal_worker,
+            args=(fn_read_ids_q, sig_q, model_info),
+            daemon=True, name='ExtractSig{:03d}'.format(espi)))
+        extract_sig_ps[-1].start()
+    bc_ps = []
+    for bcpi, device in enumerate(model_info.process_devices):
+        bc_ps.append(mp.Process(
+            target=basecall_worker, args=(sig_q, bc_q, model_info, device),
+            daemon=True, name='Basecaller{:03d}'.format(bspi)))
+        bc_ps[-1].start()
 
     var_calls_q, var_calls_p, main_sc_conn = mega_mp.create_getter_qpc(
         _get_variant_calls,
@@ -356,9 +416,9 @@ def process_all_reads(
             map_conn, caller_conn = mp.Pipe()
         map_conns.append(map_conn)
         p = mp.Process(
-            target=_process_reads_worker, args=(
-                fn_read_ids_q, var_calls_q, caller_conn, model_info, device,
-                do_false_ref), name='ReadWorker{:03d}'.format(pnum))
+            target=_process_reads_worker,
+            args=(bc_q, var_calls_q, caller_conn, do_false_ref),
+            name='ReadWorker{:03d}'.format(pnum))
         p.daemon = True
         p.start()
         proc_reads_ps.append(p)
@@ -378,8 +438,22 @@ def process_all_reads(
     files_p.join()
     LOGGER.debug('Read filler process complete.')
     # put extra None values in fn_read_ids_q to indicate completed processing
-    for _ in range(num_ps - 1):
+    for _ in range(num_extract_sig_ps):
         fn_read_ids_q.put(None)
+    LOGGER.debug('Waiting for signal extraction processes to join.')
+    for extract_sig_p in extract_sig_ps:
+        extract_sig_p.join()
+    LOGGER.debug('Signal extraction complete.')
+    # put None values in sig_q to indicate completed processing
+    for _ in range(num_bc_ps):
+        sig_q.put(None)
+    LOGGER.debug('Waiting for basecall processes to join.')
+    for bc_p in bc_ps:
+        bc_p.join()
+    LOGGER.debug('Basecalling complete.')
+    # put None values in bc_q to indicate completed processing
+    for _ in range(num_ps):
+        bc_q.put(None)
     LOGGER.debug('Waiting for process reads processes to join.')
     for proc_reads_p in proc_reads_ps:
         proc_reads_p.join()
@@ -397,17 +471,17 @@ def process_all_reads(
 
 
 def _main(args):
+    try:
+        mh.mkdir(args.guppy_logs_output_directory, False)
+    except mh.MegaError:
+        LOGGER.warning(
+            'Guppy logs output directory exists. Potentially overwriting ' +
+            'guppy logs.')
     logging.init_logger(args.guppy_logs_output_directory)
     # add required attributes for loading guppy, but not valid options for
     # this script.
     args.do_not_use_guppy_server = False
     args.output_directory = args.guppy_logs_output_directory
-    try:
-        mh.mkdir(args.output_directory, False)
-    except mh.MegaError:
-        LOGGER.warning(
-            'Guppy logs output directory exists. Potentially overwriting ' +
-            'guppy logs.')
 
     LOGGER.info('Loading model.')
     backend_params = backends.parse_backend_params(args)

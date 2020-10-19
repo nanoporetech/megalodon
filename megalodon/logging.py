@@ -35,15 +35,25 @@ class CustomFormatter(logging.Formatter):
         return result
 
 
-def init_logger(out_dir=None, out_suffix=None, quiet=False):
+def init_logger(out_dir=None, out_suffix=None, log_fn=None, quiet=False):
+    """ Prepare logging output. Output file will be opened if out_dir or log_fn
+    are specified. out_suffix will be added to the standard log.txt filename in
+    out_dir (does not apply when log_fn is specified).
+
+    File will include debug and above messages while stderr will include info
+    and above. If quiet=True, stderr will include warning and above only.
+    """
+    log_fp = None
     if out_dir is not None:
         log_fn = os.path.join(out_dir, LOG_FN)
         if out_suffix is not None:
             base_fn, fn_ext = os.path.splitext(log_fn)
             log_fn = base_fn + '.' + out_suffix + fn_ext
-        log_file = logging.FileHandler(log_fn, 'w')
-        log_file.setLevel(logging.DEBUG)
-        log_file.setFormatter(CustomFormatter())
+    if log_fn is not None:
+        log_fp = logging.FileHandler(log_fn, 'w')
+        log_fp.setLevel(logging.DEBUG)
+        log_fp.setFormatter(CustomFormatter())
+
     console = logging.StreamHandler()
     if quiet:
         console.setLevel(logging.WARNING)
@@ -53,8 +63,8 @@ def init_logger(out_dir=None, out_suffix=None, quiet=False):
 
     root_logger = logging.getLogger('')
     root_logger.setLevel(logging.DEBUG)
-    if out_dir is not None:
-        root_logger.addHandler(log_file)
+    if log_fp is not None:
+        root_logger.addHandler(log_fp)
     root_logger.addHandler(console)
 
 
