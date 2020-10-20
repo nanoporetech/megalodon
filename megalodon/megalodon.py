@@ -12,6 +12,7 @@ import mappy
 import numpy as np
 from tqdm import tqdm
 
+from megalodon._version import MEGALODON_VERSION
 from megalodon import (
     aggregate, backends, fast5_io, logging, mapping, mods,
     variants, megalodon_helper as mh, megalodon_multiprocessing as mega_mp)
@@ -1214,6 +1215,7 @@ def _main(args):
         sys.exit(1)
 
     logging.init_logger(args.output_directory)
+    LOGGER.info('Running Megalodon version {}'.format(MEGALODON_VERSION))
     LOGGER.debug('Command: """' + ' '.join(sys.argv) + '"""')
     if _DO_PROFILE:
         LOGGER.warning('Running profiling. This may slow processing.')
