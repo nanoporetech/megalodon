@@ -26,7 +26,8 @@ sys.path.insert(0, os.path.abspath('../megalodon'))
 # include 'sphinx.ext.autodoc' for API documentation
 extensions = ['sphinx.ext.viewcode',
               'sphinx.ext.intersphinx', 'sphinx.ext.mathjax', 'sphinxarg.ext',
-              'sphinx.ext.napoleon',]
+              'sphinx.ext.napoleon',
+              'sphinx.ext.autosectionlabel']
 mathjax_path = "https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"
 
 # don't include class inheritence in docs: https://stackoverflow.com/questions/46279030/how-can-i-prevent-sphinx-from-listing-object-as-a-base-class
