@@ -23,6 +23,8 @@ def split_data(in_mods_db, out_mods_dbs, ref):
                total=in_mods_db.get_num_uniq_stats(), smoothing=0,
                dynamic_ncols=True)
     curr_ref_seq = curr_chrm = None
+    # TODO multiprocess over contigs (need to implement iteration over range
+    # of pos_dbids via chrm string)
     for pos_dbid, pos_mod_data in in_mods_db.iter_pos_scores():
         bar.update(len(pos_mod_data))
         chrm, strand, pos = in_mods_db.get_pos(pos_dbid)

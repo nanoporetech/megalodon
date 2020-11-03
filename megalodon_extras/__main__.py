@@ -26,9 +26,11 @@ NESTED_COMMANDS = [
        'Merge modified base calibration files')]),
 
     (ep.GRP_MERGE,
-     'Merge per-read databases',
+     'Merge per-read databases or aggregated files',
      [(ep.CMD_MERGE_MODS,
        'Merge per-read modified base database'),
+      (ep.CMD_MERGE_AGG_MODS,
+       'Merge aggregated modified base bedmethyl files'),
       (ep.CMD_MERGE_VARS,
        'Merge per-read sequence variants database')]),
 

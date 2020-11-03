@@ -41,6 +41,8 @@ FORMAT_LOG_PROB_MI = (
     'FORMAT=<ID=LOG_PROBS,Number=A,Type=String,' +
     'Description="Per-read log10 likelihoods for modified ' +
     'bases (semi-colon separated)">')
+BEDMETHYL_TMPLT = ('{chrom}\t{pos}\t{end}\t.\t{score}\t{strand}\t{pos}' +
+                   '\t{end}\t0,0,0\t{cov}\t{perc:.1f}')
 
 SAMPLE_NAME = 'SAMPLE'
 MOD_MAP_RG_ID = '1'
@@ -218,7 +220,7 @@ class ModsDb:
         `mappy`) positions are all even values and reverse strand (encoded as
         `-1`) are all odd values. Chromosomes are ordered as passed in, but
         expected in LooseVersion (as in unix `sort -V`) provided via
-        megalodon.mapping.RefName.
+        megalodon_helper.RefName.
         """
         # store dict from chrm to chrm_len
         self._chrm_len_lookup = dict(
@@ -519,7 +521,7 @@ class ModsDb:
         # use version sort for chromosomes/contigs
         s_ref_names_and_lens = list(zip(*sorted(
             list(zip(*ref_names_and_lens)),
-            key=lambda x: mapping.RefName(x[0]))))
+            key=lambda x: mh.RefName(x[0]))))
         # save chrms to database
         self.cur.executemany('INSERT INTO chrm (chrm, chrm_len) VALUES (?,?)',
                              zip(*s_ref_names_and_lens))
@@ -1884,11 +1886,11 @@ class ModBedMethylWriter:
 
             cov = mod_site.get_coverage()
             self.buffers[mod_base].append(
-                ('{chrom}\t{pos}\t{end}\t.\t{score}\t{strand}\t{pos}' +
-                 '\t{end}\t0,0,0\t{cov}\t{perc}').format(
-                     chrom=mod_site.chrom, pos=mod_site.pos,
-                     end=mod_site.pos + 1, strand=mod_site.strand, cov=cov,
-                     score=min(int(cov), 1000), perc=int(mod_prop * 100)))
+                BEDMETHYL_TMPLT.format(
+                    chrom=mod_site.chrom, pos=mod_site.pos,
+                    end=mod_site.pos + 1, strand=mod_site.strand, cov=cov,
+                    score=min(int(cov), 1000),
+                    perc=np.around(mod_prop * 100, 1)))
             if len(self.buffers[mod_base]) > self.buffer_limit:
                 self.handles[mod_base].write(
                     '\n'.join(self.buffers[mod_base]) + '\n')

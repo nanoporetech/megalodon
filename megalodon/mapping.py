@@ -4,8 +4,6 @@ import array
 import queue
 import traceback
 import subprocess
-from functools import total_ordering
-from distutils.version import LooseVersion
 from collections import namedtuple, OrderedDict
 
 import mappy
@@ -43,32 +41,6 @@ MAP_SUMM_TYPES = dict(zip(
 
 MOD_POS_TAG = 'Mm'
 MOD_PROB_TAG = 'Ml'
-
-
-@total_ordering
-class RefName(str):
-    """ Class used to determine the order of reference/contig names.
-    This is roughly determined by distutils.version.LooseVersion, with handling
-    for mismatching derived types (int cannot compare to str).
-    """
-
-    def __eq__(self, other):
-        return (tuple(LooseVersion(self).version) ==
-                tuple(LooseVersion(other).version))
-
-    def __lt__(self, other):
-        sv = tuple(LooseVersion(self).version)
-        ov = tuple(LooseVersion(other).version)
-        try:
-            # try to compare LooseVersion tuples
-            sv < ov
-        except TypeError:
-            # if types don't match, sort by string representation of types
-            # This means ints come before strings
-            for svi, ovi in zip(sv, ov):
-                if type(svi) != type(ovi):
-                    return str(type(svi)) < str(type(ovi))
-            return len(svi) < len(ovi)
 
 
 def get_mapping_mode(map_fmt):

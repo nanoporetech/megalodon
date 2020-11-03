@@ -347,6 +347,25 @@ def get_parser_merge_modified_bases():
     return parser
 
 
+def get_parser_merge_aggregated_modified_bases():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        'bed_methyl_files', nargs='+',
+        help='Input bedmethyl format files.')
+    parser.add_argument(
+        '--output-bed-methyl-file',
+        default='merged_modified_bases.bed',
+        help='Output bedmethyl filename. Cannot exist before this command. ' +
+        'Default: %(default)s')
+    parser.add_argument(
+        '--sorted-inputs', action='store_true',
+        help='If input bedmethyl files are sorted, files will be merged ' +
+        'without reading full file into memory. Sort order should be ' +
+        '`sort -k1,1V -k2,2n`.')
+
+    return parser
+
+
 def get_parser_merge_variants():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -925,6 +944,7 @@ CMD_CALIB_MERGE_MODS = 'merge_modified_bases'
 
 GRP_MERGE = 'merge'
 CMD_MERGE_MODS = 'modified_bases'
+CMD_MERGE_AGG_MODS = 'aggregated_modified_bases'
 CMD_MERGE_VARS = 'variants'
 
 GRP_MODS = 'modified_bases'
@@ -967,6 +987,7 @@ PARSERS = {
         CMD_CALIB_MERGE_MODS: get_parser_calibrate_merge_modified_bases},
     GRP_MERGE: {
         CMD_MERGE_MODS: get_parser_merge_modified_bases,
+        CMD_MERGE_AGG_MODS: get_parser_merge_aggregated_modified_bases,
         CMD_MERGE_VARS: get_parser_merge_variants},
     GRP_MODS: {
         CMD_MODS_ALPHABET: get_parser_modified_bases_describe_alphabet,

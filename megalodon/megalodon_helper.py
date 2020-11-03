@@ -6,6 +6,8 @@ import traceback
 import pkg_resources
 from tqdm import tqdm
 from abc import ABC, abstractmethod
+from functools import total_ordering
+from distutils.version import LooseVersion
 from collections import defaultdict, namedtuple, OrderedDict
 
 import numpy as np
@@ -49,6 +51,7 @@ RNA_ALPHABET = 'ACGU'
 VALID_ALPHABETS = [ALPHABET, RNA_ALPHABET]
 COMP_BASES = dict(zip(map(ord, 'ACGT'), map(ord, 'TGCA')))
 NP_COMP_BASES = np.array([3, 2, 1, 0], dtype=np.uintp)
+U_TO_T_BASES = {ord('U'): ord('T')}
 SEQ_MIN = np.array(['A'], dtype='S1').view(np.uint8)[0]
 SEQ_TO_INT_ARR = np.full(26, -1, dtype=np.uintp)
 SEQ_TO_INT_ARR[0] = 0
@@ -236,6 +239,32 @@ FALSE_TEXT_VALUES = set(('n', 'no', 'f', 'false', 'off', '0'))
 LEGACY_MOD_BASES = dict(zip(map(ord, 'ZY'), map(ord, 'ma')))
 
 
+@total_ordering
+class RefName(str):
+    """ Class used to determine the order of reference/contig names.
+    This is roughly determined by distutils.version.LooseVersion, with handling
+    for mismatching derived types (int cannot compare to str).
+    """
+
+    def __eq__(self, other):
+        return (tuple(LooseVersion(self).version) ==
+                tuple(LooseVersion(other).version))
+
+    def __lt__(self, other):
+        sv = tuple(LooseVersion(self).version)
+        ov = tuple(LooseVersion(other).version)
+        try:
+            # try to compare LooseVersion tuples
+            sv < ov
+        except TypeError:
+            # if types don't match, sort by string representation of types
+            # This means ints come before strings
+            for svi, ovi in zip(sv, ov):
+                if type(svi) != type(ovi):
+                    return str(type(svi)) < str(type(ovi))
+            return len(svi) < len(ovi)
+
+
 class MegaError(Exception):
     """ Custom megalodon error for more graceful error handling
     """
@@ -264,6 +293,10 @@ def comp_np(np_seq):
 
 def revcomp_np(np_seq):
     return NP_COMP_BASES[np_seq][::-1]
+
+
+def u_to_t(seq):
+    return seq.translate(U_TO_T_BASES)
 
 
 def seq_to_int(seq, error_on_invalid=True):
@@ -688,7 +721,8 @@ def parse_bed_methyls(
                 num_reads = int(num_reads)
                 if num_reads <= 0:
                     continue
-                meth_reads = int(float(pct_meth) * num_reads / 100.0)
+                meth_reads = int(np.around(
+                    float(pct_meth) * num_reads / 100.0))
                 cov[(chrm, store_strand)][start] += num_reads
                 meth_cov[(chrm, store_strand)][start] += meth_reads
                 n_sites += 1
@@ -702,6 +736,26 @@ def parse_bed_methyls(
     meth_cov = dict((k, dict(v)) for k, v in meth_cov.items())
 
     return cov, meth_cov
+
+
+def iter_bed_methyl_recs(bed_fn):
+    """ Parse bedmethyl files, yielding records.
+
+    Args:
+        bed_fn (str): Bed methyl file path
+
+    Yields:
+        Chromosome (as megalodon_helper.RefName for sorting), position (int),
+            strand (int), mod_cov (int) and cov (int)
+    """
+    with open(bed_fn) as bed_fp:
+        for line in bed_fp:
+            (chrm, pos, _, _, _, strand, _, _, _, num_reads,
+             pct_meth) = line.split()
+            num_reads = int(num_reads)
+            meth_reads = int(np.around(float(pct_meth) * num_reads / 100.0))
+            yield (RefName(chrm), int(pos), str_strand_to_int(strand),
+                   meth_reads, num_reads)
 
 
 def text_to_bool(val):
