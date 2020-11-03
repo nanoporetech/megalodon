@@ -10,40 +10,50 @@ Raw nanopore reads are processed by a single command to produce basecalls (FASTA
 Prerequisites
 -------------
 
-As of version 2.0, the primary megalodon run mode requires the Guppy basecaller (as of version 2.2 Megalodon requires Guppy version>=4.0).
-See the `community page for download/installation instructions <https://community.nanoporetech.com/downloads>`_.
+The primary Megalodon run mode requires the Guppy basecaller (version >= 4.0).
+See the `community page for download/installation instructions [login required] <https://community.nanoporetech.com/downloads>`_.
 
-All other requirements are handled by ``pip`` or ``conda`` installation.
-If installing from source, ``numpy`` must be installed before running installation for cython optimizations.
-Required python packages are: ``cython``, ``h5py``, ``mappy``, ``numpy``, ``ont_fast5_api``, ``ont_pyguppy_client_lib``, ``pysam``, ``scipy``, ``seaborn``, ``sklearn``, and ``tqdm``.
+Megalodon is a python-based command line software package.
+Given a python (version >= 3.5) installation, all other requirements are handled by ``pip`` or ``conda``.
 
-.. note::
+..
 
-   `Taiyaki <https://github.com/nanoporetech/taiyaki>`_ is no longer required to run megalodon, but installation is required for two specific run modes:
-   1) output mapped signal files (for basecall models training)
-   2) running the taiyaki basecalling backend (for neural network designs including experimental layers)
+   `Taiyaki <https://github.com/nanoporetech/taiyaki>`_ is no longer required to run Megalodon, but installation is required for two specific run modes:
+
+   1) output mapped signal files (for basecall model training)
+
+   2) running the Taiyaki basecalling backend (for neural network designs including experimental layers)
 
 ------------
 Installation
 ------------
 
-Megalodon is a command line tool.
-``pip`` and ``conda`` are the recommended installation interfaces for megalodon.
+``pip`` and ``conda`` are the recommended installation interfaces for Megalodon.
+``ont_pyguppy_client_lib`` is not available on conda and thus must be installed with ``pip``.
 
 ::
 
    pip install megalodon
    # or
    conda install megalodon
+   pip install ont_pyguppy_client_lib
 
-..
+To install from github source for development, the following commands can be run.
+``numpy`` must be installed before running installation for cython optimizations.
 
-    ``conda`` installation requires the ``ont-pyguppy-client-lib`` package not available on ``conda``.
-    Install with ``pip install ont-pyguppy-client-lib`` after Megalodon installation.
+::
+
+   git clone https://github.com/nanoporetech/megalodon
+   pip install numpy cython
+   pip install -e megalodon/
 
 ===========
 Quick Start
 ===========
+
+Megalodon must obtain the intermediate basecalling neural network matrix.
+It is recommended that the Guppy basecalling backend be used to compute this from the raw nanopore signal.
+Nanopore basecalling is compute intensive and thus it is highly recommended that GPU resources are specified (``--devices``) for optimal Megalodon performance.
 
 Megalodon is accessed via the command line interface ``megalodon`` command.
 
@@ -54,24 +64,39 @@ Megalodon is accessed via the command line interface ``megalodon`` command.
     # megalodon help (all args)
     megalodon --help-long
 
-    # Example command to output basecalls, mappings, variants and CpG methylation
+    # Example command to output basecalls, mappings, and CpG methylation in both per-read (``mod_mappings``) and aggregated (``mods``) formats
     #   Compute settings: GPU devices 0 and 1 with 40 CPU cores
-    megalodon raw_fast5s/ \
-        --outputs basecalls mappings variants mods \
-        --reference reference.fa --variant-filename variants.vcf.gz \
-        --mod-motif Z CG 0 --devices 0 1 --processes 40
+    megalodon \
+        raw_fast5s/ \
+        --outputs basecalls mappings mod_mappings mods \
+        --reference reference.fa --mod-motif Z CG 0 \
+        --devices 0 1 --processes 40
 
-This command produces the ``megalodon_results`` output directory containing all requested output files and logs (change output location with ``--output-directory``).
+This command produces the ``megalodon_results`` output directory containing all requested output files and logs.
+The format for common outputs is described briefly below and in more detail in the `full documentation <https://nanoporetech.github.io/megalodon/>`_
 
-The majority of Megalodon's functionality is accessed via the ``megalodon`` command (exemplified above), though a number of additional operations are made available via the ``megalodon_extras`` command.
-These operations include modified base or variant aggregation (much faster than re-computing per-read calls), modified base result validation, model statistic calibration, and more.
-Helper commands to perform sequence variant phasing (details here :doc:`variant_phasing`) are also included in ``megalodon_extras``.
-In the future these script will move to a dedicated command line interface (likely ``megalodon_extras``).
+The above command uses the modified base model included in Guppy (more details below `Guppy Models and Parameters`_).
+As more accurate basecalling models are trained, they are first released into the `Rerio repository for research models <https://github.com/nanoporetech/rerio>`_.
+Once training pipelines are more thoroughly standardized and tested models will be transferred into Guppy.
+The code below shows how to obtain and run the R9.4.1, MinION/GridION, 5mC CpG model (more accurate 5mC CpG methylation results than default model).
+
+::
+
+    # Obtain and run R9.4.1, MinION, 5mC CpG model from Rerio
+    git clone https://github.com/nanoporetech/rerio
+    rerio/download_model.py rerio/basecall_models/res_dna_r941_min_modbases_5mC_CpG_v001
+    megalodon \
+        raw_fast5s/ \
+        --guppy-params "-d ./rerio/basecall_models/" \
+        --guppy-config res_dna_r941_min_modbases_5mC_CpG_v001.cfg \
+        --outputs basecalls mappings mod_mappings mods \
+        --reference reference.fa --mod-motif m CG 0 \
+        --devices 0 1 --processes 40
 
 ..
 
-    The path to the ``guppy_basecall_server`` executable is required to run megalodon.
-    By default, megalodon assumes this path is ``./ont-guppy/bin/guppy_basecall_server``.
+    The path to the ``guppy_basecall_server`` executable is required to run Megalodon.
+    By default, Megalodon assumes Guppy (Linux GPU) is installed in the current working directory (i.e. ``./ont-guppy/bin/guppy_basecall_server``).
     Use the ``--guppy-server-path`` argument to specify a different path.
 
 --------
