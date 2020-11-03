@@ -1,6 +1,7 @@
 import heapq
 
 import numpy as np
+from tqdm import tqdm
 
 from megalodon import logging, megalodon_helper as mh, mods
 from ._extras_parsers import get_parser_merge_aggregated_modified_bases
@@ -10,6 +11,7 @@ def _main(args):
     logging.init_logger()
     out_fp = open(args.output_bed_methyl_file, 'w')
 
+    bar = tqdm(desc='Records Written', smoothing=0)
     if args.sorted_inputs:
         curr_chrm = curr_pos = curr_strand = None
         mod_cov = cov = 0
@@ -23,6 +25,7 @@ def _main(args):
                         strand=mh.int_strand_to_str(curr_strand), cov=cov,
                         score=min(cov, 1000),
                         perc=np.around(mod_cov * 100 / cov, 1)) + '\n')
+                    bar.update()
                 curr_chrm, curr_pos, curr_strand = chrm, pos, strand
                 mod_cov = cov = 0
             mod_cov += mod_covi
@@ -33,6 +36,7 @@ def _main(args):
                 strand=mh.int_strand_to_str(curr_strand), cov=cov,
                 score=min(int(cov), 1000),
                 perc=np.around(mod_cov / cov * 100, 1)) + '\n')
+            bar.update()
     else:
         cov, mod_cov = mh.parse_bed_methyls(args.bed_methyl_files)
         for chrm in sorted(
@@ -52,6 +56,8 @@ def _main(args):
                     score=min(int(pcov), 1000),
                     perc=np.around(
                         mod_cov[(chrm, strand)][pos] / pcov * 100, 1)) + '\n')
+                bar.update()
+    bar.close()
     out_fp.close()
 
 

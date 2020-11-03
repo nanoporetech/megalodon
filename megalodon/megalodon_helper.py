@@ -246,20 +246,22 @@ class RefName(str):
     for mismatching derived types (int cannot compare to str).
     """
 
+    def __new__(cls, value):
+        obj = str.__new__(cls, value)
+        obj.version = tuple(LooseVersion(value).version)
+        return obj
+
     def __eq__(self, other):
-        return (tuple(LooseVersion(self).version) ==
-                tuple(LooseVersion(other).version))
+        return self.version == other.version
 
     def __lt__(self, other):
-        sv = tuple(LooseVersion(self).version)
-        ov = tuple(LooseVersion(other).version)
         try:
             # try to compare LooseVersion tuples
-            sv < ov
+            self.version < other.version
         except TypeError:
             # if types don't match, sort by string representation of types
             # This means ints come before strings
-            for svi, ovi in zip(sv, ov):
+            for svi, ovi in zip(self.version, other.version):
                 if type(svi) != type(ovi):
                     return str(type(svi)) < str(type(ovi))
             return len(svi) < len(ovi)
