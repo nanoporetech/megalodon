@@ -697,7 +697,7 @@ def parse_bed_methyls(
         limit (int): limit the total number of sites to parse
     """
     cov = defaultdict(lambda: defaultdict(int))
-    meth_cov = defaultdict(lambda: defaultdict(int))
+    mod_cov = defaultdict(lambda: defaultdict(int))
     n_sites = 0
     for bed_fn in bed_fns:
         with open(bed_fn) as bed_fp:
@@ -726,7 +726,7 @@ def parse_bed_methyls(
                 meth_reads = int(np.around(
                     float(pct_meth) * num_reads / 100.0))
                 cov[(chrm, store_strand)][start] += num_reads
-                meth_cov[(chrm, store_strand)][start] += meth_reads
+                mod_cov[(chrm, store_strand)][start] += meth_reads
                 n_sites += 1
                 if limit is not None and n_sites >= limit:
                     break
@@ -735,9 +735,9 @@ def parse_bed_methyls(
 
     # convert to standard dicts
     cov = dict((k, dict(v)) for k, v in cov.items())
-    meth_cov = dict((k, dict(v)) for k, v in meth_cov.items())
+    mod_cov = dict((k, dict(v)) for k, v in mod_cov.items())
 
-    return cov, meth_cov
+    return cov, mod_cov
 
 
 def iter_bed_methyl_recs(bed_fn):
