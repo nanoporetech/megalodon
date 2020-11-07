@@ -564,6 +564,9 @@ def get_parser_modified_bases_per_site_thresholds():
         '--out-per-site-mod-thresholds', default='site_mod_thresholds.bed',
         help='Output filename for per-site megalodon mod scoring ' +
         'thresholds. Default: %(default)s')
+    parser.add_argument(
+        '--log-filename', default='per_site_thresholds.log',
+        help='Output filename for logging. Default: %(default)s')
 
     parser.add_argument(
         '--batch-size', type=int, default=1000000,

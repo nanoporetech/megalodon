@@ -33,6 +33,7 @@ def write_low_cov_worker(low_cov_q, low_cov_fn):
 
 
 def write_thresh_worker(thresh_q, thresh_fn):
+    bar = tqdm(desc='Completed Batches', smoothing=0)
     with open(thresh_fn, 'w') as thresh_fp:
         while True:
             try:
@@ -41,11 +42,13 @@ def write_thresh_worker(thresh_q, thresh_fn):
                 continue
             if thresh_batch is None:
                 break
+            bar.update()
             thresh_fp.write(thresh_batch)
+    bar.close()
 
 
 def extract_threshs_worker(
-        site_batches, thresh_q, low_cov_q, mod_db_fn, gt_cov_min, np_cov_min,
+        site_batches_q, thresh_q, low_cov_q, mod_db_fn, gt_cov_min, np_cov_min,
         target_mod_base, strand_offset):
     def get_gt_cov(chrm, strand, pos):
         cov_pos = pos if strand_offset is None else (
@@ -53,10 +56,10 @@ def extract_threshs_worker(
         cov_strand = strand if strand_offset is None else None
         pos_cov = 0
         try:
-            pos_cov = cov[(chrm, cov_strand)][cov_pos]
+            pos_cov = cov[(cov_pos, cov_strand)]
             if pos_cov < gt_cov_min:
                 return pos_cov, 0
-            return pos_cov, mod_cov[(chrm, cov_strand)][cov_pos]
+            return pos_cov, mod_cov[(cov_pos, cov_strand)]
         except KeyError:
             return 0, 0
 
@@ -86,7 +89,7 @@ def extract_threshs_worker(
     target_mod_dbid = mods_db.get_mod_base_dbid(target_mod_base)
     while True:
         try:
-            batch = thresh_q.get(block=True, timeout=0.1)
+            batch = site_batches_q.get(block=True, timeout=0.1)
         except queue.Empty:
             continue
         if batch is None:
@@ -129,18 +132,18 @@ def extract_threshs_worker(
         low_cov_q.put(''.join(batch_low_cov))
 
 
-def parse_bedmethyl_worker(site_batches, batch_size, gt_bed, strand_offset):
+def parse_bedmethyl_worker(site_batches_q, batch_size, gt_bed, strand_offset):
     for batch in mh.iter_bed_methyl_batches(gt_bed, strand_offset, batch_size):
-        site_batches.put(batch)
+        site_batches_q.put(batch)
 
 
 def process_all_batches(
         num_proc, batch_size, gt_bed, low_cov_fn, thresh_fn, mod_db_fn,
         strand_offset, gt_cov_min, np_cov_min, target_mod_base):
-    site_batches = mega_mp.CountingMPQueue(maxsize=MAX_BATCHES)
+    site_batches_q = mega_mp.CountingMPQueue(maxsize=MAX_BATCHES)
     parse_bm_p = mp.Process(
         target=parse_bedmethyl_worker,
-        args=(site_batches, batch_size, gt_bed, strand_offset),
+        args=(site_batches_q, batch_size, gt_bed, strand_offset),
         daemon=True, name='ParseBedMethyl')
     parse_bm_p.start()
     thresh_q = mega_mp.CountingMPQueue(maxsize=MAX_BATCHES)
@@ -149,7 +152,7 @@ def process_all_batches(
     for et_i in range(num_proc):
         extract_threshs_ps.append(mp.Process(
             target=extract_threshs_worker,
-            args=(site_batches, thresh_q, low_cov_q, mod_db_fn, gt_cov_min,
+            args=(site_batches_q, thresh_q, low_cov_q, mod_db_fn, gt_cov_min,
                   np_cov_min, target_mod_base, strand_offset),
             daemon=True, name='ExtractThresh{:03d}'.format(et_i)))
         extract_threshs_ps[-1].start()
@@ -164,14 +167,18 @@ def process_all_batches(
         daemon=True, name='WriteLowCov')
     write_low_cov_p.start()
 
+    LOGGER.debug('Waiting for parser to join')
     parse_bm_p.join()
     for _ in range(num_proc):
-        site_batches.put(None)
+        site_batches_q.put(None)
+    LOGGER.debug('DB extractor processes to join')
     for et_p in extract_threshs_ps:
         et_p.join()
     thresh_q.put(None)
     low_cov_q.put(None)
+    LOGGER.debug('Write thresholds process to join')
     write_thresh_p.join()
+    LOGGER.debug('Write low ocverage process to join')
     write_low_cov_p.join()
 
 
@@ -203,7 +210,7 @@ def check_matching_attrs(
 
 
 def _main(args):
-    logging.init_logger()
+    logging.init_logger(log_fn=args.log_filename)
     LOGGER.info('Parsing ground truth bed methyl files')
     mod_db_fn = mh.get_megalodon_fn(args.megalodon_results_dir, mh.PR_MOD_NAME)
     check_matching_attrs(

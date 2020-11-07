@@ -761,8 +761,8 @@ class ModsDb:
             # restrict query to specified range
             local_cursor.execute(
                 'SELECT score_pos, score_mod, score_read, score FROM data ' +
-                'ORDER BY score_pos ' +
-                'WHERE score_pos BETWEEN ? AND ?', pos_dbid_range)
+                'WHERE score_pos BETWEEN ? AND ? ORDER BY score_pos',
+                pos_dbid_range)
         # initialize variables with first value
         first_score = local_cursor.fetchone()
         # if no scores are stored break out of iterator

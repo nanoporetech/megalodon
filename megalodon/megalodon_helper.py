@@ -797,20 +797,21 @@ def iter_bed_methyl_batches(
         for pos, strand, cov_i, mod_cov_i in zip(
                 poss, strands, b_cov, b_mod_cov):
             b_cov_lookup[(pos, strand)] += cov_i
-            b_mod_cov_lookup[(pos, strand)] += cov_i
+            b_mod_cov_lookup[(pos, strand)] += mod_cov_i
         b_pos_range = [poss[0], poss[-1]]
         if strand_offset is not None:
             if strand_offset > 0:
                 b_pos_range[1] += strand_offset
             else:
                 b_pos_range[0] += strand_offset
-        return new_batch, b_cov_lookup, b_mod_cov_lookup, b_pos_range
+        return (new_batch, b_pos_range, dict(b_cov_lookup),
+                dict(b_mod_cov_lookup))
 
-    num_recs = prev_pos = 0
-    curr_chrm = None
-    curr_batch = [[], [], [], []]
-    used_chrms = set()
+    num_recs = 1
     recs_iter = iter_records()
+    curr_chrm, prev_pos, strand, cov, pct_mod = next(recs_iter)
+    curr_batch = [[prev_pos], [strand], [cov], [pct_mod]]
+    used_chrms = set(curr_chrm)
     for rec in recs_iter:
         num_recs += 1
         # check sorted order
@@ -830,20 +831,19 @@ def iter_bed_methyl_batches(
         prev_pos = rec[1]
 
         # if contig/chrm is new process and yield batch
-        if (curr_chrm is not None and rec[0] != curr_chrm) \
-           or len(curr_batch) >= batch_size:
-            curr_batch, batch_cov, batch_mod_cov, b_pos_range = prep_batch(
+        if rec[0] != curr_chrm or len(curr_batch[0]) >= batch_size:
+            curr_batch, b_pos_range, batch_cov, batch_mod_cov = prep_batch(
                 curr_batch)
             num_recs += len(curr_batch)
             yield curr_chrm, b_pos_range, batch_cov, batch_mod_cov
             curr_chrm = rec[0]
         # add current record to current batch
-        for bl, bf in zip(curr_batch, rec):
+        for bl, bf in zip(curr_batch, rec[1:]):
             bl.append(bf)
 
     if len(curr_batch[0]) > 0:
         # yield last batch
-        _, batch_cov, batch_mod_cov, b_pos_range = prep_batch(curr_batch)
+        _, b_pos_range, batch_cov, batch_mod_cov = prep_batch(curr_batch)
         yield curr_chrm, b_pos_range, batch_cov, batch_mod_cov
 
 
