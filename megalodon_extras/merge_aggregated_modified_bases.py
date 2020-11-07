@@ -1,5 +1,3 @@
-import heapq
-
 import numpy as np
 from tqdm import tqdm
 
@@ -108,6 +106,7 @@ def sorted_merge(rec_iters):
         curr_pos = min(rec[1] for rec in curr_recs
                        if rec is not None and rec[0] == curr_chrm)
 
+
 def write_batch(out_fp, chrms, poss, strands, mod_covs, covs):
     covs = np.array(covs, dtype=int)
     out_fp.write('\n'.join(
@@ -139,7 +138,7 @@ def write_sorted_merge(in_fns, out_fp, bar, batch_size=50000):
 def _main(args):
     logging.init_logger()
     with open(args.output_bed_methyl_file, 'w') as out_fp, \
-         tqdm(desc='Records Written', smoothing=0) as bar:
+            tqdm(desc='Records Written', smoothing=0) as bar:
         if args.sorted_inputs:
             write_sorted_merge(args.bed_methyl_files, out_fp, bar)
         else:
