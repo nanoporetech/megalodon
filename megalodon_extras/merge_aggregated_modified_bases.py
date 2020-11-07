@@ -1,5 +1,3 @@
-import heapq
-
 import numpy as np
 from tqdm import tqdm
 
@@ -107,6 +105,7 @@ def sorted_merge(rec_iters):
                     mh.RefName(chrm) for chrm in next_chrms)[0])
         curr_pos = min(rec[1] for rec in curr_recs
                        if rec is not None and rec[0] == curr_chrm)
+
 
 def write_batch(out_fp, chrms, poss, strands, mod_covs, covs):
     covs = np.array(covs, dtype=int)
