@@ -536,9 +536,9 @@ def get_parser_modified_bases_per_site_thresholds():
         'megalodon_results_dir',
         help='Output directory from megalodon with per_read_mods in output.')
     parser.add_argument(
-        'ground_truth_beds', nargs='+',
-        help='BEDmethyl files containing ground truth fraction modified. ' +
-        'Multiple files will be aggregated.')
+        'ground_truth_bed',
+        help='BEDmethyl file containing ground truth fraction modified. ' +
+        'File must be sorted (`sort -k1V -k2n`).')
 
     parser.add_argument(
         '--ground-truth-cov-min', type=int, default=15,
@@ -552,28 +552,26 @@ def get_parser_modified_bases_per_site_thresholds():
         help='Minimum coverage (single strand) to include a site from ' +
         'nanopore data. Default: %(default)d')
     parser.add_argument(
-        '--ground-truth-coverage-pdf',
-        help='Filename to save ground truth coverage. Default: Do not ' +
-        'produce plot.')
-    parser.add_argument(
-        '--ground-truth-cov-only', action='store_true',
-        help='Compute ground truth coverage and exit.')
-    parser.add_argument(
         '--strand-offset', type=int,
         help='Offset to combine stranded results. Positive value indicates ' +
         'reverse strand sites have higher position values. Default treat ' +
         'strands independently.')
     parser.add_argument(
-        '--skip-ground-truth-summary', action='store_true',
-        help='Skip summary and plotting of ground truth coverage.')
-    parser.add_argument(
-        '--out-blacklist-sites', default='low_coverage_blacklist_sites.bed',
-        help='Output filename for sites with low ground truth coverage. ' +
-        'Default: %(default)s')
+        '--out-low-coverage-sites', default='low_coverage_sites.bed',
+        help='Output filename for sites with low ground truth or nanopore ' +
+        'coverage. Default: %(default)s')
     parser.add_argument(
         '--out-per-site-mod-thresholds', default='site_mod_thresholds.bed',
         help='Output filename for per-site megalodon mod scoring ' +
         'thresholds. Default: %(default)s')
+
+    parser.add_argument(
+        '--batch-size', type=int, default=1000000,
+        help='Number of sites to include in each batch for processing. ' +
+        'Default: %(default)d')
+    parser.add_argument(
+        '--processes', type=int, default=1,
+        help='Number of processes. Default: %(default)d')
 
     return parser
 

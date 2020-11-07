@@ -280,7 +280,7 @@ class ModsDb:
             raise mh.MegaError(
                 'Cannot extract position database ID from connection opened ' +
                 'for initialization.')
-        if pos // 2 >= self._chrm_len_lookup[chrm]:
+        if pos >= self._chrm_len_lookup[chrm]:
             raise mh.MegaError((
                 'Attempt to extract position past the end of a chromosome.' +
                 ' {}:{}').format(chrm, pos))
@@ -692,7 +692,8 @@ class ModsDb:
     # data iterators #
     ##################
 
-    def iter_pos_scores(self, convert_pos=False, compute_llrs=False):
+    def iter_pos_scores(
+            self, convert_pos=False, compute_llrs=False, pos_range=None):
         """ Iterate over scores grouped by position. Default arguments iterate
         over raw database values for maximal speed. Yeilds a tuple of
         1) position and 2) statistics
@@ -707,6 +708,10 @@ class ModsDb:
 
         Note this function iterates over the index created by
         create_data_covering_index, so should be very fast.
+
+        If pos_range is provided, the database query will restrict the
+        extracted sites to a specific range. This parameter should consist of
+        the contig name (str), start (int) and end (int) coordinates.
         """
         def extract_pos_llrs(pos_lps):
             mod_llrs = dict((self.get_mod_base(mod_dbid), [])
@@ -740,9 +745,24 @@ class ModsDb:
         pos_lps = list()
         # use local cursor since extracting pos or mod might use class cursor
         local_cursor = self.db.cursor()
-        local_cursor.execute(
-            'SELECT score_pos, score_mod, score_read, score FROM data ' +
-            'ORDER BY score_pos')
+        if pos_range is None:
+            local_cursor.execute(
+                'SELECT score_pos, score_mod, score_read, score FROM data ' +
+                'ORDER BY score_pos')
+        else:
+            # determine pos database ID range
+            chrm, pos_st, pos_en = pos_range
+            if pos_st < 0:
+                pos_st = 0
+            if pos_en >= self._chrm_len_lookup[chrm]:
+                pos_en = self._chrm_len_lookup[chrm] - 1
+            pos_dbid_range = (self.get_pos_dbid(chrm, '+', pos_st),
+                              self.get_pos_dbid(chrm, '-', pos_en))
+            # restrict query to specified range
+            local_cursor.execute(
+                'SELECT score_pos, score_mod, score_read, score FROM data ' +
+                'ORDER BY score_pos ' +
+                'WHERE score_pos BETWEEN ? AND ?', pos_dbid_range)
         # initialize variables with first value
         first_score = local_cursor.fetchone()
         # if no scores are stored break out of iterator
