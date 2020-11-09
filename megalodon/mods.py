@@ -18,7 +18,9 @@ from megalodon._version import MEGALODON_VERSION
 
 LOGGER = logging.get_logger()
 
-AGG_INFO = namedtuple('AGG_INFO', ('method', 'binary_threshold'))
+AGG_INFO = namedtuple('AGG_INFO', (
+    'method', 'binary_threshold', 'expit_k', 'expit_x0'))
+AGG_INFO.__new__.__defaults__ = (mh.DEFAULT_MOD_LK, mh.DEFAULT_MOD_L0)
 DEFAULT_AGG_INFO = AGG_INFO(mh.MOD_BIN_THRESH_NAME, None)
 
 ANNOT_MODS = namedtuple('ANNOT_MODS', ('mod_seq', 'mod_qual'))
@@ -2005,6 +2007,8 @@ class AggMods(mh.AbstractAggregationClass):
         assert agg_info.method in mh.MOD_AGG_METHOD_NAMES
         self.agg_method = agg_info.method
         self.binary_thresh = agg_info.binary_threshold
+        self.expit_k = agg_info.expit_k
+        self.expit_x0 = agg_info.expit_x0
         self.write_mod_lp = write_mod_lp
         self._mod_long_names = self.mods_db.get_mod_long_names()
 
@@ -2047,6 +2051,35 @@ class AggMods(mh.AbstractAggregationClass):
             (mod_type, mod_cov / valid_cov)
             for mod_type, mod_cov in mods_cov.items()))
         return mods_props, valid_cov
+
+    def est_expit(self, pos_scores):
+        def expit_scaled_estimate(lps):
+            if len(lps) == 0:
+                return 0
+            return np.sum(1 / (1 + np.exp(-self.expit_k * (
+                np.exp(lps) - self.expit_x0))))
+
+        mod_types = set(mt for read_mods in pos_scores.values()
+                        for mt in read_mods.keys())
+        can_lps = []
+        mods_lps = dict((mt, []) for mt in mod_types)
+        for read_pos_lps in pos_scores.values():
+            r_mod_types, mt_lps = zip(*read_pos_lps.items())
+            mt_lps = np.array(mt_lps)
+            with np.errstate(divide='ignore'):
+                can_lp = np.log1p(-np.exp(mt_lps).sum())
+            if can_lp > mt_lps.max():
+                can_lps.append(can_lp)
+            else:
+                mods_lps[r_mod_types[np.argmax(mt_lps)]].append(mt_lps.max())
+        mods_lsum = dict(
+            (mt, expit_scaled_estimate(mt_lps))
+            for mt, mt_lps in mods_lps.items())
+        can_lsum = expit_scaled_estimate(can_lps)
+        tot_lsum = can_lsum + sum(mods_lsum.values())
+        mods_props = OrderedDict(sorted(
+            (mt, mt_lsum / tot_lsum) for mt, mt_lsum in mods_lsum.items()))
+        return mods_props, len(pos_scores)
 
     def est_em_prop(
             self, pos_scores, max_iters=15, conv_tol=0.001, min_prop=0.001):
@@ -2134,6 +2167,8 @@ class AggMods(mh.AbstractAggregationClass):
             raise mh.MegaError('No valid reads cover modified base location')
         if agg_method == mh.MOD_BIN_THRESH_NAME:
             mod_props, valid_cov = self.est_binary_thresh(mod_type_stats)
+        elif agg_method == mh.MOD_EXPIT:
+            mod_props, valid_cov = self.est_expit(mod_type_stats)
         elif agg_method == mh.MOD_EM_NAME:
             mod_props, valid_cov = self.est_em_prop(mod_type_stats)
 

@@ -977,6 +977,8 @@ def parse_mod_args(args, model_info, ref_out_info, map_info):
         if mh.PR_MOD_NAME in args.outputs else None)
     if args.mod_aggregate_method == mh.MOD_EM_NAME:
         agg_info = mods.AGG_INFO(mh.MOD_EM_NAME, None)
+    elif args.mod_aggregate_method == mh.MOD_EXPIT:
+        agg_info = mods.AGG_INFO(mh.MOD_EXPIT, None)
     elif args.mod_aggregate_method == mh.MOD_BIN_THRESH_NAME:
         agg_info = mods.AGG_INFO(
             mh.MOD_BIN_THRESH_NAME, args.mod_binary_threshold)
