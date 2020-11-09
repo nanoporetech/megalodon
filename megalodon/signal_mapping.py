@@ -20,8 +20,9 @@ try:
         prepare_mapping_funcs, signal as tai_signal)
 except ImportError:
     raise mh.MegaError(
-        'Taiyaki modules required for signal mapping not found. Signal ' +
-        'mappings require Taiyaki version >= 5.2')
+        'Taiyaki modules could not be loaded. Signal mappings require ' +
+        'Taiyaki version >= 5.2. Full error:\n"""\n{}\n"""'.format(
+            traceback.format_exc()))
 
 
 LOGGER = logging.get_logger()

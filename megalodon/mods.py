@@ -722,7 +722,7 @@ class ModsDb:
                 if prev_dbid != read_dbid and prev_dbid is not None:
                     # compute and store log likelihood ratios
                     with np.errstate(divide='ignore'):
-                        can_lp = np.log1p(-np.exp(np.array(r_lps)).sum())
+                        can_lp = np.log1p(-np.exp(r_lps).sum())
                     for mod_b, r_lp in zip(mod_bs, r_lps):
                         mod_llrs[mod_b].append(can_lp - r_lp)
                     mod_bs, r_lps = [], []
@@ -1326,16 +1326,16 @@ def call_read_mods(
 
     mod_out_text = None
     if mods_info.do_output.text:
-        txt_tmplt = '\t'.join('{}' for _ in ModsDb.text_field_names)
+        str_strand = mh.int_strand_to_str(r_ref_pos.strand)
+        txt_tmplt = '\t'.join('{}' for _ in ModsDb.text_field_names) + '\n'
         mod_out_text = ''
         for pos, mod_lps, mod_bases in r_mod_scores:
             with np.errstate(divide='ignore'):
                 can_lp = np.log1p(-np.exp(mod_lps).sum())
             mod_out_text += '\n'.join((
                 txt_tmplt.format(
-                    uuid, r_ref_pos.chrm, r_ref_pos.strand, pos, mod_lp,
-                    can_lp, mod_base)
-                for mod_lp, mod_base in zip(mod_lps, mod_bases))) + '\n'
+                    uuid, r_ref_pos.chrm, str_strand, pos, mod_lp, can_lp,
+                    mod_base) for mod_lp, mod_base in zip(mod_lps, mod_bases)))
 
     return r_insert_data, all_mods_seq, per_mod_seqs, mod_out_text
 
