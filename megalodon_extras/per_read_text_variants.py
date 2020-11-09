@@ -16,11 +16,11 @@ def _main(args):
         if args.out_filename is None else args.out_filename, 'w')
     vars_txt_fp.write('\t'.join(vars_db.text_field_names) + '\n')
     for (loc_id, loc_chrm, pos, ref_seq, var_name,
-         has_context_base) in tqdm(
+         test_start) in tqdm(
              vars_db.iter_locs(), total=vars_db.get_num_uniq_var_loc(),
              smoothing=0):
         pr_var_stats = vars_db.get_loc_stats(
-            (loc_id, loc_chrm, pos, ref_seq, var_name))
+            (loc_id, loc_chrm, pos, ref_seq, var_name, test_start))
         alt_type_stats = defaultdict(dict)
         for r_stats in pr_var_stats:
             alt_type_stats[r_stats.read_id][r_stats.alt_seq] = (

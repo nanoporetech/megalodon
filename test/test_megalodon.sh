@@ -222,6 +222,17 @@ megalodon_extras \
     --out-pdf megalodon_variant_calibration.pdf \
     --overwrite
 
+megalodon_extras \
+    per_read_text modified_bases \
+    ${CTRL_READS}.mega_res \
+    --out-filename \
+    ${CTRL_READS}.mega_res/per_read_modified_base_calls.rerun.txt
+megalodon_extras \
+    per_read_text variants \
+    ${CTRL_READS}.mega_res \
+    --out-filename \
+    ${CTRL_READS}.mega_res/per_read_variant_calls.rerun.txt
+
 # TODO add tests for more megalodon_extras commands
 
 
