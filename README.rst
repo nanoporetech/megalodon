@@ -13,9 +13,9 @@ Megalodon
 |conda_v|_ |conda_dn|_
 
 .. |pypi_v| image:: https://img.shields.io/pypi/v/megalodon
-.. _pypi_v: https://pypi.org/project/megalodon/2.2.3/
+.. _pypi_v: https://pypi.org/project/megalodon/
 .. |pypi_dm| image:: https://img.shields.io/pypi/dm/megalodon
-.. _pypi_dm: https://pypi.org/project/megalodon/2.2.3/
+.. _pypi_dm: https://pypi.org/project/megalodon/
 .. |conda_v| image:: https://img.shields.io/conda/vn/bioconda/megalodon
 .. _conda_v: https://anaconda.org/bioconda/megalodon
 .. |conda_dn| image:: https://img.shields.io/conda/dn/bioconda/megalodon
