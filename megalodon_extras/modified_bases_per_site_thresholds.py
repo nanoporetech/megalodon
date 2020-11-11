@@ -107,7 +107,7 @@ def extract_threshs_worker(
             str_strand = mh.int_strand_to_str(strand)
             # extract ground truth coverage
             pos_cov, pos_mod_cov = get_gt_cov(chrm, strand, pos)
-            if pos_cov < gt_cov_min:
+            if pos_cov < gt_cov_min and is_valid_site(chrm, strand, pos):
                 batch_low_cov.append(
                     BED_TMPLT.format(
                         chrom=chrm, pos=pos, end=pos + 1, strand=str_strand,
@@ -121,7 +121,7 @@ def extract_threshs_worker(
             if target_mod_cov < np_cov_min:
                 # don't blacklist sites covered by other called mods
                 # or invalid sites
-                if target_mod_cov > 0 and is_valid_site(chrm, strand, pos):
+                if target_mod_cov > 0:
                     batch_low_cov.append(
                         BED_TMPLT.format(
                             chrom=chrm, pos=pos, end=pos + 1,
