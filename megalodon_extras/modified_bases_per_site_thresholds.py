@@ -104,10 +104,12 @@ def extract_threshs_worker(
         batch_threshs = []
         for (chrm, strand, pos), pos_mod_data in mods_db.iter_pos_scores(
                 convert_pos=True, pos_range=(chrm, *pos_range)):
+            if not is_valid_site(chrm, strand, pos):
+                continue
             str_strand = mh.int_strand_to_str(strand)
             # extract ground truth coverage
             pos_cov, pos_mod_cov = get_gt_cov(chrm, strand, pos)
-            if pos_cov < gt_cov_min and is_valid_site(chrm, strand, pos):
+            if pos_cov < gt_cov_min:
                 batch_low_cov.append(
                     BED_TMPLT.format(
                         chrom=chrm, pos=pos, end=pos + 1, strand=str_strand,
