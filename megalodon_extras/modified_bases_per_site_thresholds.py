@@ -49,17 +49,14 @@ def write_thresh_worker(thresh_q, thresh_fn):
 
 def extract_threshs_worker(
         site_batches_q, thresh_q, low_cov_q, mod_db_fn, gt_cov_min, np_cov_min,
-        target_mod_base, strand_offset):
-    def get_gt_cov(chrm, strand, pos):
-        cov_pos = pos if strand_offset is None else (
-            pos - strand_offset if strand == -1 else pos)
+        target_mod_base, strand_offset, valid_sites):
+    def get_gt_cov(chrm, strand, lookup_pos):
+        if strand_offset is not None and strand == -1:
+            lookup_pos -= strand_offset
         cov_strand = strand if strand_offset is None else None
-        pos_cov = 0
         try:
-            pos_cov = cov[(cov_pos, cov_strand)]
-            if pos_cov < gt_cov_min:
-                return pos_cov, 0
-            return pos_cov, mod_cov[(cov_pos, cov_strand)]
+            return (cov[(lookup_pos, cov_strand)],
+                    mod_cov[(lookup_pos, cov_strand)])
         except KeyError:
             return 0, 0
 
@@ -84,6 +81,14 @@ def extract_threshs_worker(
                         pos_llrs.append(can_lp - mod_lp)
         gt_meth_pct = 100.0 * pos_mod_cov / pos_cov
         return '{:.4f}'.format(np.percentile(pos_llrs, gt_meth_pct))
+
+    def is_valid_site(chrm, strand, pos):
+        if valid_sites is None:
+            return True
+        try:
+            return pos in valid_sites[(chrm, strand)]
+        except KeyError:
+            return False
 
     mods_db = mods.ModsDb(mod_db_fn)
     target_mod_dbid = mods_db.get_mod_base_dbid(target_mod_base)
@@ -115,7 +120,8 @@ def extract_threshs_worker(
                 if mod_dbid == target_mod_dbid))
             if target_mod_cov < np_cov_min:
                 # don't blacklist sites covered by other called mods
-                if target_mod_cov > 0:
+                # or invalid sites
+                if target_mod_cov > 0 and is_valid_site(chrm, strand, pos):
                     batch_low_cov.append(
                         BED_TMPLT.format(
                             chrom=chrm, pos=pos, end=pos + 1,
@@ -139,7 +145,7 @@ def parse_bedmethyl_worker(site_batches_q, batch_size, gt_bed, strand_offset):
 
 def process_all_batches(
         num_proc, batch_size, gt_bed, low_cov_fn, thresh_fn, mod_db_fn,
-        strand_offset, gt_cov_min, np_cov_min, target_mod_base):
+        strand_offset, gt_cov_min, np_cov_min, target_mod_base, valid_sites):
     site_batches_q = mega_mp.CountingMPQueue(maxsize=MAX_BATCHES)
     parse_bm_p = mp.Process(
         target=parse_bedmethyl_worker,
@@ -153,7 +159,7 @@ def process_all_batches(
         extract_threshs_ps.append(mp.Process(
             target=extract_threshs_worker,
             args=(site_batches_q, thresh_q, low_cov_q, mod_db_fn, gt_cov_min,
-                  np_cov_min, target_mod_base, strand_offset),
+                  np_cov_min, target_mod_base, strand_offset, valid_sites),
             daemon=True, name='ExtractThresh{:03d}'.format(et_i)))
         extract_threshs_ps[-1].start()
     write_thresh_p = mp.Process(
@@ -211,16 +217,21 @@ def check_matching_attrs(
 
 def _main(args):
     logging.init_logger(log_fn=args.log_filename)
-    LOGGER.info('Parsing ground truth bed methyl files')
+    LOGGER.info('Checking for consistent contig names')
     mod_db_fn = mh.get_megalodon_fn(args.megalodon_results_dir, mh.PR_MOD_NAME)
     check_matching_attrs(
         args.ground_truth_bed, args.strand_offset, mod_db_fn, args.mod_base)
+    valid_sites = None
+    if args.valid_sites is not None:
+        LOGGER.info('Parsing valid sites files')
+        valid_sites = mh.parse_beds(args.valid_sites)
 
+    LOGGER.info('Processing batches')
     process_all_batches(
         args.processes, args.batch_size, args.ground_truth_bed,
         args.out_low_coverage_sites, args.out_per_site_mod_thresholds,
         mod_db_fn, args.strand_offset, args.ground_truth_cov_min,
-        args.nanopore_cov_min, args.mod_base)
+        args.nanopore_cov_min, args.mod_base, valid_sites)
 
 
 if __name__ == '__main__':

@@ -483,7 +483,7 @@ def get_parser_modified_bases_split_calls_by_motif():
         '--motif', nargs=2, action='append', required=True,
         metavar=['MOTIF', 'REL_POS'],
         help='Motif description. Motifs include two values specifying the ' +
-        'sequence motif (including ambiguous codes) and the relative ' +
+        'sequence motif (may include ambiguity codes) and the relative ' +
         'modified position. Multiple `--motif` values should be provided.')
     parser.add_argument(
         '--megalodon-directory', default='megalodon_results',
@@ -491,7 +491,7 @@ def get_parser_modified_bases_split_calls_by_motif():
         'database to be split. Default: %(default)s')
     parser.add_argument(
         '--output-suffix', default='split_by_motif',
-        help='Suffix to apply to log (stored in input directory. ' +
+        help='Suffix to apply to log (stored in input directory). ' +
         'Default: %(default)s')
     parser.add_argument(
         '--output-prefix', default='megalodon_results.split_by_motif',
@@ -523,6 +523,24 @@ def get_parser_modified_bases_create_ground_truth():
         help='Offset to combine stranded results. Positive value indicates ' +
         'reverse strand sites have higher position values. Default treat ' +
         'strands independently.')
+
+    return parser
+
+
+def get_parser_modified_bases_create_motif_bed():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        'reference',
+        help='Reference FASTA file. Must include index file ending in fai.')
+    parser.add_argument(
+        '--motif', nargs=2, action='append', required=True,
+        metavar=['MOTIF', 'REL_POS'],
+        help='Motif description. Motifs include two values specifying the ' +
+        'sequence motif (may include ambiguity codes) and the relative ' +
+        'modified position. Multiple `--motif` values should be provided.')
+    parser.add_argument(
+        '--out-filename', default='motif_sites.bed',
+        help='Output BED filename. Default: %(default)s')
 
     return parser
 
@@ -567,6 +585,11 @@ def get_parser_modified_bases_per_site_thresholds():
     parser.add_argument(
         '--log-filename', default='per_site_thresholds.log',
         help='Output filename for logging. Default: %(default)s')
+    parser.add_argument(
+        '--valid-sites', nargs='+',
+        help='BED files containing sites over which to restrict ' +
+        'modified base results. Useful when processing full results using a ' +
+        'subset of the ground truth (e.g. CG and CH processing)')
 
     parser.add_argument(
         '--batch-size', type=int, default=1000000,
@@ -953,6 +976,7 @@ CMD_MODS_ALPHABET = 'describe_alphabet'
 CMD_MODS_EST_THRESH = 'estimate_threshold'
 CMD_MODS_UPDATE_DB = 'update_database'
 CMD_MODS_GT = 'create_ground_truth'
+CMD_MODS_MOTIF = 'create_motif_bed'
 CMD_MODS_PER_SITE = 'per_site_thresholds'
 CMD_MODS_INDEX = 'index_database'
 CMD_MODS_SPLIT = 'split_by_motif'
@@ -995,6 +1019,7 @@ PARSERS = {
         CMD_MODS_EST_THRESH: get_parser_modified_bases_estimate_threshold,
         CMD_MODS_UPDATE_DB: get_parser_modified_bases_update_database,
         CMD_MODS_GT: get_parser_modified_bases_create_ground_truth,
+        CMD_MODS_MOTIF: get_parser_modified_bases_create_motif_bed,
         CMD_MODS_PER_SITE: get_parser_modified_bases_per_site_thresholds,
         CMD_MODS_INDEX: get_parser_modified_bases_index_database,
         CMD_MODS_SPLIT: get_parser_modified_bases_split_calls_by_motif},

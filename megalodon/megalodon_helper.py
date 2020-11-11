@@ -671,15 +671,12 @@ def parse_beds(bed_fns, ignore_strand=False, show_prog_bar=True):
                         if show_prog_bar else bed_fp)
             for line in bed_iter:
                 chrm, start, _, _, _, strand = line.split()[:6]
-                start = int(start)
                 store_strand = None if ignore_strand else \
                     str_strand_to_int(strand)
-                sites[(chrm, store_strand)].add(start)
+                sites[(chrm, store_strand)].add(int(start))
 
     # convert to standard dict
-    sites = dict(sites)
-
-    return sites
+    return dict(sites)
 
 
 def parse_bed_methyls(
@@ -767,11 +764,11 @@ def iter_bed_methyl_batches(
                 pos = int(pos)
                 strand = str_strand_to_int(strand)
                 if strand_offset is not None:
-                    # store both strand counts under None
-                    strand = None
                     # apply offset to reverse strand positions
                     if strand == -1:
                         pos -= strand_offset
+                    # store both strand counts under None
+                    strand = None
                 yield chrm, pos, strand, cov, pct_mod
 
     def prep_batch(curr_batch):
