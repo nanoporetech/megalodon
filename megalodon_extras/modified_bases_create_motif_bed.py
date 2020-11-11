@@ -45,8 +45,9 @@ def _main(args):
     ref = pysam.FastaFile(args.reference)
 
     with open(args.out_filename, 'w') as fp:
-        for chrm in tqdm(sorted(ref.references), desc='Contigs', smoothing=0,
-                         dynamic_ncols=True):
+        # sort using RefName
+        for chrm in tqdm(sorted([mh.RefName(chrm) for chrm in ref.references]),
+                         desc='Contigs', smoothing=0, dynamic_ncols=True):
             chrm_seq = ref.fetch(chrm)
             chrm_sites = []
             for motif in motifs:
