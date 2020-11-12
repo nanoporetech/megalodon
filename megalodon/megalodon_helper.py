@@ -44,6 +44,8 @@ DEFAULT_MOD_LK = 30
 DEFAULT_MOD_L0 = 0.8
 DEFAULT_READ_ENUM_TS = 8
 DEFAULT_EXTRACT_SIG_PROC = 2
+DEFAULT_BEDMETHYL_BATCH = 100000
+DEFAULT_BEDMETHYL_MINIBATCH = 10000
 
 MED_NORM_FACTOR = 1.4826
 
@@ -652,6 +654,21 @@ def parse_bed_scores_np(bed_fn, ref_names_and_lens):
     return bed_scores
 
 
+def iter_bed_records(bed_fn):
+    """ Iterate over BED format records from file (ignores end coordinates)
+
+    Args:
+        bed_fn (str): BED format file path
+
+    Yeilds:
+        Tuples of chromosome (str), 0-based start position (int), strand (str)
+    """
+    with open(bed_fn) as bed_fp:
+        for line in bed_fp:
+            chrm, start, _, _, _, strand = line.split()[:6]
+            yield chrm, int(start), strand
+
+
 def parse_beds(bed_fns, ignore_strand=False, show_prog_bar=True):
     """ Parse bed files.
 
@@ -666,14 +683,13 @@ def parse_beds(bed_fns, ignore_strand=False, show_prog_bar=True):
     """
     sites = defaultdict(set)
     for bed_fn in bed_fns:
-        with open(bed_fn) as bed_fp:
-            bed_iter = (tqdm(bed_fp, desc=bed_fn, smoothing=0)
-                        if show_prog_bar else bed_fp)
-            for line in bed_iter:
-                chrm, start, _, _, _, strand = line.split()[:6]
-                store_strand = None if ignore_strand else \
-                    str_strand_to_int(strand)
-                sites[(chrm, store_strand)].add(int(start))
+        bed_fp = iter_bed_records(bed_fn)
+        bed_iter = (tqdm(bed_fp, desc=bed_fn, smoothing=0)
+                    if show_prog_bar else bed_fp)
+        for chrm, start, strand in bed_iter:
+            store_strand = None if ignore_strand else \
+                str_strand_to_int(strand)
+            sites[(chrm, store_strand)].add(start)
 
     # convert to standard dict
     return dict(sites)
@@ -740,8 +756,115 @@ def parse_bed_methyls(
     return cov, mod_cov
 
 
+def iter_bed_methyl_recs(bed_fn, batch_size=DEFAULT_BEDMETHYL_MINIBATCH):
+    """ Iterate bedmethyl records efficeintly by processing in batches.
+    batch_size records are read in as text. Computation of modified base
+    coverage from percent methylation is computed on the batch in order to
+    take advantage of numpy vectorization of these calculations.
+
+    Args:
+        bed_fn (str): bedmethyl format file path
+        batch_size (int, options): size of batches to read in before computing
+            integer coverage values
+
+    Yields:
+        Tuple of chromosome (str), 0-based position (int), strand (str),
+            modified base coverage (int), total coverage (int)
+    """
+    chrms, poss, strands, cov, pct_mods = [], [], [], [], []
+    with open(bed_fn) as bed_fp:
+        for line in bed_fp:
+            (chrm, pos, _, _, _, strand, _, _, _, num_reads,
+             pct_mod) = line.split()
+            chrms.append(chrm)
+            poss.append(pos)
+            strands.append(strand)
+            cov.append(num_reads)
+            pct_mods.append(pct_mod)
+            if len(chrms) >= batch_size:
+                cov = np.array(cov, dtype=int)
+                yield from zip(
+                    chrms, map(int, poss), strands,
+                    np.around(np.array(pct_mods, dtype=float) * cov / 100.0),
+                    cov)
+                chrms, poss, strands, cov, pct_mods = [], [], [], [], []
+    if len(chrms) >= 0:
+        cov = np.array(cov, dtype=int)
+        yield from zip(
+            chrms, map(int, poss), strands,
+            np.around(np.array(pct_mods, dtype=float) * cov / 100.0),
+            cov)
+
+
+def iter_merged_bedmethyl(rec_iters):
+    """ Iterate over bedmethyl records merging records at the same position.
+
+    Note that this is essentially a copy of heapq.merge, but this is not used
+    here so that RefName does not need to process each line of the inputs.
+    This method is also somewhat robust to alternative sorting of chromosome
+    names (ideally `sort -k1V -k2n` order, but `sort -k1 -k2n` should work).
+
+    Args:
+        rec_iters (list): List of iterators yielding bedmethyl records
+            (as from `iter_bed_methyl_recs`)
+
+    Yields:
+        Tuple of chromosome (str), 0-based position (int), strand (str),
+            modified base coverage (int), total coverage (int)
+    """
+    # hold next record to process for each iterator
+    curr_recs = [next(rec_iter, None) for rec_iter in rec_iters]
+    # determine current chromosome and position
+    curr_chrm = str(sorted(
+        RefName(rec[0]) for rec in curr_recs if rec is not None)[0])
+    curr_pos = min(rec[1] for rec in curr_recs if rec[0] == curr_chrm)
+    while any(rec is not None for rec in curr_recs):
+        # collect all counts at the current position
+        pos_mod_cnts, pos_tot_cnts = defaultdict(int), defaultdict(int)
+        for iter_i, (curr_rec, rec_iter) in enumerate(
+                zip(curr_recs, rec_iters)):
+            if curr_rec is None:
+                continue
+            # extract record values
+            chrm, pos, strand, mod_cov, cov = curr_rec
+            # while processing the current position
+            while chrm == curr_chrm and pos == curr_pos:
+                # add counts to position counts
+                pos_mod_cnts[strand] += mod_cov
+                pos_tot_cnts[strand] += cov
+                # retrieve next record from this iterator
+                curr_recs[iter_i] = next(rec_iter, None)
+                # if this iterator is exhausted break
+                if curr_recs[iter_i] is None:
+                    break
+                # extract fields from this new record
+                chrm, pos, strand, mod_cov, cov = curr_recs[iter_i]
+        # return counts for this position
+        for strand, tot_cnt in pos_tot_cnts.items():
+            yield curr_chrm, curr_pos, strand, pos_mod_cnts[strand], tot_cnt
+        # get next chrm/position
+        if all(rec[0] != curr_chrm for rec in curr_recs if rec is not None):
+            # determine next chromosome to process
+            next_chrms = set(rec[0] for rec in curr_recs if rec is not None)
+            if len(next_chrms) == 0:
+                # no records left to process (this should be the way the loop
+                # is actually ended, but while loop condition is a safegaurd)
+                break
+            elif len(next_chrms) == 1:
+                # all iterators have the same next chrm
+                curr_chrm = next(iter(next_chrms))
+            else:
+                # if there are multiple next chromosomes find next in
+                # version sorted order
+                curr_chrm = str(sorted(
+                    RefName(chrm) for chrm in next_chrms)[0])
+        curr_pos = min(rec[1] for rec in curr_recs
+                       if rec is not None and rec[0] == curr_chrm)
+
+
 def iter_bed_methyl_batches(
-        bed_fn, strand_offset=None, batch_size=1000000, check_sorted=True):
+        bed_fn, strand_offset=None, batch_size=DEFAULT_BEDMETHYL_BATCH,
+        valid_sites_fn=None, check_sorted=True):
     """ Parse bedmethyl files, yielding batches of records.
 
     Args:
@@ -756,89 +879,97 @@ def iter_bed_methyl_batches(
         Chromosome (str), position range (int, int), modified base coverage
             (dict) and total coverage (dict; key (position, strand))
     """
-    def iter_records():
-        with open(bed_fn) as bed_fp:
-            for line in bed_fp:
-                (chrm, pos, _, _, _, strand, _, _, _, cov,
-                 pct_mod) = line.split()
-                pos = int(pos)
+    def iter_apply_strand_offset(recs_iter):
+        for chrm, pos, strand, mod_cov, tot_cov in recs_iter:
+            # convert strand to int and apply strand_offset if applicable
+            if strand_offset is None:
                 strand = str_strand_to_int(strand)
-                if strand_offset is not None:
-                    # apply offset to reverse strand positions
-                    if strand == -1:
-                        pos -= strand_offset
-                    # store both strand counts under None
-                    strand = None
-                yield chrm, pos, strand, cov, pct_mod
+            else:
+                # apply offset to reverse strand positions
+                if strand == '-':
+                    pos -= strand_offset
+                # store both strand counts under None
+                strand = None
+            yield chrm, pos, strand, mod_cov, tot_cov
 
     def prep_batch(curr_batch):
         new_batch = [[], [], [], []]
         if strand_offset is not None:
+            # extract max position in the current batch
+            max_pos = max(curr_batch[1][-(2 * np.abs(strand_offset)):])
             # look ahead into the next batch for strand offset sites that
             # contribute to this batch
             for _ in range(np.abs(strand_offset) * 2):
                 rec = next(recs_iter, None)
                 if rec is None:
                     break
+                # if the record is from a new chrm add to new batch and break
+                if rec[0] != curr_chrm:
+                    for bl, bf in zip(new_batch, rec[1:]):
+                        bl.append(bf)
+                    break
                 # if this position is in the current batch add the record to
                 # the current batch, else add to new batch
-                ovlp_poss = set(curr_batch[1][-(2 * np.abs(strand_offset)):])
-                batch = curr_batch if rec[1] in ovlp_poss else new_batch
+                batch = curr_batch if rec[1] <= max_pos else new_batch
                 for bl, bf in zip(batch, rec[1:]):
                     bl.append(bf)
         # prepare batch to be returned
-        poss, strands, b_cov, b_pct_mod = curr_batch
+        poss, strands, b_mod_cov, b_tot_cov = curr_batch
         # perform convertions using numpy for performance
-        b_cov = np.array(b_cov, dtype=int)
-        b_mod_cov = np.around(
-            b_cov * np.array(b_pct_mod, dtype=float) / 100.0).astype(int)
-        b_cov_lookup = defaultdict(int)
+        b_tot_cov_lookup = defaultdict(int)
         b_mod_cov_lookup = defaultdict(int)
-        for pos, strand, cov_i, mod_cov_i in zip(
-                poss, strands, b_cov, b_mod_cov):
-            b_cov_lookup[(pos, strand)] += cov_i
+        for pos, strand, mod_cov_i, tot_cov_i in zip(
+                poss, strands, b_mod_cov, b_tot_cov):
+            b_tot_cov_lookup[(pos, strand)] += tot_cov_i
             b_mod_cov_lookup[(pos, strand)] += mod_cov_i
-        b_pos_range = [poss[0], poss[-1]]
+        b_pos_range = [min(poss), max(poss)]
         if strand_offset is not None:
             if strand_offset > 0:
                 b_pos_range[1] += strand_offset
             else:
                 b_pos_range[0] += strand_offset
-        return (new_batch, b_pos_range, dict(b_cov_lookup),
+        return (new_batch, b_pos_range, dict(b_tot_cov_lookup),
                 dict(b_mod_cov_lookup))
 
+    recs_iter = iter_bed_methyl_recs(bed_fn)
+    if valid_sites_fn is not None:
+        valid_sites_iter = (
+            (chrm, pos, strand, 0, 0)
+            for chrm, pos, strand in iter_bed_records(bed_fn))
+        recs_iter = iter_merged_bedmethyl([recs_iter, valid_sites_iter])
+    recs_iter = iter_apply_strand_offset(recs_iter)
+
     num_recs = 1
-    recs_iter = iter_records()
-    curr_chrm, prev_pos, strand, cov, pct_mod = next(recs_iter)
-    curr_batch = [[prev_pos], [strand], [cov], [pct_mod]]
+    curr_chrm, *curr_batch = next(recs_iter)
+    prev_pos = curr_batch[0]
+    curr_batch = [[val] for val in curr_batch]
     used_chrms = set(curr_chrm)
-    for rec in recs_iter:
+    for chrm, pos, strand, mod_cov, tot_cov in recs_iter:
         num_recs += 1
         # check sorted order
-        if rec[0] != curr_chrm:
-            if rec[0] in used_chrms:
+        if chrm != curr_chrm:
+            if chrm in used_chrms:
                 raise MegaError((
                     'Bedmethyl file does not appear to be in sorted order. ' +
                     '"{}" found after being observed previously.').format(
-                        rec[0]))
+                        chrm))
             used_chrms.add(curr_chrm)
             prev_pos = 0
-        if rec[1] < prev_pos:
+        if pos < prev_pos:
             raise MegaError((
                 'Position on line {} appears to be out of sorted ' +
-                'order. {} is less than {}.').format(
-                    num_recs, rec[1], prev_pos))
-        prev_pos = rec[1]
+                'order. {} is less than {}.').format(num_recs, pos, prev_pos))
+        prev_pos = pos
 
         # if contig/chrm is new process and yield batch
-        if rec[0] != curr_chrm or len(curr_batch[0]) >= batch_size:
+        if chrm != curr_chrm or len(curr_batch[0]) >= batch_size:
             curr_batch, b_pos_range, batch_cov, batch_mod_cov = prep_batch(
                 curr_batch)
-            num_recs += len(curr_batch)
+            num_recs += len(curr_batch[0])
             yield curr_chrm, b_pos_range, batch_cov, batch_mod_cov
-            curr_chrm = rec[0]
+            curr_chrm = chrm
         # add current record to current batch
-        for bl, bf in zip(curr_batch, rec[1:]):
+        for bl, bf in zip(curr_batch, (pos, strand, mod_cov, tot_cov)):
             bl.append(bf)
 
     if len(curr_batch[0]) > 0:

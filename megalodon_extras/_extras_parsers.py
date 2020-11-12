@@ -316,7 +316,7 @@ def get_parser_merge_modified_bases():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         'megalodon_results_dirs', nargs='+',
-        help='Output megalodon directories with per_read_mods in output.')
+        help='Megalodon directories with per_read_mods in output.')
     parser.add_argument(
         '--output-megalodon-results-dir',
         default='megalodon_merge_mods_results',
@@ -563,17 +563,23 @@ def get_parser_modified_bases_per_site_thresholds():
         help='Minimum coverage (both strands) to include a site from ' +
         'ground truth data. Default: %(default)d')
     parser.add_argument(
-        '--mod-base', default='Z',
-        help='Single letter code for the modified base. Default: %(default)s')
-    parser.add_argument(
         '--nanopore-cov-min', type=int, default=30,
         help='Minimum coverage (single strand) to include a site from ' +
         'nanopore data. Default: %(default)d')
+    parser.add_argument(
+        '--mod-base', default='m',
+        help='Single letter code for the modified base. Default: %(default)s')
     parser.add_argument(
         '--strand-offset', type=int,
         help='Offset to combine stranded results. Positive value indicates ' +
         'reverse strand sites have higher position values. Default treat ' +
         'strands independently.')
+    parser.add_argument(
+        '--valid-sites', nargs='+',
+        help='BED files containing sites over which to restrict ' +
+        'modified base results. Useful when processing full results using a ' +
+        'subset of the ground truth (e.g. CG and CH processing). Must be ' +
+        'sorted in same order as [ground_truth_bed] (`sort -k1V -k2n`)')
     parser.add_argument(
         '--out-low-coverage-sites', default='low_coverage_sites.bed',
         help='Output filename for sites with low ground truth or nanopore ' +
@@ -585,14 +591,9 @@ def get_parser_modified_bases_per_site_thresholds():
     parser.add_argument(
         '--log-filename', default='per_site_thresholds.log',
         help='Output filename for logging. Default: %(default)s')
-    parser.add_argument(
-        '--valid-sites', nargs='+',
-        help='BED files containing sites over which to restrict ' +
-        'modified base results. Useful when processing full results using a ' +
-        'subset of the ground truth (e.g. CG and CH processing)')
 
     parser.add_argument(
-        '--batch-size', type=int, default=1000000,
+        '--batch-size', type=int, default=mh.DEFAULT_BEDMETHYL_BATCH,
         help='Number of sites to include in each batch for processing. ' +
         'Default: %(default)d')
     parser.add_argument(

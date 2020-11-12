@@ -14,10 +14,6 @@ MOTIF_INFO = namedtuple('MOTIF_INFO', (
 BED_TMPLT = '{chrom}\t{pos}\t{end}\t.\t.\t{strand}\n'
 
 
-##########
-# motifs #
-##########
-
 def parse_motifs(raw_motifs):
     motifs = []
     for raw_motif, bases_before in raw_motifs:
@@ -31,10 +27,6 @@ def parse_motifs(raw_motifs):
 
     return motifs
 
-
-########
-# main #
-########
 
 def _main(args):
     logging.init_logger()
@@ -59,7 +51,7 @@ def _main(args):
                     chrm_sites.append((pos, '-'))
             fp.write(''.join(BED_TMPLT.format(
                 chrom=chrm, pos=pos, end=pos + 1, strand=strand)
-                             for pos, strand in sorted(chrm_sites)))
+                for pos, strand in sorted(chrm_sites)))
 
 
 if __name__ == '__main__':
