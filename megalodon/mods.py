@@ -275,6 +275,16 @@ class ModsDb:
     # getter data functions #
     #########################
 
+    @staticmethod
+    def _get_strand_offset(strand):
+        if strand == 1:
+            return 0
+        elif strand == -1:
+            return 1
+        raise mh.MegaError(
+            'Invalid strand passed to DB (expected 1 or -1): {}'.format(
+                strand))
+
     def get_pos_dbid(self, chrm, strand, pos):
         """ Compute database ID for position
         """
@@ -286,7 +296,7 @@ class ModsDb:
             raise mh.MegaError((
                 'Attempt to extract position past the end of a chromosome.' +
                 ' {}:{}').format(chrm, pos))
-        strand_offset = 0 if strand == 1 else 1
+        strand_offset = self._get_strand_offset(strand)
         return self._chrm_offset_lookup[chrm] + (pos * 2) + strand_offset
 
     def get_pos_dbids(self, r_uniq_pos, chrm, strand):
@@ -305,11 +315,11 @@ class ModsDb:
             raise mh.MegaError(
                 'Cannot extract position database IDs from connection ' +
                 'opened for initialization.')
-        if max(r_uniq_pos) // 2 >= self._chrm_len_lookup[chrm]:
+        if max(r_uniq_pos) >= self._chrm_len_lookup[chrm]:
             raise mh.MegaError((
                 'Attempt to extract position past the end of a chromosome.' +
                 ' {}:{}').format(chrm, max(r_uniq_pos)))
-        strand_offset = 0 if strand == 1 else 1
+        strand_offset = self._get_strand_offset(strand)
         cs_offset = self._chrm_offset_lookup[chrm]
         return [cs_offset + (pos * 2) + strand_offset for pos in r_uniq_pos]
 
@@ -758,8 +768,8 @@ class ModsDb:
                 pos_st = 0
             if pos_en >= self._chrm_len_lookup[chrm]:
                 pos_en = self._chrm_len_lookup[chrm] - 1
-            pos_dbid_range = (self.get_pos_dbid(chrm, '+', pos_st),
-                              self.get_pos_dbid(chrm, '-', pos_en))
+            pos_dbid_range = (self.get_pos_dbid(chrm, 1, pos_st),
+                              self.get_pos_dbid(chrm, -1, pos_en))
             # restrict query to specified range
             local_cursor.execute(
                 'SELECT score_pos, score_mod, score_read, score FROM data ' +
@@ -1679,11 +1689,11 @@ class ModInfo:
         if not self.mods_db_arrays_added:
             raise mh.MegaError(
                 'Must run add_mods_db_arrays to extract pos_dbid.')
-        if pos // 2 >= self._chrm_len_lookup[chrm]:
+        if pos >= self._chrm_len_lookup[chrm]:
             raise mh.MegaError((
                 'Attempt to extract position past the end of a chromosome.' +
                 ' {}:{}').format(chrm, pos))
-        strand_offset = 0 if strand == 1 else 1
+        strand_offset = ModsDb._get_strand_offset(strand)
         return self._chrm_offset_lookup[chrm] + (pos * 2) + strand_offset
 
     def get_mod_base_dbid(self, mod_base):

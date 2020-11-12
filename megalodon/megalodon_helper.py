@@ -785,15 +785,15 @@ def iter_bed_methyl_recs(bed_fn, batch_size=DEFAULT_BEDMETHYL_MINIBATCH):
                 cov = np.array(cov, dtype=int)
                 yield from zip(
                     chrms, map(int, poss), strands,
-                    np.around(np.array(pct_mods, dtype=float) * cov / 100.0),
-                    cov)
+                    np.around(np.array(pct_mods, dtype=float)
+                              * cov / 100.0).astype(int), cov)
                 chrms, poss, strands, cov, pct_mods = [], [], [], [], []
     if len(chrms) >= 0:
         cov = np.array(cov, dtype=int)
         yield from zip(
             chrms, map(int, poss), strands,
-            np.around(np.array(pct_mods, dtype=float) * cov / 100.0),
-            cov)
+            np.around(np.array(pct_mods, dtype=float)
+                      * cov / 100.0).astype(int), cov)
 
 
 def iter_merged_bedmethyl(rec_iters):
@@ -896,7 +896,7 @@ def iter_bed_methyl_batches(
         new_batch = [[], [], [], []]
         if strand_offset is not None:
             # extract max position in the current batch
-            max_pos = max(curr_batch[1][-(2 * np.abs(strand_offset)):])
+            max_pos = max(curr_batch[0][-(2 * np.abs(strand_offset)):])
             # look ahead into the next batch for strand offset sites that
             # contribute to this batch
             for _ in range(np.abs(strand_offset) * 2):
