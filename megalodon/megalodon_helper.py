@@ -199,7 +199,7 @@ VAR_DO_OUTPUT = namedtuple('VAR_DO_OUTPUT', (
     'db', 'text', 'var_map'))
 VAR_DO_OUTPUT.__new__.__defaults__ = (False, False, False, False)
 MOD_DO_OUTPUT = namedtuple('MOD_DO_OUTPUT', (
-    'db', 'text', 'mod_map'))
+    'db', 'text', 'mod_map', 'any'))
 MOD_DO_OUTPUT.__new__.__defaults__ = (False, False, False, False)
 
 # directory names define model preset string

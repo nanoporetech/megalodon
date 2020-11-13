@@ -230,7 +230,7 @@ def process_read(
             out_q=getter_qpcs[mh.PR_VAR_NAME].queue,
             fast5_fn=sig_info.fast5_fn + ':::' + sig_info.read_id,
             failed_reads_q=failed_reads_q)
-    if mods_info.do_output.db:
+    if mods_info.do_output.any:
         mapped_post_w_mods = post_w_mods[post_mapped_start:post_mapped_end]
         mod_sig_map_q = getter_qpcs[mh.SIG_MAP_NAME].queue \
             if ref_out_info.do_output.mod_sig_maps else None
@@ -276,7 +276,8 @@ def _process_reads_worker(
             reads_batch_gen = create_batch_gen()
             # perform basecalling using loaded backend
             for bc_res in model_info.iter_basecalled_reads(
-                    reads_batch_gen, return_post_w_mods=mods_info.do_output.db,
+                    reads_batch_gen,
+                    return_post_w_mods=mods_info.do_output.any,
                     return_mod_scores=bc_info.do_output.mod_basecalls,
                     update_sig_info=ref_out_info.do_output.sig_maps,
                     signal_reversed=bc_info.rev_sig,
@@ -747,7 +748,7 @@ def process_all_reads(
             func=variants._get_variants_queue,
             args=(vars_info, ref_out_info, map_info, aux_failed_q)),
         mh.GETTER_INFO(
-            name=mh.PR_MOD_NAME, do_output=mods_info.do_output.db,
+            name=mh.PR_MOD_NAME, do_output=mods_info.do_output.any,
             func=mods._get_mods_queue,
             args=(mods_info, map_info, ref_out_info, aux_failed_q)),
         mh.GETTER_INFO(
@@ -928,12 +929,6 @@ def parse_mod_args(args, model_info, ref_out_info, map_info):
             'in outputs. Ignoring --ref-include-mods').format(
                 mh.SIG_MAP_NAME, mh.PR_REF_NAME))
         args.ref_include_mods = False
-    if mh.MOD_MAP_NAME in args.outputs and \
-       mh.PR_MOD_NAME not in args.outputs:
-        LOGGER.warning((
-            'Adding "{}" to --outputs since "{}" was requested.').format(
-                mh.PR_MOD_NAME, mh.MOD_MAP_NAME))
-        args.outputs.append(mh.PR_MOD_NAME)
     if args.ref_include_mods and mh.PR_MOD_NAME not in args.outputs:
         LOGGER.warning('--ref-include-mods set, so adding ' +
                        '"per_read_mods" to --outputs.')
@@ -955,10 +950,6 @@ def parse_mod_args(args, model_info, ref_out_info, map_info):
              'let you know.'))
     if mh.BC_NAME not in args.outputs and mh.BC_MODS_NAME in args.outputs:
         args.outputs.append(mh.BC_NAME)
-    if args.mod_motif is not None and mh.PR_MOD_NAME not in args.outputs:
-        LOGGER.warning(('--mod-motif provided, but {} not requested. ' +
-                        'Ignoring --mod-motif.').format(mh.PR_MOD_NAME))
-        args.mod_motif = None
     if not args.mod_map_emulate_bisulfite and \
        args.mod_map_base_conv is not None:
         LOGGER.warning(
@@ -985,7 +976,9 @@ def parse_mod_args(args, model_info, ref_out_info, map_info):
 
     do_output = mh.MOD_DO_OUTPUT(
         db=mh.PR_MOD_NAME in args.outputs, text=args.write_mods_text,
-        mod_map=mh.MOD_MAP_NAME in args.outputs)
+        mod_map=mh.MOD_MAP_NAME in args.outputs,
+        any=any((mh.PR_MOD_NAME in args.outputs, args.write_mods_text,
+                 mh.MOD_MAP_NAME in args.outputs, args.ref_include_mods)))
     mods_info = mods.ModInfo(
         model_info=model_info, all_mod_motifs_raw=args.mod_motif,
         mod_all_paths=args.mod_all_paths,

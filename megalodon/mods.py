@@ -1329,25 +1329,29 @@ def call_read_mods(
     r_mod_scores = filter_mod_score(r_mod_scores)
     send_signal_mapping(
         mod_sig_map_q, sig_map_res, all_mods_seq, failed_reads_q, fast5_fn)
-    r_insert_data = [
-        (mod_lp, mods_info.get_pos_dbid(
-            r_ref_pos.chrm, r_ref_pos.strand, mod_pos),
-         mods_info.get_mod_base_dbid(mod_base))
-        for mod_pos, mod_lps, mod_bases in r_mod_scores
-        for mod_lp, mod_base in zip(mod_lps, mod_bases)]
+    if mods_info.do_output.db:
+        r_insert_data = [
+            (mod_lp, mods_info.get_pos_dbid(
+                r_ref_pos.chrm, r_ref_pos.strand, mod_pos),
+             mods_info.get_mod_base_dbid(mod_base))
+            for mod_pos, mod_lps, mod_bases in r_mod_scores
+            for mod_lp, mod_base in zip(mod_lps, mod_bases)]
+    else:
+        r_insert_data = None
 
     mod_out_text = None
     if mods_info.do_output.text:
         str_strand = mh.int_strand_to_str(r_ref_pos.strand)
         txt_tmplt = '\t'.join('{}' for _ in ModsDb.text_field_names) + '\n'
-        mod_out_text = ''
+        mod_out_text = []
         for pos, mod_lps, mod_bases in r_mod_scores:
             with np.errstate(divide='ignore'):
                 can_lp = np.log1p(-np.exp(mod_lps).sum())
-            mod_out_text += '\n'.join((
-                txt_tmplt.format(
+            for mod_lp, mod_base in zip(mod_lps, mod_bases):
+                mod_out_text.append(txt_tmplt.format(
                     uuid, r_ref_pos.chrm, str_strand, pos, mod_lp, can_lp,
-                    mod_base) for mod_lp, mod_base in zip(mod_lps, mod_bases)))
+                    mod_base))
+        mod_out_text = ''.join(mod_out_text)
 
     return r_insert_data, all_mods_seq, per_mod_seqs, mod_out_text
 
@@ -1406,32 +1410,33 @@ def _get_mods_queue(
         (r_insert_data, all_mods_seq, per_mod_seqs, mod_out_text), (
             read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
             cigar) = mod_res
-        try:
-            read_dbid = mods_db.insert_uuid(read_id)
-            data_commited = False
-            while not data_commited:
-                try:
-                    mods_db.insert_read_data(r_insert_data, read_dbid)
-                    mods_db.commit()
-                    data_commited = True
-                except sqlite3.OperationalError as e:
-                    if not been_warned_timeout:
-                        LOGGER.warning(
-                            DB_TIMEOUT_ERR_MSG.format('data', str(e)))
-                        been_warned_timeout = True
-                    LOGGER.debug('ModDBTimeout {}'.format(str(e)))
-                    mods_db.establish_db_conn()
-                    mods_db.set_cursor()
-        except Exception as e:
-            if not been_warned_other:
-                LOGGER.warning(
-                    'Error inserting modified base scores into database. ' +
-                    'See log debug output for error details.')
-                been_warned_other = True
-            LOGGER.debug('ModDBInsertError {}\n{}'.format(
-                str(e), traceback.format_exc()))
+        if mods_info.do_output.db:
+            try:
+                read_dbid = mods_db.insert_uuid(read_id)
+                data_commited = False
+                while not data_commited:
+                    try:
+                        mods_db.insert_read_data(r_insert_data, read_dbid)
+                        mods_db.commit()
+                        data_commited = True
+                    except sqlite3.OperationalError as e:
+                        if not been_warned_timeout:
+                            LOGGER.warning(
+                                DB_TIMEOUT_ERR_MSG.format('data', str(e)))
+                            been_warned_timeout = True
+                        LOGGER.debug('ModDBTimeout {}'.format(str(e)))
+                        mods_db.establish_db_conn()
+                        mods_db.set_cursor()
+            except Exception as e:
+                if not been_warned_other:
+                    LOGGER.warning(
+                        'Error inserting modified base scores into DB. ' +
+                        'See log debug output for error details.')
+                    been_warned_other = True
+                LOGGER.debug('ModDBInsertError {}\n{}'.format(
+                    str(e), traceback.format_exc()))
 
-        if mods_info.do_output.text and len(r_insert_data) > 0:
+        if mods_info.do_output.text and len(mod_out_text) > 0:
             mods_txt_fp.write(mod_out_text)
         if ref_out_info.do_output.mod_pr_refs and mapping.read_passes_filters(
                 ref_out_info.filt_params, read_len, q_st, q_en, cigar):
@@ -1452,13 +1457,14 @@ def _get_mods_queue(
 
     try:
         LOGGER.debug('GetterStarting')
-        mods_db = ModsDb(
-            mods_info.mods_db_fn, db_safety=mods_info.db_safety,
-            read_only=False, mod_db_timeout=mods_info.mod_db_timeout)
+        if mods_info.do_output.db:
+            mods_db = ModsDb(
+                mods_info.mods_db_fn, db_safety=mods_info.db_safety,
+                read_only=False, mod_db_timeout=mods_info.mod_db_timeout)
         if mods_info.do_output.text:
             mods_txt_fp = open(mh.get_megalodon_fn(
                 mods_info.out_dir, mh.PR_MOD_TXT_NAME), 'w')
-            mods_txt_fp.write('\t'.join(mods_db.text_field_names) + '\n')
+            mods_txt_fp.write('\t'.join(ModsDb.text_field_names) + '\n')
         if ref_out_info.do_output.mod_pr_refs:
             pr_refs_fp = open(mh.get_megalodon_fn(
                 mods_info.out_dir, mh.PR_REF_NAME), 'w')
@@ -1523,11 +1529,12 @@ def _get_mods_queue(
                     mod_map_fp.close()
             else:
                 mod_map_fp.close()
-        if not mods_info.skip_db_index:
-            LOGGER.debug('CreatingIndex')
-            mods_db.create_data_covering_index()
-        LOGGER.debug('ClosingDB')
-        mods_db.close()
+        if mods_info.do_output.db:
+            if not mods_info.skip_db_index:
+                LOGGER.debug('CreatingIndex')
+                mods_db.create_data_covering_index()
+            LOGGER.debug('ClosingDB')
+            mods_db.close()
 
 
 if _PROFILE_MODS_QUEUE:
