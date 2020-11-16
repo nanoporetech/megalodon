@@ -363,15 +363,18 @@ def log_errors(func, *args, **kwargs):
 
 
 def compile_motif_pat(raw_motif):
-    return re.compile(''.join(
-        '[{}]'.format(SINGLE_LETTER_CODE[letter])
-        for letter in raw_motif))
+    ambig_pat_str = ''.join('[{}]'.format(SINGLE_LETTER_CODE[letter])
+                            for letter in raw_motif)
+    # add lookahead group to serach for overlapping motif hits
+    return re.compile('(?=({}))'.format(ambig_pat_str))
 
 
 def compile_rev_comp_motif_pat(raw_motif):
-    return re.compile(''.join(
+    ambig_pat_str = ''.join(
         '[{}]'.format(''.join(comp(b) for b in SINGLE_LETTER_CODE[letter]))
-        for letter in raw_motif[::-1]))
+        for letter in raw_motif[::-1])
+    # add lookahead group to serach for overlapping motif hits
+    return re.compile('(?=({}))'.format(ambig_pat_str))
 
 
 def convert_legacy_mods(mod_base):

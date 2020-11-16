@@ -1254,7 +1254,7 @@ def call_read_mods(
                 m_pos = motif_match.start() + rel_pos
                 if signal_reversed:
                     m_pos = len(r_ref_seq) - m_pos - 1
-                yield m_pos, mod_bases, motif_match.group(), rel_pos, raw_motif
+                yield m_pos, mod_bases, rel_pos, raw_motif
 
     def filter_mod_score(r_mod_scores):
         # remove uncalled sites and sites too close to the edge of a read
@@ -1269,8 +1269,7 @@ def call_read_mods(
     # occurs in compute_log_probs function, but more efficient to seterr
     # at this higher level
     with np.errstate(divide='ignore', over='ignore'):
-        for (pos, mod_bases, ref_motif, rel_pos,
-             raw_motif) in iter_motif_sites():
+        for pos, mod_bases, rel_pos, raw_motif in iter_motif_sites():
             if (r_ref_pos.strand == 1 and not signal_reversed) or (
                     r_ref_pos.strand == -1 and signal_reversed):
                 mod_ref_pos = r_ref_pos.start + pos
