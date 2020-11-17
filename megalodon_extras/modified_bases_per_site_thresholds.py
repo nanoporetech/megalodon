@@ -15,7 +15,7 @@ BED_TMPLT = '{chrom}\t{pos}\t{end}\t.\t{score}\t{strand}\n'
 COV_PCTLS = [1.0, 5.0, 10.0, 15.0, 20.0, 25.0]
 MAX_MOD_SCORE = 100
 
-MAX_BATCHES = 10
+MAX_BATCHES = 100
 
 LOGGER = logging.get_logger()
 
