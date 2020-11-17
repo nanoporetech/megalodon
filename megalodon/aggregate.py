@@ -80,7 +80,7 @@ def _get_var_stats_queue(
 
 def _agg_mods_worker(
         pos_q, mod_stats_q, mod_prog_q, mods_db_fn, mod_agg_info,
-        valid_read_ids, write_mod_lp):
+        valid_read_dbids, write_mod_lp):
     # functions for profiling purposes
     def get_pos_data():
         return pos_q.get(block=True, timeout=0.01)
@@ -90,7 +90,7 @@ def _agg_mods_worker(
 
     agg_mods = mods.AggMods(
         mods_db_fn, mod_agg_info, write_mod_lp,
-        load_uuid_index_in_memory=valid_read_ids is not None)
+        load_uuid_index_in_memory=valid_read_dbids is not None)
 
     while True:
         try:
@@ -102,7 +102,7 @@ def _agg_mods_worker(
 
         try:
             mod_site = agg_mods.compute_mod_stats(
-                pos_data, valid_read_ids=valid_read_ids)
+                pos_data, valid_read_dbids=valid_read_dbids)
             put_mod_site(mod_site)
         except mh.MegaError:
             # no valid reads cover location
@@ -301,6 +301,12 @@ def aggregate_stats(
 
     if mh.MOD_NAME in outputs:
         mods_db_fn = mh.get_megalodon_fn(out_dir, mh.PR_MOD_NAME)
+        valid_read_dbids = None
+        if valid_read_ids is not None:
+            mods_db = mods.ModsDb(mods_db_fn, in_mem_uuid_to_dbid=True)
+            valid_read_dbids = set()
+            for read_id in valid_read_ids:
+                valid_read_dbids.add(mods_db.get_read_dbid(read_id))
         agg_mods = mods.AggMods(mods_db_fn)
         mod_long_names = agg_mods.get_mod_long_names()
         num_mods = agg_mods.num_uniq()
@@ -327,7 +333,7 @@ def aggregate_stats(
             p = mp.Process(
                 target=_agg_mods_worker,
                 args=(mod_filler_q, mod_stats_q, mod_prog_q, mods_db_fn,
-                      mod_agg_info, valid_read_ids, write_mod_lp),
+                      mod_agg_info, valid_read_dbids, write_mod_lp),
                 daemon=True)
             p.start()
             agg_mods_ps.append(p)

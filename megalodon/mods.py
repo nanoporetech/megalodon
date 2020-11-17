@@ -2161,7 +2161,7 @@ class AggMods(mh.AbstractAggregationClass):
         return mods_props, len(pos_scores)
 
     def compute_mod_stats(
-            self, pos_data, agg_method=None, valid_read_ids=None):
+            self, pos_data, agg_method=None, valid_read_dbids=None):
         if agg_method is None:
             agg_method = self.agg_method
         if agg_method not in mh.MOD_AGG_METHOD_NAMES:
@@ -2173,10 +2173,9 @@ class AggMods(mh.AbstractAggregationClass):
         chrm, strand, pos = self.mods_db.get_pos(pos_dbid)
         mod_type_stats = defaultdict(dict)
         for read_dbid, mod_dbid, lp in pos_mod_data:
-            if valid_read_ids is not None:
-                uuid = self.mods_db.get_uuid(read_dbid)
-                if uuid not in valid_read_ids:
-                    continue
+            if valid_read_dbids is not None and \
+               read_dbid not in valid_read_dbids:
+                continue
             mod_type_stats[read_dbid][self.mods_db.get_mod_base(mod_dbid)] = lp
         total_cov = len(mod_type_stats)
         if total_cov == 0:
