@@ -567,8 +567,10 @@ def get_parser_modified_bases_per_site_thresholds():
         help='Minimum coverage (single strand) to include a site from ' +
         'nanopore data. Default: %(default)d')
     parser.add_argument(
-        '--mod-base', default='m',
-        help='Single letter code for the modified base. Default: %(default)s')
+        '--mod-bases', default='m',
+        help='Single letter codes for the modified base. For ' +
+        'mulitple alternative bases supply all single letter codes ' +
+        'with no spaces. Default: %(default)s')
     parser.add_argument(
         '--strand-offset', type=int,
         help='Offset to combine stranded results. Positive value indicates ' +

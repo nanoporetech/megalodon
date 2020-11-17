@@ -233,6 +233,15 @@ megalodon_extras \
     --out-filename \
     ${CTRL_READS}.mega_res/per_read_variant_calls.rerun.txt
 
+sort -k1V -k2n ${NAT_READS}.mega_res/modified_bases.5mC.bed > \
+     ${NAT_READS}.mega_res/modified_bases.5mC.sorted.bed
+megalodon_extras \
+    modified_bases per_site_thresholds \
+    ${NAT_READS}.mega_res/ \
+    ${NAT_READS}.mega_res/modified_bases.5mC.sorted.bed \
+    --mod-bases Z \
+    --ground-truth-cov-min 3 --nanopore-cov-min 5
+
 # TODO add tests for more megalodon_extras commands
 
 
