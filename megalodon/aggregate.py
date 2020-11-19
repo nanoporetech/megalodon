@@ -15,7 +15,9 @@ _DO_PROFILE_GET_MODS = False
 _DO_PROFILE_AGG_FILLER = False
 _DO_PROF = (_DO_PROFILE_AGG_MOD or _DO_PROFILE_AGG_FILLER or
             _DO_PROFILE_GET_MODS)
-_N_MOD_PROF = 200000
+_N_MOD_PROF = 1000000
+
+AGG_BATCH_SIZE = 1000
 
 LOGGER = logging.get_logger()
 
@@ -33,20 +35,23 @@ def _agg_vars_worker(
 
     while True:
         try:
-            var_loc = locs_q.get(block=True, timeout=0.01)
+            var_loc_batch = locs_q.get(block=True, timeout=0.01)
         except queue.Empty:
             continue
-        if var_loc is None:
+        if var_loc_batch is None:
             break
 
-        try:
-            var_var = agg_vars.compute_var_stats(
-                var_loc, het_factors, call_mode, valid_read_ids)
-            var_stats_q.put(var_var)
-        except mh.MegaError:
-            # something not right with the stats at this loc
-            pass
-        var_prog_q.put(1)
+        var_var_batch = []
+        for var_loc in var_loc_batch:
+            try:
+                var_var = agg_vars.compute_var_stats(
+                    var_loc, het_factors, call_mode, valid_read_ids)
+                var_var_batch.append(var_var)
+            except mh.MegaError:
+                # something not right with the stats at this loc
+                pass
+        var_stats_q.put(var_var_batch)
+        var_prog_q.put(len(var_var_batch))
 
 
 def _get_var_stats_queue(
@@ -62,19 +67,20 @@ def _get_var_stats_queue(
 
     while True:
         try:
-            var_var = var_stats_q.get(block=True, timeout=0.01)
-            if var_var is None:
+            var_var_batch = var_stats_q.get(block=True, timeout=0.01)
+            if var_var_batch is None:
                 continue
-            agg_var_fp.write_variant(var_var)
+            for var_var in var_var_batch:
+                agg_var_fp.write_variant(var_var)
         except queue.Empty:
             if var_conn.poll():
                 break
             continue
 
     while not var_stats_q.empty():
-        var_var = var_stats_q.get(block=False)
-        agg_var_fp.write_variant(var_var)
-
+        var_var_batch = var_stats_q.get(block=False)
+        for var_var in var_var_batch:
+            agg_var_fp.write_variant(var_var)
     agg_var_fp.close()
 
 
@@ -94,20 +100,25 @@ def _agg_mods_worker(
 
     while True:
         try:
-            pos_data = get_pos_data()
+            pos_data_batch = get_pos_data()
         except queue.Empty:
             continue
-        if pos_data is None:
+        if pos_data_batch is None:
             break
 
-        try:
-            mod_site = agg_mods.compute_mod_stats(
-                pos_data, valid_read_dbids=valid_read_dbids)
-            put_mod_site(mod_site)
-        except mh.MegaError:
-            # no valid reads cover location
-            pass
-        mod_prog_q.put(len(pos_data[1]))
+        mod_sites_batch = []
+        batch_size = 0
+        for pos_data in pos_data_batch:
+            try:
+                mod_site = agg_mods.compute_mod_stats(
+                    pos_data, valid_read_dbids=valid_read_dbids)
+                mod_sites_batch.append(mod_site)
+            except mh.MegaError:
+                # no valid reads cover location
+                pass
+            batch_size += len(pos_data[1])
+        mod_prog_q.put(batch_size)
+        put_mod_site(mod_sites_batch)
 
 
 if _DO_PROFILE_AGG_MOD:
@@ -143,18 +154,20 @@ def _get_mod_stats_queue(
 
     while True:
         try:
-            mod_site = get_mod_site()
-            for agg_mod_fp in agg_mod_fps:
-                agg_mod_fp.write_mod_site(mod_site)
+            mod_sites_batch = get_mod_site()
+            for mod_site in mod_sites_batch:
+                for agg_mod_fp in agg_mod_fps:
+                    agg_mod_fp.write_mod_site(mod_site)
         except queue.Empty:
             if mod_conn.poll():
                 break
             continue
 
     while not mod_stats_q.empty():
-        mod_site = mod_stats_q.get(block=False)
-        for agg_mod_fp in agg_mod_fps:
-            agg_mod_fp.write_mod_site(mod_site)
+        mod_sites_batch = mod_stats_q.get(block=False)
+        for mod_site in mod_sites_batch:
+            for agg_mod_fp in agg_mod_fps:
+                agg_mod_fp.write_mod_site(mod_site)
     for agg_mod_fp in agg_mod_fps:
         agg_mod_fp.close()
 
@@ -212,8 +225,8 @@ def _agg_prog_worker(
         try:
             if check_var:
                 check_var = False
-                var_prog_q.get(block=False)
-                var_bar.update()
+                num_var_sites = var_prog_q.get(block=False)
+                var_bar.update(num_var_sites)
                 if mod_bar is not None:
                     mod_bar.update(0)
             else:
@@ -227,8 +240,8 @@ def _agg_prog_worker(
                 break
 
     while not var_prog_q.empty():
-        var_prog_q.get(block=False)
-        var_bar.update()
+        num_var_sites = var_prog_q.get(block=False)
+        var_bar.update(num_var_sites)
     while not mod_prog_q.empty():
         num_mod_stats = mod_prog_q.get(block=False)
         mod_bar.update(num_mod_stats)
@@ -241,12 +254,20 @@ def _agg_prog_worker(
         sys.stderr.write('\n\n')
 
 
-def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps, limit=None):
+def _fill_locs_queue(
+        locs_q, db_fn, agg_class, num_ps, limit=None,
+        batch_size=AGG_BATCH_SIZE):
     agg_db = agg_class(db_fn)
+    locs_batch = []
     for i, loc in enumerate(agg_db.iter_uniq()):
-        locs_q.put(loc)
+        locs_batch.append(loc)
+        if len(locs_batch) >= batch_size:
+            locs_q.put(locs_batch)
+            locs_batch = []
         if limit is not None and i >= limit:
             break
+    if len(locs_batch) > 0:
+        locs_q.put(locs_batch)
     for _ in range(num_ps):
         locs_q.put(None)
 
