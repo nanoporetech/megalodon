@@ -313,7 +313,7 @@ def report_acc_metrics(res_dir, out_fp, samp_lab):
 
 def parse_mod_data(
         res_dir, out_fp, valid_sites, include_strand, samp_lab,
-        ctrl_sites=None):
+        max_stats, ctrl_sites=None):
     mod_acc, parsim_acc, aligned_lens = report_acc_metrics(
         res_dir, out_fp, samp_lab)
 
@@ -323,14 +323,16 @@ def parse_mod_data(
         if ctrl_sites is not None:
             all_site_stats = mods.extract_stats_at_valid_sites(
                 mods_db_fn, valid_sites + ctrl_sites,
-                include_strand=include_strand)
+                include_strand=include_strand, max_stats=max_stats)
             mods_data = all_site_stats[:len(valid_sites)]
             ctrl_data = all_site_stats[len(valid_sites):]
         elif valid_sites is not None:
             mods_data = mods.extract_stats_at_valid_sites(
-                mods_db_fn, valid_sites, include_strand=include_strand)
+                mods_db_fn, valid_sites, include_strand=include_strand,
+                max_stats=max_stats)
         else:
-            mods_data = [mods.extract_all_stats(mods_db_fn), ]
+            mods_data = [mods.extract_all_stats(
+                mods_db_fn, max_stats=max_stats), ]
     else:
         mods_data = None
 
@@ -417,7 +419,7 @@ def _main(args):
     mod_samps_data = [
         parse_mod_data(
             mega_dir, out_fp, valid_sites, args.strand_specific_sites,
-            samp_lab, ctrl_sites)
+            samp_lab, args.max_stats, ctrl_sites)
         for samp_lab, mega_dir in zip(samp_labs, args.megalodon_results_dirs)]
     ctrl_samps_data = None
     # if control is not specified via ground truth file, and control results
@@ -429,14 +431,15 @@ def _main(args):
                 parse_mod_data(
                     mega_dir, out_fp, valid_sites,
                     args.strand_specific_sites,
-                    '{} Control'.format(samp_lab))
+                    '{} Control'.format(samp_lab), args.max_stats)
                 for samp_lab, mega_dir in
                 zip(samp_labs, args.control_megalodon_results_dirs)]
         else:
             # handle case with a single control for all mod dirs
             ctrl_samps_data = [parse_mod_data(
                 args.control_megalodon_results_dirs[0], out_fp,
-                valid_sites, args.strand_specific_sites, 'Control'), ]
+                valid_sites, args.strand_specific_sites, 'Control',
+                args.max_stats), ]
         plot_acc(pdf_fp, mod_samps_data + ctrl_samps_data)
     else:
         plot_acc(pdf_fp, mod_samps_data)

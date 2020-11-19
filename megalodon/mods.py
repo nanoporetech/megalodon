@@ -7,6 +7,7 @@ import queue
 import sqlite3
 import datetime
 import traceback
+from tqdm import tqdm
 from collections import defaultdict, namedtuple, OrderedDict
 
 import numpy as np
@@ -704,6 +705,30 @@ class ModsDb:
     # data iterators #
     ##################
 
+    def _extract_pos_llrs(self, pos_lps):
+        mod_llrs = dict((self.get_mod_base(mod_dbid), [])
+                        for mod_dbid in set(list(zip(*pos_lps))[1]))
+        prev_dbid = None
+        mod_bs, r_lps = [], []
+        for read_dbid, mod_dbid, lp in sorted(pos_lps):
+            if prev_dbid != read_dbid and prev_dbid is not None:
+                # compute and store log likelihood ratios
+                with np.errstate(divide='ignore'):
+                    can_lp = np.log1p(-np.exp(r_lps).sum())
+                for mod_b, r_lp in zip(mod_bs, r_lps):
+                    mod_llrs[mod_b].append(can_lp - r_lp)
+                mod_bs, r_lps = [], []
+            prev_dbid = read_dbid
+            mod_bs.append(self.get_mod_base(mod_dbid))
+            r_lps.append(lp)
+        # compute and store last log likelihood ratios
+        with np.errstate(divide='ignore'):
+            can_lp = np.log1p(-np.exp(np.array(r_lps)).sum())
+        for mod_b, r_lp in zip(mod_bs, r_lps):
+            mod_llrs[mod_b].append(can_lp - r_lp)
+
+        return mod_llrs
+
     def iter_pos_scores(
             self, convert_pos=False, compute_llrs=False, pos_range=None):
         """ Iterate over scores grouped by position. Default arguments iterate
@@ -725,34 +750,10 @@ class ModsDb:
         extracted sites to a specific range. This parameter should consist of
         the contig name (str), start (int) and end (int) coordinates.
         """
-        def extract_pos_llrs(pos_lps):
-            mod_llrs = dict((self.get_mod_base(mod_dbid), [])
-                            for mod_dbid in set(list(zip(*pos_lps))[1]))
-            prev_dbid = None
-            mod_bs, r_lps = [], []
-            for read_dbid, mod_dbid, lp in sorted(pos_lps):
-                if prev_dbid != read_dbid and prev_dbid is not None:
-                    # compute and store log likelihood ratios
-                    with np.errstate(divide='ignore'):
-                        can_lp = np.log1p(-np.exp(r_lps).sum())
-                    for mod_b, r_lp in zip(mod_bs, r_lps):
-                        mod_llrs[mod_b].append(can_lp - r_lp)
-                    mod_bs, r_lps = [], []
-                prev_dbid = read_dbid
-                mod_bs.append(self.get_mod_base(mod_dbid))
-                r_lps.append(lp)
-            # compute and store last log likelihood ratios
-            with np.errstate(divide='ignore'):
-                can_lp = np.log1p(-np.exp(np.array(r_lps)).sum())
-            for mod_b, r_lp in zip(mod_bs, r_lps):
-                mod_llrs[mod_b].append(can_lp - r_lp)
-
-            return mod_llrs
-
         self.check_data_covering_index_exists()
 
         pos_func = self.get_pos if convert_pos else lambda x: x
-        stat_func = extract_pos_llrs if compute_llrs else lambda x: x
+        stat_func = self._extract_pos_llrs if compute_llrs else lambda x: x
 
         pos_lps = list()
         # use local cursor since extracting pos or mod might use class cursor
@@ -890,7 +891,7 @@ class ModsDb:
 # Mod DB Helpers #
 ##################
 
-def extract_all_stats(mods_db_fn):
+def extract_all_stats(mods_db_fn, quiet=False, max_stats=None):
     """ Extract all log-likelihood ratios (log(P_can / P_mod)) from a mods
     database.
 
@@ -900,16 +901,28 @@ def extract_all_stats(mods_db_fn):
     """
     all_llrs = defaultdict(list)
     mods_db = ModsDb(mods_db_fn)
+    n_stats = 0
+    tot = mods_db.get_num_uniq_stats() if max_stats is None else max_stats
+    bar = None if quiet else tqdm(
+        desc='Parsing per-read statistics', smoothing=0, total=tot)
     for _, mods_pos_llrs in mods_db.iter_pos_scores(compute_llrs=True):
         for mod_base, mod_pos_llrs in mods_pos_llrs.items():
             all_llrs[mod_base].append(mod_pos_llrs)
+            n_stats += len(mod_pos_llrs)
+            if not quiet:
+                bar.update(len(mod_pos_llrs))
+        if max_stats is not None and n_stats >= max_stats:
+            break
+    if not quiet:
+        bar.close()
     all_llrs = dict((mod_base, np.concatenate(mod_llrs))
                     for mod_base, mod_llrs in all_llrs.items())
     return all_llrs
 
 
 def extract_stats_at_valid_sites(
-        mods_db_fn, valid_sites_sets, include_strand=True):
+        mods_db_fn, valid_sites_sets, include_strand=True, quiet=False,
+        max_stats=None):
     """ Extract all log-likelihood ratios (log(P_can / P_mod)) from a mods
     database at set of valid sites.
 
@@ -917,8 +930,9 @@ def extract_stats_at_valid_sites(
         mods_db_fn: Modified base database filename
         valid_sites_sets: List of sets containing valid positions. Either
             (chrm, pos) or (chrm, strand, pos); strand should be +/-1
-        include_strand: Boolean value indicating whether positions include
-            strand.
+        include_strand (bool, optional): Boolean value indicating whether
+            positions include strand
+        quiet (bool, optional): Don't show progress bar
 
     Returns:
         List of dictionaries with single letter modified base code keys and
@@ -927,13 +941,25 @@ def extract_stats_at_valid_sites(
     """
     all_stats = [defaultdict(list) for _ in valid_sites_sets]
     mods_db = ModsDb(mods_db_fn)
-    for (chrm, strand, pos), mods_pos_llrs in mods_db.iter_pos_scores(
-            convert_pos=True, compute_llrs=True):
+    n_stats = 0
+    tot = mods_db.get_num_uniq_stats() if max_stats is None else max_stats
+    bar = None if quiet else tqdm(
+        desc='Parsing per-read statistics', smoothing=0, total=tot)
+    for (chrm, strand, pos), pos_lps in mods_db.iter_pos_scores(
+            convert_pos=True):
         site_key = (chrm, strand, pos) if include_strand else (chrm, pos)
         for sites_i, valid_sites in enumerate(valid_sites_sets):
             if site_key in valid_sites:
-                for mod_base, mod_pos_llrs in mods_pos_llrs.items():
+                for mod_base, mod_pos_llrs in mods_db._extract_pos_llrs(
+                        pos_lps).items():
                     all_stats[sites_i][mod_base].append(mod_pos_llrs)
+                    n_stats += len(mod_pos_llrs)
+                    if not quiet:
+                        bar.update(len(mod_pos_llrs))
+        if max_stats is not None and n_stats >= max_stats:
+            break
+    if not quiet:
+        bar.close()
     r_all_stats = [
         dict((mod_base, np.concatenate(mod_llrs))
              for mod_base, mod_llrs in stats_i.items())

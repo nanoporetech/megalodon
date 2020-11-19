@@ -737,6 +737,9 @@ def get_parser_validate_results():
         '`--valid-sites "Dam Methylation" Dam_motif_sites.bed ' +
         '--valid-sites "EcoKI Methylation" EcoKI_motif_sites.bed`.')
     mod_grp.add_argument(
+        '--max-stats', type=int, default=1000000,
+        help='Maximum number of statistics to extract. Default: %(default)d')
+    mod_grp.add_argument(
         '--strand-specific-sites', action='store_true',
         help='Sites in --ground-truth-data and/or --valid-sites are ' +
         'strand-specific. Default: Sites are not strand specific.')
