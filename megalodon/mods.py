@@ -902,7 +902,9 @@ def extract_all_stats(mods_db_fn, quiet=False, max_stats=None):
     all_llrs = defaultdict(list)
     mods_db = ModsDb(mods_db_fn)
     n_stats = 0
-    tot = mods_db.get_num_uniq_stats() if max_stats is None else max_stats
+    tot = mods_db.get_num_uniq_stats()
+    if max_stats is not None:
+        tot = min(max_stats, tot)
     bar = None if quiet else tqdm(
         desc='Parsing per-read statistics', smoothing=0, total=tot)
     for _, mods_pos_llrs in mods_db.iter_pos_scores(compute_llrs=True):
@@ -942,7 +944,9 @@ def extract_stats_at_valid_sites(
     all_stats = [defaultdict(list) for _ in valid_sites_sets]
     mods_db = ModsDb(mods_db_fn)
     n_stats = 0
-    tot = mods_db.get_num_uniq_stats() if max_stats is None else max_stats
+    tot = mods_db.get_num_uniq_stats()
+    if max_stats is not None:
+        tot = min(max_stats, tot)
     bar = None if quiet else tqdm(
         desc='Parsing per-read statistics', smoothing=0, total=tot)
     for (chrm, strand, pos), pos_lps in mods_db.iter_pos_scores(

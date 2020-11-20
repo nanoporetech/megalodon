@@ -16,9 +16,9 @@ from ._extras_parsers import get_parser_validate_results
 LOGGER = logging.get_logger()
 
 PLOT_MIN_BC_ACC = 80
-MOD_BANDWIDTH = 0.2
-BC_BANDWIDTH = 0.2
-LEN_BANDWIDTH = 10
+MOD_BANDWIDTH = 0.9
+BC_BANDWIDTH = 0.7
+LEN_BANDWIDTH = 0.2
 GRIDSIZE = 1000
 
 BC_LEGEND_LABEL = 'Sample'
@@ -90,9 +90,9 @@ def plot_kde(pdf_fp, kde_data):
             'Plotting {} modified base statistics densities'.format(
                 samp_lab))
         plt.figure(figsize=(8, 5))
-        sns.kdeplot(mod_stats, shade=True, bw=MOD_BANDWIDTH,
+        sns.kdeplot(mod_stats, shade=True, bw_adjust=MOD_BANDWIDTH,
                     gridsize=GRIDSIZE, label='Yes')
-        sns.kdeplot(ctrl_stats, shade=True, bw=MOD_BANDWIDTH,
+        sns.kdeplot(ctrl_stats, shade=True, bw_adjust=MOD_BANDWIDTH,
                     gridsize=GRIDSIZE, label='No')
         plt.legend(prop={'size': 16}, title='Is Modified')
         plt.xlabel('Log Likelihood Ratio\nMore Likely Modified <--> ' +
@@ -233,7 +233,7 @@ def plot_acc(pdf_fp, samps_val_data):
     plt.figure(figsize=(8, 5))
     for samp_val_data in samps_val_data:
         if samp_val_data.acc is not None:
-            sns.kdeplot(samp_val_data.acc, shade=False, bw=BC_BANDWIDTH,
+            sns.kdeplot(samp_val_data.acc, shade=False, bw_adjust=BC_BANDWIDTH,
                         gridsize=GRIDSIZE, label=samp_val_data.label)
     plt.legend(title=BC_LEGEND_LABEL)
     plt.xlabel('Mapping Accuracy')
@@ -246,8 +246,9 @@ def plot_acc(pdf_fp, samps_val_data):
     plt.figure(figsize=(8, 5))
     for samp_val_data in samps_val_data:
         if samp_val_data.parsim_acc is not None:
-            sns.kdeplot(samp_val_data.parsim_acc, shade=False, bw=BC_BANDWIDTH,
-                        gridsize=GRIDSIZE, label=samp_val_data.label)
+            sns.kdeplot(samp_val_data.parsim_acc, shade=False,
+                        bw_adjust=BC_BANDWIDTH, gridsize=GRIDSIZE,
+                        label=samp_val_data.label)
     plt.legend(title=BC_LEGEND_LABEL)
     plt.xlabel('Mapping Accuracy')
     plt.ylabel('Density')
@@ -260,13 +261,13 @@ def plot_acc(pdf_fp, samps_val_data):
     for samp_val_data in samps_val_data:
         if samp_val_data.aligned_lens is not None:
             sns.kdeplot(samp_val_data.aligned_lens, shade=False,
-                        bw=LEN_BANDWIDTH, gridsize=GRIDSIZE,
+                        bw_adjust=LEN_BANDWIDTH, gridsize=GRIDSIZE,
                         label=samp_val_data.label)
     plt.legend(title=BC_LEGEND_LABEL)
     plt.xlabel('Aligned Length (Log10 scale)')
     plt.ylabel('Density')
     plt.title('Aligned Length (alignment_length - num_insertions)')
-    plt.xscale('log', basex=10)
+    plt.xscale('log', base=10)
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
 
@@ -367,7 +368,8 @@ def parse_valid_sites(valid_sites_fns, gt_data_fn, include_strand):
             continue
 
         vs_i_sites = set((
-            (chrm, strand, pos) for (chrm, strand), cs_pos in vs_i_sites
+            (chrm, strand, pos) if include_strand else (chrm, pos)
+            for (chrm, strand), cs_pos in vs_i_sites.items()
             for pos in cs_pos))
         if gt_data_fn is None:
             valid_sites.append(vs_i_sites)
