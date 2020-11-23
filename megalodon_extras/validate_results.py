@@ -16,9 +16,13 @@ from ._extras_parsers import get_parser_validate_results
 LOGGER = logging.get_logger()
 
 PLOT_MIN_BC_ACC = 80
+# BANDWIDTH2 supports seaborn<0.11 when bw_adjust was introduced
 MOD_BANDWIDTH = 0.9
+MOD_BANDWIDTH2 = 0.2
 BC_BANDWIDTH = 0.7
+BC_BANDWIDTH2 = 0.2
 LEN_BANDWIDTH = 0.2
+LEN_BANDWIDTH2 = 10
 GRIDSIZE = 1000
 
 BC_LEGEND_LABEL = 'Sample'
@@ -90,10 +94,16 @@ def plot_kde(pdf_fp, kde_data):
             'Plotting {} modified base statistics densities'.format(
                 samp_lab))
         plt.figure(figsize=(8, 5))
-        sns.kdeplot(mod_stats, shade=True, bw_adjust=MOD_BANDWIDTH,
-                    gridsize=GRIDSIZE, label='Yes')
-        sns.kdeplot(ctrl_stats, shade=True, bw_adjust=MOD_BANDWIDTH,
-                    gridsize=GRIDSIZE, label='No')
+        try:
+            sns.kdeplot(mod_stats, shade=True, bw_adjust=MOD_BANDWIDTH,
+                        gridsize=GRIDSIZE, label='Yes')
+            sns.kdeplot(ctrl_stats, shade=True, bw_adjust=MOD_BANDWIDTH,
+                        gridsize=GRIDSIZE, label='No')
+        except AttributeError:
+            sns.kdeplot(mod_stats, shade=True, bw=MOD_BANDWIDTH2,
+                        gridsize=GRIDSIZE, label='Yes')
+            sns.kdeplot(ctrl_stats, shade=True, bw=MOD_BANDWIDTH2,
+                        gridsize=GRIDSIZE, label='No')
         plt.legend(prop={'size': 16}, title='Is Modified')
         plt.xlabel('Log Likelihood Ratio\nMore Likely Modified <--> ' +
                    'More Likely Canonical')
@@ -233,8 +243,12 @@ def plot_acc(pdf_fp, samps_val_data):
     plt.figure(figsize=(8, 5))
     for samp_val_data in samps_val_data:
         if samp_val_data.acc is not None:
-            sns.kdeplot(samp_val_data.acc, shade=False, bw_adjust=BC_BANDWIDTH,
-                        gridsize=GRIDSIZE, label=samp_val_data.label)
+            try:
+                sns.kdeplot(samp_val_data.acc, shade=False, gridsize=GRIDSIZE,
+                            bw_adjust=BC_BANDWIDTH, label=samp_val_data.label)
+            except AttributeError:
+                sns.kdeplot(samp_val_data.acc, shade=False, gridsize=GRIDSIZE,
+                            bw=BC_BANDWIDTH2, label=samp_val_data.label)
     plt.legend(title=BC_LEGEND_LABEL)
     plt.xlabel('Mapping Accuracy')
     plt.ylabel('Density')
@@ -246,9 +260,14 @@ def plot_acc(pdf_fp, samps_val_data):
     plt.figure(figsize=(8, 5))
     for samp_val_data in samps_val_data:
         if samp_val_data.parsim_acc is not None:
-            sns.kdeplot(samp_val_data.parsim_acc, shade=False,
-                        bw_adjust=BC_BANDWIDTH, gridsize=GRIDSIZE,
-                        label=samp_val_data.label)
+            try:
+                sns.kdeplot(samp_val_data.parsim_acc, shade=False,
+                            bw_adjust=BC_BANDWIDTH, gridsize=GRIDSIZE,
+                            label=samp_val_data.label)
+            except AttributeError:
+                sns.kdeplot(samp_val_data.parsim_acc, shade=False,
+                            bw=BC_BANDWIDTH2, gridsize=GRIDSIZE,
+                            label=samp_val_data.label)
     plt.legend(title=BC_LEGEND_LABEL)
     plt.xlabel('Mapping Accuracy')
     plt.ylabel('Density')
@@ -260,14 +279,22 @@ def plot_acc(pdf_fp, samps_val_data):
     plt.figure(figsize=(8, 5))
     for samp_val_data in samps_val_data:
         if samp_val_data.aligned_lens is not None:
-            sns.kdeplot(samp_val_data.aligned_lens, shade=False,
-                        bw_adjust=LEN_BANDWIDTH, gridsize=GRIDSIZE,
-                        label=samp_val_data.label)
+            try:
+                sns.kdeplot(samp_val_data.aligned_lens, shade=False,
+                            bw_adjust=LEN_BANDWIDTH, gridsize=GRIDSIZE,
+                            label=samp_val_data.label)
+            except AttributeError:
+                sns.kdeplot(samp_val_data.aligned_lens, shade=False,
+                            bw=LEN_BANDWIDTH2, gridsize=GRIDSIZE,
+                            label=samp_val_data.label)
     plt.legend(title=BC_LEGEND_LABEL)
     plt.xlabel('Aligned Length (Log10 scale)')
     plt.ylabel('Density')
     plt.title('Aligned Length (alignment_length - num_insertions)')
-    plt.xscale('log', base=10)
+    try:
+        plt.xscale('log', base=10)
+    except ValueError:
+        plt.xscale('log', basex=10)
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
 

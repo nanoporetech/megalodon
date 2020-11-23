@@ -16,6 +16,7 @@ from ._extras_parsers import get_parser_validate_aggregated_modified_bases
 LOGGER = logging.get_logger()
 
 MOD_BANDWIDTH = 0.8
+MOD_BANDWIDTH2 = 1.0
 MOD_GRIDSIZE = 1000
 
 STRAND_CONV = {'+': 1, '-': -1, '.': None}
@@ -146,10 +147,16 @@ def compute_val_metrics(
 
     LOGGER.info('Plotting {}'.format(samp_name))
     plt.figure(figsize=(11, 7))
-    sns.kdeplot(mod_pct_mod, shade=True, bw_adjust=MOD_BANDWIDTH,
-                gridsize=MOD_GRIDSIZE, label='Yes')
-    sns.kdeplot(ctrl_pct_mod, shade=True, bw_adjust=MOD_BANDWIDTH,
-                gridsize=MOD_GRIDSIZE, label='No')
+    try:
+        sns.kdeplot(mod_pct_mod, shade=True, bw_adjust=MOD_BANDWIDTH,
+                    gridsize=MOD_GRIDSIZE, label='Yes')
+        sns.kdeplot(ctrl_pct_mod, shade=True, bw_adjust=MOD_BANDWIDTH,
+                    gridsize=MOD_GRIDSIZE, label='No')
+    except AttributeError:
+        sns.kdeplot(mod_pct_mod, shade=True, bw=MOD_BANDWIDTH2,
+                    gridsize=MOD_GRIDSIZE, label='Yes')
+        sns.kdeplot(ctrl_pct_mod, shade=True, bw=MOD_BANDWIDTH2,
+                    gridsize=MOD_GRIDSIZE, label='No')
     plt.legend(prop={'size': 16}, title='Is Modified?')
     plt.xlabel('Percent Modified')
     plt.ylabel('Density')
