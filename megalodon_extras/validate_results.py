@@ -282,19 +282,19 @@ def plot_acc(pdf_fp, samps_val_data):
             try:
                 sns.kdeplot(samp_val_data.aligned_lens, shade=False,
                             bw_adjust=LEN_BANDWIDTH, gridsize=GRIDSIZE,
-                            label=samp_val_data.label)
+                            label=samp_val_data.label, log_scale=10)
             except AttributeError:
                 sns.kdeplot(samp_val_data.aligned_lens, shade=False,
                             bw=LEN_BANDWIDTH2, gridsize=GRIDSIZE,
                             label=samp_val_data.label)
+                try:
+                    plt.xscale('log', base=10)
+                except ValueError:
+                    plt.xscale('log', basex=10)
     plt.legend(title=BC_LEGEND_LABEL)
     plt.xlabel('Aligned Length (Log10 scale)')
     plt.ylabel('Density')
     plt.title('Aligned Length (alignment_length - num_insertions)')
-    try:
-        plt.xscale('log', base=10)
-    except ValueError:
-        plt.xscale('log', basex=10)
     pdf_fp.savefig(bbox_inches='tight')
     plt.close()
 
