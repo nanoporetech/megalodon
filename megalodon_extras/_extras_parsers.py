@@ -243,6 +243,76 @@ def get_parser_calibrate_generate_modified_bases_stats():
     return parser
 
 
+def get_parser_calibrate_generate_modified_bases_stats_from_mapped_signal():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        'mapped_signal_file',
+        help='Mapped signal file containing diff CTC alternative modified ' +
+        'base reference.')
+
+    mod_grp = parser.add_argument_group('Mod Scoring Arguments')
+    mod_grp.add_argument(
+        '--edge-buffer', type=int, default=mh.DEFAULT_EDGE_BUFFER,
+        help='Minimum distance from edge of read to output score. ' +
+        'Default: %(default)d')
+    mod_grp.add_argument(
+        '--mod-context-bases', type=int, default=mh.DEFAULT_MOD_CONTEXT,
+        help='Context bases for modified base calling. Default: %(default)d')
+
+    pyg_grp = parser.add_argument_group('Guppy Backend Arguments')
+    pyg_grp.add_argument(
+        '--guppy-config', default=mh.DEFAULT_GUPPY_CFG,
+        help='Guppy config. Default: %(default)s')
+    pyg_grp.add_argument(
+        '--guppy-server-path', default=mh.DEFAULT_GUPPY_SERVER_PATH,
+        help='Path to guppy server executable. Default: %(default)s')
+    pyg_grp.add_argument(
+        '--guppy-server-port', type=int,
+        help='Guppy server port. Default: Guppy auto')
+    pyg_grp.add_argument(
+        '--guppy-params',
+        help='Extra guppy server parameters. Main purpose for optimal ' +
+        'performance based on compute environment. Quote parameters to ' +
+        'avoid them being parsed by megalodon.')
+    pyg_grp.add_argument(
+        '--guppy-timeout', type=float, default=mh.DEFAULT_GUPPY_TIMEOUT,
+        help='Timeout to wait for guppy server to call a single read in ' +
+        'seconds. Default: %(default)f')
+    pyg_grp.add_argument(
+        '--guppy-logs-output-directory', default='guppy_logs',
+        help='Directory to output guppy logs. Default: %(default)s')
+
+    out_grp = parser.add_argument_group('Output Arguments')
+    parser.add_argument(
+        '--motif', nargs=2, action='append',
+        metavar=['MOTIF', 'REL_POS'],
+        help='Motif description. Motifs include two values specifying the ' +
+        'sequence motif (may include ambiguity codes) and the relative ' +
+        'modified position. Multiple `--motif` values may be provided.')
+    out_grp.add_argument(
+        '--out-filename', default='mod_calibration_statistics.txt',
+        help='Output filename for text summary. Default: %(default)s')
+    out_grp.add_argument(
+        '--modified-bases-set', nargs='+',
+        help='Only process these modified bases (single letter codes).')
+    out_grp.add_argument(
+        '--num-reads', type=int,
+        help='Total number of reads to process.')
+
+    misc_grp = parser.add_argument_group('Miscellaneous Arguments')
+    misc_grp.add_argument(
+        '--devices', nargs='+',
+        help='GPU devices for guppy basecalling backend.')
+    misc_grp.add_argument(
+        '--processes', type=int, default=1,
+        help='Number of parallel CPU processes. Default: %(default)d')
+    misc_grp.add_argument(
+        '--quiet', action='store_true',
+        help='Suppress progress information.')
+
+    return parser
+
+
 def get_parser_calibrate_generate_variants_stats():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -484,7 +554,7 @@ def get_parser_modified_bases_split_calls_by_motif():
         metavar=['MOTIF', 'REL_POS'],
         help='Motif description. Motifs include two values specifying the ' +
         'sequence motif (may include ambiguity codes) and the relative ' +
-        'modified position. Multiple `--motif` values should be provided.')
+        'modified position. Multiple `--motif` values may be provided.')
     parser.add_argument(
         '--megalodon-directory', default='megalodon_results',
         help='Megalodon output directory containing per-read modified base ' +
@@ -537,7 +607,7 @@ def get_parser_modified_bases_create_motif_bed():
         metavar=['MOTIF', 'REL_POS'],
         help='Motif description. Motifs include two values specifying the ' +
         'sequence motif (may include ambiguity codes) and the relative ' +
-        'modified position. Multiple `--motif` values should be provided.')
+        'modified position. Multiple `--motif` values may be provided.')
     parser.add_argument(
         '--out-filename', default='motif_sites.bed',
         help='Output BED filename. Default: %(default)s')
@@ -725,7 +795,7 @@ def get_parser_validate_results():
         help='Megalodon output directories for modified base control ' +
         'sample(s). Could be a PCR or IVT sample. Either a single control ' +
         'for all modified samples or one control sample for each modified ' +
-        'sample should be provided.')
+        'sample may be provided.')
     mod_grp.add_argument(
         '--ground-truth-data',
         help='Ground truth csv with (chrm, strand, pos, is_mod) values.')
