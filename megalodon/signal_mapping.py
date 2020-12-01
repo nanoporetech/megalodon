@@ -115,7 +115,6 @@ def write_signal_mappings(sig_map_q, sig_map_conn, ref_out_info, aux_failed_q):
 
     try:
         LOGGER.debug('GetterStarting')
-        LOGGER.debug(ref_out_info.alphabet_info)
         prepare_mapping_funcs.generate_output_from_results(
             iter_mappings(), mh.get_megalodon_fn(
                 ref_out_info.out_dir, mh.SIG_MAP_NAME),
