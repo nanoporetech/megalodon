@@ -159,6 +159,23 @@ def get_parser_calibrate_merge_modified_bases():
     return parser
 
 
+def get_parser_calibrate_merge_modified_bases_stats():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        'modified_base_calibration_stats_files', nargs='+',
+        metavar='MOD_CALIB_STATS_FN',
+        help='Modified base calibration statistics filenames.')
+    parser.add_argument(
+        '--out-filename', default='mod_calibration_statistics.npz',
+        help='Filename to output calibration statistics values. ' +
+        'Default: %(default)s')
+    parser.add_argument(
+        '--overwrite', action='store_true',
+        help='Overwrite --out-filename if it exists.')
+
+    return parser
+
+
 def get_parser_calibrate_variants():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -243,7 +260,7 @@ def get_parser_calibrate_generate_modified_bases_stats():
     return parser
 
 
-def get_parser_calibrate_generate_modified_bases_stats_from_mapped_signal():
+def get_parser_calibrate_generate_mod_stats_from_msf():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         'mapped_signal_file',
@@ -290,11 +307,16 @@ def get_parser_calibrate_generate_modified_bases_stats_from_mapped_signal():
         'sequence motif (may include ambiguity codes) and the relative ' +
         'modified position. Multiple `--motif` values may be provided.')
     out_grp.add_argument(
-        '--out-filename', default='mod_calibration_statistics.txt',
+        '--out-filename', default='mod_calibration_statistics.npz',
+        help='Output filename for modified base statistics. Should end in ' +
+        '"npz". Default: %(default)s')
+    out_grp.add_argument(
+        '--log-filename', default='mod_calibration_statistics.log',
         help='Output filename for text summary. Default: %(default)s')
     out_grp.add_argument(
-        '--modified-bases-set', nargs='+',
-        help='Only process these modified bases (single letter codes).')
+        '--modified-bases-set',
+        help='Only process these modified bases (single letter codes). ' +
+        'Present multiple codes as a single string')
     out_grp.add_argument(
         '--num-reads', type=int,
         help='Total number of reads to process.')
@@ -1038,9 +1060,11 @@ CMD_AGG_RUN = 'run'
 GRP_CALIB = 'calibrate'
 CMD_CALIB_MODS = 'modified_bases'
 CMD_CALIB_VARS = 'variants'
-CMD_CALIB_GEN_MODS = 'generate_modified_base_stats'
+CMD_CALIB_GEN_MODS = 'generate_modified_bases_stats'
+CMD_CALIB_GEN_MODS_MSF = 'generate_mod_stats_from_msf'
 CMD_CALIB_GEN_VARS = 'generate_variant_stats'
 CMD_CALIB_MERGE_MODS = 'merge_modified_bases'
+CMD_CALIB_MERGE_MODS_STATS = 'merge_modified_bases_stats'
 
 GRP_MERGE = 'merge'
 CMD_MERGE_MODS = 'modified_bases'
@@ -1084,8 +1108,12 @@ PARSERS = {
         CMD_CALIB_MODS: get_parser_calibrate_modified_bases,
         CMD_CALIB_VARS: get_parser_calibrate_variants,
         CMD_CALIB_GEN_MODS: get_parser_calibrate_generate_modified_bases_stats,
+        CMD_CALIB_GEN_MODS_MSF:
+        get_parser_calibrate_generate_mod_stats_from_msf,
         CMD_CALIB_GEN_VARS: get_parser_calibrate_generate_variants_stats,
-        CMD_CALIB_MERGE_MODS: get_parser_calibrate_merge_modified_bases},
+        CMD_CALIB_MERGE_MODS: get_parser_calibrate_merge_modified_bases,
+        CMD_CALIB_MERGE_MODS_STATS:
+        get_parser_calibrate_merge_modified_bases_stats},
     GRP_MERGE: {
         CMD_MERGE_MODS: get_parser_merge_modified_bases,
         CMD_MERGE_AGG_MODS: get_parser_merge_aggregated_modified_bases,

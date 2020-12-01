@@ -61,9 +61,7 @@ megalodon \
     `# per-read reference/signal mapping settings` \
     --ref-length-range 500 3000 \
     --ref-percent-identity-threshold 90 \
-    --ref-percent-coverage-threshold 90 \
-    --ref-mods-all-motifs m 5mC CCWGG 1 \
-    --ref-mods-all-motifs a 6mA GATC 1
+    --ref-percent-coverage-threshold 90
 
 # test mods output
 megalodon \
@@ -127,9 +125,7 @@ megalodon \
     `# per-read reference/signal mapping settings` \
     --ref-length-range 500 3000 \
     --ref-percent-identity-threshold 90 \
-    --ref-percent-coverage-threshold 90 \
-    --ref-mods-all-motifs m 5mC CCWGG 1 \
-    --ref-mods-all-motifs a 6mA GATC 1
+    --ref-percent-coverage-threshold 90
 
 # process native reads for downstream results
 megalodon \
@@ -167,11 +163,11 @@ megalodon \
     --write-variants-text \
     --write-vcf-log-probs \
     `# per-read reference/signal mapping settings` \
-    --ref-length-range 500 3000 \
+    --ref-length-range 500 30000 \
     --ref-percent-identity-threshold 90 \
     --ref-percent-coverage-threshold 90 \
-    --ref-mods-all-motifs m 5mC CCWGG 1 \
-    --ref-mods-all-motifs a 6mA GATC 1
+    --ref-mods-all-motifs Z 5mC CCWGG 1 \
+    --ref-mods-all-motifs Y 6mA GATC 1
 
 
 ##########################
@@ -241,6 +237,32 @@ megalodon_extras \
     ${NAT_READS}.mega_res/modified_bases.5mC.sorted.bed \
     --mod-bases Z \
     --ground-truth-cov-min 3 --nanopore-cov-min 5
+
+# test model calibration from mapped signal files
+megalodon_extras \
+    calibrate generate_mod_stats_from_msf \
+    ${CTRL_READS}.mega_res/signal_mappings.hdf5 \
+    --motif CCWGG 1 \
+    --guppy-server-path ${GUPPY_PATH} \
+    --out-filename ctrl_mod_stats.npz --modified-bases-set Z \
+    --processes 2
+megalodon_extras \
+    calibrate generate_mod_stats_from_msf \
+    ${NAT_READS}.mega_res/signal_mappings.hdf5 \
+    --motif CCWGG 1 \
+    --guppy-server-path ${GUPPY_PATH} \
+    --out-filename nat_mod_stats.npz --modified-bases-set Z \
+    --processes 2
+megalodon_extras \
+    calibrate merge_modified_bases_stats \
+    ctrl_mod_stats.all.npz nat_mod_stats.all.npz \
+    --out-filename mod_stats.all.npz
+megalodon_extras \
+    calibrate modified_bases \
+    --ground-truth-llrs mod_stats.all.npz \
+    --out-filename mod_calib.all.npz \
+    --out-pdf mod_calib.all.pdf
+
 
 # TODO add tests for more megalodon_extras commands
 
