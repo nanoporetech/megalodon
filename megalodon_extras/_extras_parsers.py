@@ -159,6 +159,23 @@ def get_parser_calibrate_merge_modified_bases():
     return parser
 
 
+def get_parser_calibrate_merge_modified_bases_stats():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        'modified_base_calibration_stats_files', nargs='+',
+        metavar='MOD_CALIB_STATS_FN',
+        help='Modified base calibration statistics filenames.')
+    parser.add_argument(
+        '--out-filename', default='mod_calibration_statistics.npz',
+        help='Filename to output calibration statistics values. ' +
+        'Default: %(default)s')
+    parser.add_argument(
+        '--overwrite', action='store_true',
+        help='Overwrite --out-filename if it exists.')
+
+    return parser
+
+
 def get_parser_calibrate_variants():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -237,6 +254,81 @@ def get_parser_calibrate_generate_modified_bases_stats():
         '--out-filename', default='mod_calibration_statistics.npz',
         help='Output filename for text summary. Default: %(default)s')
     parser.add_argument(
+        '--quiet', action='store_true',
+        help='Suppress progress information.')
+
+    return parser
+
+
+def get_parser_calibrate_generate_mod_stats_from_msf():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        'mapped_signal_file',
+        help='Mapped signal file containing diff CTC alternative modified ' +
+        'base reference.')
+
+    mod_grp = parser.add_argument_group('Mod Scoring Arguments')
+    mod_grp.add_argument(
+        '--edge-buffer', type=int, default=mh.DEFAULT_EDGE_BUFFER,
+        help='Minimum distance from edge of read to output score. ' +
+        'Default: %(default)d')
+    mod_grp.add_argument(
+        '--mod-context-bases', type=int, default=mh.DEFAULT_MOD_CONTEXT,
+        help='Context bases for modified base calling. Default: %(default)d')
+
+    pyg_grp = parser.add_argument_group('Guppy Backend Arguments')
+    pyg_grp.add_argument(
+        '--guppy-config', default=mh.DEFAULT_GUPPY_CFG,
+        help='Guppy config. Default: %(default)s')
+    pyg_grp.add_argument(
+        '--guppy-server-path', default=mh.DEFAULT_GUPPY_SERVER_PATH,
+        help='Path to guppy server executable. Default: %(default)s')
+    pyg_grp.add_argument(
+        '--guppy-server-port', type=int,
+        help='Guppy server port. Default: Guppy auto')
+    pyg_grp.add_argument(
+        '--guppy-params',
+        help='Extra guppy server parameters. Main purpose for optimal ' +
+        'performance based on compute environment. Quote parameters to ' +
+        'avoid them being parsed by megalodon.')
+    pyg_grp.add_argument(
+        '--guppy-timeout', type=float, default=mh.DEFAULT_GUPPY_TIMEOUT,
+        help='Timeout to wait for guppy server to call a single read in ' +
+        'seconds. Default: %(default)f')
+    pyg_grp.add_argument(
+        '--guppy-logs-output-directory', default='guppy_logs',
+        help='Directory to output guppy logs. Default: %(default)s')
+
+    out_grp = parser.add_argument_group('Output Arguments')
+    parser.add_argument(
+        '--motif', nargs=2, action='append',
+        metavar=['MOTIF', 'REL_POS'],
+        help='Motif description. Motifs include two values specifying the ' +
+        'sequence motif (may include ambiguity codes) and the relative ' +
+        'modified position. Multiple `--motif` values may be provided.')
+    out_grp.add_argument(
+        '--out-filename', default='mod_calibration_statistics.npz',
+        help='Output filename for modified base statistics. Should end in ' +
+        '"npz". Default: %(default)s')
+    out_grp.add_argument(
+        '--log-filename', default='mod_calibration_statistics.log',
+        help='Output filename for text summary. Default: %(default)s')
+    out_grp.add_argument(
+        '--modified-bases-set',
+        help='Only process these modified bases (single letter codes). ' +
+        'Present multiple codes as a single string')
+    out_grp.add_argument(
+        '--num-reads', type=int,
+        help='Total number of reads to process.')
+
+    misc_grp = parser.add_argument_group('Miscellaneous Arguments')
+    misc_grp.add_argument(
+        '--devices', nargs='+',
+        help='GPU devices for guppy basecalling backend.')
+    misc_grp.add_argument(
+        '--processes', type=int, default=1,
+        help='Number of parallel CPU processes. Default: %(default)d')
+    misc_grp.add_argument(
         '--quiet', action='store_true',
         help='Suppress progress information.')
 
@@ -484,7 +576,7 @@ def get_parser_modified_bases_split_calls_by_motif():
         metavar=['MOTIF', 'REL_POS'],
         help='Motif description. Motifs include two values specifying the ' +
         'sequence motif (may include ambiguity codes) and the relative ' +
-        'modified position. Multiple `--motif` values should be provided.')
+        'modified position. Multiple `--motif` values may be provided.')
     parser.add_argument(
         '--megalodon-directory', default='megalodon_results',
         help='Megalodon output directory containing per-read modified base ' +
@@ -537,7 +629,7 @@ def get_parser_modified_bases_create_motif_bed():
         metavar=['MOTIF', 'REL_POS'],
         help='Motif description. Motifs include two values specifying the ' +
         'sequence motif (may include ambiguity codes) and the relative ' +
-        'modified position. Multiple `--motif` values should be provided.')
+        'modified position. Multiple `--motif` values may be provided.')
     parser.add_argument(
         '--out-filename', default='motif_sites.bed',
         help='Output BED filename. Default: %(default)s')
@@ -725,7 +817,7 @@ def get_parser_validate_results():
         help='Megalodon output directories for modified base control ' +
         'sample(s). Could be a PCR or IVT sample. Either a single control ' +
         'for all modified samples or one control sample for each modified ' +
-        'sample should be provided.')
+        'sample may be provided.')
     mod_grp.add_argument(
         '--ground-truth-data',
         help='Ground truth csv with (chrm, strand, pos, is_mod) values.')
@@ -968,9 +1060,11 @@ CMD_AGG_RUN = 'run'
 GRP_CALIB = 'calibrate'
 CMD_CALIB_MODS = 'modified_bases'
 CMD_CALIB_VARS = 'variants'
-CMD_CALIB_GEN_MODS = 'generate_modified_base_stats'
+CMD_CALIB_GEN_MODS = 'generate_modified_bases_stats'
+CMD_CALIB_GEN_MODS_MSF = 'generate_mod_stats_from_msf'
 CMD_CALIB_GEN_VARS = 'generate_variant_stats'
 CMD_CALIB_MERGE_MODS = 'merge_modified_bases'
+CMD_CALIB_MERGE_MODS_STATS = 'merge_modified_bases_stats'
 
 GRP_MERGE = 'merge'
 CMD_MERGE_MODS = 'modified_bases'
@@ -1014,8 +1108,12 @@ PARSERS = {
         CMD_CALIB_MODS: get_parser_calibrate_modified_bases,
         CMD_CALIB_VARS: get_parser_calibrate_variants,
         CMD_CALIB_GEN_MODS: get_parser_calibrate_generate_modified_bases_stats,
+        CMD_CALIB_GEN_MODS_MSF:
+        get_parser_calibrate_generate_mod_stats_from_msf,
         CMD_CALIB_GEN_VARS: get_parser_calibrate_generate_variants_stats,
-        CMD_CALIB_MERGE_MODS: get_parser_calibrate_merge_modified_bases},
+        CMD_CALIB_MERGE_MODS: get_parser_calibrate_merge_modified_bases,
+        CMD_CALIB_MERGE_MODS_STATS:
+        get_parser_calibrate_merge_modified_bases_stats},
     GRP_MERGE: {
         CMD_MERGE_MODS: get_parser_merge_modified_bases,
         CMD_MERGE_AGG_MODS: get_parser_merge_aggregated_modified_bases,
