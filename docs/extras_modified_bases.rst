@@ -45,6 +45,28 @@ This is a convenience command to apply a threshold to observed fractions of modi
 The ``--strand-offset`` is provided to allow calls on opposite strands to be combined.
 For example forward and reverse strand CpG calls can be merged by setting ``--strand-offset 1`` since the reverse strand position ``1`` downstream of the forward strand position correspond to the same biological methylation event.
 
+----------------------------------------------------
+``megalodon_extras modified_bases create_motif_bed``
+----------------------------------------------------
+
+This is a helper command to take a reference FASTA file and produce a BED file with all the locations of a motif of interest.
+This can be useful for a number of modified base pipelines.
+
+-------------------------------------------------------
+``megalodon_extras modified_bases per_site_thresholds``
+-------------------------------------------------------
+
+See the `ground truth aided bootstrap modified base annotation <https://nanoporetech.github.io/megalodon/modbase_training.html#ground-truth-aided-bootstrap-modified-base-annotation>`_ tutorial for more complete instructions on using this command.
+
+This command is targeted at creating higher accuracy modified base training data sets (mapped signal files) from a preliminary modified base model and a fractionally (at each reference site) modified sample.
+This command takes as input a Megalodon run with ``--outputs per_read_mods mappings`` and a ground truth bedmethyl file and produces a custom modified base threshold at each reference site.
+These modified base thresholds will match the Megalodon modified base statistics with the ground truth faction of modified bases at each reference site.
+The derived thresholds should then be supplied to Megalodon via the ``--mod-per-site-threshold`` argument along with the ``--outputs signal_mappings``.
+
+This command will also output a low coverage BED file containing reference sites covered by either too few ground truth or nanopore reads.
+This should be used to filter reads for the final training mapped signal data set.
+A read covering any low coverage sites will not be marked up as accurately and thus should not be included in model training.
+
 --------------------------------------------------
 ``megalodon_extras modified_bases index_database``
 --------------------------------------------------

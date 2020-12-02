@@ -36,6 +36,17 @@ The ground truth modified base composition for a run can be specified in two way
    - Specify ``--ground-truth-data``
    - See the ``megalodon_extras modified_bases create_ground_truth`` command for help producing a ground truth CSV file.
 
+----------------------------------------------------------
+``megalodon_extras calibrate generate_mod_stats_from_msf``
+----------------------------------------------------------
+
+In some situations ground truth control samples or reference locations are not available for calibration.
+The ``generate_mod_stats_from_msf`` sub-command uses the mapped signal file (``msf``) used for Taiyaki model training to produce Megalodon calibration statistics.
+This command uses the ground truth sequence including modified base annotation in order to extract modified base scores as computed in Megalodon.
+The extracted scores can be constricted to a fixed canonical sequence motif using the ``--motif`` argument (providing the sequence motif and relative modified position; e.g. ``--motif CG 0`` for CpG methylation).
+Note that the final set of Megalodon modified base statistics should contain enough data from both the modified and canonical set of sites.
+See ``megalodon_extras calibrate merge_modified_bases_stats`` below for merging sets of statistics.
+
 -----------------------------------------------------
 ``megalodon_extras calibrate generate_variant_stats``
 -----------------------------------------------------
@@ -91,6 +102,15 @@ Merge modified base calibration files.
 In some cases the ground truth source for one modified base my come from a different source than another modified base.
 In this case calibration files can be computed separately and combined with this command.
 If multiple calibration files contain calibration for the same modified base, the calibration from the file listed first will be stored.
+
+---------------------------------------------------------
+``megalodon_extras calibrate merge_modified_bases_stats``
+---------------------------------------------------------
+
+Merge modified base calibration statistics files.
+
+In some cases the ground truth statistics may be extracted from several sources (unmodified and modified samples) and merged afterwards.
+This command enables this pipeline.
 
 ---------------------------------------
 ``megalodon_extras calibrate variants``
