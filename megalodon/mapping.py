@@ -161,24 +161,24 @@ class MapInfo:
             test_index_res = subprocess.run(
                 [self.samtools_exec, 'index'],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            # Note index returns non-zero exit status
+            if test_sort_res.returncode != 0:
+                LOGGER.warning('Samtools test commands return non-zero exit ' +
+                               'status. Mappings will not be sorted or indexed.')
+                LOGGER.debug(
+                    ('MappingTestFail:   sort_returncode: {}   ' +
+                     'index_returncode: {}\nsort_call_stdout:\n{}\n' +
+                     'sort_call_stderr:\n{}\nindex_call_stdout:\n{}' +
+                     '\nindex_call_stderr:\n{}').format(
+                         test_sort_res.returncode, test_index_res.returncode,
+                         test_sort_res.stdout.decode(),
+                         test_sort_res.stderr.decode(),
+                         test_index_res.stdout.decode(),
+                         test_index_res.stderr.decode()))
+                self.do_sort_mappings = False
         except FileNotFoundError:
             LOGGER.warning('Samtools executable not found. Mappings will ' +
                            'not be sorted or indexed.')
-            self.do_sort_mappings = False
-        # Note index returns non-zero exit status
-        if test_sort_res.returncode != 0:
-            LOGGER.warning('Samtools test commands return non-zero exit ' +
-                           'status. Mappings will not be sorted or indexed.')
-            LOGGER.debug(
-                ('MappingTestFail:   sort_returncode: {}   ' +
-                 'index_returncode: {}\nsort_call_stdout:\n{}\n' +
-                 'sort_call_stderr:\n{}\nindex_call_stdout:\n{}' +
-                 '\nindex_call_stderr:\n{}').format(
-                     test_sort_res.returncode, test_index_res.returncode,
-                     test_sort_res.stdout.decode(),
-                     test_sort_res.stderr.decode(),
-                     test_index_res.stdout.decode(),
-                     test_index_res.stderr.decode()))
             self.do_sort_mappings = False
 
 
