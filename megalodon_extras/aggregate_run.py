@@ -32,7 +32,8 @@ def _main(args):
         args.write_vcf_log_probs, args.heterozygous_factors,
         variants.HAPLIOD_MODE if args.haploid else variants.DIPLOID_MODE,
         mod_agg_info, args.write_mod_log_probs, args.mod_output_formats,
-        args.suppress_progress, valid_read_ids, args.output_suffix)
+        args.suppress_progress, valid_read_ids, args.output_suffix,
+        args.aggregate_batch_size)
 
     if mh.VAR_NAME in args.outputs:
         LOGGER.info('Sorting output variant file')

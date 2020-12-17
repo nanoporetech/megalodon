@@ -403,6 +403,11 @@ def get_parser():
                          'calls near edge of read mapping. ' +
                          'Default: %(default)d'))
     misc_grp.add_argument(
+        '--aggregate-batch-size', type=int,
+        default=mh.DEFAULT_AGG_BATCH_SIZE,
+        help=hidden_help('Batch size for aggregation processing. ' +
+                         'Default: %(default)d'))
+    misc_grp.add_argument(
         '--not-recursive', action='store_true',
         help=hidden_help('Only search for fast5 read files directly found ' +
                          'within the fast5 directory. Default: search ' +

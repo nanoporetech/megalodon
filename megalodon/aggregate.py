@@ -17,8 +17,6 @@ _DO_PROF = (_DO_PROFILE_AGG_MOD or _DO_PROFILE_AGG_FILLER or
             _DO_PROFILE_GET_MODS)
 _N_MOD_PROF = 1000000
 
-AGG_BATCH_SIZE = 1000
-
 LOGGER = logging.get_logger()
 
 
@@ -254,9 +252,7 @@ def _agg_prog_worker(
         sys.stderr.write('\n\n')
 
 
-def _fill_locs_queue(
-        locs_q, db_fn, agg_class, num_ps, limit=None,
-        batch_size=AGG_BATCH_SIZE):
+def _fill_locs_queue(locs_q, db_fn, agg_class, num_ps, batch_size, limit=None):
     agg_db = agg_class(db_fn)
     locs_batch = []
     for i, loc in enumerate(agg_db.iter_uniq()):
@@ -284,7 +280,8 @@ if _DO_PROFILE_AGG_FILLER:
 def aggregate_stats(
         outputs, out_dir, num_ps, write_vcf_lp, het_factors, call_mode,
         mod_agg_info, write_mod_lp, mod_output_fmts, suppress_progress,
-        valid_read_ids=None, out_suffix=None):
+        valid_read_ids=None, out_suffix=None,
+        batch_size=mh.DEFAULT_AGG_BATCH_SIZE):
     if mh.VAR_NAME in outputs and mh.MOD_NAME in outputs:
         num_ps = max(num_ps // 2, 1)
 
@@ -305,8 +302,8 @@ def aggregate_stats(
         var_filler_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
         var_filler_p = mp.Process(
             target=_fill_locs_queue,
-            args=(var_filler_q, vars_db_fn, variants.AggVars, num_ps),
-            daemon=True)
+            args=(var_filler_q, vars_db_fn, variants.AggVars, num_ps,
+                  batch_size), daemon=True)
         var_filler_p.start()
         # create worker processes to aggregate variants
         var_prog_q = mp.Queue(maxsize=mh._MAX_QUEUE_SIZE)
@@ -344,7 +341,7 @@ def aggregate_stats(
         mod_fill_limit = _N_MOD_PROF if _DO_PROF else None
         mod_filler_p = mp.Process(
             target=_fill_locs_queue,
-            args=(mod_filler_q, mods_db_fn, mods.AggMods, num_ps,
+            args=(mod_filler_q, mods_db_fn, mods.AggMods, num_ps, batch_size,
                   mod_fill_limit), daemon=True)
         mod_filler_p.start()
         # create worker processes to aggregate mods

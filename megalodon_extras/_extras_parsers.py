@@ -69,6 +69,11 @@ def get_parser_aggregate_run():
 
     misc_grp = parser.add_argument_group('Miscellaneous Arguments')
     misc_grp.add_argument(
+        '--aggregate-batch-size', type=int,
+        default=mh.DEFAULT_AGG_BATCH_SIZE,
+        help=hidden_help('Batch size for aggregation processing. ' +
+                         'Default: %(default)d'))
+    misc_grp.add_argument(
         '--processes', type=int, default=1,
         help='Number of parallel processes. Default: %(default)d')
     misc_grp.add_argument(

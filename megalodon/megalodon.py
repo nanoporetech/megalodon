@@ -1257,7 +1257,8 @@ def _main(args):
             args.outputs, args.output_directory, args.processes,
             args.write_vcf_log_probs, args.heterozygous_factors,
             vars_info.call_mode, mods_info.agg_info, args.write_mod_log_probs,
-            mods_info.mod_output_fmts, args.suppress_progress_bars)
+            mods_info.mod_output_fmts, args.suppress_progress_bars,
+            batch_size=args.aggregate_batch_size)
 
     variant_fn = index_variant_fn = None
     if mh.VAR_NAME in args.outputs:
