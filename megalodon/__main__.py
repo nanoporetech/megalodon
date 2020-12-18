@@ -119,6 +119,11 @@ def get_parser():
         'called reads.')
 
     map_grp.add_argument(
+        '--allow-supplementary-alignments', action='store_true',
+        help=hidden_help('Allow alignments aside from the primary alignment ' +
+                         'to be processed. Note that this can have negative ' +
+                         'consecuences especially for modified base calling.'))
+    map_grp.add_argument(
         '--cram-reference',
         help=hidden_help('FASTA reference file. If --reference is a ' +
                          'minimap2 index, the associated FASTA reference ' +

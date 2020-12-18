@@ -150,36 +150,10 @@ def interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum):
     return ref_to_block
 
 
-def process_read(
-        getter_qpcs, caller_conn, bc_res, ref_out_info, vars_info, mods_info,
-        bc_info):
-    """ Workhorse per-read megalodon function (connects all the parts)
-    """
-    (sig_info, seq_summ_info, called_read, rl_cumsum, can_post, post_w_mods,
-     mods_scores) = bc_res
-    if bc_info.do_output.any:
-        # convert seq_summ_info to tuple since namedtuples can't be
-        # pickled for passing through a queue.
-        if bc_info.rev_sig:
-            # sequence is stored internally in sequencing direction. Send
-            # to basecall output in reference direction.
-            getter_qpcs[mh.BC_NAME].queue.put((
-                sig_info.read_id, called_read.seq[::-1],
-                called_read.qual[::-1], mods_scores, tuple(seq_summ_info)))
-        else:
-            getter_qpcs[mh.BC_NAME].queue.put((
-                sig_info.read_id, called_read.seq, called_read.qual,
-                mods_scores, tuple(seq_summ_info)))
-
-    # if no mapping connection return after basecalls are passed out
-    if caller_conn is None:
-        return
-
-    # map read and record mapping from reference to query positions
-    map_q = getter_qpcs[mh.MAP_NAME].queue \
-        if mh.MAP_NAME in getter_qpcs else None
-    r_ref_seq, r_to_q_poss, r_ref_pos, r_cigar = mapping.map_read(
-        caller_conn, called_read, sig_info, map_q, bc_info.rev_sig, rl_cumsum)
+def process_mapping(
+        getter_qpcs, ref_out_info, vars_info, mods_info, bc_info, sig_info,
+        called_read, rl_cumsum, can_post, post_w_mods, r_ref_seq, r_to_q_poss,
+        r_ref_pos, r_cigar):
     np_ref_seq = mh.seq_to_int(r_ref_seq, error_on_invalid=False)
 
     failed_reads_q = getter_qpcs[_FAILED_READ_GETTER_NAME].queue
@@ -245,6 +219,40 @@ def process_read(
             out_q=getter_qpcs[mh.PR_MOD_NAME].queue,
             fast5_fn=sig_info.fast5_fn + ':::' + sig_info.read_id,
             failed_reads_q=failed_reads_q)
+
+
+def process_read(
+        getter_qpcs, caller_conn, bc_res, ref_out_info, vars_info, mods_info,
+        bc_info):
+    """ Workhorse per-read megalodon function (connects all the parts)
+    """
+    (sig_info, seq_summ_info, called_read, rl_cumsum, can_post, post_w_mods,
+     mods_scores) = bc_res
+    if bc_info.do_output.any:
+        # convert seq_summ_info to tuple since namedtuples can't be
+        # pickled for passing through a queue.
+        if bc_info.rev_sig:
+            # sequence is stored internally in sequencing direction. Send
+            # to basecall output in reference direction.
+            getter_qpcs[mh.BC_NAME].queue.put((
+                sig_info.read_id, called_read.seq[::-1],
+                called_read.qual[::-1], mods_scores, tuple(seq_summ_info)))
+        else:
+            getter_qpcs[mh.BC_NAME].queue.put((
+                sig_info.read_id, called_read.seq, called_read.qual,
+                mods_scores, tuple(seq_summ_info)))
+
+    # if no mapping connection return after basecalls are passed out
+    if caller_conn is None:
+        return
+
+    # map read and record mapping from reference to query positions
+    map_q = getter_qpcs[mh.MAP_NAME].queue \
+        if mh.MAP_NAME in getter_qpcs else None
+    for r_ref_seq, r_to_q_poss, r_ref_pos, r_cigar in mapping.map_read(
+            caller_conn, called_read, sig_info, map_q, bc_info.rev_sig,
+            rl_cumsum):
+        process_mapping()
 
 
 ########################
@@ -785,7 +793,8 @@ def process_all_reads(
     if aligner is not None:
         for ti, map_conn in enumerate(map_conns):
             map_read_ts.append(threading.Thread(
-                target=mapping._map_read_worker, args=(aligner, map_conn),
+                target=mapping._map_read_worker,
+                args=(aligner, map_conn, map_info.allow_supps),
                 daemon=True, name='Mapper{:03d}'.format(ti)))
             map_read_ts[-1].start()
 
@@ -812,8 +821,12 @@ def parse_aligner_args(args):
             LOGGER.error('Provided reference file does not exist or is ' +
                          'not a file.')
             sys.exit(1)
-        aligner = mappy.Aligner(
-            str(args.reference), preset=str('map-ont'), best_n=1)
+        if args.allow_supplementary_alignments:
+            aligner = mappy.Aligner(
+                str(args.reference), preset=str('map-ont'))
+        else:
+            aligner = mappy.Aligner(
+                str(args.reference), preset=str('map-ont'), best_n=1)
     else:
         aligner = None
         if args.reference is not None:
@@ -825,7 +838,8 @@ def parse_aligner_args(args):
         out_dir=args.output_directory,
         do_output_mappings=mh.MAP_NAME in args.outputs,
         samtools_exec=args.samtools_executable,
-        do_sort_mappings=args.sort_mappings, cram_ref_fn=args.cram_reference)
+        do_sort_mappings=args.sort_mappings, cram_ref_fn=args.cram_reference,
+        allow_supps=args.allow_supplementary_alignments)
     if map_info.do_output_mappings:
         try:
             map_info.test_open_alignment_out_file()
