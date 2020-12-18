@@ -163,8 +163,9 @@ class MapInfo:
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             # Note index returns non-zero exit status
             if test_sort_res.returncode != 0:
-                LOGGER.warning('Samtools test commands return non-zero exit ' +
-                               'status. Mappings will not be sorted or indexed.')
+                LOGGER.warning(
+                    'Samtools test commands return non-zero exit ' +
+                    'status. Mappings will not be sorted or indexed.')
                 LOGGER.debug(
                     ('MappingTestFail:   sort_returncode: {}   ' +
                      'index_returncode: {}\nsort_call_stdout:\n{}\n' +
