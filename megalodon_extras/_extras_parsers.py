@@ -232,7 +232,7 @@ def get_parser_calibrate_variants():
     return parser
 
 
-def get_parser_calibrate_generate_modified_bases_stats():
+def get_parser_calibrate_generate_modified_base_stats():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         'megalodon_results_dir',
@@ -1064,7 +1064,7 @@ CMD_AGG_RUN = 'run'
 GRP_CALIB = 'calibrate'
 CMD_CALIB_MODS = 'modified_bases'
 CMD_CALIB_VARS = 'variants'
-CMD_CALIB_GEN_MODS = 'generate_modified_bases_stats'
+CMD_CALIB_GEN_MODS = 'generate_modified_base_stats'
 CMD_CALIB_GEN_MODS_MSF = 'generate_mod_stats_from_msf'
 CMD_CALIB_GEN_VARS = 'generate_variant_stats'
 CMD_CALIB_MERGE_MODS = 'merge_modified_bases'
@@ -1111,7 +1111,7 @@ PARSERS = {
     GRP_CALIB: {
         CMD_CALIB_MODS: get_parser_calibrate_modified_bases,
         CMD_CALIB_VARS: get_parser_calibrate_variants,
-        CMD_CALIB_GEN_MODS: get_parser_calibrate_generate_modified_bases_stats,
+        CMD_CALIB_GEN_MODS: get_parser_calibrate_generate_modified_base_stats,
         CMD_CALIB_GEN_MODS_MSF:
         get_parser_calibrate_generate_mod_stats_from_msf,
         CMD_CALIB_GEN_VARS: get_parser_calibrate_generate_variants_stats,
