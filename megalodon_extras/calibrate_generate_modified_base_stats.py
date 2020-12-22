@@ -2,7 +2,7 @@ import sys
 import numpy as np
 
 from megalodon import logging, megalodon_helper as mh, mods
-from ._extras_parsers import get_parser_calibrate_generate_modified_bases_stats
+from ._extras_parsers import get_parser_calibrate_generate_modified_base_stats
 
 
 LOGGER = logging.get_logger()
@@ -95,4 +95,4 @@ def _main(args):
 
 
 if __name__ == '__main__':
-    _main(get_parser_calibrate_generate_modified_bases_stats().parse_args())
+    _main(get_parser_calibrate_generate_modified_base_stats().parse_args())
