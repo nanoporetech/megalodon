@@ -38,7 +38,7 @@ MAP_SUMM_TMPLT = (
 MAP_SUMM_TYPES = dict(zip(
     MAP_SUMM._fields,
     (str, float, int, int, int, int, float, str, str, int, int,
-     int, int, int)))
+     int, int, int, int, int)))
 
 MOD_POS_TAG = 'Mm'
 MOD_PROB_TAG = 'Ml'
