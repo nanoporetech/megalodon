@@ -354,6 +354,15 @@ def read_passes_filters(filt_params, read_len, q_st, q_en, cigar):
     return True
 
 
+def get_map_flag(strand, map_num):
+    flag = 0
+    if strand == -1:
+        flag += 16
+    if map_num > 0:
+        flag += 2048
+    return flag
+
+
 def _get_map_queue(mo_q, mo_conn, map_info, ref_out_info, aux_failed_q):
     def write_alignment(map_res):
         # convert tuple back to namedtuple
@@ -371,14 +380,10 @@ def _get_map_queue(mo_q, mo_conn, map_info, ref_out_info, aux_failed_q):
         bc_len = len(map_res.q_seq)
         q_seq = map_res.q_seq[map_res.q_st:map_res.q_en]
 
-        flag = 0
-        if map_res.strand == -1:
-            flag += 16
-        if map_res.map_num > 0:
-            flag += 2048
         a = prepare_mapping(
             map_res.read_id,
-            q_seq if map_res.strand == 1 else mh.revcomp(q_seq), flag=flag,
+            q_seq if map_res.strand == 1 else mh.revcomp(q_seq),
+            flag=get_map_flag(map_res.strand, map_res.map_num),
             ref_id=map_fp.get_tid(map_res.ctg), ref_st=map_res.r_st,
             cigartuples=[(op, op_l) for op_l, op in map_res.cigar],
             tags=[('NM', nalign - nmatch)])

@@ -1212,7 +1212,8 @@ def get_mod_annotated_seqs(
 
 
 def send_signal_mapping(
-        mod_sig_map_q, sig_map_res, all_mods_seq, failed_reads_q, fast5_fn):
+        mod_sig_map_q, sig_map_res, all_mods_seq, failed_reads_q, fast5_fn,
+        map_num):
     # send mod annotated seqs to signal mapping queue if requested
     if mod_sig_map_q is not None and sig_map_res.pass_filts:
         is_valid_mapping = True
@@ -1222,7 +1223,10 @@ def send_signal_mapping(
         if sig_map_res.ref_out_info.do_output.mod_sig_maps:
             invalid_chars = set(all_mods_seq.mod_seq).difference(
                 sig_map_res.ref_out_info.alphabet_info.alphabet)
-            if len(invalid_chars) > 0:
+            if map_num != 0:
+                # only store mapped signal for primary alignments
+                is_valid_mapping = False
+            elif len(invalid_chars) > 0:
                 is_valid_mapping = False
                 if failed_reads_q is not None:
                     fail_msg = (
@@ -1276,7 +1280,7 @@ def score_mod_seq(
 
 def call_read_mods(
         r_ref_pos, r_ref_seq, ref_to_block, r_post, mods_info, mod_sig_map_q,
-        sig_map_res, signal_reversed, uuid, failed_reads_q, fast5_fn):
+        sig_map_res, signal_reversed, uuid, failed_reads_q, fast5_fn, map_num):
     def iter_motif_sites():
         search_ref_seq = r_ref_seq[::-1] if signal_reversed else r_ref_seq
         for motif, rel_pos, mod_bases, raw_motif in mods_info.all_mod_motifs:
@@ -1357,7 +1361,8 @@ def call_read_mods(
         mods_info, sig_map_res, r_ref_pos, r_mod_scores, r_ref_seq)
     r_mod_scores = filter_mod_score(r_mod_scores)
     send_signal_mapping(
-        mod_sig_map_q, sig_map_res, all_mods_seq, failed_reads_q, fast5_fn)
+        mod_sig_map_q, sig_map_res, all_mods_seq, failed_reads_q, fast5_fn,
+        map_num)
     if mods_info.do_output.db:
         r_insert_data = [
             (mod_lp, mods_info.get_pos_dbid(
@@ -1411,25 +1416,25 @@ def init_mods_db(mods_info, ref_names_and_lens):
 def _get_mods_queue(
         mods_q, mods_conn, mods_info, map_info, ref_out_info, aux_failed_q):
     def write_mod_alignment(
-            read_id, mod_seq, mod_quals, chrm, strand, r_st, fp):
+            read_id, mod_seq, mod_quals, chrm, strand, r_st, fp, map_num):
         # convert to reference based sequence
         if strand == -1:
             mod_seq = mh.revcomp(mod_seq)
             mod_quals = mod_quals[::-1]
         a = mapping.prepare_mapping(
-            read_id, mod_seq, flag=0 if strand == 1 else 16,
+            read_id, mod_seq, flag=mapping.get_map_flag(strand, map_num),
             ref_id=fp.get_tid(chrm), ref_st=r_st,
             qual=array.array('B', mod_quals), map_qual=MOD_MAP_MAX_QUAL,
             tags=[('RG', MOD_MAP_RG_ID)])
         fp.write(a)
 
     def write_alignment_w_tags(
-            read_id, ref_seq, chrm, strand, r_st, fp, mods_scores):
+            read_id, ref_seq, chrm, strand, r_st, fp, mods_scores, map_num):
         # convert to reference based sequence
         if strand == -1:
             ref_seq = mh.revcomp(ref_seq)
         a = mapping.prepare_mapping(
-            read_id, ref_seq, flag=0 if strand == 1 else 16,
+            read_id, ref_seq, flag=mapping.get_map_flag(strand, map_num),
             ref_id=fp.get_tid(chrm), ref_st=r_st,
             map_qual=MOD_MAP_MAX_QUAL,
             tags=[('RG', MOD_MAP_RG_ID)], mods_scores=mods_scores)
@@ -1438,7 +1443,7 @@ def _get_mods_queue(
     def store_mod_call(mod_res, been_warned_timeout, been_warned_other):
         (r_insert_data, all_mods_seq, per_mod_seqs, mod_out_text), (
             read_id, chrm, strand, r_start, ref_seq, read_len, q_st, q_en,
-            cigar) = mod_res
+            cigar, map_num) = mod_res
         if mods_info.do_output.db:
             try:
                 read_dbid = mods_db.insert_uuid(read_id)
@@ -1468,7 +1473,8 @@ def _get_mods_queue(
         if mods_info.do_output.text and len(mod_out_text) > 0:
             mods_txt_fp.write(mod_out_text)
         if ref_out_info.do_output.mod_pr_refs and mapping.read_passes_filters(
-                ref_out_info.filt_params, read_len, q_st, q_en, cigar):
+                ref_out_info.filt_params, read_len, q_st, q_en, cigar) and \
+                map_num == 0:
             pr_refs_fp.write('>{}\n{}\n'.format(read_id, all_mods_seq.mod_seq))
         if mods_info.do_output.mod_map:
             if mods_info.map_emulate_bisulfite:
@@ -1476,11 +1482,11 @@ def _get_mods_queue(
                     mod_seq, mod_qual = per_mod_seqs[mod_base]
                     write_mod_alignment(
                         read_id, mod_seq, mod_qual, chrm, strand, r_start,
-                        mod_map_fps[mod_base])
+                        mod_map_fps[mod_base], map_num)
             else:
                 write_alignment_w_tags(
                     read_id, ref_seq, chrm, strand, r_start,
-                    mod_map_fp, per_mod_seqs)
+                    mod_map_fp, per_mod_seqs, map_num)
 
         return been_warned_timeout, been_warned_other
 
