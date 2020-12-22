@@ -327,7 +327,7 @@ def map_read(
 
     return [process_mapping(
         map_res, called_read, sig_info, mo_q, signal_reversed, rl_cumsum)
-            for map_res in map_ress]
+        for map_res in map_ress]
 
 
 def compute_pct_identity(cigar):
