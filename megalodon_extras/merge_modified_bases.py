@@ -33,12 +33,13 @@ def extract_data_worker(in_db_fns_q, data_conn, out_mods_db_fn, batch_size):
 
         in_mods_db = mods.ModsDb(in_mod_db_fn)
         batch_data = []
-        for score, uuid, mod_base, in_pos_dbid in in_mods_db.iter_data():
+        for score, uuid, map_num, mod_base, in_pos_dbid in \
+                in_mods_db.iter_data():
             out_pos_dbid = out_mods_db.get_pos_dbid(*in_mods_db.get_pos(
                 in_pos_dbid))
             batch_data.append((
                 score, out_pos_dbid, out_mods_db.get_mod_base_dbid(mod_base),
-                out_mods_db.get_read_dbid(uuid)))
+                out_mods_db.get_read_dbid(uuid, map_num)))
             if len(batch_data) >= batch_size:
                 data_conn.put(batch_data)
                 batch_data = []
@@ -98,12 +99,13 @@ def insert_data(in_mod_db_fns, out_mods_db, batch_size):
     for in_mod_db_fn in in_mod_db_fns:
         in_mods_db = mods.ModsDb(in_mod_db_fn)
         batch_data = []
-        for score, uuid, mod_base, in_pos_dbid in in_mods_db.iter_data():
+        for score, uuid, map_num, mod_base, in_pos_dbid in \
+                in_mods_db.iter_data():
             out_pos_dbid = out_mods_db.get_pos_dbid(*in_mods_db.get_pos(
                 in_pos_dbid))
             batch_data.append((
                 score, out_pos_dbid, out_mods_db.get_mod_base_dbid(mod_base),
-                out_mods_db.get_read_dbid(uuid)))
+                out_mods_db.get_read_dbid(uuid, map_num)))
             if len(batch_data) >= batch_size:
                 out_mods_db.insert_batch_data(batch_data)
                 batch_data = []

@@ -113,7 +113,7 @@ def get_map_pos_from_res(map_res):
 class MapInfo:
     def __init__(
             self, aligner, map_fmt, ref_fn, out_dir, do_output_mappings,
-            samtools_exec, do_sort_mappings, cram_ref_fn):
+            samtools_exec, do_sort_mappings, cram_ref_fn, allow_supps=False):
         if aligner is None:
             self.ref_names_and_lens = None
         else:
@@ -131,6 +131,7 @@ class MapInfo:
         self.do_output_mappings = do_output_mappings
         self.samtools_exec = samtools_exec
         self.do_sort_mappings = do_sort_mappings
+        self.allow_supps = allow_supps
 
     def open_alignment_out_file(self):
         map_fn = '{}.{}'.format(
@@ -202,7 +203,7 @@ def align_read(
 
     # enumerate all alignments to avoid memory leak from mappy
     r_algns = list(aligner.map(str(q_seq), buf=map_thr_buf))
-    if len(r_algn) == 0:
+    if len(r_algns) == 0:
         # no alignments produced
         return None
 
@@ -301,7 +302,8 @@ def process_mapping(
         raise mh.MegaError('Invalid cigar string encountered.')
     map_pos = get_map_pos_from_res(map_res)
 
-    return map_res.ref_seq, r_to_q_poss, map_pos, map_res.cigar
+    return (map_res.ref_seq, r_to_q_poss, map_pos, map_res.cigar,
+            map_res.map_num)
 
 
 def map_read(
@@ -397,9 +399,7 @@ def _get_map_queue(mo_q, mo_conn, map_info, ref_out_info, aux_failed_q):
 
         if ref_out_info.do_output.pr_refs and read_passes_filters(
                 ref_out_info.filt_params, len(map_res.q_seq), map_res.q_st,
-                map_res.q_en, map_res.cigar):
-            # Ignoring map_res.map_num here, so read ids can be repeated if
-            # supplementary alignments are allowed
+                map_res.q_en, map_res.cigar) and map_res.map_num == 0:
             pr_ref_fp.write('>{}\n{}\n'.format(
                 map_res.read_id, map_res.ref_seq))
 

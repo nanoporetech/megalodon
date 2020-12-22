@@ -153,7 +153,7 @@ def interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum):
 def process_mapping(
         getter_qpcs, ref_out_info, vars_info, mods_info, bc_info, sig_info,
         called_read, rl_cumsum, can_post, post_w_mods, r_ref_seq, r_to_q_poss,
-        r_ref_pos, r_cigar):
+        r_ref_pos, r_cigar, map_num):
     np_ref_seq = mh.seq_to_int(r_ref_seq, error_on_invalid=False)
 
     failed_reads_q = getter_qpcs[_FAILED_READ_GETTER_NAME].queue
@@ -166,7 +166,8 @@ def process_mapping(
             pass_sig_map_filts, sig_info.fast5_fn, sig_info.dacs,
             sig_info.scale_params, r_ref_seq, sig_info.stride,
             sig_info.read_id, r_to_q_poss, rl_cumsum, r_ref_pos, ref_out_info)
-        if ref_out_info.do_output.can_sig_maps and pass_sig_map_filts:
+        if ref_out_info.do_output.can_sig_maps and pass_sig_map_filts and \
+           map_num == 0:
             try:
                 getter_qpcs[mh.SIG_MAP_NAME].queue.put(
                     signal_mapping.get_remapping(*sig_map_res[1:]))
@@ -249,10 +250,14 @@ def process_read(
     # map read and record mapping from reference to query positions
     map_q = getter_qpcs[mh.MAP_NAME].queue \
         if mh.MAP_NAME in getter_qpcs else None
-    for r_ref_seq, r_to_q_poss, r_ref_pos, r_cigar in mapping.map_read(
-            caller_conn, called_read, sig_info, map_q, bc_info.rev_sig,
-            rl_cumsum):
-        process_mapping()
+    for (r_ref_seq, r_to_q_poss, r_ref_pos, r_cigar,
+         r_map_num) in mapping.map_read(
+             caller_conn, called_read, sig_info, map_q, bc_info.rev_sig,
+             rl_cumsum):
+        process_mapping(
+            getter_qpcs, ref_out_info, vars_info, mods_info, bc_info, sig_info,
+            called_read, rl_cumsum, can_post, post_w_mods, r_ref_seq,
+            r_to_q_poss, r_ref_pos, r_cigar, r_map_num)
 
 
 ########################
@@ -821,12 +826,12 @@ def parse_aligner_args(args):
             LOGGER.error('Provided reference file does not exist or is ' +
                          'not a file.')
             sys.exit(1)
-        if args.allow_supplementary_alignments:
-            aligner = mappy.Aligner(
-                str(args.reference), preset=str('map-ont'))
-        else:
-            aligner = mappy.Aligner(
-                str(args.reference), preset=str('map-ont'), best_n=1)
+        aligner_kwargs = {'preset': str('map-ont')}
+        if not args.allow_supplementary_alignments:
+            aligner_kwargs.update({'best_n': 1})
+        if args.forward_strand_alignments_only:
+            aligner_kwargs.update({'extra_flags': 0x100000})
+        aligner = mappy.Aligner(str(args.reference), **aligner_kwargs)
     else:
         aligner = None
         if args.reference is not None:

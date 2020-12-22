@@ -124,6 +124,9 @@ def get_parser():
                          'to be processed. Note that this can have negative ' +
                          'consecuences especially for modified base calling.'))
     map_grp.add_argument(
+        '--forward-strand-alignments-only', action='store_true',
+        help=hidden_help('Only allow forward strand alignments.'))
+    map_grp.add_argument(
         '--cram-reference',
         help=hidden_help('FASTA reference file. If --reference is a ' +
                          'minimap2 index, the associated FASTA reference ' +
