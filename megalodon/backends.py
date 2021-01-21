@@ -505,23 +505,22 @@ class ModelInfo(AbstractModelInfo):
                     'Megalodon requires Guppy version>=4.0. Got: "{}"'.format(
                         guppy_version_str))
             pyguppy_version = LooseVersion(pyguppy_version_str)
+            warn_txt = (
+                'Guppy and pyguppy {} versions do not match. This {} lead to '
+                'a failure. Install matching pyguppy version via `pip '
+                'install ont-pyguppy-client-lib=={}`.')
             if len(pyguppy_version.version) < 2 or \
                len(guppy_version.version) < 2:
                 LOGGER.warning('Invalid guppy or pyguppy versions.')
             elif guppy_version.version[0] != pyguppy_version.version[0]:
-                LOGGER.warning(
-                    'Guppy and pyguppy major versions do not match. This ' +
-                    'will likely lead to a failure. Please install matching ' +
-                    'Guppy and pyguppy versions.')
+                LOGGER.warning(warn_txt.format(
+                    'major', 'will likely', guppy_version))
             elif guppy_version.version[1] != pyguppy_version.version[1]:
-                LOGGER.warning(
-                    'Guppy and pyguppy minor versions do not match. This ' +
-                    'may lead to a failure. Please install matching ' +
-                    'Guppy and pyguppy versions.')
+                LOGGER.warning(warn_txt.format(
+                    'minor', 'may', guppy_version))
             elif guppy_version.version[2] != pyguppy_version.version[2]:
-                LOGGER.debug(
-                    'Guppy and pyguppy point versions do not match. ' +
-                    'Please install matching Guppy and pyguppy versions.')
+                LOGGER.warning(warn_txt.format(
+                    'point', 'could', guppy_version))
 
         def start_guppy_server():
             def get_server_port():
