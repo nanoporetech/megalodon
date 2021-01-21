@@ -613,8 +613,8 @@ def _get_fail_queue(
 def wait_for_completion(
         files_p, extract_sig_ps, signal_q, proc_reads_ps, map_read_ts,
         getter_qpcs, aux_failed_q, input_info):
-    def kill_all_proc():
-        for p in [files_p, ] + proc_reads_ps:
+    def kill_all_proc(msgs=None):
+        for p in [files_p, ] + extract_sig_ps + proc_reads_ps:
             if p.is_alive():
                 p.terminate()
                 p.join()
@@ -622,17 +622,18 @@ def wait_for_completion(
             if q.proc.is_alive():
                 q.proc.terminate()
                 q.proc.join()
+        sleep(0.01)
+        if msgs is not None:
+            for msg in msgs:
+                LOGGER.error(msg)
+        sys.exit(1)
 
     try:
         # wait for file enumeration process to finish first
         while files_p.is_alive():
             try:
                 aux_err = aux_failed_q.get(block=False)
-                kill_all_proc()
-                sleep(0.01)
-                for msg in aux_err:
-                    LOGGER.error(msg)
-                sys.exit(1)
+                kill_all_proc(aux_err)
             except queue.Empty:
                 # TODO check for failed workers and create mechanism to restart
                 sleep(1)
@@ -642,15 +643,17 @@ def wait_for_completion(
 
         # wait for signal extraction to finish next
         while any(p.is_alive() for p in extract_sig_ps):
+            # if no worker processes are alive run will stall
+            if all(not p.is_alive() for p in proc_reads_ps):
+                # ensure this is really a stalled run and not lagging to
+                # close other processes
+                sleep(1)
+                if any(p.is_alive() for p in extract_sig_ps):
+                    kill_all_proc()
             try:
                 aux_err = aux_failed_q.get(block=False)
                 kill_all_proc()
-                sleep(0.01)
-                for msg in aux_err:
-                    LOGGER.error(msg)
-                sys.exit(1)
             except queue.Empty:
-                # TODO check for failed workers and create mechanism to restart
                 sleep(1)
         LOGGER.debug('JoiningMain: SignalExtractors')
         for extract_sig_p in extract_sig_ps:
@@ -666,24 +669,16 @@ def wait_for_completion(
             try:
                 aux_err = aux_failed_q.get(block=False)
                 # if an auxiliary process fails exit megalodon
-                kill_all_proc()
-                sleep(0.01)
-                for msg in aux_err:
-                    LOGGER.error(msg)
-                sys.exit(1)
+                kill_all_proc(aux_err)
             except queue.Empty:
                 # check that a getter queue has not failed with a segfault
                 for g_name, getter_qpc in getter_qpcs.items():
                     if not getter_qpc.proc.is_alive() and \
                        not signal_q.queue.empty():
-                        kill_all_proc()
-                        sleep(0.01)
-                        LOGGER.error((
+                        kill_all_proc([(
                             '{} Getter queue has unexpectedly died likely ' +
                             'via a segfault error. Please log this ' +
-                            'issue.').format(g_name))
-                        sys.exit(1)
-                # TODO check for failed workers and create mechanism to restart
+                            'issue.').format(g_name)])
                 sleep(1)
 
         LOGGER.debug('JoiningMain: Workers')
