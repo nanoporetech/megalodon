@@ -829,7 +829,17 @@ def parse_aligner_args(args):
                          'not a file.')
             sys.exit(1)
         aligner_kwargs = {'preset': str('map-ont')}
-        if not args.allow_supplementary_alignments:
+        if args.allow_supplementary_alignments:
+            LOGGER.warning(
+                '--allow-supplementary-alignments option is set. This '
+                'allows modified base and variant calls to be made from the '
+                'same read base at multiple reference bases and/or the same '
+                'reference base from multiple read bases in the same read. '
+                'This can lead to over-counting of modified base/variant '
+                'calls and/or spurious extra calls. There are use cases for '
+                'this behavior, but these caveats should be considered when '
+                'using this option.')
+        else:
             aligner_kwargs.update({'best_n': 1})
         if args.forward_strand_alignments_only:
             aligner_kwargs.update({'extra_flags': 0x100000})
