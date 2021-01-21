@@ -1,5 +1,7 @@
 import sys
 
+import mappy
+
 from megalodon import logging, mapping, megalodon_helper as mh, variants
 from ._extras_parsers import get_parser_variants_atomize
 
@@ -17,29 +19,34 @@ RECORD_LINE = ('{chrm}\t{pos}\t{rid}\t{ref}\t{alts}\t.\t.\t{info}\t.\t.\n')
 def _main(args):
     logging.init_logger()
     LOGGER.info('Loading reference')
-    aligner = mapping.alignerPlus(
+    aligner = mappy.Aligner(
         str(args.reference), preset=str('map-ont'), best_n=1)
-    aligner.add_ref_lens()
     LOGGER.info('Loading variants')
     var_data = variants.VarInfo(
         args.in_vcf, aligner, args.max_indel_size, keep_var_fp_open=True)
     contigs = var_data.variants_idx.header.contigs.values()
     LOGGER.info('Atomizing variants')
     with open(args.out_vcf, 'w') as out_vars:
-        out_vars.write('\n'.join(
-            HEADER +
-            [CONTIG_HEADER_LINE.format(ctg.name, ctg.length)
-             for ctg in contigs] +
-            [variants.CONTEXT_BASE_MI_LINE,
-             COMMAND_HEADER_LINE.format(' '.join(sys.argv)),
-             FIELDS_LINE]) + '\n')
+        # preprocess contigs to set contig lengths for VCF header
+        ctg_lens = {}
         for ctg in contigs:
             chrm_seq = aligner.seq(ctg.name)
             if len(chrm_seq) != ctg.length:
                 LOGGER.warning((
                     'Mismatched contig lengths ({}) between ' +
-                    'reference ({}) and input VCF ({})').format(
-                        ctg.name, len(chrm_seq), ctg.length))
+                    'reference ({}) and input VCF ({}) using length from '
+                    'reference').format(ctg.name, len(chrm_seq), ctg.length))
+            ctg_lens[ctg.name] = len(chrm_seq)
+
+        out_vars.write('\n'.join(
+            HEADER +
+            [CONTIG_HEADER_LINE.format(ctg, ctg_len)
+             for ctg, ctg_len in ctg_lens.items()] +
+            [variants.CONTEXT_BASE_MI_LINE,
+             COMMAND_HEADER_LINE.format(' '.join(sys.argv)),
+             FIELDS_LINE]) + '\n')
+        for ctg in contigs:
+            chrm_seq = aligner.seq(ctg.name)
             map_pos = mapping.MAP_POS(
                 chrm=ctg.name, strand=None, start=0, end=len(chrm_seq),
                 q_trim_start=None, q_trim_end=None)
