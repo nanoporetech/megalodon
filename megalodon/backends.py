@@ -607,8 +607,11 @@ class ModelInfo(AbstractModelInfo):
                     break
                 if self.guppy_server_proc.poll() is not None:
                     raise mh.MegaError(
-                        'Guppy server initialization failed. See guppy logs ' +
-                        'in --output-directory for more details.')
+                        'Guppy server initialization failed. See guppy logs '
+                        'in --output-directory for more details.\n\t\t'
+                        'Try running the guppy server initialization '
+                        'command found in log.txt in order to pinpoint the '
+                        'source of this issue.')
                 sleep(0.01)
             guppy_out_read_fp.close()
             self.params = self.params._replace(
