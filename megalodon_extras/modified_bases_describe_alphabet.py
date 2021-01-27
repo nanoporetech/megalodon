@@ -7,7 +7,7 @@ LOGGER = logging.get_logger()
 
 def _main(args):
     try:
-        mh.mkdir(args.output_directory, False)
+        mh.mkdir(args.guppy_logs_output_directory, False)
     except mh.MegaError:
         LOGGER.warning(
             'Guppy logs output directory exists. Potentially overwriting ' +
