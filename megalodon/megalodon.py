@@ -150,36 +150,10 @@ def interpolate_sig_pos(r_to_q_poss, mapped_rl_cumsum):
     return ref_to_block
 
 
-def process_read(
-        getter_qpcs, caller_conn, bc_res, ref_out_info, vars_info, mods_info,
-        bc_info):
-    """ Workhorse per-read megalodon function (connects all the parts)
-    """
-    (sig_info, seq_summ_info, called_read, rl_cumsum, can_post, post_w_mods,
-     mods_scores) = bc_res
-    if bc_info.do_output.any:
-        # convert seq_summ_info to tuple since namedtuples can't be
-        # pickled for passing through a queue.
-        if bc_info.rev_sig:
-            # sequence is stored internally in sequencing direction. Send
-            # to basecall output in reference direction.
-            getter_qpcs[mh.BC_NAME].queue.put((
-                sig_info.read_id, called_read.seq[::-1],
-                called_read.qual[::-1], mods_scores, tuple(seq_summ_info)))
-        else:
-            getter_qpcs[mh.BC_NAME].queue.put((
-                sig_info.read_id, called_read.seq, called_read.qual,
-                mods_scores, tuple(seq_summ_info)))
-
-    # if no mapping connection return after basecalls are passed out
-    if caller_conn is None:
-        return
-
-    # map read and record mapping from reference to query positions
-    map_q = getter_qpcs[mh.MAP_NAME].queue \
-        if mh.MAP_NAME in getter_qpcs else None
-    r_ref_seq, r_to_q_poss, r_ref_pos, r_cigar = mapping.map_read(
-        caller_conn, called_read, sig_info, map_q, bc_info.rev_sig, rl_cumsum)
+def process_mapping(
+        getter_qpcs, ref_out_info, vars_info, mods_info, bc_info, sig_info,
+        called_read, rl_cumsum, can_post, post_w_mods, r_ref_seq, r_to_q_poss,
+        r_ref_pos, r_cigar, map_num):
     np_ref_seq = mh.seq_to_int(r_ref_seq, error_on_invalid=False)
 
     failed_reads_q = getter_qpcs[_FAILED_READ_GETTER_NAME].queue
@@ -192,7 +166,8 @@ def process_read(
             pass_sig_map_filts, sig_info.fast5_fn, sig_info.dacs,
             sig_info.scale_params, r_ref_seq, sig_info.stride,
             sig_info.read_id, r_to_q_poss, rl_cumsum, r_ref_pos, ref_out_info)
-        if ref_out_info.do_output.can_sig_maps and pass_sig_map_filts:
+        if ref_out_info.do_output.can_sig_maps and pass_sig_map_filts and \
+           map_num == 0:
             try:
                 getter_qpcs[mh.SIG_MAP_NAME].queue.put(
                     signal_mapping.get_remapping(*sig_map_res[1:]))
@@ -238,13 +213,53 @@ def process_read(
             func=mods.call_read_mods,
             args=(r_ref_pos, r_ref_seq, ref_to_block, mapped_post_w_mods,
                   mods_info, mod_sig_map_q, sig_map_res, bc_info.rev_sig,
-                  sig_info.read_id, failed_reads_q, sig_info.fast5_fn),
+                  sig_info.read_id, failed_reads_q, sig_info.fast5_fn,
+                  map_num),
             r_vals=(sig_info.read_id, r_ref_pos.chrm, r_ref_pos.strand,
                     r_ref_pos.start, r_ref_seq, len(called_read.seq),
-                    r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar),
+                    r_ref_pos.q_trim_start, r_ref_pos.q_trim_end, r_cigar,
+                    map_num),
             out_q=getter_qpcs[mh.PR_MOD_NAME].queue,
             fast5_fn=sig_info.fast5_fn + ':::' + sig_info.read_id,
             failed_reads_q=failed_reads_q)
+
+
+def process_read(
+        getter_qpcs, caller_conn, bc_res, ref_out_info, vars_info, mods_info,
+        bc_info):
+    """ Workhorse per-read megalodon function (connects all the parts)
+    """
+    (sig_info, seq_summ_info, called_read, rl_cumsum, can_post, post_w_mods,
+     mods_scores) = bc_res
+    if bc_info.do_output.any:
+        # convert seq_summ_info to tuple since namedtuples can't be
+        # pickled for passing through a queue.
+        if bc_info.rev_sig:
+            # sequence is stored internally in sequencing direction. Send
+            # to basecall output in reference direction.
+            getter_qpcs[mh.BC_NAME].queue.put((
+                sig_info.read_id, called_read.seq[::-1],
+                called_read.qual[::-1], mods_scores, tuple(seq_summ_info)))
+        else:
+            getter_qpcs[mh.BC_NAME].queue.put((
+                sig_info.read_id, called_read.seq, called_read.qual,
+                mods_scores, tuple(seq_summ_info)))
+
+    # if no mapping connection return after basecalls are passed out
+    if caller_conn is None:
+        return
+
+    # map read and record mapping from reference to query positions
+    map_q = getter_qpcs[mh.MAP_NAME].queue \
+        if mh.MAP_NAME in getter_qpcs else None
+    for (r_ref_seq, r_to_q_poss, r_ref_pos, r_cigar,
+         r_map_num) in mapping.map_read(
+             caller_conn, called_read, sig_info, map_q, bc_info.rev_sig,
+             rl_cumsum):
+        process_mapping(
+            getter_qpcs, ref_out_info, vars_info, mods_info, bc_info, sig_info,
+            called_read, rl_cumsum, can_post, post_w_mods, r_ref_seq,
+            r_to_q_poss, r_ref_pos, r_cigar, r_map_num)
 
 
 ########################
@@ -780,7 +795,8 @@ def process_all_reads(
     if aligner is not None:
         for ti, map_conn in enumerate(map_conns):
             map_read_ts.append(threading.Thread(
-                target=mapping._map_read_worker, args=(aligner, map_conn),
+                target=mapping._map_read_worker,
+                args=(aligner, map_conn, map_info.allow_supps),
                 daemon=True, name='Mapper{:03d}'.format(ti)))
             map_read_ts[-1].start()
 
@@ -807,8 +823,22 @@ def parse_aligner_args(args):
             LOGGER.error('Provided reference file does not exist or is ' +
                          'not a file.')
             sys.exit(1)
-        aligner = mappy.Aligner(
-            str(args.reference), preset=str('map-ont'), best_n=1)
+        aligner_kwargs = {'preset': str('map-ont')}
+        if args.allow_supplementary_alignments:
+            LOGGER.warning(
+                '--allow-supplementary-alignments option is set. This '
+                'allows modified base and variant calls to be made from the '
+                'same read base at multiple reference bases and/or the same '
+                'reference base from multiple read bases in the same read. '
+                'This can lead to over-counting of modified base/variant '
+                'calls and/or spurious extra calls. There are use cases for '
+                'this behavior, but these caveats should be considered when '
+                'using this option.')
+        else:
+            aligner_kwargs.update({'best_n': 1})
+        if args.forward_strand_alignments_only:
+            aligner_kwargs.update({'extra_flags': 0x100000})
+        aligner = mappy.Aligner(str(args.reference), **aligner_kwargs)
     else:
         aligner = None
         if args.reference is not None:
@@ -820,7 +850,8 @@ def parse_aligner_args(args):
         out_dir=args.output_directory,
         do_output_mappings=mh.MAP_NAME in args.outputs,
         samtools_exec=args.samtools_executable,
-        do_sort_mappings=args.sort_mappings, cram_ref_fn=args.cram_reference)
+        do_sort_mappings=args.sort_mappings, cram_ref_fn=args.cram_reference,
+        allow_supps=args.allow_supplementary_alignments)
     if map_info.do_output_mappings:
         try:
             map_info.test_open_alignment_out_file()

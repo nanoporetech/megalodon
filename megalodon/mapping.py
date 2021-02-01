@@ -20,25 +20,26 @@ MAP_POS = namedtuple('MAP_POS', (
     'chrm', 'strand', 'start', 'end', 'q_trim_start', 'q_trim_end'))
 MAP_RES = namedtuple('MAP_RES', (
     'read_id', 'q_seq', 'ref_seq', 'ctg', 'strand', 'r_st', 'r_en',
-    'q_st', 'q_en', 'cigar', 'map_sig_start', 'map_sig_end', 'sig_len'))
-MAP_RES.__new__.__defaults__ = (None, None, None)
+    'q_st', 'q_en', 'cigar', 'map_sig_start', 'map_sig_end', 'sig_len',
+    'map_num'))
+MAP_RES.__new__.__defaults__ = (None, None, None, 0)
 MAP_SUMM = namedtuple('MAP_SUMM', (
     'read_id', 'pct_identity', 'num_align', 'num_match',
     'num_del', 'num_ins', 'read_pct_coverage', 'chrom', 'strand',
     'start', 'end', 'query_start', 'query_end',
-    'map_sig_start', 'map_sig_end', 'sig_len'))
+    'map_sig_start', 'map_sig_end', 'sig_len', 'map_num'))
 # Defaults for backwards compatibility when reading
 MAP_SUMM.__new__.__defaults__ = (
-    None, None, None, None, None, None, None, None)
+    None, None, None, None, None, None, None, None, 0)
 MAP_SUMM_TMPLT = (
     '{0.read_id}\t{0.pct_identity:.2f}\t{0.num_align}\t{0.num_match}\t' +
     '{0.num_del}\t{0.num_ins}\t{0.read_pct_coverage:.2f}\t{0.chrom}\t' +
     '{0.strand}\t{0.start}\t{0.end}\t{0.query_start}\t{0.query_end}\t' +
-    '{0.map_sig_start}\t{0.map_sig_end}\t{0.sig_len}\n')
+    '{0.map_sig_start}\t{0.map_sig_end}\t{0.sig_len}\t{0.map_num}\n')
 MAP_SUMM_TYPES = dict(zip(
     MAP_SUMM._fields,
     (str, float, int, int, int, int, float, str, str, int, int,
-     int, int, int, int, int)))
+     int, int, int, int, int, int)))
 
 MOD_POS_TAG = 'Mm'
 MOD_PROB_TAG = 'Ml'
@@ -112,7 +113,7 @@ def get_map_pos_from_res(map_res):
 class MapInfo:
     def __init__(
             self, aligner, map_fmt, ref_fn, out_dir, do_output_mappings,
-            samtools_exec, do_sort_mappings, cram_ref_fn):
+            samtools_exec, do_sort_mappings, cram_ref_fn, allow_supps=False):
         if aligner is None:
             self.ref_names_and_lens = None
         else:
@@ -130,6 +131,7 @@ class MapInfo:
         self.do_output_mappings = do_output_mappings
         self.samtools_exec = samtools_exec
         self.do_sort_mappings = do_sort_mappings
+        self.allow_supps = allow_supps
 
     def open_alignment_out_file(self):
         map_fn = '{}.{}'.format(
@@ -183,24 +185,35 @@ class MapInfo:
             self.do_sort_mappings = False
 
 
-def align_read(q_seq, aligner, map_thr_buf, read_id=None):
-    try:
-        # enumerate all alignments to avoid memory leak from mappy
-        r_algn = list(aligner.map(str(q_seq), buf=map_thr_buf))[0]
-    except IndexError:
-        # alignment not produced
+def align_read(
+        q_seq, aligner, map_thr_buf, read_id=None, allow_supps=False,
+        return_tuple=True):
+    def parse_alignment(r_algn, map_num=0):
+        ref_seq = aligner.seq(r_algn.ctg, r_algn.r_st, r_algn.r_en)
+        if r_algn.strand == -1:
+            ref_seq = mh.revcomp(ref_seq)
+        r_map_res = MAP_RES(
+            read_id=read_id, q_seq=q_seq, ref_seq=ref_seq, ctg=r_algn.ctg,
+            strand=r_algn.strand, r_st=r_algn.r_st, r_en=r_algn.r_en,
+            q_st=r_algn.q_st, q_en=r_algn.q_en, cigar=r_algn.cigar,
+            map_num=map_num)
+        if return_tuple:
+            return tuple(r_map_res)
+        return r_map_res
+
+    # enumerate all alignments to avoid memory leak from mappy
+    r_algns = list(aligner.map(str(q_seq), buf=map_thr_buf))
+    if len(r_algns) == 0:
+        # no alignments produced
         return None
 
-    ref_seq = aligner.seq(r_algn.ctg, r_algn.r_st, r_algn.r_en)
-    if r_algn.strand == -1:
-        ref_seq = mh.revcomp(ref_seq)
-    return MAP_RES(
-        read_id=read_id, q_seq=q_seq, ref_seq=ref_seq, ctg=r_algn.ctg,
-        strand=r_algn.strand, r_st=r_algn.r_st, r_en=r_algn.r_en,
-        q_st=r_algn.q_st, q_en=r_algn.q_en, cigar=r_algn.cigar)
+    if allow_supps:
+        return [parse_alignment(r_algn, map_num)
+                for map_num, r_algn in enumerate(r_algns)]
+    return [parse_alignment(r_algns[0]), ]
 
 
-def _map_read_worker(aligner, map_conn):
+def _map_read_worker(aligner, map_conn, allow_supps):
     LOGGER.debug('MappingWorkerStarting')
     # get mappy aligner thread buffer
     map_thr_buf = mappy.ThreadBuffer()
@@ -212,11 +225,8 @@ def _map_read_worker(aligner, map_conn):
         except EOFError:
             LOGGER.debug('MappingWorkerClosing')
             break
-        map_res = align_read(q_seq, aligner, map_thr_buf, read_id)
-        if map_res is not None:
-            # only convert to tuple if result is valid
-            map_res = tuple(map_res)
-        map_conn.send(map_res)
+        map_conn.send(align_read(
+            q_seq, aligner, map_thr_buf, read_id, allow_supps))
 
 
 def parse_cigar(r_cigar, strand, ref_len):
@@ -253,26 +263,11 @@ def parse_cigar(r_cigar, strand, ref_len):
     return r_to_q_poss
 
 
-def map_read(
-        caller_conn, called_read, sig_info, mo_q=None, signal_reversed=False,
-        rl_cumsum=None):
-    """ Map read (query) sequence
-
-    Returns:
-        Tuple containing
-            1) reference sequence (endcoded as int labels)
-            2) mapping from reference to read positions (after trimming)
-            3) reference mapping position (including read trimming positions)
-            4) cigar as produced by mappy
-    """
-    # send seq to _map_read_worker and receive mapped seq and pos
-    q_seq = called_read.seq[::-1] if signal_reversed else called_read.seq
-    caller_conn.send((q_seq, sig_info.read_id))
-    map_res = caller_conn.recv()
-    if map_res is None:
-        raise mh.MegaError('No alignment')
+def process_mapping(
+        map_res, called_read, sig_info, mo_q, signal_reversed, rl_cumsum):
     map_res = MAP_RES(*map_res)
-    # add signal coordinates to mapping output if run-length cumsum provided
+    # add signal coordinates to mapping output if run-length cumsum
+    # provided
     if rl_cumsum is not None:
         # convert query start and end to signal-anchored locations
         # Note that for signal_reversed reads, the start will be larger than
@@ -307,7 +302,32 @@ def map_read(
         raise mh.MegaError('Invalid cigar string encountered.')
     map_pos = get_map_pos_from_res(map_res)
 
-    return map_res.ref_seq, r_to_q_poss, map_pos, map_res.cigar
+    return (map_res.ref_seq, r_to_q_poss, map_pos, map_res.cigar,
+            map_res.map_num)
+
+
+def map_read(
+        caller_conn, called_read, sig_info, mo_q=None, signal_reversed=False,
+        rl_cumsum=None):
+    """ Map read (query) sequence
+
+    Returns:
+        Tuple containing
+            1) reference sequence (endcoded as int labels)
+            2) mapping from reference to read positions (after trimming)
+            3) reference mapping position (including read trimming positions)
+            4) cigar as produced by mappy
+    """
+    # send seq to _map_read_worker and receive mapped seq and pos
+    q_seq = called_read.seq[::-1] if signal_reversed else called_read.seq
+    caller_conn.send((q_seq, sig_info.read_id))
+    map_ress = caller_conn.recv()
+    if map_ress is None:
+        raise mh.MegaError('No alignment')
+
+    return [process_mapping(
+        map_res, called_read, sig_info, mo_q, signal_reversed, rl_cumsum)
+        for map_res in map_ress]
 
 
 def compute_pct_identity(cigar):
@@ -334,6 +354,15 @@ def read_passes_filters(filt_params, read_len, q_st, q_en, cigar):
     return True
 
 
+def get_map_flag(strand, map_num):
+    flag = 0
+    if strand == -1:
+        flag += 16
+    if map_num > 0:
+        flag += 2048
+    return flag
+
+
 def _get_map_queue(mo_q, mo_conn, map_info, ref_out_info, aux_failed_q):
     def write_alignment(map_res):
         # convert tuple back to namedtuple
@@ -354,7 +383,7 @@ def _get_map_queue(mo_q, mo_conn, map_info, ref_out_info, aux_failed_q):
         a = prepare_mapping(
             map_res.read_id,
             q_seq if map_res.strand == 1 else mh.revcomp(q_seq),
-            flag=0 if map_res.strand == 1 else 16,
+            flag=get_map_flag(map_res.strand, map_res.map_num),
             ref_id=map_fp.get_tid(map_res.ctg), ref_st=map_res.r_st,
             cigartuples=[(op, op_l) for op_l, op in map_res.cigar],
             tags=[('NM', nalign - nmatch)])
@@ -369,12 +398,13 @@ def _get_map_queue(mo_q, mo_conn, map_info, ref_out_info, aux_failed_q):
             strand=mh.int_strand_to_str(map_res.strand), start=map_res.r_st,
             end=map_res.r_st + nalign - nins, query_start=map_res.q_st,
             query_end=map_res.q_en, map_sig_start=map_res.map_sig_start,
-            map_sig_end=map_res.map_sig_end, sig_len=map_res.sig_len)
+            map_sig_end=map_res.map_sig_end, sig_len=map_res.sig_len,
+            map_num=map_res.map_num)
         summ_fp.write(MAP_SUMM_TMPLT.format(r_map_summ))
 
         if ref_out_info.do_output.pr_refs and read_passes_filters(
                 ref_out_info.filt_params, len(map_res.q_seq), map_res.q_st,
-                map_res.q_en, map_res.cigar):
+                map_res.q_en, map_res.cigar) and map_res.map_num == 0:
             pr_ref_fp.write('>{}\n{}\n'.format(
                 map_res.read_id, map_res.ref_seq))
 
