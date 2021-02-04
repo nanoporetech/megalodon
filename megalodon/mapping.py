@@ -21,8 +21,8 @@ MAP_POS = namedtuple('MAP_POS', (
 MAP_RES = namedtuple('MAP_RES', (
     'read_id', 'q_seq', 'ref_seq', 'ctg', 'strand', 'r_st', 'r_en',
     'q_st', 'q_en', 'cigar', 'map_sig_start', 'map_sig_end', 'sig_len',
-    'map_num'))
-MAP_RES.__new__.__defaults__ = (None, None, None, 0)
+    'map_num', 'mapq'))
+MAP_RES.__new__.__defaults__ = (None, None, None, 0, None)
 MAP_SUMM = namedtuple('MAP_SUMM', (
     'read_id', 'pct_identity', 'num_align', 'num_match',
     'num_del', 'num_ins', 'read_pct_coverage', 'chrom', 'strand',
@@ -196,7 +196,7 @@ def align_read(
             read_id=read_id, q_seq=q_seq, ref_seq=ref_seq, ctg=r_algn.ctg,
             strand=r_algn.strand, r_st=r_algn.r_st, r_en=r_algn.r_en,
             q_st=r_algn.q_st, q_en=r_algn.q_en, cigar=r_algn.cigar,
-            map_num=map_num)
+            map_num=map_num, mapq=r_algn.mapq)
         if return_tuple:
             return tuple(r_map_res)
         return r_map_res
@@ -385,6 +385,7 @@ def _get_map_queue(mo_q, mo_conn, map_info, ref_out_info, aux_failed_q):
             q_seq if map_res.strand == 1 else mh.revcomp(q_seq),
             flag=get_map_flag(map_res.strand, map_res.map_num),
             ref_id=map_fp.get_tid(map_res.ctg), ref_st=map_res.r_st,
+            map_qual=map_res.mapq,
             cigartuples=[(op, op_l) for op_l, op in map_res.cigar],
             tags=[('NM', nalign - nmatch)])
         map_fp.write(a)
