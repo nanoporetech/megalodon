@@ -1,35 +1,21 @@
 image: python:3.6
 
 stages:
-    - build
     - format
 
-variables:
-  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
-
-cache:
-  paths:
-    - .cache/pip
-    - venv/
-
-
-build:
-    stage: build
-    script:
-        - python -V  # Print out python version for debugging
-        - pip install virtualenv
-        - virtualenv venv
-        - source venv/bin/activate
-        - pip install --upgrade pip
-        - pip install -e .[testing]
-    artifacts:
-        paths:
-            - venv
+before_script:
+    - python -V  # Print out python version for debugging
+    - pip install virtualenv
+    - virtualenv venv
+    - source venv/bin/activate
+    - pip install --upgrade pip
+    - pip install -e .[testing]
 
 black:
     stage: format
     script:
-        - source venv/bin/activate && black .
+        - source venv/bin/activate
+        - black .
 
 docs:
     stage: format
