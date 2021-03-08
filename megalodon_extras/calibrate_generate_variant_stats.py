@@ -129,8 +129,8 @@ def process_read(
         all_paths=ALL_PATHS, every_n=TEST_EVERY_N_LOCS,
         max_pos_per_read=MAX_POS_PER_READ):
     sig_info, called_read, rl_cumsum, can_post, = bc_res
-    r_ref_seq, r_to_q_poss, r_ref_pos, _ = mapping.map_read(
-        caller_conn, called_read, backends.SIGNAL_DATA(*sig_info))
+    r_ref_seq, r_to_q_poss, r_ref_pos, _, _ = mapping.map_read(
+        caller_conn, called_read, backends.SIGNAL_DATA(*sig_info))[0]
     np_ref_seq = mh.seq_to_int(r_ref_seq)
     if np_ref_seq.shape[0] < edge_buffer * 2:
         raise NotImplementedError(

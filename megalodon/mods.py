@@ -13,8 +13,8 @@ from collections import defaultdict, namedtuple, OrderedDict
 import numpy as np
 
 from megalodon import (
-    calibration, decode, logging, mapping, megalodon_helper as mh)
-from megalodon._version import MEGALODON_VERSION
+    calibration, decode, logging, mapping, megalodon_helper as mh,
+    __version__)
 
 
 LOGGER = logging.get_logger()
@@ -1900,7 +1900,7 @@ class ModVcfWriter:
             mh.VCF_VERSION_MI.format(self.version),
             mh.FILE_DATE_MI.format(
                 datetime.date.today().strftime("%Y%m%d")),
-            mh.SOURCE_MI.format(MEGALODON_VERSION),
+            mh.SOURCE_MI.format(__version__),
             mh.REF_MI.format(ref_fn)] + contig_mis + extra_meta_info + [
                 mod_tmplt.format(*mod_name) for mod_name in self.mods
                 for mod_tmplt in MOD_MI_TMPLTS]

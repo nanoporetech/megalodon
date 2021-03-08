@@ -1,7 +1,11 @@
 import sys
+import platform
 
 import numpy as np
 import seaborn as sns
+import matplotlib
+if platform.system() == 'Darwin':
+    matplotlib.use('macosx')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 

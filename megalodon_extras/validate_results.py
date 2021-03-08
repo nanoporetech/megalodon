@@ -1,9 +1,13 @@
 import os
 import sys
+import platform
 from collections import defaultdict, namedtuple
 
 import numpy as np
 import seaborn as sns
+import matplotlib
+if platform.system() == 'Darwin':
+    matplotlib.use('macosx')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from sklearn.metrics import (

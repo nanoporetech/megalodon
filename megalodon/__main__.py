@@ -1,8 +1,7 @@
 import sys
 import argparse
 
-from megalodon import megalodon_helper as mh
-from megalodon._version import MEGALODON_VERSION
+from megalodon import megalodon_helper as mh, __version__
 
 
 class SelectiveRawFormatter(argparse.HelpFormatter):
@@ -388,7 +387,7 @@ def get_parser():
         help='RNA input data. Requires RNA model. Default: DNA input data')
     misc_grp.add_argument(
         '-v', '--version', action='version',
-        version='Megalodon version: {}'.format(MEGALODON_VERSION),
+        version='Megalodon version: {}'.format(__version__),
         help='show megalodon version and exit.')
 
     misc_grp.add_argument(

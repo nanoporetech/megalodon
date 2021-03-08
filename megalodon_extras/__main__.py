@@ -2,7 +2,7 @@ import sys
 import argparse
 from importlib import import_module
 
-from megalodon import _version
+from megalodon import __version__
 from megalodon_extras import _extras_parsers as ep
 
 
@@ -121,8 +121,7 @@ def _main():
         desc, formatter_class=SubcommandHelpFormatter)
     parser.add_argument(
         '-v', '--version', action='version',
-        version='Megalodon version: {}'.format(
-            _version.MEGALODON_VERSION),
+        version='Megalodon version: {}'.format(__version__),
         help='Show Megalodon version and exit.')
 
     # add megalodon_extras command groups

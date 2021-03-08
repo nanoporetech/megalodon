@@ -14,8 +14,7 @@ import numpy as np
 from scipy import stats
 
 from megalodon import (calibration, decode, logging, mapping,
-                       megalodon_helper as mh)
-from megalodon._version import MEGALODON_VERSION
+                       megalodon_helper as mh, __version__)
 
 
 _DEBUG_PER_READ = False
@@ -1889,7 +1888,7 @@ class VcfWriter:
         self.meta = [
             mh.VCF_VERSION_MI.format(self.version),
             mh.FILE_DATE_MI.format(datetime.date.today().strftime("%Y%m%d")),
-            mh.SOURCE_MI.format(MEGALODON_VERSION),
+            mh.SOURCE_MI.format(__version__),
             mh.REF_MI.format(ref_fn)] + contig_mis + extra_meta_info
         if write_vcf_lp:
             self.meta.append(FORMAT_LOG_PROB_MI)

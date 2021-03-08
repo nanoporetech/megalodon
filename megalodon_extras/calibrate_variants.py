@@ -1,8 +1,12 @@
 import os
 import sys
+import platform
 from collections import defaultdict
 
 import numpy as np
+import matplotlib
+if platform.system() == 'Darwin':
+    matplotlib.use('macosx')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 

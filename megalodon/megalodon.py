@@ -12,10 +12,10 @@ import mappy
 import numpy as np
 from tqdm import tqdm
 
-from megalodon._version import MEGALODON_VERSION
 from megalodon import (
     aggregate, backends, fast5_io, logging, mapping, mods,
-    variants, megalodon_helper as mh, megalodon_multiprocessing as mega_mp)
+    variants, megalodon_helper as mh, megalodon_multiprocessing as mega_mp,
+    __version__)
 
 
 LOGGER = logging.get_logger()
@@ -1177,8 +1177,12 @@ def parse_ref_out_args(args, model_info, map_info):
 
     ref_mods_all_motifs = None
     if args.ref_mods_all_motifs is not None:
-        ref_mods_all_motifs, sm_alphabet_info = parse_ref_mods_all_motifs(
-            args.ref_mods_all_motifs, sm_alphabet_info)
+        if sm_alphabet_info is None:
+            LOGGER.warning(
+                'All mod motifs not compatible with `per_read_refs`.')
+        else:
+            ref_mods_all_motifs, sm_alphabet_info = parse_ref_mods_all_motifs(
+                args.ref_mods_all_motifs, sm_alphabet_info)
 
     ref_out_info = mh.REF_OUT_INFO(
         do_output=ref_outputs, filt_params=ref_filt_params,
@@ -1236,7 +1240,7 @@ def _main(args):
         sys.exit(1)
 
     logging.init_logger(args.output_directory)
-    LOGGER.info('Running Megalodon version {}'.format(MEGALODON_VERSION))
+    LOGGER.info('Running Megalodon version {}'.format(__version__))
     LOGGER.debug('Command: """' + ' '.join(sys.argv) + '"""')
     if _DO_PROFILE:
         LOGGER.warning('Running profiling. This may slow processing.')

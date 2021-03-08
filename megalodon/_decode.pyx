@@ -5,10 +5,10 @@
 # # cython: profile=True
 
 import cython
+from libc.stdint cimport int64_t, uintptr_t
 from libc.stdlib cimport calloc, free
 from libc.math cimport sqrt
 import numpy as np
-cimport numpy as np
 
 cdef extern from "math.h":
     float expf(float x)
@@ -127,14 +127,12 @@ cdef inline void decode_forward_step(
 
 
 cdef float flipflop_decode_trans(
-        np.ndarray[np.float32_t, ndim=2] tpost, size_t nblk, size_t nbase,
-        np.ndarray[np.uintp_t, ndim=1] path,
-        np.ndarray[np.float32_t, ndim=1] qpath):
+        float[:, ::1] tpost, size_t nblk, size_t nbase,
+        uintptr_t[::1] path, float[:] qpath):
     cdef size_t nff_state = nbase + nbase
     cdef size_t ntrans_state = nff_state * (nbase + 1)
 
-    cdef np.ndarray[np.uintp_t, ndim=2] tb = np.empty(
-        (nblk, nff_state), dtype=np.uintp)
+    cdef uintptr_t[:, ::1] tb = np.empty((nblk, nff_state), dtype=np.uintp)
 
     cdef float * curr = <float *> calloc(nff_state, sizeof(float))
     cdef float * prev = <float *> calloc(nff_state, sizeof(float))
@@ -222,8 +220,8 @@ cdef inline void decode_forward_step_fb(
 
 
 cdef void decode_forward(
-        np.ndarray[np.float32_t, ndim=2] logprob, size_t nbase, size_t nblk,
-        np.ndarray[np.float32_t, ndim=2] fwd):
+        float[:, ::1] logprob, size_t nbase, size_t nblk,
+        float[:, ::1] fwd):
     cdef size_t nff_state = nbase + nbase
     cdef size_t ntrans_state = nff_state * (nbase + 1)
 
@@ -240,13 +238,11 @@ cdef void decode_forward(
 
 
 cdef void flipflop_trans_post(
-    np.ndarray[np.float32_t, ndim=2] logprob, size_t nbase, size_t nblk,
-    np.ndarray[np.float32_t, ndim=2] tpost):
+        float[:, ::1] logprob, size_t nbase, size_t nblk, float[:, ::1] tpost):
     cdef size_t nff_state = nbase + nbase
     cdef size_t ntrans_state = nff_state * (nbase + 1)
 
-    cdef np.ndarray[np.float32_t, ndim=2] fwd = np.empty(
-        (nblk + 1, nff_state), dtype=np.float32)
+    cdef float[:, ::1] fwd = np.empty((nblk + 1, nff_state), dtype=np.float32)
 
     decode_forward(logprob, nbase, nblk, fwd)
 
@@ -321,27 +317,25 @@ cdef void flipflop_trans_post(
 # Standard flip-flop functions #
 ################################
 
-def crf_flipflop_trans_post(np.ndarray[np.float32_t, ndim=2, mode="c"] logprob,
-                            log=True):
+def crf_flipflop_trans_post(float[:, ::1] logprob, log=True):
     """ Get posteriors from transition weights
     """
     cdef size_t nblock, nparam, nbase
     nblock, nparam = logprob.shape[0], logprob.shape[1]
     nbase = nstate_to_nbase(nparam)
 
-    cdef np.ndarray[np.float32_t, ndim=2, mode="c"] tpost = np.zeros_like(
-        logprob)
+    tpost_np = np.zeros_like(logprob)
+    cdef float[:, ::1] tpost = tpost_np
     flipflop_trans_post(logprob, nbase, nblock, tpost)
     if not log:
         # perform exp inplace
         np.exp(tpost, out=tpost)
 
-    return tpost
+    return tpost_np
 
 
-def crf_flipflop_viterbi(np.ndarray[np.float32_t, ndim=2, mode="c"] tpost,
-                         np.ndarray[np.uintp_t, ndim=1, mode="c"] path,
-                         np.ndarray[np.float32_t, ndim=1, mode="c"] qpath):
+def crf_flipflop_viterbi(
+        float[:, ::1] tpost, uintptr_t[::1] path, float[::1] qpath):
     """ Fast flip-flop Viterbi decoding calling C implementation
     """
     cdef size_t nblock, nparam, nbase
@@ -358,7 +352,7 @@ def crf_flipflop_viterbi(np.ndarray[np.float32_t, ndim=2, mode="c"] tpost,
 ####################
 
 cdef float score_best_path(
-        np.ndarray[np.float32_t, ndim=2] tpost, np.ndarray[np.uintp_t] seq,
+        float[:, ::1] tpost, uintptr_t[::1] seq,
         size_t tpost_start, size_t tpost_end, size_t nseq, size_t nbase):
     cdef size_t ntrans_state = (nbase + nbase) * (nbase + 1)
     cdef size_t nblk = tpost_end - tpost_start
@@ -443,7 +437,7 @@ cdef float score_best_path(
 
 
 cdef float score_all_paths(
-        np.ndarray[np.float32_t, ndim=2] tpost, np.ndarray[np.uintp_t] seq,
+        float[:, ::1] tpost, uintptr_t[:] seq,
         size_t tpost_start, size_t tpost_end, size_t nseq, size_t nbase):
     cdef size_t ntrans_state = (nbase + nbase) * (nbase + 1)
     cdef size_t nblk = tpost_end - tpost_start
@@ -526,8 +520,7 @@ cdef float score_all_paths(
 
 
 def score_seq(
-        np.ndarray[np.float32_t, ndim=2, mode="c"] tpost,
-        np.ndarray[np.uintp_t, ndim=1, mode="c"] seq,
+        float[:, ::1] tpost, uintptr_t[::1] seq,
         tpost_start, tpost_end, all_paths):
     nseq = seq.shape[0]
     nbase = nstate_to_nbase(tpost.shape[1])
@@ -541,9 +534,9 @@ def score_seq(
 ########################
 
 cdef float score_best_path_mod(
-        np.ndarray[np.float32_t, ndim=2] tpost, np.ndarray[np.uintp_t] seq,
-        np.ndarray[np.uintp_t] mod_cats,
-        np.ndarray[np.uintp_t] can_mods_offsets, size_t tpost_start,
+        float[:, ::1] tpost, uintptr_t[::1] seq,
+        uintptr_t[::1] mod_cats,
+        uintptr_t[::1] can_mods_offsets, size_t tpost_start,
         size_t tpost_end, size_t nseq, size_t nstate):
     cdef size_t nbase = nstate_to_nbase(nstate - can_mods_offsets[4])
     cdef size_t ntrans_state = (nbase + nbase) * (nbase + 1)
@@ -633,10 +626,9 @@ cdef float score_best_path_mod(
 
 
 cdef float score_all_paths_mod(
-        np.ndarray[np.float32_t, ndim=2] tpost, np.ndarray[np.uintp_t] seq,
-        np.ndarray[np.uintp_t] mod_cats,
-        np.ndarray[np.uintp_t] can_mods_offsets, size_t tpost_start,
-        size_t tpost_end, size_t nseq, size_t nstate):
+        float[:, ::1] tpost, uintptr_t[::1] seq,
+        uintptr_t[::1] mod_cats, uintptr_t[::1] can_mods_offsets,
+        size_t tpost_start, size_t tpost_end, size_t nseq, size_t nstate):
     cdef size_t nbase = nstate_to_nbase(nstate - can_mods_offsets[4])
     cdef size_t ntrans_state = (nbase + nbase) * (nbase + 1)
     cdef size_t nblk = tpost_end - tpost_start
@@ -722,10 +714,8 @@ cdef float score_all_paths_mod(
     return score
 
 def score_mod_seq(
-        np.ndarray[np.float32_t, ndim=2, mode="c"] tpost,
-        np.ndarray[np.uintp_t, ndim=1, mode="c"] seq,
-        np.ndarray[np.uintp_t, ndim=1, mode="c"] mod_cats,
-        np.ndarray[np.uintp_t, ndim=1, mode="c"] can_mods_offsets,
+        float[:, ::1] tpost, uintptr_t[::1] seq,
+        uintptr_t[::1] mod_cats, uintptr_t[::1] can_mods_offsets,
         tpost_start, tpost_end, all_paths):
     nseq = seq.shape[0]
     nstate = tpost.shape[1]
@@ -764,10 +754,10 @@ def rle(x, tol=0):
 
 @cython.wraparound(True)
 def decode_post(
-        np.ndarray[np.float32_t, ndim=2, mode="c"] r_post,
+        float[:, ::1] r_post,
         can_alphabet=ALPHABET,
-        np.ndarray[np.float32_t, ndim=2, mode="c"] mod_weights=None,
-        np.ndarray[np.int64_t, ndim=1, mode="c"] can_nmods=None):
+        float[:, ::1] mod_weights=None,
+        int64_t[::1] can_nmods=None):
     """Decode a posterior using Viterbi algorithm for transducer.
     :param r_post: numpy array containing transducer posteriors.
     :param can_alphabet: canonical alphabet corresponding to flip-flop labels.

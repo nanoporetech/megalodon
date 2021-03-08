@@ -10,8 +10,7 @@ import mappy
 import pysam
 import numpy as np
 
-from megalodon import megalodon_helper as mh, logging
-from megalodon._version import MEGALODON_VERSION
+from megalodon import megalodon_helper as mh, logging, __version__
 
 
 LOGGER = logging.get_logger()
@@ -58,7 +57,7 @@ def get_mapping_mode(map_fmt):
 def open_unaligned_alignment_file(basename, map_fmt, mod_long_names=None):
     fn = '{}.{}'.format(basename, map_fmt)
     header_dict = OrderedDict([('PG', [OrderedDict([
-        ('ID', 'megalodon'), ('PN', 'megalodon'), ('VN', MEGALODON_VERSION),
+        ('ID', 'megalodon'), ('PN', 'megalodon'), ('VN', __version__),
         ('CL', ' '.join(sys.argv))])])])
     if mod_long_names is not None:
         header_dict['CO'] = [
@@ -213,7 +212,7 @@ def align_read(
     return [parse_alignment(r_algns[0]), ]
 
 
-def _map_read_worker(aligner, map_conn, allow_supps):
+def _map_read_worker(aligner, map_conn, allow_supps=False):
     LOGGER.debug('MappingWorkerStarting')
     # get mappy aligner thread buffer
     map_thr_buf = mappy.ThreadBuffer()
@@ -317,6 +316,7 @@ def map_read(
             2) mapping from reference to read positions (after trimming)
             3) reference mapping position (including read trimming positions)
             4) cigar as produced by mappy
+            5) Mapping number (int)
     """
     # send seq to _map_read_worker and receive mapped seq and pos
     q_seq = called_read.seq[::-1] if signal_reversed else called_read.seq
