@@ -10,8 +10,9 @@ def _main(args):
         mh.mkdir(args.guppy_logs_output_directory, False)
     except mh.MegaError:
         LOGGER.warning(
-            'Guppy logs output directory exists. Potentially overwriting ' +
-            'guppy logs.')
+            "Guppy logs output directory exists. Potentially overwriting "
+            + "guppy logs."
+        )
     logging.init_logger(args.log_directory)
     # set args that are not relevant to alphabet
     args.devices = None
@@ -30,5 +31,5 @@ def _main(args):
         LOGGER.info(model_info.get_alphabet_str())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     _main(get_parser_modified_bases_describe_alphabet().parse_args())

@@ -3,18 +3,20 @@ import sys
 import logging
 
 
-LOG_FN = 'log.txt'
+LOG_FN = "log.txt"
 
 
 class CustomFormatter(logging.Formatter):
     err_fmt = "*" * 100 + "\n\tERROR: %(msg)s\n" + "*" * 100
     warn_fmt = "*" * 20 + " WARNING: %(msg)s " + "*" * 20
     info_fmt = "[%(asctime)s] %(message)s"
-    dbg_fmt = ("DBG %(asctime)s : %(msg)s --- %(processName)s-" +
-               "%(threadName)s %(module)s.py:%(lineno)d")
+    dbg_fmt = (
+        "DBG %(asctime)s : %(msg)s --- %(processName)s-"
+        + "%(threadName)s %(module)s.py:%(lineno)d"
+    )
 
-    def __init__(self, fmt='[%(asctime)s] %(levelname)-8s: %(message)s'):
-        super().__init__(fmt=fmt, datefmt='%H:%M:%S', style='%')
+    def __init__(self, fmt="[%(asctime)s] %(levelname)-8s: %(message)s"):
+        super().__init__(fmt=fmt, datefmt="%H:%M:%S", style="%")
 
     def format(self, record):
         format_orig = self._fmt
@@ -36,7 +38,7 @@ class CustomFormatter(logging.Formatter):
 
 
 def init_logger(out_dir=None, out_suffix=None, log_fn=None, quiet=False):
-    """ Prepare logging output. Output file will be opened if out_dir or log_fn
+    """Prepare logging output. Output file will be opened if out_dir or log_fn
     are specified. out_suffix will be added to the standard log.txt filename in
     out_dir (does not apply when log_fn is specified).
 
@@ -48,9 +50,9 @@ def init_logger(out_dir=None, out_suffix=None, log_fn=None, quiet=False):
         log_fn = os.path.join(out_dir, LOG_FN)
         if out_suffix is not None:
             base_fn, fn_ext = os.path.splitext(log_fn)
-            log_fn = base_fn + '.' + out_suffix + fn_ext
+            log_fn = base_fn + "." + out_suffix + fn_ext
     if log_fn is not None:
-        log_fp = logging.FileHandler(log_fn, 'w')
+        log_fp = logging.FileHandler(log_fn, "w")
         log_fp.setLevel(logging.DEBUG)
         log_fp.setFormatter(CustomFormatter())
 
@@ -61,17 +63,17 @@ def init_logger(out_dir=None, out_suffix=None, log_fn=None, quiet=False):
         console.setLevel(logging.INFO)
     console.setFormatter(CustomFormatter())
 
-    root_logger = logging.getLogger('')
+    root_logger = logging.getLogger("")
     root_logger.setLevel(logging.DEBUG)
     if log_fp is not None:
         root_logger.addHandler(log_fp)
     root_logger.addHandler(console)
 
 
-def get_logger(module_name=''):
+def get_logger(module_name=""):
     return logging.getLogger(module_name)
 
 
-if __name__ == '__main__':
-    sys.stderr.write('This is a module. See commands with `megalodon -h`')
+if __name__ == "__main__":
+    sys.stderr.write("This is a module. See commands with `megalodon -h`")
     sys.exit(1)

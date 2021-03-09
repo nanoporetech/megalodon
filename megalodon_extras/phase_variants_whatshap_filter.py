@@ -31,35 +31,38 @@ def get_qual(vcf_line):
 
 def get_pos_ref_alts(vcf_line):
     chrm, pos, _, ref, alts = vcf_line.split()[:5]
-    return chrm, int(pos), ref, alts.split(',')
+    return chrm, int(pos), ref, alts.split(",")
 
 
 def _main(args):
-    out_fp = open(args.out_vcf, 'w')
-    filt_fp = None if args.filtered_records is None else open(
-        args.filtered_records, 'w')
+    out_fp = open(args.out_vcf, "w")
+    filt_fp = (
+        None
+        if args.filtered_records is None
+        else open(args.filtered_records, "w")
+    )
 
     with open(args.in_vcf) as fp:
         prev_line = prev_chrm = prev_end = None
-        for line in tqdm(fp, desc='Filtering VCF', unit=' lines', smoothing=0):
-            if line.startswith('#'):
+        for line in tqdm(fp, desc="Filtering VCF", unit=" lines", smoothing=0):
+            if line.startswith("#"):
                 out_fp.write(line)
                 continue
             chrm, start, ref, alts = get_pos_ref_alts(line)
             # skip complex variants
             if is_complex_variant(ref, alts):
                 if filt_fp is not None:
-                    filt_fp.write('COMLEX_VARIANT: ' + line)
+                    filt_fp.write("COMLEX_VARIANT: " + line)
                 continue
 
             if prev_chrm == chrm and prev_end > start:
                 if get_qual(line) > get_qual(prev_line):
                     if filt_fp is not None:
-                        filt_fp.write('OVERLAPPING_VARIANT: ' + prev_line)
+                        filt_fp.write("OVERLAPPING_VARIANT: " + prev_line)
                     prev_line = line
                 else:
                     if filt_fp is not None:
-                        filt_fp.write('OVERLAPPING_VARIANT: ' + line)
+                        filt_fp.write("OVERLAPPING_VARIANT: " + line)
                 continue
 
             if prev_line is not None:
@@ -76,5 +79,5 @@ def _main(args):
     return
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     _main(get_parser_phase_variants_whatshap_filter().parse_args())

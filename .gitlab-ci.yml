@@ -1,60 +1,26 @@
 image: python:3.6
 
 stages:
-    - build
     - format
 
-variables:
-  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+before_script:
+    - python -V  # Print out python version for debugging
+    - pip install virtualenv
+    - virtualenv venv
+    - source venv/bin/activate
+    - pip install --upgrade pip
+    - pip install -e .[testing]
 
-cache:
-  paths:
-    - .cache/pip
-    - venv/
-
-
-build:
-    stage: build
+black:
+    stage: format
     script:
-        - python -V  # Print out python version for debugging
-        - pip install virtualenv
-        - virtualenv venv
         - source venv/bin/activate
-        - pip install --upgrade pip
-        - pip install numpy cython
-        - pip install -e .
-    artifacts:
-        paths:
-            - venv
-
-pep8:
-    stage: format
-    script:
-        - source venv/bin/activate && pip install 'autopep8>1.5' &&
-          ls megalodon/*.py megalodon_extras/*.py |
-          xargs -P 1 autopep8 -j 2 --diff | tee pep8_differences.txt
-        - if [ -s pep8_differences.txt ]; then false; fi
-    artifacts:
-        paths:
-            - pep8_differences.txt
-        expire_in: 1 week
-        when: on_failure
-
-flake8:
-    stage: format
-    script:
-        - source venv/bin/activate && pip install flake8 &&
-          flake8 -j 2 --show-source --statistics --tee --output-file=flake_results.txt --exclude docs,venv,.svn,CVS,.bzr,.hg,.git,__pycache__,.tox,.eggs,*.egg
-    artifacts:
-        paths:
-            - flake_results.txt
-        expire_in: 1 week
-        when: on_failure
+        - black --check .
 
 docs:
     stage: format
     script:
-        - source venv/bin/activate && pip install sphinx sphinx-rtd-theme sphinx-argparse
+        - source venv/bin/activate
         - sphinx-build -b html docs builddir && tar -zcf docs_build.tgz builddir
     artifacts:
         paths:

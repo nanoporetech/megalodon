@@ -28,31 +28,33 @@ Given a python (version >= 3.5) installation, all other requirements are handled
 Installation
 ------------
 
-``pip`` and ``conda`` are the recommended installation interfaces for Megalodon.
-``ont_pyguppy_client_lib`` is not available on conda and thus must be installed with ``pip``.
+``pip`` is recommended for Megalodon installation.
 
 ::
 
    pip install megalodon
-   # or
+
+``conda`` installation is available, but not fully supported.
+``ont_pyguppy_client_lib`` is not available on conda and thus must be installed with ``pip``.
+
+::
+
    conda install megalodon
    pip install ont_pyguppy_client_lib
 
 To install from github source for development, the following commands can be run.
-``numpy`` must be installed before running installation for cython optimizations.
 
 ::
 
    git clone https://github.com/nanoporetech/megalodon
-   pip install numpy cython
    pip install -e megalodon/
 
 ===========
 Quick Start
 ===========
 
-Megalodon must obtain the intermediate basecalling neural network matrix.
-It is recommended that the Guppy basecalling backend be used to compute this from the raw nanopore signal.
+Megalodon must obtain the intermediate output from the basecall neural network.
+Guppy (production nanopore basecalling software) is the recommended backend to obtain this output from raw nanopore signal (from FAST5 files).
 Nanopore basecalling is compute intensive and thus it is highly recommended that GPU resources are specified (``--devices``) for optimal Megalodon performance.
 
 Megalodon is accessed via the command line interface ``megalodon`` command.

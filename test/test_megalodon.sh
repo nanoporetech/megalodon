@@ -45,7 +45,7 @@ megalodon \
     --output-directory ${CTRL_READS}.mappings_output \
     --overwrite \
     `# output all the things` \
-    --outputs mappings per_read_refs signal_mappings \
+    --outputs mappings per_read_refs \
     `# guppy options` \
     --guppy-server-path ${GUPPY_PATH} \
     --guppy-config ${GUPPY_MOD_CONFIG} \
@@ -57,12 +57,7 @@ megalodon \
     `# mapping settings (cram requires FASTA reference)` \
     --sort-mappings \
     --mappings-format cram \
-    --cram-reference ${FASTA_REF} \
-    `# per-read reference/signal mapping settings` \
-    --ref-length-range 500 3000 \
-    --ref-percent-identity-threshold 90 \
-    --ref-percent-coverage-threshold 90
-
+    --cram-reference ${FASTA_REF}
 # test mods output
 megalodon \
     `# input reads` \
@@ -98,7 +93,7 @@ megalodon \
     --outputs basecalls mod_basecalls mappings \
     per_read_mods mods mod_mappings \
     per_read_variants variants variant_mappings \
-    per_read_refs signal_mappings \
+    per_read_refs \
     `# guppy options` \
     --guppy-server-path ${GUPPY_PATH} \
     --guppy-config ${GUPPY_MOD_CONFIG} \
@@ -121,11 +116,7 @@ megalodon \
     --variant-filename ${VARS} \
     --haploid \
     --write-variants-text \
-    --write-vcf-log-probs \
-    `# per-read reference/signal mapping settings` \
-    --ref-length-range 500 3000 \
-    --ref-percent-identity-threshold 90 \
-    --ref-percent-coverage-threshold 90
+    --write-vcf-log-probs
 
 # process native reads for downstream results
 megalodon \
@@ -138,7 +129,7 @@ megalodon \
     --outputs basecalls mod_basecalls mappings \
     per_read_mods mods mod_mappings \
     per_read_variants variants variant_mappings \
-    per_read_refs signal_mappings \
+    per_read_refs \
     `# guppy options` \
     --guppy-server-path ${GUPPY_PATH} \
     --guppy-config ${GUPPY_MOD_CONFIG} \
@@ -191,7 +182,7 @@ megalodon_extras \
 rm -r megalodon_results.split_by_motif.CCAGG_1 \
    megalodon_results.split_by_motif.CCTGG_1
 megalodon_extras \
-    modified_bases split_by_motif e_coli_reference.fa \
+    modified_bases split_by_motif ${FASTA_REF} \
     --motif CCAGG 1 --motif CCTGG 1 \
     --megalodon-directory ${NAT_READS}.mega_res/
 megalodon_extras \
@@ -239,29 +230,29 @@ megalodon_extras \
     --ground-truth-cov-min 3 --nanopore-cov-min 5
 
 # test model calibration from mapped signal files
-megalodon_extras \
-    calibrate generate_mod_stats_from_msf \
-    ${CTRL_READS}.mega_res/signal_mappings.hdf5 \
-    --motif CCWGG 1 \
-    --guppy-server-path ${GUPPY_PATH} \
-    --out-filename ctrl_mod_stats.npz --modified-bases-set Z \
-    --processes 2
-megalodon_extras \
-    calibrate generate_mod_stats_from_msf \
-    ${NAT_READS}.mega_res/signal_mappings.hdf5 \
-    --motif CCWGG 1 \
-    --guppy-server-path ${GUPPY_PATH} \
-    --out-filename nat_mod_stats.npz --modified-bases-set Z \
-    --processes 2
-megalodon_extras \
-    calibrate merge_modified_bases_stats \
-    ctrl_mod_stats.all.npz nat_mod_stats.all.npz \
-    --out-filename mod_stats.all.npz
-megalodon_extras \
-    calibrate modified_bases \
-    --ground-truth-llrs mod_stats.all.npz \
-    --out-filename mod_calib.all.npz \
-    --out-pdf mod_calib.all.pdf
+#megalodon_extras \
+#    calibrate generate_mod_stats_from_msf \
+#    ${CTRL_READS}.mega_res/signal_mappings.hdf5 \
+#    --motif CCWGG 1 \
+#    --guppy-server-path ${GUPPY_PATH} \
+#    --out-filename ctrl_mod_stats.npz --modified-bases-set Z \
+#    --processes 2
+#megalodon_extras \
+#    calibrate generate_mod_stats_from_msf \
+#    ${NAT_READS}.mega_res/signal_mappings.hdf5 \
+#    --motif CCWGG 1 \
+#    --guppy-server-path ${GUPPY_PATH} \
+#    --out-filename nat_mod_stats.npz --modified-bases-set Z \
+#    --processes 2
+#megalodon_extras \
+#    calibrate merge_modified_bases_stats \
+#    ctrl_mod_stats.all.npz nat_mod_stats.all.npz \
+#    --out-filename mod_stats.all.npz
+#megalodon_extras \
+#    calibrate modified_bases \
+#    --ground-truth-llrs mod_stats.all.npz \
+#    --out-filename mod_calib.all.npz \
+#    --out-pdf mod_calib.all.pdf
 
 
 # TODO add tests for more megalodon_extras commands
