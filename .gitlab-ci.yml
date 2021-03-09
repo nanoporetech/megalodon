@@ -15,7 +15,7 @@ black:
     stage: format
     script:
         - source venv/bin/activate
-        - black .
+        - black --check .
 
 docs:
     stage: format

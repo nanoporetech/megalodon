@@ -15,63 +15,153 @@ from megalodon import megalodon_helper as mh, logging, __version__
 
 LOGGER = logging.get_logger()
 
-MAP_POS = namedtuple('MAP_POS', (
-    'chrm', 'strand', 'start', 'end', 'q_trim_start', 'q_trim_end'))
-MAP_RES = namedtuple('MAP_RES', (
-    'read_id', 'q_seq', 'ref_seq', 'ctg', 'strand', 'r_st', 'r_en',
-    'q_st', 'q_en', 'cigar', 'map_sig_start', 'map_sig_end', 'sig_len',
-    'map_num', 'mapq'))
+MAP_POS = namedtuple(
+    "MAP_POS", ("chrm", "strand", "start", "end", "q_trim_start", "q_trim_end")
+)
+MAP_RES = namedtuple(
+    "MAP_RES",
+    (
+        "read_id",
+        "q_seq",
+        "ref_seq",
+        "ctg",
+        "strand",
+        "r_st",
+        "r_en",
+        "q_st",
+        "q_en",
+        "cigar",
+        "map_sig_start",
+        "map_sig_end",
+        "sig_len",
+        "map_num",
+        "mapq",
+    ),
+)
 MAP_RES.__new__.__defaults__ = (None, None, None, 0, None)
-MAP_SUMM = namedtuple('MAP_SUMM', (
-    'read_id', 'pct_identity', 'num_align', 'num_match',
-    'num_del', 'num_ins', 'read_pct_coverage', 'chrom', 'strand',
-    'start', 'end', 'query_start', 'query_end',
-    'map_sig_start', 'map_sig_end', 'sig_len', 'map_num'))
+MAP_SUMM = namedtuple(
+    "MAP_SUMM",
+    (
+        "read_id",
+        "pct_identity",
+        "num_align",
+        "num_match",
+        "num_del",
+        "num_ins",
+        "read_pct_coverage",
+        "chrom",
+        "strand",
+        "start",
+        "end",
+        "query_start",
+        "query_end",
+        "map_sig_start",
+        "map_sig_end",
+        "sig_len",
+        "map_num",
+    ),
+)
 # Defaults for backwards compatibility when reading
 MAP_SUMM.__new__.__defaults__ = (
-    None, None, None, None, None, None, None, None, 0)
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    0,
+)
 MAP_SUMM_TMPLT = (
-    '{0.read_id}\t{0.pct_identity:.2f}\t{0.num_align}\t{0.num_match}\t' +
-    '{0.num_del}\t{0.num_ins}\t{0.read_pct_coverage:.2f}\t{0.chrom}\t' +
-    '{0.strand}\t{0.start}\t{0.end}\t{0.query_start}\t{0.query_end}\t' +
-    '{0.map_sig_start}\t{0.map_sig_end}\t{0.sig_len}\t{0.map_num}\n')
-MAP_SUMM_TYPES = dict(zip(
-    MAP_SUMM._fields,
-    (str, float, int, int, int, int, float, str, str, int, int,
-     int, int, int, int, int, int)))
+    "{0.read_id}\t{0.pct_identity:.2f}\t{0.num_align}\t{0.num_match}\t"
+    + "{0.num_del}\t{0.num_ins}\t{0.read_pct_coverage:.2f}\t{0.chrom}\t"
+    + "{0.strand}\t{0.start}\t{0.end}\t{0.query_start}\t{0.query_end}\t"
+    + "{0.map_sig_start}\t{0.map_sig_end}\t{0.sig_len}\t{0.map_num}\n"
+)
+MAP_SUMM_TYPES = dict(
+    zip(
+        MAP_SUMM._fields,
+        (
+            str,
+            float,
+            int,
+            int,
+            int,
+            int,
+            float,
+            str,
+            str,
+            int,
+            int,
+            int,
+            int,
+            int,
+            int,
+            int,
+            int,
+        ),
+    )
+)
 
-MOD_POS_TAG = 'Mm'
-MOD_PROB_TAG = 'Ml'
+MOD_POS_TAG = "Mm"
+MOD_PROB_TAG = "Ml"
 
 
 def get_mapping_mode(map_fmt):
-    if map_fmt == 'bam':
-        return 'wb'
-    elif map_fmt == 'cram':
-        return 'wc'
-    elif map_fmt == 'sam':
-        return 'w'
-    raise mh.MegaError('Invalid mapping output format: {}'.format(map_fmt))
+    if map_fmt == "bam":
+        return "wb"
+    elif map_fmt == "cram":
+        return "wc"
+    elif map_fmt == "sam":
+        return "w"
+    raise mh.MegaError("Invalid mapping output format: {}".format(map_fmt))
 
 
 def open_unaligned_alignment_file(basename, map_fmt, mod_long_names=None):
-    fn = '{}.{}'.format(basename, map_fmt)
-    header_dict = OrderedDict([('PG', [OrderedDict([
-        ('ID', 'megalodon'), ('PN', 'megalodon'), ('VN', __version__),
-        ('CL', ' '.join(sys.argv))])])])
+    fn = "{}.{}".format(basename, map_fmt)
+    header_dict = OrderedDict(
+        [
+            (
+                "PG",
+                [
+                    OrderedDict(
+                        [
+                            ("ID", "megalodon"),
+                            ("PN", "megalodon"),
+                            ("VN", __version__),
+                            ("CL", " ".join(sys.argv)),
+                        ]
+                    )
+                ],
+            )
+        ]
+    )
     if mod_long_names is not None:
-        header_dict['CO'] = [
+        header_dict["CO"] = [
             'Modified base "{}" encoded as "{}"'.format(
-                mln, mh.convert_legacy_mods(mod_base))
-            for mod_base, mln in mod_long_names]
+                mln, mh.convert_legacy_mods(mod_base)
+            )
+            for mod_base, mln in mod_long_names
+        ]
     header = pysam.AlignmentHeader.from_dict(header_dict)
-    return pysam.AlignmentFile(fn, get_mapping_mode(map_fmt), header=header,
-                               add_sq_text=False)
+    return pysam.AlignmentFile(
+        fn, get_mapping_mode(map_fmt), header=header, add_sq_text=False
+    )
 
 
 def prepare_mapping(
-        read_id, seq, flag=0, ref_id=None, ref_st=None, qual=None,
-        map_qual=None, mods_scores=None, cigartuples=None, tags=None):
+    read_id,
+    seq,
+    flag=0,
+    ref_id=None,
+    ref_st=None,
+    qual=None,
+    map_qual=None,
+    mods_scores=None,
+    cigartuples=None,
+    tags=None,
+):
     a = pysam.AlignedSegment()
     a.query_name = read_id
     a.query_sequence = seq
@@ -84,10 +174,12 @@ def prepare_mapping(
     if map_qual is not None:
         a.mapping_quality = map_qual
     if qual is None:
-        qual = array.array('B', [255] * len(seq))
+        qual = array.array("B", [255] * len(seq))
     a.query_qualities = qual
     if cigartuples is None:
-        cigartuples = [(0, len(seq)), ]
+        cigartuples = [
+            (0, len(seq)),
+        ]
     a.cigartuples = cigartuples
 
     if tags is None:
@@ -95,7 +187,7 @@ def prepare_mapping(
     if mods_scores is not None:
         # Add modified base tags
         #  see https://github.com/samtools/hts-specs/pull/418
-        tags.append((MOD_POS_TAG, mods_scores[0], 'Z'))
+        tags.append((MOD_POS_TAG, mods_scores[0], "Z"))
         if len(mods_scores[1]) > 0:
             tags.append((MOD_PROB_TAG, mods_scores[1]))
     a.set_tags(tags)
@@ -105,14 +197,28 @@ def prepare_mapping(
 
 def get_map_pos_from_res(map_res):
     return MAP_POS(
-        chrm=map_res.ctg, strand=map_res.strand, start=map_res.r_st,
-        end=map_res.r_en, q_trim_start=map_res.q_st, q_trim_end=map_res.q_en)
+        chrm=map_res.ctg,
+        strand=map_res.strand,
+        start=map_res.r_st,
+        end=map_res.r_en,
+        q_trim_start=map_res.q_st,
+        q_trim_end=map_res.q_en,
+    )
 
 
 class MapInfo:
     def __init__(
-            self, aligner, map_fmt, ref_fn, out_dir, do_output_mappings,
-            samtools_exec, do_sort_mappings, cram_ref_fn, allow_supps=False):
+        self,
+        aligner,
+        map_fmt,
+        ref_fn,
+        out_dir,
+        do_output_mappings,
+        samtools_exec,
+        do_sort_mappings,
+        cram_ref_fn,
+        allow_supps=False,
+    ):
         if aligner is None:
             self.ref_names_and_lens = None
         else:
@@ -124,8 +230,9 @@ class MapInfo:
 
         self.map_fmt = map_fmt
         self.ref_fn = mh.resolve_path(ref_fn)
-        self.cram_ref_fn = self.ref_fn if cram_ref_fn is None else \
-            mh.resolve_path(cram_ref_fn)
+        self.cram_ref_fn = (
+            self.ref_fn if cram_ref_fn is None else mh.resolve_path(cram_ref_fn)
+        )
         self.out_dir = out_dir
         self.do_output_mappings = do_output_mappings
         self.samtools_exec = samtools_exec
@@ -133,20 +240,25 @@ class MapInfo:
         self.allow_supps = allow_supps
 
     def open_alignment_out_file(self):
-        map_fn = '{}.{}'.format(
-            mh.get_megalodon_fn(self.out_dir, mh.MAP_NAME), self.map_fmt)
+        map_fn = "{}.{}".format(
+            mh.get_megalodon_fn(self.out_dir, mh.MAP_NAME), self.map_fmt
+        )
         w_mode = get_mapping_mode(self.map_fmt)
         try:
             align_file = pysam.AlignmentFile(
-                map_fn, w_mode, reference_names=self.ref_names_and_lens[0],
+                map_fn,
+                w_mode,
+                reference_names=self.ref_names_and_lens[0],
                 reference_lengths=self.ref_names_and_lens[1],
-                reference_filename=self.cram_ref_fn)
+                reference_filename=self.cram_ref_fn,
+            )
         except ValueError:
             LOGGER.error(
-                'Failed to open alignment file for writing.\n\t\tFor CRAM ' +
-                'output, if FASTA is compressed ensure it is with bgzip or ' +
-                'if --reference is a minimap2 index see --cram-reference.')
-            raise mh.MegaError('Reference loading error.')
+                "Failed to open alignment file for writing.\n\t\tFor CRAM "
+                + "output, if FASTA is compressed ensure it is with bgzip or "
+                + "if --reference is a minimap2 index see --cram-reference."
+            )
+            raise mh.MegaError("Reference loading error.")
         return align_file
 
     def test_open_alignment_out_file(self):
@@ -157,45 +269,71 @@ class MapInfo:
     def test_samtools(self):
         try:
             test_sort_res = subprocess.run(
-                [self.samtools_exec, 'sort'],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                [self.samtools_exec, "sort"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
             test_index_res = subprocess.run(
-                [self.samtools_exec, 'index'],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                [self.samtools_exec, "index"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
             # Note index returns non-zero exit status
             if test_sort_res.returncode != 0:
                 LOGGER.warning(
-                    'Samtools test commands return non-zero exit ' +
-                    'status. Mappings will not be sorted or indexed.')
+                    "Samtools test commands return non-zero exit "
+                    + "status. Mappings will not be sorted or indexed."
+                )
                 LOGGER.debug(
-                    ('MappingTestFail:   sort_returncode: {}   ' +
-                     'index_returncode: {}\nsort_call_stdout:\n{}\n' +
-                     'sort_call_stderr:\n{}\nindex_call_stdout:\n{}' +
-                     '\nindex_call_stderr:\n{}').format(
-                         test_sort_res.returncode, test_index_res.returncode,
-                         test_sort_res.stdout.decode(),
-                         test_sort_res.stderr.decode(),
-                         test_index_res.stdout.decode(),
-                         test_index_res.stderr.decode()))
+                    (
+                        "MappingTestFail:   sort_returncode: {}   "
+                        + "index_returncode: {}\nsort_call_stdout:\n{}\n"
+                        + "sort_call_stderr:\n{}\nindex_call_stdout:\n{}"
+                        + "\nindex_call_stderr:\n{}"
+                    ).format(
+                        test_sort_res.returncode,
+                        test_index_res.returncode,
+                        test_sort_res.stdout.decode(),
+                        test_sort_res.stderr.decode(),
+                        test_index_res.stdout.decode(),
+                        test_index_res.stderr.decode(),
+                    )
+                )
                 self.do_sort_mappings = False
         except FileNotFoundError:
-            LOGGER.warning('Samtools executable not found. Mappings will ' +
-                           'not be sorted or indexed.')
+            LOGGER.warning(
+                "Samtools executable not found. Mappings will "
+                + "not be sorted or indexed."
+            )
             self.do_sort_mappings = False
 
 
 def align_read(
-        q_seq, aligner, map_thr_buf, read_id=None, allow_supps=False,
-        return_tuple=True):
+    q_seq,
+    aligner,
+    map_thr_buf,
+    read_id=None,
+    allow_supps=False,
+    return_tuple=True,
+):
     def parse_alignment(r_algn, map_num=0):
         ref_seq = aligner.seq(r_algn.ctg, r_algn.r_st, r_algn.r_en)
         if r_algn.strand == -1:
             ref_seq = mh.revcomp(ref_seq)
         r_map_res = MAP_RES(
-            read_id=read_id, q_seq=q_seq, ref_seq=ref_seq, ctg=r_algn.ctg,
-            strand=r_algn.strand, r_st=r_algn.r_st, r_en=r_algn.r_en,
-            q_st=r_algn.q_st, q_en=r_algn.q_en, cigar=r_algn.cigar,
-            map_num=map_num, mapq=r_algn.mapq)
+            read_id=read_id,
+            q_seq=q_seq,
+            ref_seq=ref_seq,
+            ctg=r_algn.ctg,
+            strand=r_algn.strand,
+            r_st=r_algn.r_st,
+            r_en=r_algn.r_en,
+            q_st=r_algn.q_st,
+            q_en=r_algn.q_en,
+            cigar=r_algn.cigar,
+            map_num=map_num,
+            mapq=r_algn.mapq,
+        )
         if return_tuple:
             return tuple(r_map_res)
         return r_map_res
@@ -207,25 +345,30 @@ def align_read(
         return None
 
     if allow_supps:
-        return [parse_alignment(r_algn, map_num)
-                for map_num, r_algn in enumerate(r_algns)]
-    return [parse_alignment(r_algns[0]), ]
+        return [
+            parse_alignment(r_algn, map_num)
+            for map_num, r_algn in enumerate(r_algns)
+        ]
+    return [
+        parse_alignment(r_algns[0]),
+    ]
 
 
 def _map_read_worker(aligner, map_conn, allow_supps=False):
-    LOGGER.debug('MappingWorkerStarting')
+    LOGGER.debug("MappingWorkerStarting")
     # get mappy aligner thread buffer
     map_thr_buf = mappy.ThreadBuffer()
 
-    LOGGER.debug('MappingWorkerInitComplete')
+    LOGGER.debug("MappingWorkerInitComplete")
     while True:
         try:
             q_seq, read_id = map_conn.recv()
         except EOFError:
-            LOGGER.debug('MappingWorkerClosing')
+            LOGGER.debug("MappingWorkerClosing")
             break
-        map_conn.send(align_read(
-            q_seq, aligner, map_thr_buf, read_id, allow_supps))
+        map_conn.send(
+            align_read(q_seq, aligner, map_thr_buf, read_id, allow_supps)
+        )
 
 
 def parse_cigar(r_cigar, strand, ref_len):
@@ -255,15 +398,19 @@ def parse_cigar(r_cigar, strand, ref_len):
             pass
     r_to_q_poss[curr_r_pos] = curr_q_pos
     if r_to_q_poss[-1] == fill_invalid:
-        raise mh.MegaError((
-            'Invalid cigar string encountered. Reference length: {}  Cigar ' +
-            'implied reference length: {}').format(ref_len, curr_r_pos))
+        raise mh.MegaError(
+            (
+                "Invalid cigar string encountered. Reference length: {}  Cigar "
+                + "implied reference length: {}"
+            ).format(ref_len, curr_r_pos)
+        )
 
     return r_to_q_poss
 
 
 def process_mapping(
-        map_res, called_read, sig_info, mo_q, signal_reversed, rl_cumsum):
+    map_res, called_read, sig_info, mo_q, signal_reversed, rl_cumsum
+):
     map_res = MAP_RES(*map_res)
     # add signal coordinates to mapping output if run-length cumsum
     # provided
@@ -271,17 +418,24 @@ def process_mapping(
         # convert query start and end to signal-anchored locations
         # Note that for signal_reversed reads, the start will be larger than
         # the end
-        q_st = len(map_res.q_seq) - map_res.q_st if signal_reversed else \
-            map_res.q_st
-        q_en = len(map_res.q_seq) - map_res.q_en if signal_reversed else \
-            map_res.q_en
+        q_st = (
+            len(map_res.q_seq) - map_res.q_st
+            if signal_reversed
+            else map_res.q_st
+        )
+        q_en = (
+            len(map_res.q_seq) - map_res.q_en
+            if signal_reversed
+            else map_res.q_en
+        )
         map_res = map_res._replace(
-            map_sig_start=called_read.trimmed_samples +
-            rl_cumsum[q_st] * sig_info.stride,
-            map_sig_end=called_read.trimmed_samples +
-            rl_cumsum[q_en] * sig_info.stride,
-            sig_len=called_read.trimmed_samples +
-            rl_cumsum[-1] * sig_info.stride)
+            map_sig_start=called_read.trimmed_samples
+            + rl_cumsum[q_st] * sig_info.stride,
+            map_sig_end=called_read.trimmed_samples
+            + rl_cumsum[q_en] * sig_info.stride,
+            sig_len=called_read.trimmed_samples
+            + rl_cumsum[-1] * sig_info.stride,
+        )
     if mo_q is not None:
         mo_q.put(tuple(map_res))
     if signal_reversed:
@@ -291,24 +445,36 @@ def process_mapping(
             q_st=len(map_res.q_seq) - map_res.q_en,
             q_en=len(map_res.q_seq) - map_res.q_st,
             ref_seq=map_res.ref_seq[::-1],
-            cigar=map_res.cigar[::-1])
+            cigar=map_res.cigar[::-1],
+        )
 
     try:
         r_to_q_poss = parse_cigar(
-            map_res.cigar, map_res.strand, map_res.r_en - map_res.r_st)
+            map_res.cigar, map_res.strand, map_res.r_en - map_res.r_st
+        )
     except mh.MegaError as e:
-        LOGGER.debug('{} CigarParsingError'.format(sig_info.read_id) + str(e))
-        raise mh.MegaError('Invalid cigar string encountered.')
+        LOGGER.debug("{} CigarParsingError".format(sig_info.read_id) + str(e))
+        raise mh.MegaError("Invalid cigar string encountered.")
     map_pos = get_map_pos_from_res(map_res)
 
-    return (map_res.ref_seq, r_to_q_poss, map_pos, map_res.cigar,
-            map_res.map_num)
+    return (
+        map_res.ref_seq,
+        r_to_q_poss,
+        map_pos,
+        map_res.cigar,
+        map_res.map_num,
+    )
 
 
 def map_read(
-        caller_conn, called_read, sig_info, mo_q=None, signal_reversed=False,
-        rl_cumsum=None):
-    """ Map read (query) sequence
+    caller_conn,
+    called_read,
+    sig_info,
+    mo_q=None,
+    signal_reversed=False,
+    rl_cumsum=None,
+):
+    """Map read (query) sequence
 
     Returns:
         Tuple containing
@@ -323,11 +489,14 @@ def map_read(
     caller_conn.send((q_seq, sig_info.read_id))
     map_ress = caller_conn.recv()
     if map_ress is None:
-        raise mh.MegaError('No alignment')
+        raise mh.MegaError("No alignment")
 
-    return [process_mapping(
-        map_res, called_read, sig_info, mo_q, signal_reversed, rl_cumsum)
-        for map_res in map_ress]
+    return [
+        process_mapping(
+            map_res, called_read, sig_info, mo_q, signal_reversed, rl_cumsum
+        )
+        for map_res in map_ress
+    ]
 
 
 def compute_pct_identity(cigar):
@@ -345,11 +514,15 @@ def read_passes_filters(filt_params, read_len, q_st, q_en, cigar):
         return False
     if filt_params.max_len is not None and read_len > filt_params.max_len:
         return False
-    if filt_params.pct_cov is not None and \
-       100 * (q_en - q_st) / read_len < filt_params.pct_cov:
+    if (
+        filt_params.pct_cov is not None
+        and 100 * (q_en - q_st) / read_len < filt_params.pct_cov
+    ):
         return False
-    if filt_params.pct_idnt is not None and \
-       compute_pct_identity(cigar) < filt_params.pct_idnt:
+    if (
+        filt_params.pct_idnt is not None
+        and compute_pct_identity(cigar) < filt_params.pct_idnt
+    ):
         return False
     return True
 
@@ -367,7 +540,9 @@ def _get_map_queue(mo_q, mo_conn, map_info, ref_out_info, aux_failed_q):
     def write_alignment(map_res):
         # convert tuple back to namedtuple
         map_res = MAP_RES(*map_res)
-        nalign, nmatch, ndel, nins = [0, ] * 4
+        nalign, nmatch, ndel, nins = [
+            0,
+        ] * 4
         for op_len, op in map_res.cigar:
             if op not in (4, 5):
                 nalign += op_len
@@ -378,51 +553,75 @@ def _get_map_queue(mo_q, mo_conn, map_info, ref_out_info, aux_failed_q):
             elif op == 1:
                 nins += op_len
         bc_len = len(map_res.q_seq)
-        q_seq = map_res.q_seq[map_res.q_st:map_res.q_en]
+        q_seq = map_res.q_seq[map_res.q_st : map_res.q_en]
 
         a = prepare_mapping(
             map_res.read_id,
             q_seq if map_res.strand == 1 else mh.revcomp(q_seq),
             flag=get_map_flag(map_res.strand, map_res.map_num),
-            ref_id=map_fp.get_tid(map_res.ctg), ref_st=map_res.r_st,
+            ref_id=map_fp.get_tid(map_res.ctg),
+            ref_st=map_res.r_st,
             map_qual=map_res.mapq,
             cigartuples=[(op, op_l) for op_l, op in map_res.cigar],
-            tags=[('NM', nalign - nmatch)])
+            tags=[("NM", nalign - nmatch)],
+        )
         map_fp.write(a)
 
         # compute alignment stats
         r_map_summ = MAP_SUMM(
-            read_id=map_res.read_id, pct_identity=100 * nmatch / float(nalign),
-            num_align=nalign, num_match=nmatch, num_del=ndel, num_ins=nins,
-            read_pct_coverage=((map_res.q_en - map_res.q_st) * 100 /
-                               float(bc_len)), chrom=map_res.ctg,
-            strand=mh.int_strand_to_str(map_res.strand), start=map_res.r_st,
-            end=map_res.r_st + nalign - nins, query_start=map_res.q_st,
-            query_end=map_res.q_en, map_sig_start=map_res.map_sig_start,
-            map_sig_end=map_res.map_sig_end, sig_len=map_res.sig_len,
-            map_num=map_res.map_num)
+            read_id=map_res.read_id,
+            pct_identity=100 * nmatch / float(nalign),
+            num_align=nalign,
+            num_match=nmatch,
+            num_del=ndel,
+            num_ins=nins,
+            read_pct_coverage=(
+                (map_res.q_en - map_res.q_st) * 100 / float(bc_len)
+            ),
+            chrom=map_res.ctg,
+            strand=mh.int_strand_to_str(map_res.strand),
+            start=map_res.r_st,
+            end=map_res.r_st + nalign - nins,
+            query_start=map_res.q_st,
+            query_end=map_res.q_en,
+            map_sig_start=map_res.map_sig_start,
+            map_sig_end=map_res.map_sig_end,
+            sig_len=map_res.sig_len,
+            map_num=map_res.map_num,
+        )
         summ_fp.write(MAP_SUMM_TMPLT.format(r_map_summ))
 
-        if ref_out_info.do_output.pr_refs and read_passes_filters(
-                ref_out_info.filt_params, len(map_res.q_seq), map_res.q_st,
-                map_res.q_en, map_res.cigar) and map_res.map_num == 0:
-            pr_ref_fp.write('>{}\n{}\n'.format(
-                map_res.read_id, map_res.ref_seq))
+        if (
+            ref_out_info.do_output.pr_refs
+            and read_passes_filters(
+                ref_out_info.filt_params,
+                len(map_res.q_seq),
+                map_res.q_st,
+                map_res.q_en,
+                map_res.cigar,
+            )
+            and map_res.map_num == 0
+        ):
+            pr_ref_fp.write(
+                ">{}\n{}\n".format(map_res.read_id, map_res.ref_seq)
+            )
 
     try:
-        LOGGER.debug('GetterStarting')
+        LOGGER.debug("GetterStarting")
         # initialize file pointers
-        summ_fp = open(mh.get_megalodon_fn(
-            map_info.out_dir, mh.MAP_SUMM_NAME), 'w')
-        summ_fp.write('\t'.join(MAP_SUMM._fields) + '\n')
+        summ_fp = open(
+            mh.get_megalodon_fn(map_info.out_dir, mh.MAP_SUMM_NAME), "w"
+        )
+        summ_fp.write("\t".join(MAP_SUMM._fields) + "\n")
         map_fp = map_info.open_alignment_out_file()
         if ref_out_info.do_output.pr_refs:
-            pr_ref_fp = open(mh.get_megalodon_fn(
-                map_info.out_dir, mh.PR_REF_NAME), 'w')
+            pr_ref_fp = open(
+                mh.get_megalodon_fn(map_info.out_dir, mh.PR_REF_NAME), "w"
+            )
         workers_active = True
-        LOGGER.debug('GetterInitComplete')
+        LOGGER.debug("GetterInitComplete")
     except Exception as e:
-        aux_failed_q.put(('MappingsInitError', str(e), traceback.format_exc()))
+        aux_failed_q.put(("MappingsInitError", str(e), traceback.format_exc()))
         return
 
     # loop to get alignments and write to requested files
@@ -434,10 +633,11 @@ def _get_map_queue(mo_q, mo_conn, map_info, ref_out_info, aux_failed_q):
             except queue.Empty:
                 if mo_conn.poll():
                     workers_active = False
-        LOGGER.debug('GetterClosing')
+        LOGGER.debug("GetterClosing")
     except Exception as e:
-        aux_failed_q.put((
-            'MappingsProcessingError', str(e), traceback.format_exc()))
+        aux_failed_q.put(
+            ("MappingsProcessingError", str(e), traceback.format_exc())
+        )
     finally:
         map_fp.close()
         summ_fp.close()
@@ -449,44 +649,66 @@ def _get_map_queue(mo_q, mo_conn, map_info, ref_out_info, aux_failed_q):
 # Samtools wrapper #
 ####################
 
-def sort_and_index_mapping(
-        samtools_exec, map_fn, out_fn, map_fmt, ref_fn=None):
+
+def sort_and_index_mapping(samtools_exec, map_fn, out_fn, map_fmt, ref_fn=None):
     sort_args = [
-        samtools_exec, 'sort', '-O', map_fmt.upper(), '-o', out_fn, map_fn]
+        samtools_exec,
+        "sort",
+        "-O",
+        map_fmt.upper(),
+        "-o",
+        out_fn,
+        map_fn,
+    ]
     if map_fmt == mh.MAP_OUT_CRAM:
-        sort_args.extend(('--reference', ref_fn))
+        sort_args.extend(("--reference", ref_fn))
     try:
         sort_res = subprocess.run(
-            sort_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            sort_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
         if sort_res.returncode != 0:
-            LOGGER.warning('Mapping sort failed. Full error text in log.')
+            LOGGER.warning("Mapping sort failed. Full error text in log.")
             LOGGER.debug(
-                'MappingSortFail:\ncall_stdout:\n{}\ncall_stderr:\n{}'.format(
-                    sort_res.stdout.decode(), sort_res.stderr.decode()))
+                "MappingSortFail:\ncall_stdout:\n{}\ncall_stderr:\n{}".format(
+                    sort_res.stdout.decode(), sort_res.stderr.decode()
+                )
+            )
         if map_fmt in (mh.MAP_OUT_BAM, mh.MAP_OUT_CRAM):
-            index_args = [samtools_exec, 'index', out_fn]
+            index_args = [samtools_exec, "index", out_fn]
             index_res = subprocess.run(
-                index_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                index_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
             if sort_res.returncode != 0:
-                LOGGER.warning('Mapping index failed. Full error text in log.')
+                LOGGER.warning("Mapping index failed. Full error text in log.")
                 LOGGER.debug(
-                    ('MappingIndexFail:\ncall_stdout:\n{}\ncall_stderr:' +
-                     '\n{}').format(
-                         index_res.stdout.decode(), index_res.stderr.decode()))
+                    (
+                        "MappingIndexFail:\ncall_stdout:\n{}\ncall_stderr:"
+                        + "\n{}"
+                    ).format(
+                        index_res.stdout.decode(), index_res.stderr.decode()
+                    )
+                )
     except Exception as e:
-        LOGGER.warning('Sorting and/or indexing mapping failed. Full error ' +
-                       'text in log.')
-        LOGGER.debug('MappingSortFail:\n{}'.format(str(e)))
+        LOGGER.warning(
+            "Sorting and/or indexing mapping failed. Full error "
+            + "text in log."
+        )
+        LOGGER.debug("MappingSortFail:\n{}".format(str(e)))
 
 
 ##########################
 # Mapping summary parser #
 ##########################
 
+
 def parse_map_summary_file(map_summ_fn):
     def parse_line(line):
-        return MAP_SUMM(*(None if v is None else MAP_SUMM_TYPES[fn](v)
-                          for fn, v in zip(header, line.split())))
+        return MAP_SUMM(
+            *(
+                None if v is None else MAP_SUMM_TYPES[fn](v)
+                for fn, v in zip(header, line.split())
+            )
+        )
 
     with open(map_summ_fn) as map_summ_fp:
         header = map_summ_fp.readline().split()
@@ -494,6 +716,6 @@ def parse_map_summary_file(map_summ_fn):
     return map_summ
 
 
-if __name__ == '__main__':
-    sys.stderr.write('This is a module. See commands with `megalodon -h`')
+if __name__ == "__main__":
+    sys.stderr.write("This is a module. See commands with `megalodon -h`")
     sys.exit(1)
