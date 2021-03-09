@@ -9,7 +9,7 @@ from megalodon import logging, megalodon_helper as mh
 
 _FULL_SLEEP_TIME = 1
 
-GETTER_QPC = namedtuple('getter_qpc', ('queue', 'proc', 'conn'))
+GETTER_QPC = namedtuple("getter_qpc", ("queue", "proc", "conn"))
 
 LOGGER = logging.get_logger()
 
@@ -18,21 +18,22 @@ LOGGER = logging.get_logger()
 # Multi-processing Helper #
 ###########################
 
+
 class CountingMPQueue(mpQueue):
-    """ Minimal version of multiprocessing queue maintaining a queue size
+    """Minimal version of multiprocessing queue maintaining a queue size
     counter
     """
 
     def __init__(self, **kwargs):
         self.name = None
-        if 'name' in kwargs:
-            self.name = kwargs['name']
-            del kwargs['name']
+        if "name" in kwargs:
+            self.name = kwargs["name"]
+            del kwargs["name"]
         super().__init__(ctx=mp.get_context(), **kwargs)
-        self._size = mp.Value('i', 0)
+        self._size = mp.Value("i", 0)
         self.maxsize = None
-        if 'maxsize' in kwargs:
-            self.maxsize = kwargs['maxsize']
+        if "maxsize" in kwargs:
+            self.maxsize = kwargs["maxsize"]
 
     def put(self, *args, **kwargs):
         super().put(*args, **kwargs)
@@ -56,8 +57,9 @@ class CountingMPQueue(mpQueue):
 
 
 def create_getter_qpc(
-        getter_func, args, max_size=mh._MAX_QUEUE_SIZE, name=None):
-    """ Spawn a new "getter" process. This process will use target=getter_func.
+    getter_func, args, max_size=mh._MAX_QUEUE_SIZE, name=None
+):
+    """Spawn a new "getter" process. This process will use target=getter_func.
     A new queue and pipe connection will be passed to this function as the
     first two arguments, followed by *args. A mega_mp.GETTER_QPC will be
     returned containing the created mp.Queue, the mp.Process object and the
@@ -73,24 +75,37 @@ def create_getter_qpc(
         q = CountingMPQueue(maxsize=max_size, name=name)
     main_conn, conn = mp.Pipe()
     p = mp.Process(
-        target=getter_func, daemon=True, args=(q, conn, *args), name=name)
+        target=getter_func, daemon=True, args=(q, conn, *args), name=name
+    )
     p.start()
     return GETTER_QPC(q, p, main_conn)
 
 
 class ConnWithSize:
     def __init__(
-            self, conn, size, max_size=mh._MAX_QUEUE_SIZE, name='ConnWithSize',
-            full_sleep_time=_FULL_SLEEP_TIME):
+        self,
+        conn,
+        size,
+        max_size=mh._MAX_QUEUE_SIZE,
+        name="ConnWithSize",
+        full_sleep_time=_FULL_SLEEP_TIME,
+    ):
         if not isinstance(conn, mp.connection.Connection):
-            raise mh.MegaError((
-                'ConnWithSize initialized with non-connection object. ' +
-                'Object type: {}').format(type(conn)))
-        if not isinstance(size, mp.sharedctypes.Synchronized) and \
-           isinstance(size.value, int):
-            raise mh.MegaError((
-                'ConnWithSize initialized with non-synchronized size ' +
-                'object. Object type: {}').format(type(size)))
+            raise mh.MegaError(
+                (
+                    "ConnWithSize initialized with non-connection object. "
+                    + "Object type: {}"
+                ).format(type(conn))
+            )
+        if not isinstance(size, mp.sharedctypes.Synchronized) and isinstance(
+            size.value, int
+        ):
+            raise mh.MegaError(
+                (
+                    "ConnWithSize initialized with non-synchronized size "
+                    + "object. Object type: {}"
+                ).format(type(size))
+            )
         self._conn = conn
         self._size = size
         self.max_size = max_size
@@ -108,7 +123,7 @@ class ConnWithSize:
     def put(self, value):
         # enforce artificial queue max size with dulplex pipes
         if self.full():
-            LOGGER.debug('ThrottlingSimplexQueue')
+            LOGGER.debug("ThrottlingSimplexQueue")
             sleep(self.full_sleep_time)
         with self._size.get_lock():
             self._size.value += 1
@@ -120,7 +135,7 @@ class ConnWithSize:
 
 
 class SimplexManyToOneQueue:
-    """ This object is a more efficient version of a multiprocessing.Queue for
+    """This object is a more efficient version of a multiprocessing.Queue for
     use when many connections will send information in one direction to a
     single connection.
 
@@ -129,11 +144,14 @@ class SimplexManyToOneQueue:
     """
 
     def __init__(
-            self, return_conns=True, max_size=mh._MAX_QUEUE_SIZE,
-            name='SimplexQueue'):
+        self,
+        return_conns=True,
+        max_size=mh._MAX_QUEUE_SIZE,
+        name="SimplexQueue",
+    ):
         self.return_conns = return_conns
         self._conns = []
-        self._size = mp.Value('i', 0)
+        self._size = mp.Value("i", 0)
         self.max_size = max_size
         self.name = name
 

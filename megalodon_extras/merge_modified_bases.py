@@ -5,8 +5,12 @@ import multiprocessing as mp
 from tqdm import tqdm
 
 from megalodon import (
-    backends, logging, mods, megalodon_helper as mh,
-    megalodon_multiprocessing as mega_mp)
+    backends,
+    logging,
+    mods,
+    megalodon_helper as mh,
+    megalodon_multiprocessing as mega_mp,
+)
 from ._extras_parsers import get_parser_merge_modified_bases
 
 
@@ -18,6 +22,7 @@ QUEUE_SIZE_LIMIT = 100
 ########################
 # data table functions #
 ########################
+
 
 def extract_data_worker(in_db_fns_q, data_conn, out_mods_db_fn, batch_size):
     # load output database with uuid in-memory indices
@@ -34,11 +39,17 @@ def extract_data_worker(in_db_fns_q, data_conn, out_mods_db_fn, batch_size):
         in_mods_db = mods.ModsDb(in_mod_db_fn)
         batch_data = []
         for score, uuid, mod_base, in_pos_dbid in in_mods_db.iter_data():
-            out_pos_dbid = out_mods_db.get_pos_dbid(*in_mods_db.get_pos(
-                in_pos_dbid))
-            batch_data.append((
-                score, out_pos_dbid, out_mods_db.get_mod_base_dbid(mod_base),
-                out_mods_db.get_read_dbid(uuid)))
+            out_pos_dbid = out_mods_db.get_pos_dbid(
+                *in_mods_db.get_pos(in_pos_dbid)
+            )
+            batch_data.append(
+                (
+                    score,
+                    out_pos_dbid,
+                    out_mods_db.get_mod_base_dbid(mod_base),
+                    out_mods_db.get_read_dbid(uuid),
+                )
+            )
             if len(batch_data) >= batch_size:
                 data_conn.put(batch_data)
                 batch_data = []
@@ -50,8 +61,9 @@ def extract_data_worker(in_db_fns_q, data_conn, out_mods_db_fn, batch_size):
 
 
 def insert_data_mp(
-        in_mod_db_fns, out_mods_db, out_mods_db_fn, batch_size, max_proc):
-    LOGGER.info('Merging modified base data using multiprocessing')
+    in_mod_db_fns, out_mods_db, out_mods_db_fn, batch_size, max_proc
+):
+    LOGGER.info("Merging modified base data using multiprocessing")
     num_proc = min(max_proc, len(in_mod_db_fns))
     in_db_fns_q = mp.Queue()
     for in_mod_db_fn in in_mod_db_fns:
@@ -65,7 +77,8 @@ def insert_data_mp(
         p = mp.Process(
             target=extract_data_worker,
             args=(in_db_fns_q, data_conn, out_mods_db_fn, batch_size),
-            daemon=True)
+            daemon=True,
+        )
         p.start()
         data_conn.close()
         del data_conn
@@ -76,8 +89,13 @@ def insert_data_mp(
         in_mods_db = mods.ModsDb(in_mod_db_fn)
         total_batches += (in_mods_db.get_num_uniq_stats() // batch_size) + 1
         in_mods_db.close()
-    bar = tqdm(desc='Data Batches', unit='Batches', total=total_batches,
-               smoothing=0, dynamic_ncols=True)
+    bar = tqdm(
+        desc="Data Batches",
+        unit="Batches",
+        total=total_batches,
+        smoothing=0,
+        dynamic_ncols=True,
+    )
 
     while data_q.has_valid_conns:
         for batch_data in data_q.wait_recv():
@@ -87,23 +105,34 @@ def insert_data_mp(
 
 
 def insert_data(in_mod_db_fns, out_mods_db, batch_size):
-    LOGGER.info('Inserting modified base data')
+    LOGGER.info("Inserting modified base data")
     total_batches = 0
     for in_mod_db_fn in in_mod_db_fns:
         in_mods_db = mods.ModsDb(in_mod_db_fn)
         total_batches += (in_mods_db.get_num_uniq_stats() // batch_size) + 1
         in_mods_db.close()
-    bar = tqdm(desc='Data Batches', unit='Batches', total=total_batches,
-               smoothing=0, dynamic_ncols=True)
+    bar = tqdm(
+        desc="Data Batches",
+        unit="Batches",
+        total=total_batches,
+        smoothing=0,
+        dynamic_ncols=True,
+    )
     for in_mod_db_fn in in_mod_db_fns:
         in_mods_db = mods.ModsDb(in_mod_db_fn)
         batch_data = []
         for score, uuid, mod_base, in_pos_dbid in in_mods_db.iter_data():
-            out_pos_dbid = out_mods_db.get_pos_dbid(*in_mods_db.get_pos(
-                in_pos_dbid))
-            batch_data.append((
-                score, out_pos_dbid, out_mods_db.get_mod_base_dbid(mod_base),
-                out_mods_db.get_read_dbid(uuid)))
+            out_pos_dbid = out_mods_db.get_pos_dbid(
+                *in_mods_db.get_pos(in_pos_dbid)
+            )
+            batch_data.append(
+                (
+                    score,
+                    out_pos_dbid,
+                    out_mods_db.get_mod_base_dbid(mod_base),
+                    out_mods_db.get_read_dbid(uuid),
+                )
+            )
             if len(batch_data) >= batch_size:
                 out_mods_db.insert_batch_data(batch_data)
                 batch_data = []
@@ -119,6 +148,7 @@ def insert_data(in_mod_db_fns, out_mods_db, batch_size):
 # read table functions #
 ########################
 
+
 def extract_reads_worker(in_mod_db_fn, uuids_q):
     in_mods_db = mods.ModsDb(in_mod_db_fn)
     in_uuids = set(uuid for _, uuid in in_mods_db.iter_uuids())
@@ -127,18 +157,25 @@ def extract_reads_worker(in_mod_db_fn, uuids_q):
 
 
 def insert_reads_mp(in_mod_db_fns, out_mods_db):
-    LOGGER.info('Extracting read uuid tables using multiprocessing')
+    LOGGER.info("Extracting read uuid tables using multiprocessing")
     uuids_q = mp.Queue()
     uuids_ps = []
     for in_mod_db_fn in in_mod_db_fns:
         p = mp.Process(
             target=extract_reads_worker,
-            args=(in_mod_db_fn, uuids_q), daemon=True)
+            args=(in_mod_db_fn, uuids_q),
+            daemon=True,
+        )
         p.start()
         uuids_ps.append(p)
 
-    bar = tqdm(desc='Databases', unit='DBs', total=len(in_mod_db_fns),
-               smoothing=0, dynamic_ncols=True)
+    bar = tqdm(
+        desc="Databases",
+        unit="DBs",
+        total=len(in_mod_db_fns),
+        smoothing=0,
+        dynamic_ncols=True,
+    )
     in_uuids = set()
     while any(p.is_alive() for p in uuids_ps):
         try:
@@ -152,15 +189,20 @@ def insert_reads_mp(in_mod_db_fns, out_mods_db):
         in_uuids.update(in_db_uuids)
         bar.update()
     bar.close()
-    LOGGER.info('Inserting read uuid tables into output DB')
+    LOGGER.info("Inserting read uuid tables into output DB")
     out_mods_db.insert_uuids(in_uuids)
 
 
 def insert_reads(in_mod_db_fns, out_mods_db):
-    LOGGER.info('Merging read uuid tables')
+    LOGGER.info("Merging read uuid tables")
     in_uuids = set()
-    for in_mod_db_fn in tqdm(in_mod_db_fns, desc='Databases', unit='DBs',
-                             smoothing=0, dynamic_ncols=True):
+    for in_mod_db_fn in tqdm(
+        in_mod_db_fns,
+        desc="Databases",
+        unit="DBs",
+        smoothing=0,
+        dynamic_ncols=True,
+    ):
         in_mods_db = mods.ModsDb(in_mod_db_fn)
         in_uuids.update(uuid for _, uuid in in_mods_db.iter_uuids())
         in_mods_db.close()
@@ -171,28 +213,38 @@ def insert_reads(in_mod_db_fns, out_mods_db):
 # mod/chrm table functions #
 ############################
 
+
 def extract_mods(in_mod_db_fns):
-    LOGGER.info('Merging mod tables')
+    LOGGER.info("Merging mod tables")
     # collect modified base definitions from input databases
     mod_base_to_can = dict()
-    for in_mod_db_fn in tqdm(in_mod_db_fns, desc='Databases', unit='DBs',
-                             smoothing=0, dynamic_ncols=True):
+    for in_mod_db_fn in tqdm(
+        in_mod_db_fns,
+        desc="Databases",
+        unit="DBs",
+        smoothing=0,
+        dynamic_ncols=True,
+    ):
         mods_db = mods.ModsDb(in_mod_db_fn)
         for mod_base, can_base, mln in mods_db.get_full_mod_data():
-            if mod_base in mod_base_to_can and \
-               (can_base, mln) != mod_base_to_can[mod_base]:
+            if (
+                mod_base in mod_base_to_can
+                and (can_base, mln) != mod_base_to_can[mod_base]
+            ):
                 raise mh.MegaError(
-                    'Modified base associated with mutliple canonical bases ' +
-                    'or long names in different databases. {} != {}'.format(
-                        str((can_base, mln)),
-                        str(mod_base_to_can[mod_base])))
+                    "Modified base associated with mutliple canonical bases "
+                    + "or long names in different databases. {} != {}".format(
+                        str((can_base, mln)), str(mod_base_to_can[mod_base])
+                    )
+                )
             mod_base_to_can[mod_base] = (can_base, mln)
     # check that mod long names are unique
     mlns = [mln for _, mln in mod_base_to_can.values()]
     if len(mlns) != len(set(mlns)):
         raise mh.MegaError(
-            'Modified base long name assigned to more than one modified ' +
-            'base single letter code.')
+            "Modified base long name assigned to more than one modified "
+            + "base single letter code."
+        )
 
     # extract canonical bases associated with modified base
     can_bases = set(can_base for can_base, _ in mod_base_to_can.values())
@@ -204,17 +256,25 @@ def extract_mods(in_mod_db_fns):
             break
     if can_alphabet is None:
         LOGGER.error(
-            'Mods database does not contain valid canonical bases ({})'.format(
-                ''.join(sorted(can_bases))))
-        raise mh.MegaError('Invalid alphabet.')
+            "Mods database does not contain valid canonical bases ({})".format(
+                "".join(sorted(can_bases))
+            )
+        )
+        raise mh.MegaError("Invalid alphabet.")
 
     # compute full output alphabet and ordered modified base long names
     can_base_to_mods = dict(
-        (can_base, [(mod_base, mln)
-                    for mod_base, (mcan_base, mln) in mod_base_to_can.items()
-                    if mcan_base == can_base])
-        for can_base in can_alphabet)
-    alphabet = ''
+        (
+            can_base,
+            [
+                (mod_base, mln)
+                for mod_base, (mcan_base, mln) in mod_base_to_can.items()
+                if mcan_base == can_base
+            ],
+        )
+        for can_base in can_alphabet
+    )
+    alphabet = ""
     mod_long_names = []
     for can_base in can_alphabet:
         alphabet += can_base
@@ -226,20 +286,28 @@ def extract_mods(in_mod_db_fns):
 
 
 def extract_chrms(in_mod_db_fns):
-    LOGGER.info('Merging chrm tables')
+    LOGGER.info("Merging chrm tables")
     ref_names_and_lens = [[], []]
-    for in_mod_db_fn in tqdm(in_mod_db_fns, desc='Databases', unit='DBs',
-                             smoothing=0, dynamic_ncols=True):
+    for in_mod_db_fn in tqdm(
+        in_mod_db_fns,
+        desc="Databases",
+        unit="DBs",
+        smoothing=0,
+        dynamic_ncols=True,
+    ):
         mods_db = mods.ModsDb(in_mod_db_fn)
         for _, chrm, chrm_len in mods_db.iter_chrms():
             if chrm in ref_names_and_lens[0]:
                 prev_chrm_len = ref_names_and_lens[1][
-                    ref_names_and_lens[0].index(chrm)]
+                    ref_names_and_lens[0].index(chrm)
+                ]
                 if prev_chrm_len != chrm_len:
-                    raise mh.MegaError((
-                        'Chromosome lengths from databases do not agree ' +
-                        'for {}: {} != {}').format(
-                            chrm, prev_chrm_len, chrm_len))
+                    raise mh.MegaError(
+                        (
+                            "Chromosome lengths from databases do not agree "
+                            + "for {}: {} != {}"
+                        ).format(chrm, prev_chrm_len, chrm_len)
+                    )
             else:
                 ref_names_and_lens[0].append(chrm)
                 ref_names_and_lens[1].append(chrm_len)
@@ -251,52 +319,63 @@ def extract_chrms(in_mod_db_fns):
 # main #
 ########
 
+
 def _main(args):
     mh.mkdir(args.output_megalodon_results_dir, args.overwrite)
     logging.init_logger(args.output_megalodon_results_dir)
 
-    LOGGER.info('Extracting mods and chrms from input databases')
-    in_mod_db_fns = [mh.get_megalodon_fn(mega_dir, mh.PR_MOD_NAME)
-                     for mega_dir in args.megalodon_results_dirs]
+    LOGGER.info("Extracting mods and chrms from input databases")
+    in_mod_db_fns = [
+        mh.get_megalodon_fn(mega_dir, mh.PR_MOD_NAME)
+        for mega_dir in args.megalodon_results_dirs
+    ]
     alphabet, mod_long_names = extract_mods(in_mod_db_fns)
     ref_names_and_lens = extract_chrms(in_mod_db_fns)
 
-    LOGGER.info('Opening new per-read modified base statistics database')
+    LOGGER.info("Opening new per-read modified base statistics database")
     model_info = backends.DetachedModelInfo(
-        alphabet=alphabet, mod_long_names=mod_long_names)
+        alphabet=alphabet, mod_long_names=mod_long_names
+    )
     mods_info = mods.ModInfo(
-        model_info, out_dir=args.output_megalodon_results_dir)
+        model_info, out_dir=args.output_megalodon_results_dir
+    )
     mods.init_mods_db(mods_info, ref_names_and_lens)
 
     # load uuids in memory in main out db only in single process mode.
     # else worker threads only have to load uuid lookup tables
     out_mods_db = mods.ModsDb(
-        mods_info.mods_db_fn, read_only=False,
-        in_mem_uuid_to_dbid=args.single_process)
+        mods_info.mods_db_fn,
+        read_only=False,
+        in_mem_uuid_to_dbid=args.single_process,
+    )
 
-    LOGGER.info('Inserting read UUIDs from input databases')
+    LOGGER.info("Inserting read UUIDs from input databases")
     if args.single_process:
         insert_reads(in_mod_db_fns, out_mods_db)
     else:
         insert_reads_mp(in_mod_db_fns, out_mods_db)
     # commit so read uuids are available to worker processes
     out_mods_db.commit()
-    LOGGER.info('Inserting per-read calls from input databases')
+    LOGGER.info("Inserting per-read calls from input databases")
     if args.single_process:
         insert_data(in_mod_db_fns, out_mods_db, args.data_batch_size)
     else:
         insert_data_mp(
-            in_mod_db_fns, out_mods_db, mods_info.mods_db_fn,
+            in_mod_db_fns,
+            out_mods_db,
+            mods_info.mods_db_fn,
             args.data_batch_size,
-            args.max_processes)
+            args.max_processes,
+        )
     out_mods_db.commit()
 
     LOGGER.info(
-        'Creating data covering index for efficient iteration by position')
+        "Creating data covering index for efficient iteration by position"
+    )
     out_mods_db.create_data_covering_index()
     out_mods_db.commit()
     out_mods_db.close()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     _main(get_parser_merge_modified_bases().parse_args())
