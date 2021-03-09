@@ -5,8 +5,7 @@ from collections import namedtuple
 
 import numpy as np
 
-from ont_fast5_api import fast5_interface
-from megalodon import megalodon_helper as mh, logging
+from megalodon import fast5_io, megalodon_helper as mh, logging
 try:
     import taiyaki
     # appease flake8
@@ -46,7 +45,7 @@ def set_all_motif_mods(int_ref, ref_mods_all_motifs):
 def get_remapping(
         sig_fn, dacs, scale_params, ref_seq, stride, read_id, r_to_q_poss,
         rl_cumsum, r_ref_pos, ref_out_info):
-    read = fast5_interface.get_fast5_file(sig_fn, 'r').get_read(read_id)
+    read = fast5_io.get_read(sig_fn, read_id)
     channel_info = dict(fast5utils.get_channel_info(read).items())
     read_params = {
         'trim_start': 0, 'trim_end': 0,

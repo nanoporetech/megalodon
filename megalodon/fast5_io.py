@@ -136,8 +136,8 @@ def get_read(fast5_fn, read_id):
     return ont_get_fast5_file(fast5_fn, mode="r").get_read(read_id)
 
 
-def get_fast5_file(fast5_fn):
-    return ont_get_fast5_file(fast5_fn, mode="r")
+def get_fast5_file(fast5_fn, driver=None):
+    return ont_get_fast5_file(fast5_fn, mode="r", driver=driver)
 
 
 def get_signal(read, scale=True):
@@ -220,7 +220,7 @@ def _extract_signal_worker(
                 break
 
             fast5_fn, read_ids = fn_rids
-            with get_fast5_file(fast5_fn) as fast5_fp:
+            with get_fast5_file(fast5_fn, driver="core") as fast5_fp:
                 for read_id in read_ids:
                     sig_info, seq_summ_info = model_info.extract_signal_info(
                         fast5_fp, read_id, extract_dacs)
