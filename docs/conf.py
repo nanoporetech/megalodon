@@ -81,9 +81,9 @@ copyright = "2019, Oxford Nanopore Technologies"
 
 # Get the version number from __init__.py
 verstrline = open(
-    os.path.join("..", __pkg_name__, "_version.py"), "r"
+    os.path.join("..", __pkg_name__, "__init__.py"), "r"
 ).readlines()[-1]
-vsre = r"^MEGALODON_VERSION = ['\"]([^'\"]*)['\"]"
+vsre = r"^__version__ = ['\"]([^'\"]*)['\"]"
 mo = re.search(vsre, verstrline)
 if mo:
     __version__ = mo.group(1)

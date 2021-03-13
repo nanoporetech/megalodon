@@ -9,7 +9,7 @@ before_script:
     - virtualenv venv
     - source venv/bin/activate
     - pip install --upgrade pip
-    - pip install -e .[testing]
+    - pip install .[testing]
 
 black:
     stage: format
