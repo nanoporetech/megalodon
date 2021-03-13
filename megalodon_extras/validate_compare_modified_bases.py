@@ -1,12 +1,12 @@
 import sys
-import platform
 
 import numpy as np
 import seaborn as sns
 import matplotlib
 
-if platform.system() == "Darwin":
-    matplotlib.use("macosx")
+if True:
+    # Agg appears to be the most robust backend when only saving plots.
+    matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 

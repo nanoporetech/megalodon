@@ -448,42 +448,23 @@ def _process_reads_worker(
     bc_info,
     device,
 ):
-    def create_batch_gen():
-        for _ in range(bc_info.reads_per_batch):
+    def read_generator():
+        while True:
             try:
                 read_sig_data = signal_q.queue.get(timeout=0.01)
             except queue.Empty:
                 continue
             if read_sig_data is None:
                 LOGGER.debug("Closing")
-                # send signal to end main loop then end this iterator
-                gen_conn.send(True)
                 break
             sig_info, seq_summ_info = read_sig_data
-            # convert tuples back to namedtuples after multiprocessing
+            # convert tuples back to namedtuples after multiprocessing queue
             sig_info = backends.SIGNAL_DATA(*sig_info)
-            yield sig_info, mh.SEQ_SUMM_INFO(*seq_summ_info)
             LOGGER.debug("{} Processing".format(sig_info.read_id))
-
-    def iter_bc_res():
-        while not full_iter_conn.poll():
-            reads_batch_gen = create_batch_gen()
-            # perform basecalling using loaded backend
-            for bc_res in model_info.iter_basecalled_reads(
-                reads_batch_gen,
-                return_post_w_mods=mods_info.do_output.any,
-                return_mod_scores=bc_info.do_output.mod_basecalls,
-                update_sig_info=ref_out_info.do_output.sig_maps,
-                signal_reversed=bc_info.rev_sig,
-                mod_bc_min_prob=bc_info.mod_bc_min_prob,
-                failed_reads_q=failed_reads_q,
-            ):
-                yield bc_res
+            yield sig_info, mh.SEQ_SUMM_INFO(*seq_summ_info)
 
     # wrap process prep in try loop to avoid stalled command
     try:
-        # prepare connection for communication with batch generator
-        full_iter_conn, gen_conn = mp.Pipe(duplex=False)
         failed_reads_q = getter_qpcs[_FAILED_READ_GETTER_NAME].queue
         model_info.prep_model_worker(device)
         vars_info.reopen_variant_index()
@@ -492,7 +473,10 @@ def _process_reads_worker(
         LOGGER.debug("InitFailed traceback: {}".format(traceback.format_exc()))
         return
 
-    for bc_res in iter_bc_res():
+    for bc_res in model_info.iter_basecalled_reads(
+        read_generator(),
+        failed_reads_q=failed_reads_q,
+    ):
         sig_info = bc_res[0]
         try:
             process_read(
@@ -976,19 +960,15 @@ def wait_for_completion(
             except queue.Empty:
                 # check that a getter queue has not failed with a segfault
                 for g_name, getter_qpc in getter_qpcs.items():
+                    k_str = (
+                        "{} Getter queue has unexpectedly died likely via a "
+                        "segfault error. Please log this issue."
+                    ).format(g_name)
                     if (
                         not getter_qpc.proc.is_alive()
                         and not signal_q.queue.empty()
                     ):
-                        kill_all_proc(
-                            [
-                                (
-                                    "{} Getter queue has unexpectedly died likely "
-                                    + "via a segfault error. Please log this "
-                                    + "issue."
-                                ).format(g_name)
-                            ]
-                        )
+                        kill_all_proc([k_str])
                 sleep(1)
 
         LOGGER.debug("JoiningMain: Workers")
@@ -1260,8 +1240,8 @@ def parse_var_args(args, model_info, aligner, ref_out_info):
         LOGGER.warning(
             (
                 'Adding "{}" to --outputs since "{}" was requested. For full '
-                + 'phased variant pipeline add "{}" or run aggregation after run '
-                + "is complete."
+                'phased variant pipeline add "{}" or run aggregation after '
+                "run is complete."
             ).format(mh.PR_VAR_NAME, mh.VAR_MAP_NAME, mh.VAR_NAME)
         )
         args.outputs.append(mh.PR_VAR_NAME)
@@ -1397,8 +1377,8 @@ def parse_mod_args(args, model_info, ref_out_info, map_info):
         LOGGER.warning(
             (
                 "Model supporting modified base calling specified, but no "
-                + "modified base outputs requested. This is fine; just wanted to "
-                + "let you know."
+                "modified base outputs requested. This is fine; just wanted to "
+                "let you know."
             )
         )
     if mh.BC_NAME not in args.outputs and mh.BC_MODS_NAME in args.outputs:
@@ -1499,8 +1479,9 @@ def parse_ref_mods_all_motifs(ref_mod_motifs_raw, sm_alphabet_info):
             if sm_coll_alphabet[base_idx] != ref_base:
                 raise mh.MegaError(
                     (
-                        "Canonical base ({}) specified by --ref-mods-all-motifs "
-                        + "does not match model alphabet base ({})."
+                        "Canonical base ({}) specified by "
+                        "--ref-mods-all-motifs does not match model alphabet "
+                        "base ({})."
                     ).format(ref_base, sm_coll_alphabet[base_idx])
                 )
             mod_idx = sm_alphabet_info.mod_bases.index(mod_base)
@@ -1716,7 +1697,6 @@ def parse_basecall_args(args, mods_info):
         mod_bc_min_prob=args.mod_min_prob,
         mod_long_names=mods_info.mod_long_names,
         rev_sig=args.rna,
-        reads_per_batch=args.reads_per_guppy_batch,
     )
 
 
@@ -1776,6 +1756,7 @@ def _main(args):
         args, vars_info = parse_var_args(
             args, model_info, aligner, ref_out_info
         )
+        model_info.set_outputs(mods_info, bc_info, ref_out_info)
         process_all_reads(
             status_info,
             input_info,

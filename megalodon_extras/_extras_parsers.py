@@ -424,6 +424,13 @@ def get_parser_calibrate_generate_mod_stats_from_msf():
         + "avoid them being parsed by megalodon.",
     )
     pyg_grp.add_argument(
+        "--guppy-concurrent-reads",
+        type=int,
+        default=mh.DEFAULT_GUPPY_CONCURRENT_READS,
+        help="Number of reads to process concurrently within each worker "
+        "processes. Default: %(default)d",
+    )
+    pyg_grp.add_argument(
         "--guppy-timeout",
         type=float,
         default=mh.DEFAULT_GUPPY_TIMEOUT,
@@ -513,6 +520,13 @@ def get_parser_calibrate_generate_variants_stats():
         help="Extra guppy server parameters. Main purpose for optimal "
         + "performance based on compute environment. Quote parameters to "
         + "avoid them being parsed by megalodon.",
+    )
+    pyg_grp.add_argument(
+        "--guppy-concurrent-reads",
+        type=int,
+        default=mh.DEFAULT_GUPPY_CONCURRENT_READS,
+        help="Number of reads to process concurrently within each worker "
+        "processes. Default: %(default)d",
     )
     pyg_grp.add_argument(
         "--guppy-timeout",

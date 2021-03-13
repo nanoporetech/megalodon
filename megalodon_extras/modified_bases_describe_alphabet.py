@@ -20,6 +20,7 @@ def _main(args):
     # set guppy args
     args.guppy_server_port = None
     args.guppy_timeout = mh.DEFAULT_GUPPY_TIMEOUT
+    args.guppy_concurrent_reads = mh.DEFAULT_GUPPY_CONCURRENT_READS
     args.output_directory = args.guppy_logs_output_directory
 
     # set taiyaki args

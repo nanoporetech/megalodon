@@ -236,7 +236,6 @@ BASECALL_INFO = namedtuple(
         "mod_bc_min_prob",
         "mod_long_names",
         "rev_sig",
-        "reads_per_batch",
     ),
 )
 REF_DO_OUTPUT = namedtuple(
@@ -321,8 +320,8 @@ SEQ_SUMM_INFO.__new__.__defaults__ = tuple(
 # default guppy settings
 DEFAULT_GUPPY_SERVER_PATH = "./ont-guppy/bin/guppy_basecall_server"
 DEFAULT_GUPPY_CFG = "dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg"
-DEFAULT_GUPPY_TIMEOUT = 30.0
-DEFAULT_GUPPY_BATCH_SIZE = 50
+DEFAULT_GUPPY_TIMEOUT = 120.0
+DEFAULT_GUPPY_CONCURRENT_READS = 10
 
 # completed read information
 READ_STATUS = namedtuple(
