@@ -38,6 +38,12 @@ def write_unsorted_merge(in_fns, out_fp, bar):
 
 def write_batch(out_fp, chrms, poss, strands, mod_covs, covs):
     covs = np.array(covs, dtype=int)
+    mod_covs = np.array(mod_covs, dtype=int)
+    pct_mods = np.zeros_like(covs)
+    valid_covs = covs > 0
+    pct_mods[valid_covs] = np.around(
+        np.array(mod_covs[valid_covs], dtype=int) * 100 / covs[valid_covs], 1
+    )
     out_fp.write(
         "\n".join(
             mods.BEDMETHYL_TMPLT.format(
@@ -55,7 +61,7 @@ def write_batch(out_fp, chrms, poss, strands, mod_covs, covs):
                 strands,
                 covs,
                 np.minimum(covs, 1000),
-                np.around(np.array(mod_covs, dtype=int) * 100 / covs, 1),
+                pct_mods,
             )
         )
         + "\n"

@@ -409,48 +409,27 @@ if _DO_PROFILE:
         )
 
 
-def basecall_worker(
-    sig_q, bc_q, model_info, device, reads_per_batch=mh.DEFAULT_GUPPY_BATCH_SIZE
-):
-    def create_batch_gen():
-        for _ in range(reads_per_batch):
+def basecall_worker(signal_q, bc_q, model_info, device):
+    def read_generator():
+        while True:
             try:
-                read_sig_data = sig_q.get(timeout=0.01)
+                read_sig_data = signal_q.get(timeout=0.01)
             except queue.Empty:
                 continue
             if read_sig_data is None:
                 LOGGER.debug("Closing")
-                # send signal to end main loop then end this iterator
-                gen_conn.send(True)
                 break
             sig_info, seq_summ_info = read_sig_data
-            # convert tuples back to namedtuples after multiprocessing
+            # convert tuples back to namedtuples after multiprocessing queue
             sig_info = backends.SIGNAL_DATA(*sig_info)
-            yield sig_info, mh.SEQ_SUMM_INFO(*seq_summ_info)
             LOGGER.debug("{} Processing".format(sig_info.read_id))
-
-    def iter_bc_res():
-        while not full_iter_conn.poll():
-            reads_batch_gen = create_batch_gen()
-            # perform basecalling using loaded backend
-            for (
-                sig_info,
-                _,
-                called_read,
-                rl_cumsum,
-                can_post,
-                _,
-                _,
-            ) in model_info.iter_basecalled_reads(
-                reads_batch_gen, return_post_w_mods=False
-            ):
-                yield tuple(sig_info), called_read, rl_cumsum, can_post
+            yield sig_info, mh.SEQ_SUMM_INFO(*seq_summ_info)
 
     LOGGER.debug("InitBasecaller")
     model_info.prep_model_worker(device)
-    full_iter_conn, gen_conn = mp.Pipe(duplex=False)
-    for bc_res in iter_bc_res():
-        bc_q.put(bc_res)
+    for bc_res in model_info.iter_basecalled_reads(read_generator()):
+        sig_info, _, called_read, rl_cumsum, can_post, _, _ = bc_res
+        bc_q.put((tuple(sig_info), called_read, rl_cumsum, can_post))
 
 
 def extract_signal_worker(fn_read_ids_q, sig_q, model_info):

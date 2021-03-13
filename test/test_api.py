@@ -12,8 +12,8 @@ def open_pyguppy_backend(args):
         mh.mkdir(args.output_directory, False)
     except mh.MegaError:
         LOGGER.warning(
-            "Guppy logs output directory exists. Potentially overwriting "
-            + "guppy logs."
+            "Guppy logs output directory exists. Potentially overwriting guppy "
+            "logs."
         )
     backend_params = backends.parse_backend_params(args)
     model_info = None
@@ -27,6 +27,8 @@ def open_pyguppy_backend(args):
                 model_info.stride, model_info.output_size
             )
         )
+        # use model_info.iter_basecalled_reads to basecall reads and return
+        # relevant signal anchored information.
         model_info.client.disconnect()
     finally:
         # ensure guppy server is closed in finally block
@@ -65,6 +67,13 @@ def get_parser():
         help="Extra guppy server parameters. Main purpose for optimal "
         + "performance based on compute environment. Quote parameters to "
         + "avoid them being parsed by megalodon.",
+    )
+    pyg_grp.add_argument(
+        "--guppy-concurrent-reads",
+        type=int,
+        default=mh.DEFAULT_GUPPY_CONCURRENT_READS,
+        help="Number of reads to process concurrently within each worker "
+        "processes. Default: %(default)d",
     )
     pyg_grp.add_argument(
         "--guppy-timeout",

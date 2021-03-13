@@ -48,19 +48,17 @@ def get_parser():
         "--do-not-use-guppy-server",
         action="store_true",
         help=hidden_help(
-            "Use alternative basecalling backend. Either "
-            + "FAST5 (default; requires --post_out when running "
-            + "guppy) or taiyaki (set `--taiyaki-model-filename` "
-            + "to use taiyaki backend)."
+            "Use alternative basecalling backend. Either FAST5 (default; "
+            "requires --post_out when running guppy) or taiyaki (set "
+            "`--taiyaki-model-filename` to use taiyaki backend)."
         ),
     )
     pyg_grp.add_argument(
         "--guppy-params",
         help=hidden_help(
-            "Extra guppy server parameters. Main purpose for "
-            + "optimal performance based on compute environment. "
-            + "Quote parameters to avoid them being parsed by "
-            + "megalodon."
+            "Extra guppy server parameters. Main purpose for optimal "
+            "performance based on compute environment. Quote parameters to "
+            "avoid them being parsed by megalodon."
         ),
     )
     pyg_grp.add_argument(
@@ -69,12 +67,12 @@ def get_parser():
         help=hidden_help("Guppy server port. Default: Guppy auto"),
     )
     pyg_grp.add_argument(
-        "--reads-per-guppy-batch",
+        "--guppy-concurrent-reads",
         type=int,
-        default=mh.DEFAULT_GUPPY_BATCH_SIZE,
+        default=mh.DEFAULT_GUPPY_CONCURRENT_READS,
         help=hidden_help(
-            "Number of reads to send to guppy per batch within "
-            + "each worker processes. Default: %(default)d"
+            "Number of reads to process concurrently within each worker "
+            "processes. Default: %(default)d"
         ),
     )
     pyg_grp.add_argument(
@@ -82,18 +80,17 @@ def get_parser():
         type=float,
         default=mh.DEFAULT_GUPPY_TIMEOUT,
         help=hidden_help(
-            "Timeout (in seconds) to wait for guppy server to "
-            + "call a batch of reads. --processes and "
-            + "--reads-per-guppy-batch have a strong bearing on "
-            + "the appropriate value. Default: %(default)f"
+            "Timeout (in seconds) to wait for guppy server to call a batch of "
+            "reads. --processes and --reads-per-guppy-batch have a strong "
+            "bearing on the appropriate value. Default: %(default)f"
         ),
     )
     pyg_grp.add_argument(
         "--list-supported-guppy-configs",
         action="store_true",
         help=hidden_help(
-            "List guppy configs with sequence variant and "
-            + "(if applicable) modified base support."
+            "List guppy configs with sequence variant and (if applicable) "
+            "modified base support."
         ),
     )
 
@@ -101,10 +98,10 @@ def get_parser():
     out_grp.add_argument(
         "--live-processing",
         action="store_true",
-        help="Process reads from a live sequencing run. The [fast5s_dir] "
-        + "must be the base MinKNOW output directory. Megalodon will continue "
-        + "searching for FAST5 files until the file starting with "
-        + '"final_summary" is found.',
+        help="Process reads from a live sequencing run. The [fast5s_dir] must "
+        "be the base MinKNOW output directory. Megalodon will continue "
+        "searching for FAST5 files until the file starting with "
+        '"final_summary" is found.',
     )
     out_grp.add_argument(
         "--outputs",
@@ -138,11 +135,7 @@ def get_parser():
         "--basecalls-format",
         choices=mh.BC_OUT_FMTS,
         default=mh.BC_OUT_FMTS[0],
-        help=hidden_help(
-            "Basecalls output format. Choices: {}".format(
-                ", ".join(mh.BC_OUT_FMTS)
-            )
-        ),
+        help=hidden_help("Basecalls output format. Default: %(default)s"),
     )
     out_grp.add_argument(
         "--num-reads",
@@ -152,8 +145,8 @@ def get_parser():
     out_grp.add_argument(
         "--read-ids-filename",
         help=hidden_help(
-            "File containing read ids to process (one per "
-            + "line). Default: All reads"
+            "File containing read ids to process (one per line). Default: All "
+            "reads"
         ),
     )
 
@@ -162,24 +155,22 @@ def get_parser():
         "--mappings-format",
         choices=mh.MAP_OUT_FMTS,
         default=mh.MAP_OUT_FMTS[0],
-        help="Mappings output format. Choices: {}".format(
-            ", ".join(mh.MAP_OUT_FMTS)
-        ),
+        help="Mappings output format. Default: %(default)s",
     )
     map_grp.add_argument(
         "--reference",
-        help="Reference FASTA or minimap2 index file used for mapping "
-        + "called reads.",
+        help="Reference FASTA or minimap2 index file used for mapping called "
+        "reads.",
     )
 
     map_grp.add_argument(
         "--allow-supplementary-alignments",
         action="store_true",
         help=hidden_help(
-            "Allow alignments aside from the primary alignment "
-            + "to be processed. Note that this may result in "
-            + "multiple modified base calls from the same read "
-            + "at the same read and/or reference position."
+            "Allow alignments aside from the primary alignment to be "
+            "processed. Note that this may result in multiple modified base "
+            "calls from the same read at the same read and/or reference "
+            "position."
         ),
     )
     map_grp.add_argument(
@@ -190,10 +181,9 @@ def get_parser():
     map_grp.add_argument(
         "--cram-reference",
         help=hidden_help(
-            "FASTA reference file. If --reference is a "
-            + "minimap2 index, the associated FASTA reference "
-            + "needs to be provided for the CRAM mapping output "
-            + "format."
+            "FASTA reference file. If --reference is a minimap2 index, the "
+            "associated FASTA reference needs to be provided for the CRAM "
+            "mapping output format."
         ),
     )
     map_grp.add_argument(
@@ -205,9 +195,8 @@ def get_parser():
         "--sort-mappings",
         action="store_true",
         help=hidden_help(
-            "Perform sorting and indexing of mapping output "
-            + "files. This can take considerable time for larger "
-            + "runs."
+            "Perform sorting and indexing of mapping output files. This can "
+            "take considerable time for larger runs."
         ),
     )
 
@@ -215,13 +204,13 @@ def get_parser():
     var_grp.add_argument(
         "--haploid",
         action="store_true",
-        help="Compute variant aggregation for haploid genotypes. "
-        + "Default: diploid",
+        help="Compute variant aggregation for haploid genotypes. Default: "
+        "diploid",
     )
     var_grp.add_argument(
         "--variant-filename",
         help="Sequence variants to call for each read in VCF/BCF format "
-        + "(required for variant output).",
+        "(required for variant output).",
     )
 
     var_grp.add_argument(
@@ -229,18 +218,16 @@ def get_parser():
         type=float,
         default=mh.DEFAULT_CONTEXT_MIN_ALT_PROB,
         help=hidden_help(
-            "Minimum alternative alleles probability to "
-            + "include variant in computation of nearby variants."
-            + " Default: %(default)f"
+            "Minimum alternative alleles probability to include variant in "
+            "computation of nearby variants. Default: %(default)f"
         ),
     )
     var_grp.add_argument(
         "--disable-variant-calibration",
         action="store_true",
         help=hidden_help(
-            "Use raw variant scores from the network. "
-            + "Default: Calibrate score with "
-            + "--variant-calibration-filename"
+            "Use raw variant scores from the network. Default: Calibrate score "
+            "with --variant-calibration-filename"
         ),
     )
     var_grp.add_argument(
@@ -249,10 +236,9 @@ def get_parser():
         nargs=2,
         default=[mh.DEFAULT_SNV_HET_FACTOR, mh.DEFAULT_INDEL_HET_FACTOR],
         help=hidden_help(
-            "Bayesian prior factor for snv and indel "
-            + "heterozygous calls. Smaller values preference "
-            + "heterozygous calls; Larger values perference "
-            + "homozygous calls. Default: %(default)s"
+            "Bayesian prior factor for snv and indel heterozygous calls. "
+            "Smaller values preference heterozygous calls; Larger values "
+            "perference homozygous calls. Default: %(default)s"
         ),
     )
     var_grp.add_argument(
@@ -260,35 +246,33 @@ def get_parser():
         type=int,
         default=mh.DEFAULT_MAX_INDEL_SIZE,
         help=hidden_help(
-            "Maximum difference in number of reference and "
-            + "alternate bases. Default: %(default)d"
+            "Maximum difference in number of reference and alternate bases. "
+            "Default: %(default)d"
         ),
     )
     var_grp.add_argument(
         "--variant-all-paths",
         action="store_true",
         help=hidden_help(
-            "Compute forwards algorithm all paths score. "
-            + "(Default: Viterbi best-path score)"
+            "Compute forwards algorithm all paths score. Default: Viterbi "
+            "best-path score"
         ),
     )
     var_grp.add_argument(
         "--variants-are-atomized",
         action="store_true",
         help=hidden_help(
-            "Input variants have been atomized (with "
-            + "`megalodon_extras variants atomize` command). "
-            + "This saves compute time, but has unpredictable "
-            + "behavior if variants are not atomized."
+            "Input variants have been atomized (with `megalodon_extras "
+            "variants atomize` command). This saves compute time, but has "
+            "unpredictable behavior if variants are not atomized."
         ),
     )
     var_grp.add_argument(
         "--variant-calibration-filename",
         help=hidden_help(
-            "File containing emperical calibration for "
-            + "variant scores. See `megalodon_extras calibrate "
-            + "variants` command. Default: Load default "
-            + "calibration for specified guppy config."
+            "File containing emperical calibration for variant scores. See "
+            "`megalodon_extras calibrate variants` command. Default: Load "
+            "default calibration for specified guppy config."
         ),
     )
     var_grp.add_argument(
@@ -297,35 +281,34 @@ def get_parser():
         nargs=2,
         default=mh.DEFAULT_VAR_CONTEXT_BASES,
         help=hidden_help(
-            "Context bases for single base variant and indel "
-            + "calling. Default: %(default)s"
+            "Context bases for single base variant and indel calling. "
+            "Default: %(default)s"
         ),
     )
     var_grp.add_argument(
         "--variant-locations-on-disk",
         action="store_true",
         help=hidden_help(
-            "Force sequence variant locations to be stored "
-            + "only within on disk database table. This option "
-            + "will reduce the RAM memory requirement, but may "
-            + "drastically slow processing. Default: Store "
-            + "locations in memory and on disk."
+            "Force sequence variant locations to be stored only within on disk "
+            "database table. This option will reduce the RAM memory "
+            "requirement, but may drastically slow processing. Default: Store "
+            "locations in memory and on disk."
         ),
     )
     var_grp.add_argument(
         "--write-variants-text",
         action="store_true",
         help=hidden_help(
-            "Write per-read sequence variant calls out to a "
-            + "text file. Default: Only ouput to database."
+            "Write per-read sequence variant calls out to a text file. "
+            "Default: Only ouput to database."
         ),
     )
     var_grp.add_argument(
         "--write-vcf-log-probs",
         action="store_true",
         help=hidden_help(
-            "Write per-read alt log probabilities out in "
-            + "non-standard VCF field."
+            "Write per-read alt log probabilities out in non-standard VCF "
+            "field."
         ),
     )
 
@@ -336,19 +319,18 @@ def get_parser():
         nargs=3,
         metavar=("BASE", "MOTIF", "REL_POSITION"),
         help="Restrict modified base calls to specified motif(s). Argument "
-        + "takes 3 values representing 1) the single letter modified base(s), "
-        + "2) sequence motif and 3) relative modified base position. Multiple "
-        + "--mod-motif arguments may be provided to a single command. For "
-        + 'example to restrict to CpG sites use "--mod-motif Z CG 0".',
+        "takes 3 values representing 1) the single letter modified base(s), 2) "
+        "sequence motif and 3) relative modified base position. Multiple "
+        "--mod-motif arguments may be provided to a single command. For "
+        'example to restrict to CpG sites use "--mod-motif Z CG 0".',
     )
 
     mod_grp.add_argument(
         "--disable-mod-calibration",
         action="store_true",
         help=hidden_help(
-            "Use raw modified base scores from the network. "
-            + "Default: Calibrate scores as described in "
-            + "--mod-calibration-filename"
+            "Use raw modified base scores from the network. Default: Calibrate "
+            "scores as described in --mod-calibration-filename"
         ),
     )
     mod_grp.add_argument(
@@ -356,16 +338,15 @@ def get_parser():
         choices=list(mh.MOD_AGG_METHOD_NAMES),
         default=mh.MOD_BIN_THRESH_NAME,
         help=hidden_help(
-            "Modified base aggregation method. " + "Default: %(default)s"
+            "Modified base aggregation method. Default: %(default)s"
         ),
     )
     mod_grp.add_argument(
         "--mod-all-paths",
         action="store_true",
         help=hidden_help(
-            "Compute forwards algorithm all paths score for "
-            + "modified base calls. (Default: Viterbi "
-            + "best-path score)"
+            "Compute forwards algorithm all paths score for modified base "
+            "calls. (Default: Viterbi best-path score)"
         ),
     )
     out_grp.add_argument(
@@ -373,9 +354,8 @@ def get_parser():
         type=float,
         default=mh.DEFAULT_MOD_MIN_PROB,
         help=hidden_help(
-            "Only include modified base probabilities greater "
-            + "than this value in mod_basecalls and mod_mappings "
-            + "outputs. Default: %(default)f"
+            "Only include modified base probabilities greater than this value "
+            "in mod_basecalls and mod_mappings outputs. Default: %(default)f"
         ),
     )
     mod_grp.add_argument(
@@ -383,20 +363,17 @@ def get_parser():
         type=float,
         default=mh.DEFAULT_MOD_BINARY_THRESH,
         help=hidden_help(
-            "Threshold for modified base aggregation "
-            + "(probability of modified/canonical base). "
-            + 'Only applicable for "--mod-aggregate-method '
-            + 'binary_threshold". Default: %(default)s'
+            "Threshold for modified base aggregation (probability of "
+            "modified/canonical base). Only applicable for "
+            '"--mod-aggregate-method binary_threshold". Default: %(default)s'
         ),
     )
     mod_grp.add_argument(
         "--mod-calibration-filename",
         help=hidden_help(
-            "File containing emperical calibration for "
-            + "modified base scores. See `megalodon_extras "
-            + "calibrate modified_bases` command. Default: "
-            + "Load default calibration for specified guppy "
-            + "config."
+            "File containing emperical calibration for modified base scores. "
+            "See `megalodon_extras calibrate modified_bases` command. Default: "
+            "Load default calibration for specified guppy config."
         ),
     )
     mod_grp.add_argument(
@@ -404,8 +381,8 @@ def get_parser():
         type=float,
         default=mh.DEFAULT_MOD_DATABASE_TIMEOUT,
         help=hidden_help(
-            "Timeout in seconds for modified base database "
-            + "operations. Default: %(default)f"
+            "Timeout in seconds for modified base database operations. "
+            "Default: %(default)f"
         ),
     )
     mod_grp.add_argument(
@@ -413,16 +390,15 @@ def get_parser():
         type=int,
         default=mh.DEFAULT_MOD_CONTEXT,
         help=hidden_help(
-            "Context bases for modified base calling. " + "Default: %(default)d"
+            "Context bases for modified base calling. Default: %(default)d"
         ),
     )
     mod_grp.add_argument(
         "--mod-map-emulate-bisulfite",
         action="store_true",
         help=hidden_help(
-            "For mod_mappings output, emulate bisulfite output "
-            + "by converting called bases setting "
-            + '"--mod-map-base-conv" argument.'
+            "For mod_mappings output, emulate bisulfite output by converting "
+            'called bases setting "--mod-map-base-conv" argument.'
         ),
     )
     mod_grp.add_argument(
@@ -431,11 +407,10 @@ def get_parser():
         nargs=2,
         metavar=("FROM_BASE", "TO_BASE"),
         help=hidden_help(
-            "For mod_mappings output, convert called modified "
-            + "bases. Only applicable when "
-            + "--mod-map-emulate-bisulfite is set.For example, "
-            + "to emulate bisulfite output use: "
-            + '"--mod-map-base-conv C T --mod-map-base-conv m C"'
+            "For mod_mappings output, convert called modified bases. Only "
+            "applicable when --mod-map-emulate-bisulfite is set.For example, "
+            'to emulate bisulfite output use: "--mod-map-base-conv C T '
+            '--mod-map-base-conv m C"'
         ),
     )
     mod_grp.add_argument(
@@ -446,32 +421,31 @@ def get_parser():
         ],
         choices=tuple(mh.MOD_OUTPUT_FMTS.keys()),
         help=hidden_help(
-            "Modified base aggregated output format(s). "
-            + "Default: %(default)s"
+            "Modified base aggregated output format(s). Default: %(default)s"
         ),
     )
     mod_grp.add_argument(
         "--mod-per-site-threshold",
         help=hidden_help(
-            "BED file containing per-site thresholds for "
-            + "marking up modified base references. "
-            + "See scripts/per_site_markup.py"
+            "BED file containing per-site thresholds for marking up modified "
+            "base references. See `megalodon_extras modified_bases "
+            "per_site_thresholds`"
         ),
     )
     mod_grp.add_argument(
         "--write-mod-log-probs",
         action="store_true",
         help=hidden_help(
-            "Write per-read modified base log probabilities "
-            + "out in non-standard modVCF field."
+            "Write per-read modified base log probabilities out in "
+            "non-standard modVCF field."
         ),
     )
     mod_grp.add_argument(
         "--write-mods-text",
         action="store_true",
         help=hidden_help(
-            "Write per-read modified bases out to a text "
-            + "file. Default: Only ouput to database."
+            "Write per-read modified bases out to a text file. Default: Only "
+            "ouput to database."
         ),
     )
 
@@ -480,17 +454,15 @@ def get_parser():
         "--chunk-size",
         type=int,
         default=1000,
-        help=hidden_help(
-            "Chunk length for base calling. " + "Default: %(default)d"
-        ),
+        help=hidden_help("Chunk length for base calling. Default: %(default)d"),
     )
     tai_grp.add_argument(
         "--chunk-overlap",
         type=int,
         default=100,
         help=hidden_help(
-            "Overlap between chunks to be stitched together. "
-            + "Default: %(default)d"
+            "Overlap between chunks to be stitched together. Default: "
+            "%(default)d"
         ),
     )
     tai_grp.add_argument(
@@ -498,8 +470,8 @@ def get_parser():
         type=int,
         default=200,
         help=hidden_help(
-            "Only process N chunks concurrently per-read (to "
-            + "avoid GPU memory errors). Default: %(default)d"
+            "Only process N chunks concurrently per-read (to avoid GPU memory "
+            "errors). Default: %(default)d"
         ),
     )
     tai_grp.add_argument(
@@ -514,16 +486,16 @@ def get_parser():
         "--ref-include-mods",
         action="store_true",
         help=hidden_help(
-            "Include modified base calls in signal_mappings/"
-            + "per_read_refs output."
+            "Include modified base calls in signal_mappings/per_read_refs "
+            "output."
         ),
     )
     sigmap_grp.add_argument(
         "--ref-include-variants",
         action="store_true",
         help=hidden_help(
-            "Include variant calls in per_read_refs output "
-            + "(does not apply to signal_mappings output)."
+            "Include variant calls in per_read_refs output (does not apply to "
+            "signal_mappings output)."
         ),
     )
     sigmap_grp.add_argument(
@@ -532,24 +504,24 @@ def get_parser():
         nargs=2,
         metavar=("MIN_LENGTH", "MAX_LENGTH"),
         help=hidden_help(
-            "Only include reads with specified read length "
-            + "in signal_mappings/per_read_refs output."
+            "Only include reads with specified read length in signal_mappings/"
+            "per_read_refs output."
         ),
     )
     sigmap_grp.add_argument(
         "--ref-percent-identity-threshold",
         type=float,
         help=hidden_help(
-            "Only include reads with higher percent identity "
-            + "in signal_mappings/per_read_refs output."
+            "Only include reads with higher percent identity in "
+            "signal_mappings/per_read_refs output."
         ),
     )
     sigmap_grp.add_argument(
         "--ref-percent-coverage-threshold",
         type=float,
         help=hidden_help(
-            "Only include reads with higher read alignment "
-            + "coverage in signal_mappings/per_read_refs output."
+            "Only include reads with higher read alignment coverage in "
+            "signal_mappings/per_read_refs output."
         ),
     )
     sigmap_grp.add_argument(
@@ -558,13 +530,12 @@ def get_parser():
         action="append",
         metavar=("MOD", "MOD_LONG_NAME", "MOTIF", "REL_POS"),
         help=hidden_help(
-            "Annotate all motifs as modified (e.g. bacterial "
-            + "methylase). This will ignore modified base calls "
-            + "made and --mod-motif. Multiple mods and motifs "
-            + "can be provided. Arguments should be structured "
-            + "as --ref-mods-all-motifs [single letter modified "
-            + "base code] [modified base long name] "
-            + "[canonical motif] [mod position relative to motif]"
+            "Annotate all motifs as modified (e.g. bacterial methylase). This "
+            "will ignore modified base calls made and --mod-motif. Multiple "
+            "mods and motifs can be provided. Arguments should be structured "
+            "as --ref-mods-all-motifs [single letter modified base code] "
+            "[modified base long name] [canonical motif] [mod position "
+            "relative to motif]"
         ),
     )
     sigmap_grp.add_argument(
@@ -572,11 +543,10 @@ def get_parser():
         type=float,
         default=0.0,
         help=hidden_help(
-            "Threshold (log(can_prob/mod_prob)) used to "
-            + "annotate a modified bases in signal_mappings/"
-            + "per_read_refs output. See `megalodon_extras "
-            + "modified_bases estimate_threshold` command. "
-            + "Default: %(default)f"
+            "Threshold (log(can_prob/mod_prob)) used to annotate a modified "
+            "bases in signal_mappings/per_read_refs output. See "
+            "`megalodon_extras modified_bases estimate_threshold` command. "
+            "Default: %(default)f"
         ),
     )
 
@@ -598,10 +568,9 @@ def get_parser():
         type=int,
         default=mh.DEFAULT_READ_ENUM_TS,
         help=hidden_help(
-            "Number of parallel threads to use for read "
-            + "enumeration. Increase if input queue remains "
-            + "empty, generally due to single read format FAST5s "
-            + "or slow disk. Default: %(default)d"
+            "Number of parallel threads to use for read enumeration. Increase "
+            "if input queue remains empty, generally due to single read format "
+            "FAST5s or slow disk. Default: %(default)d"
         ),
     )
     mp_grp.add_argument(
@@ -609,12 +578,10 @@ def get_parser():
         type=int,
         default=mh.DEFAULT_EXTRACT_SIG_PROC,
         help=hidden_help(
-            "Number of parallel processes to use for signal "
-            + "extraction. Increasing this value can allow more "
-            + "efficient raw data extraction. Note that "
-            + "[--num-read-enumeration-threads] will be opened "
-            + "in each extract signal process. "
-            + "Default: %(default)d"
+            "Number of parallel processes to use for signal extraction. "
+            "Increasing this value can allow more efficient raw data "
+            "extraction. Note that [--num-read-enumeration-threads] will be "
+            "opened in each extract signal process. Default: %(default)d"
         ),
     )
 
@@ -640,23 +607,20 @@ def get_parser():
         type=int,
         default=0,
         help=hidden_help(
-            "Setting for database performance versus "
-            + "corruption protection. Options: 0 (DB corruption "
-            + "on application crash), 1 (DB corruption on system "
-            + "crash), 2 (DB safe mode). Default: %(default)d"
+            "Setting for database performance versus corruption protection. "
+            "Options: 0 (DB corruption on application crash), 1 (DB corruption "
+            "on system crash), 2 (DB safe mode). Default: %(default)d"
         ),
     )
     misc_grp.add_argument(
         "--skip-database-index",
         action="store_true",
         help=hidden_help(
-            "When outputting per_read_mods and not aggregated "
-            + "mods output, skip database indexing. "
-            + '"megalodon_extras modified_bases index_database" '
-            + "must be run before downstream processing. This "
-            + "can be useful to minimize time on GPU compute "
-            + "resources. Will apply to variants output in "
-            + "the future."
+            "When outputting per_read_mods and not aggregated mods output, "
+            'skip database indexing. "megalodon_extras modified_bases '
+            'index_database" must be run before downstream processing. This '
+            "can be useful to minimize time on GPU compute resources. Will "
+            "apply to variants output in the future."
         ),
     )
     misc_grp.add_argument(
@@ -664,9 +628,8 @@ def get_parser():
         type=int,
         default=mh.DEFAULT_EDGE_BUFFER,
         help=hidden_help(
-            "Do not process sequence variant or modified base "
-            + "calls near edge of read mapping. "
-            + "Default: %(default)d"
+            "Do not process sequence variant or modified base calls near edge "
+            "of read mapping. Default: %(default)d"
         ),
     )
     misc_grp.add_argument(
@@ -674,16 +637,15 @@ def get_parser():
         type=int,
         default=mh.DEFAULT_AGG_BATCH_SIZE,
         help=hidden_help(
-            "Batch size for aggregation processing. " + "Default: %(default)d"
+            "Batch size for aggregation processing. Default: %(default)d"
         ),
     )
     misc_grp.add_argument(
         "--not-recursive",
         action="store_true",
         help=hidden_help(
-            "Only search for fast5 read files directly found "
-            + "within the fast5 directory. Default: search "
-            + "recursively"
+            "Only search for fast5 read files directly found within the fast5 "
+            "directory. Default: search recursively"
         ),
     )
     misc_grp.add_argument(
@@ -695,8 +657,8 @@ def get_parser():
         "--suppress-queues-status",
         action="store_true",
         help=hidden_help(
-            "Suppress dynamic status of output queues. Helpful "
-            + "for diagnosing I/O issues."
+            "Suppress dynamic status of output queues. Helpful for diagnosing "
+            "I/O issues."
         ),
     )
     misc_grp.add_argument(
@@ -704,9 +666,9 @@ def get_parser():
         type=int,
         default=3,
         help=hidden_help(
-            "Output verbose output on read progress. Outputs "
-            + "N most common points where reads could not be "
-            + "processed further. Default: %(default)d"
+            "Output verbose output on read progress. Outputs N most common "
+            "points where reads could not be processed further. Default: "
+            "%(default)d"
         ),
     )
 

@@ -2,9 +2,10 @@
 # Test files/dirs/settings #
 ############################
 
-GUPPY_PATH="./ont-guppy-cpu/bin/guppy_basecall_server"
+GUPPY_BIN_PATH="./ont-guppy-cpu/bin/"
 GUPPY_FAST_CONFIG="dna_r9.4.1_450bps_fast.cfg"
 GUPPY_MOD_CONFIG="dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg"
+MOD_CALIBRATION_FN="megalodon/megalodon/model_data/dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg/megalodon_mod_calibration.npz"
 
 FASTA_REF="reference.fa"
 MINIMAP_INDEX="reference.fa.mmi"
@@ -14,8 +15,7 @@ VARS="variants.vcf.gz"
 CTRL_READS="amplified_reads"
 NAT_READS="native_reads"
 
-NPROC=8
-GUPPY_TIMEOUT=240
+NPROC=4
 
 
 ######################
@@ -32,7 +32,7 @@ megalodon \
     `# output just basecalls` \
     --outputs basecalls mod_basecalls \
     `# guppy options` \
-    --guppy-server-path ${GUPPY_PATH} \
+    --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
     --guppy-config ${GUPPY_MOD_CONFIG} \
     `# number of megalodon workers` \
     --processes ${NPROC}
@@ -47,9 +47,8 @@ megalodon \
     `# output all the things` \
     --outputs mappings per_read_refs \
     `# guppy options` \
-    --guppy-server-path ${GUPPY_PATH} \
+    --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
     --guppy-config ${GUPPY_MOD_CONFIG} \
-    --guppy-timeout ${GUPPY_TIMEOUT} \
     `# number of megalodon read processing workers` \
     --processes ${NPROC} \
     `# minimap2 index reference (recommended for memory efficiency)` \
@@ -68,9 +67,8 @@ megalodon \
     `# output all the things` \
     --outputs per_read_mods mods mod_mappings \
     `# guppy options` \
-    --guppy-server-path ${GUPPY_PATH} \
+    --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
     --guppy-config ${GUPPY_MOD_CONFIG} \
-    --guppy-timeout ${GUPPY_TIMEOUT} \
     `# number of megalodon read processing workers` \
     --processes ${NPROC} \
     `# minimap2 index reference (recommended for memory efficiency)` \
@@ -95,9 +93,8 @@ megalodon \
     per_read_variants variants variant_mappings \
     per_read_refs \
     `# guppy options` \
-    --guppy-server-path ${GUPPY_PATH} \
+    --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
     --guppy-config ${GUPPY_MOD_CONFIG} \
-    --guppy-timeout ${GUPPY_TIMEOUT} \
     `# number of megalodon read processing workers` \
     --processes ${NPROC} \
     `# minimap2 index reference (recommended for memory efficiency)` \
@@ -131,9 +128,8 @@ megalodon \
     per_read_variants variants variant_mappings \
     per_read_refs \
     `# guppy options` \
-    --guppy-server-path ${GUPPY_PATH} \
+    --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
     --guppy-config ${GUPPY_MOD_CONFIG} \
-    --guppy-timeout ${GUPPY_TIMEOUT} \
     `# number of megalodon workers` \
     --processes ${NPROC} \
     `# minimap2 index reference (recommended for memory efficiency)` \
@@ -164,6 +160,11 @@ megalodon \
 ##########################
 # megalodon_extras tests #
 ##########################
+
+megalodon_extras \
+    modified_bases describe_alphabet \
+    --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
+    --guppy-config ${GUPPY_MOD_CONFIG}
 
 megalodon_extras \
     aggregate run --outputs variants mods \
@@ -202,7 +203,7 @@ megalodon_extras \
     --reference ${MINIMAP_INDEX} \
     --num-reads 10 \
     --processes ${NPROC} \
-    --guppy-server-path ${GUPPY_PATH}
+    --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server
 megalodon_extras \
     calibrate variants \
     --processes ${NPROC} \
@@ -229,19 +230,20 @@ megalodon_extras \
     --mod-bases Z \
     --ground-truth-cov-min 3 --nanopore-cov-min 5
 
+# taiyaki currently broken due to dependencies, so skipping these
 # test model calibration from mapped signal files
 #megalodon_extras \
 #    calibrate generate_mod_stats_from_msf \
 #    ${CTRL_READS}.mega_res/signal_mappings.hdf5 \
 #    --motif CCWGG 1 \
-#    --guppy-server-path ${GUPPY_PATH} \
+#    --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
 #    --out-filename ctrl_mod_stats.npz --modified-bases-set Z \
 #    --processes 2
 #megalodon_extras \
 #    calibrate generate_mod_stats_from_msf \
 #    ${NAT_READS}.mega_res/signal_mappings.hdf5 \
 #    --motif CCWGG 1 \
-#    --guppy-server-path ${GUPPY_PATH} \
+#    --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
 #    --out-filename nat_mod_stats.npz --modified-bases-set Z \
 #    --processes 2
 #megalodon_extras \
@@ -274,9 +276,8 @@ megalodon \
     `# output only per_read databases` \
     --outputs per_read_mods per_read_variants \
     `# guppy options` \
-    --guppy-server-path ${GUPPY_PATH} \
+    --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
     --guppy-config ${GUPPY_MOD_CONFIG} \
-    --guppy-timeout ${GUPPY_TIMEOUT} \
     `# number of megalodon read processing workers` \
     --processes ${NPROC} \
     `# minimap2 index reference (recommended for memory efficiency)` \
@@ -312,3 +313,64 @@ megalodon_extras \
     --write-mod-log-probs \
     `# sequence variant ouput options` \
     --haploid
+
+
+#######################
+# test other backends #
+#######################
+
+megalodon \
+    `# input reads` \
+    ${CTRL_READS} \
+    `# output location + overwrite` \
+    --output-directory ${CTRL_READS}.taiyaki \
+    --overwrite \
+    `# output all the things` \
+    --outputs basecalls mappings \
+    per_read_mods mods mod_mappings \
+    `# taiyaki options` \
+    --do-not-use-guppy-server \
+    --taiyaki-model-filename taiyaki_model.checkpoint \
+    `# number of megalodon read processing workers` \
+    --processes ${NPROC} \
+    `# minimap2 index reference (recommended for memory efficiency)` \
+    --reference ${MINIMAP_INDEX} \
+    `# modified base settings` \
+    --mod-motif Z CCWGG 1 \
+    --mod-motif Y GATC 1 \
+    --write-mods-text
+
+${GUPPY_BIN_PATH}/guppy_basecaller \
+    -i ${CTRL_READS} \
+    -s ${CTRL_READS}.post_out \
+    -c ${GUPPY_MOD_CONFIG} \
+    --fast5_out --post_out
+megalodon \
+    `# input reads` \
+    ${CTRL_READS}.post_out \
+    `# output location + overwrite` \
+    --output-directory ${CTRL_READS}.post_out_mega_res \
+    --overwrite \
+    `# output all the things` \
+    --outputs basecalls mappings \
+    per_read_mods mods mod_mappings \
+    `# FAST5 post out options` \
+    --do-not-use-guppy-server \
+    `# number of megalodon read processing workers` \
+    --processes ${NPROC} \
+    `# minimap2 index reference (recommended for memory efficiency)` \
+    --reference ${MINIMAP_INDEX} \
+    `# modified base settings` \
+    --mod-motif Z CCWGG 1 \
+    --write-mods-text \
+    --mod-calibration-filename \
+    ${MOD_CALIBRATION_FN}
+
+
+############
+# test API #
+############
+
+python \
+    megalodon/test/test_api.py \
+    --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server

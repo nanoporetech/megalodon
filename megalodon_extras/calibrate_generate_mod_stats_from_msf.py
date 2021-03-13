@@ -78,12 +78,7 @@ def process_read(
     )
     seq_summ_info = mh.SEQ_SUMM_INFO("", read.read_id, "", "", "", "", 0, 0)
     post_w_mods = next(
-        model_info.iter_basecalled_reads(
-            [
-                (sig_info, seq_summ_info),
-            ],
-            return_post_w_mods=True,
-        )
+        model_info.iter_basecalled_reads([(sig_info, seq_summ_info)])
     )[5]
     # convert read.Ref_to_signal to blocks coordinates with
     # model_info.stride
