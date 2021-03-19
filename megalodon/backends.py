@@ -464,7 +464,10 @@ class AbstractModelInfo(ABC):
 
     def get_alphabet_str(self):
         if self.is_cat_mod:
-            return "Using canonical alphabet {} and modified bases {}".format(
+            return (
+                "Loaded model calls canonical alphabet {} and modified "
+                "bases {}"
+            ).format(
                 self.can_alphabet,
                 "; ".join(
                     "{}={} (alt to {})".format(
@@ -473,7 +476,9 @@ class AbstractModelInfo(ABC):
                     for mod_b, mln in self.mod_long_names
                 ),
             )
-        return "Using canonical alphabet {}".format(self.can_alphabet)
+        return (
+            "Loaded model calls canonical alphabet {} and no " "modified bases"
+        ).format(self.can_alphabet)
 
     def prep_failed_read_data(self, sig_info, err_str, do_update_prog=True):
         raw_len = sig_info.raw_len if hasattr(sig_info, "raw_len") else 0
