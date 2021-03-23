@@ -31,7 +31,7 @@ install_requires = [
     "ont_fast5_api >= 1.1",
     "tqdm",
     "ont-pyguppy-client-lib",
-    "sklearn",
+    "scikit-learn",
     "seaborn"
 ]
 
