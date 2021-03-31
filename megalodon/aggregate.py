@@ -430,8 +430,21 @@ def aggregate_stats(
         if valid_read_ids is not None:
             mods_db = mods.ModsDb(mods_db_fn, in_mem_uuid_to_dbid=True)
             valid_read_dbids = set()
+            num_missing_read_ids = 0
             for read_id in valid_read_ids:
-                valid_read_dbids.add(mods_db.get_read_dbid(read_id))
+                try:
+                    valid_read_dbids.add(mods_db.get_read_dbid(read_id))
+                except KeyError:
+                    if num_missing_read_ids == 0:
+                        LOGGER.warning("Some read IDs not found in database.")
+                    num_missing_read_ids += 1
+                    continue
+            if num_missing_read_ids > 0:
+                LOGGER.warning(
+                    "{} total read IDs not found in database".format(
+                        num_missing_read_ids
+                    )
+                )
         agg_mods = mods.AggMods(mods_db_fn)
         mod_long_names = agg_mods.get_mod_long_names()
         num_mods = agg_mods.num_uniq()
