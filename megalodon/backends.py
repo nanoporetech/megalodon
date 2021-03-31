@@ -877,6 +877,7 @@ class ModelInfo(AbstractModelInfo):
             "-c",
             self.params.pyguppy.config,
             "--post_out",
+            "--quiet",
         ]
         if (
             self.params.pyguppy.devices is not None
