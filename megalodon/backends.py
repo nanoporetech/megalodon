@@ -4,6 +4,7 @@ import sys
 import array
 import subprocess
 from abc import ABC
+from glob import glob
 from time import sleep, time
 from distutils.version import LooseVersion
 from collections import defaultdict, namedtuple
@@ -743,8 +744,6 @@ class ModelInfo(AbstractModelInfo):
     def close(self):
         if self.model_type == PYGUPPY_NAME:
             self.guppy_server_proc.terminate()
-            self.guppy_out_fp.close()
-            self.guppy_err_fp.close()
 
     def __enter__(self):
         return self
@@ -857,7 +856,7 @@ class ModelInfo(AbstractModelInfo):
 
     def pyguppy_start_server(self):
         def get_server_port():
-            next_line = guppy_out_read_fp.readline()
+            next_line = guppy_log_fp.readline()
             if next_line is None:
                 return None
             try:
@@ -869,9 +868,7 @@ class ModelInfo(AbstractModelInfo):
         self.guppy_log = os.path.join(
             self.params.pyguppy.out_dir, GUPPY_LOG_BASE
         )
-        self.guppy_out_fp = open(self.guppy_log + ".out", "w")
-        guppy_out_read_fp = open(self.guppy_log + ".out", "r")
-        self.guppy_err_fp = open(self.guppy_log + ".err", "w")
+        mh.mkdir(self.guppy_log, overwrite=True)
         # prepare args to start guppy server
         server_args = [
             self.params.pyguppy.bin_path,
@@ -901,9 +898,17 @@ class ModelInfo(AbstractModelInfo):
         self.guppy_server_proc = subprocess.Popen(
             server_args,
             shell=False,
-            stdout=self.guppy_out_fp,
-            stderr=self.guppy_err_fp,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT,
         )
+        # wait until guppy server log is initialized
+        while True:
+            guppy_log_fns = glob("{}/*.log".format(self.guppy_log))
+            if len(guppy_log_fns) > 0:
+                guppy_log_fn = guppy_log_fns[0]
+                guppy_log_fp = open(guppy_log_fn, "r")
+                LOGGER.debug("Found guppy log file: {}".format(guppy_log_fn))
+                break
         # wait until server is successfully started or fails
         while True:
             used_port = get_server_port()
@@ -917,7 +922,7 @@ class ModelInfo(AbstractModelInfo):
                     "order to pinpoint the source of this issue."
                 )
             sleep(0.01)
-        guppy_out_read_fp.close()
+        guppy_log_fp.close()
         self.params = self.params._replace(
             pyguppy=self.params.pyguppy._replace(port=used_port)
         )
