@@ -864,6 +864,15 @@ class ModelInfo(AbstractModelInfo):
             except AttributeError:
                 return None
 
+        def check_server_proc():
+            if self.guppy_server_proc.poll() is not None:
+                raise mh.MegaError(
+                    "Guppy server initialization failed. See guppy logs in "
+                    "[--output-directory] for more details.\n\t\tTry running "
+                    "the guppy server initialization command found in log.txt "
+                    "in order to pinpoint the source of this issue."
+                )
+
         # set guppy logs output locations
         self.guppy_log = os.path.join(
             self.params.pyguppy.out_dir, GUPPY_LOG_BASE
@@ -909,18 +918,14 @@ class ModelInfo(AbstractModelInfo):
                 guppy_log_fp = open(guppy_log_fn, "r")
                 LOGGER.debug("Found guppy log file: {}".format(guppy_log_fn))
                 break
+            check_server_proc()
+            sleep(0.01)
         # wait until server is successfully started or fails
         while True:
             used_port = get_server_port()
             if used_port is not None:
                 break
-            if self.guppy_server_proc.poll() is not None:
-                raise mh.MegaError(
-                    "Guppy server initialization failed. See guppy logs in "
-                    "--output-directory for more details.\n\t\tTry running the "
-                    "guppy server initialization command found in log.txt in "
-                    "order to pinpoint the source of this issue."
-                )
+            check_server_proc()
             sleep(0.01)
         guppy_log_fp.close()
         self.params = self.params._replace(
