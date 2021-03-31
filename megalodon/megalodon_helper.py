@@ -319,7 +319,7 @@ SEQ_SUMM_INFO.__new__.__defaults__ = tuple(
 
 # default guppy settings
 DEFAULT_GUPPY_SERVER_PATH = "./ont-guppy/bin/guppy_basecall_server"
-DEFAULT_GUPPY_CFG = "dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg"
+DEFAULT_GUPPY_CFG = "dna_r9.4.1_450bps_modbases_5mc_hac.cfg"
 DEFAULT_GUPPY_TIMEOUT = 120.0
 DEFAULT_GUPPY_CONCURRENT_READS = 10
 
@@ -332,10 +332,6 @@ READ_STATUS.__new__.__defaults__ = (False, True, None, None, None, 0)
 
 TRUE_TEXT_VALUES = set(("y", "yes", "t", "true", "on", "1"))
 FALSE_TEXT_VALUES = set(("n", "no", "f", "false", "off", "0"))
-
-# original modified base models used 5mC=Z and 6mA=Y. This has now been
-# standardized here https://github.com/samtools/hts-specs/pull/418
-LEGACY_MOD_BASES = dict(zip(map(ord, "ZY"), map(ord, "ma")))
 
 
 @total_ordering
@@ -474,10 +470,6 @@ def compile_rev_comp_motif_pat(raw_motif):
     )
     # add lookahead group to serach for overlapping motif hits
     return re.compile("(?=({}))".format(ambig_pat_str))
-
-
-def convert_legacy_mods(mod_base):
-    return mod_base.translate(LEGACY_MOD_BASES)
 
 
 #######################

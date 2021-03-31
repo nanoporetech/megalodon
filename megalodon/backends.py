@@ -447,7 +447,7 @@ class AbstractModelInfo(ABC):
                 valid_prob_locs = np.where(probs > min_prob)[0]
                 mm_tag += "{}+{}{};".format(
                     can_base,
-                    mh.convert_legacy_mods(mod_base),
+                    mod_base,
                     "".join(
                         ",{}".format(d)
                         for d in np.diff(np.insert(valid_prob_locs, 0, -1)) - 1
@@ -830,9 +830,14 @@ class ModelInfo(AbstractModelInfo):
         LOGGER.debug('Pyguppy version: "{}"'.format(pyguppy_version_str))
         guppy_version = LooseVersion(guppy_version_str)
         if guppy_version < MIN_GUPPY_VERSION:
-            raise mh.MegaError(
-                'Megalodon requires Guppy version>=4.0. Got: "{}"'
-            ).format(guppy_version_str)
+            if guppy_version == LooseVersion("0.0.0"):
+                LOGGER.warning("Using pre-release guppy version.")
+            else:
+                raise mh.MegaError(
+                    ('Megalodon requires Guppy version>=4.0. Got: "{}"').format(
+                        guppy_version_str
+                    )
+                )
         pyguppy_version = LooseVersion(pyguppy_version_str)
         warn_txt = (
             "Guppy and pyguppy {} versions do not match. This {} lead to a "

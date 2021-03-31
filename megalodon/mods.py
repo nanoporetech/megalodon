@@ -1345,7 +1345,7 @@ def format_mm_ml_tags(r_start, ref_seq, r_mod_scores, strand, mods_info):
         )
         mm_tag += "{}+{}{};".format(
             can_base,
-            mh.convert_legacy_mods(mod_base),
+            mod_base,
             "".join(
                 ",{}".format(d)
                 for d in np.diff(np.insert(can_base_mod_poss, 0, -1)) - 1

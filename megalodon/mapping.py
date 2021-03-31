@@ -139,9 +139,7 @@ def open_unaligned_alignment_file(basename, map_fmt, mod_long_names=None):
     )
     if mod_long_names is not None:
         header_dict["CO"] = [
-            'Modified base "{}" encoded as "{}"'.format(
-                mln, mh.convert_legacy_mods(mod_base)
-            )
+            'Modified base "{}" encoded as "{}"'.format(mln, mod_base)
             for mod_base, mln in mod_long_names
         ]
     header = pysam.AlignmentHeader.from_dict(header_dict)
