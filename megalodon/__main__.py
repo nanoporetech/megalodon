@@ -322,7 +322,7 @@ def get_parser():
         "takes 3 values representing 1) the single letter modified base(s), 2) "
         "sequence motif and 3) relative modified base position. Multiple "
         "--mod-motif arguments may be provided to a single command. For "
-        'example to restrict to CpG sites use "--mod-motif Z CG 0".',
+        'example to restrict to CpG sites use "--mod-motif m CG 0".',
     )
 
     mod_grp.add_argument(

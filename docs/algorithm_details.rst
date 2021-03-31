@@ -8,9 +8,9 @@ This page describes the details of how megalodon processes the raw nanopore sign
 Base Calling
 ------------
 
-Basecalling is performed exactly as in guppy.
+Basecalling is performed exactly as in Guppy.
 Raw nanopore signal is normalized, chunked, processed with a recurrent neural network and decoded using Viterbi decoding.
-Currently megalodon is only compatible with flip-flop basecalling networks (excluding RLE and k-mer based networks)
+Currently Megalodon is only compatible with flip-flop basecalling networks (excluding RLE and Bonito models)
 See `guppy documentation on the community page (login required) <https://community.nanoporetech.com/protocols/Guppy-protocol>`_ for more details.
 
 -------------------
@@ -70,11 +70,17 @@ Modified Base Calling
 ---------------------
 
 Modified base calling is performed largely in the same manner as variant calling above in terms of sequence and associated neural network output extraction.
-The main difference is that instead of proposing alternative bases in the sequence, a modification is proposed.
+The main difference is that instead of proposing alternative canonical bases in the sequence, a modified base is proposed.
 This means that in order to identify a particular modification the model must be aware of this modification.
 Training models for particular modifications of interest is described in `Megalodon documentation here <https://nanoporetech.github.io/megalodon/model_training.html>`_.
 
-Use the ``--mod-motif`` argument in order to restrict tested locations to certain relevant motifs (e.g. ``--mod-motif Z CG 0`` to test only in CpG locations).
+Use the ``--mod-motif`` argument in order to restrict tested locations to certain relevant motifs (e.g. ``--mod-motif m CG 0`` to test only in CpG locations).
+Per-read modified base calls can be output in either a text table format or into a BAM file.
+There are two options to output per-read modified base calls into the BAM format.
+The default option when ``--outputs mod_mappings`` is specified is the `hts-spec proposed format <https://github.com/jkbonfield/hts-specs/blob/methylation/SAMtags.tex#L477>`_.
+The second option emulates bisulfite sequencing (since this provides visualization options in some genome browsers).
+Specify the ``--mod-map-emulate-bisulfite`` option to select this output.
+See the ``--mod-map-base-conv`` option (``megalodon --help-long``) for further specification of this output.
 
 Modified bases can also be output anchored to the basecalls as in Guppy, but these calls are generally not as accurate than the reference anchored calls.
-These ``mod_basecalls`` are output in the BAM ``Mm`` and ``Ml`` tags as specified by hts-specs.
+These ``mod_basecalls`` are output in the BAM ``Mm`` and ``Ml`` tags as specified by hts-specs proposed format.

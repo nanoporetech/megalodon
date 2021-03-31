@@ -10,7 +10,7 @@ Required Argument
 
   - Path to directory containing raw FAST5-format nanopore reads.
   - Both single and multi FAST5 formats are supported.
-  - Default searches recursively for fast5 read files. To search only one-level specify `--not-recursive`.
+  - Default searches recursively for fast5 read files. To search only one-level specify ``--not-recursive``.
 
 ----------------------
 Guppy Backend Argument
@@ -19,7 +19,7 @@ Guppy Backend Argument
 - ``--guppy-config``
 
   - Guppy config.
-  - Default: ``dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg``
+  - Default: ``dna_r9.4.1_450bps_modbases_5mc_hac.cfg``
 
 - ``--guppy-server-path``
 

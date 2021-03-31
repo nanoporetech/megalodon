@@ -4,7 +4,7 @@ Welcome to Megalodon's documentation!
 
 Megalodon is a research command line tool to extract high accuracy modified base and sequence variant calls from raw nanopore reads by anchoring the information rich basecalling neural network output to a reference genome/transcriptome.
 
-Raw nanopore reads are processed by a single command to produce basecalls (FASTA/Q), reference mappings (SAM/BAM/CRAM), modified base calls (per-read and bedgraph/bedmethyl/modVCF), sequence variant calls (per-read and VCF) and more.
+Raw nanopore reads are processed by a single command to produce basecalls (FASTA/Q), reference mappings (SAM/BAM/CRAM), modified base calls (per-read and aggregated per-reference site), sequence variant calls (per-read and aggregated per-reference site) and more.
 
 -------------
 Prerequisites
@@ -49,6 +49,9 @@ To install from github source for development, the following commands can be run
    git clone https://github.com/nanoporetech/megalodon
    pip install -e megalodon/
 
+It is recommended that Megalodon be installed in a control compute environment.
+See `the python documentation for preparing virtual environments <https://packaging.python.org/guides/installing-using-pip-and-virtual-environments/>`_
+
 ===========
 Quick Start
 ===========
@@ -63,24 +66,26 @@ Megalodon is accessed via the command line interface ``megalodon`` command.
 
     # megalodon help (common args)
     megalodon -h
-    # megalodon help (all args)
+    # megalodon help (advanced args)
     megalodon --help-long
 
-    # Example command to output basecalls, mappings, and CpG methylation in both per-read (``mod_mappings``) and aggregated (``mods``) formats
+    # Example command to output basecalls, mappings, and 5mC CpG methylation in both per-read (``mod_mappings``) and aggregated (``mods``) formats
     #   Compute settings: GPU devices 0 and 1 with 40 CPU cores
     megalodon \
         raw_fast5s/ \
         --outputs basecalls mappings mod_mappings mods \
-        --reference reference.fa --mod-motif Z CG 0 \
+        --reference reference.fa --mod-motif m CG 0 \
         --devices 0 1 --processes 40
 
 This command produces the ``megalodon_results`` output directory containing all requested output files and logs.
 The format for common outputs is described briefly below and in more detail in the `full documentation <https://nanoporetech.github.io/megalodon/>`_
 
 The above command uses the modified base model included in Guppy (more details below `Guppy Models and Parameters`_).
+As of the ``2.3.0`` megalodon release (March 2020) the models included with Guppy provide the most accurate modified basecalling models.
 As more accurate basecalling models are trained, they are first released into the `Rerio repository for research models <https://github.com/nanoporetech/rerio>`_.
 Once training pipelines are more thoroughly standardized and tested models will be transferred into Guppy.
-The code below shows how to obtain and run the R9.4.1, MinION/GridION, 5mC CpG model (more accurate 5mC CpG methylation results than default model).
+The code below shows how to obtain and run the R9.4.1, MinION/GridION, 5mC CpG model from Rerio.
+Note that this is the same model now included in Guppy 4.5.0+.
 
 ::
 

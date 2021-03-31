@@ -4,8 +4,8 @@
 
 GUPPY_BIN_PATH="./ont-guppy-cpu/bin/"
 GUPPY_FAST_CONFIG="dna_r9.4.1_450bps_fast.cfg"
-GUPPY_MOD_CONFIG="dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg"
-MOD_CALIBRATION_FN="megalodon/megalodon/model_data/dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg/megalodon_mod_calibration.npz"
+GUPPY_MOD_CONFIG="dna_r9.4.1_450bps_modbases_5mc_hac.cfg"
+MOD_CALIBRATION_FN="megalodon/megalodon/model_data/dna_r9.4.1_450bps_modbases_5mc_hac.cfg/megalodon_mod_calibration.npz"
 
 FASTA_REF="reference.fa"
 MINIMAP_INDEX="reference.fa.mmi"
@@ -74,8 +74,7 @@ megalodon \
     `# minimap2 index reference (recommended for memory efficiency)` \
     --reference ${MINIMAP_INDEX} \
     `# modified base settings` \
-    --mod-motif Z CCWGG 1 \
-    --mod-motif Y GATC 1 \
+    --mod-motif m CCWGG 1 \
     --mod-output-formats bedmethyl modvcf wiggle \
     --write-mods-text \
     --write-mod-log-probs
@@ -104,8 +103,7 @@ megalodon \
     --mappings-format cram \
     --cram-reference ${FASTA_REF} \
     `# modified base settings` \
-    --mod-motif Z CCWGG 1 \
-    --mod-motif Y GATC 1 \
+    --mod-motif m CCWGG 1 \
     --mod-output-formats bedmethyl modvcf wiggle \
     --write-mods-text \
     --write-mod-log-probs \
@@ -139,8 +137,7 @@ megalodon \
     --mappings-format cram \
     --cram-reference ${FASTA_REF} \
     `# modified base settings` \
-    --mod-motif Z CCWGG 1 \
-    --mod-motif Y GATC 1 \
+    --mod-motif m CCWGG 1 \
     --mod-output-formats bedmethyl modvcf wiggle \
     --write-mods-text \
     --write-mod-log-probs \
@@ -153,8 +150,7 @@ megalodon \
     --ref-length-range 500 30000 \
     --ref-percent-identity-threshold 90 \
     --ref-percent-coverage-threshold 90 \
-    --ref-mods-all-motifs Z 5mC CCWGG 1 \
-    --ref-mods-all-motifs Y 6mA GATC 1
+    --ref-mods-all-motifs m 5mC CCWGG 1
 
 
 ##########################
@@ -227,7 +223,7 @@ megalodon_extras \
     modified_bases per_site_thresholds \
     ${NAT_READS}.mega_res/ \
     ${NAT_READS}.mega_res/modified_bases.5mC.sorted.bed \
-    --mod-bases Z \
+    --mod-bases m \
     --ground-truth-cov-min 3 --nanopore-cov-min 5
 
 # taiyaki currently broken due to dependencies, so skipping these
@@ -237,14 +233,14 @@ megalodon_extras \
 #    ${CTRL_READS}.mega_res/signal_mappings.hdf5 \
 #    --motif CCWGG 1 \
 #    --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
-#    --out-filename ctrl_mod_stats.npz --modified-bases-set Z \
+#    --out-filename ctrl_mod_stats.npz --modified-bases-set m \
 #    --processes 2
 #megalodon_extras \
 #    calibrate generate_mod_stats_from_msf \
 #    ${NAT_READS}.mega_res/signal_mappings.hdf5 \
 #    --motif CCWGG 1 \
 #    --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
-#    --out-filename nat_mod_stats.npz --modified-bases-set Z \
+#    --out-filename nat_mod_stats.npz --modified-bases-set m \
 #    --processes 2
 #megalodon_extras \
 #    calibrate merge_modified_bases_stats \
@@ -283,8 +279,7 @@ megalodon \
     `# minimap2 index reference (recommended for memory efficiency)` \
     --reference ${MINIMAP_INDEX} \
     `# modified base settings` \
-    --mod-motif Z CCWGG 1 \
-    --mod-motif Y GATC 1 \
+    --mod-motif m CCWGG 1 \
     `# sequence variant settings` \
     --variant-filename ${VARS} \
     `# skip database index to run as a pipeline` \
@@ -336,8 +331,7 @@ megalodon \
     `# minimap2 index reference (recommended for memory efficiency)` \
     --reference ${MINIMAP_INDEX} \
     `# modified base settings` \
-    --mod-motif Z CCWGG 1 \
-    --mod-motif Y GATC 1 \
+    --mod-motif m CCWGG 1 \
     --write-mods-text
 
 ${GUPPY_BIN_PATH}/guppy_basecaller \
@@ -361,7 +355,7 @@ megalodon \
     `# minimap2 index reference (recommended for memory efficiency)` \
     --reference ${MINIMAP_INDEX} \
     `# modified base settings` \
-    --mod-motif Z CCWGG 1 \
+    --mod-motif m CCWGG 1 \
     --write-mods-text \
     --mod-calibration-filename \
     ${MOD_CALIBRATION_FN}
