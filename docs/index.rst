@@ -80,12 +80,12 @@ Megalodon is accessed via the command line interface ``megalodon`` command.
 This command produces the ``megalodon_results`` output directory containing all requested output files and logs.
 The format for common outputs is described briefly below and in more detail in the `full documentation <https://nanoporetech.github.io/megalodon/>`_
 
-The above command uses the modified base model included in Guppy (more details below `Guppy Models and Parameters`_).
-As of the ``2.3.0`` megalodon release (March 2020) the models included with Guppy provide the most accurate modified basecalling models.
+The above command uses the modified base model included in Guppy.
+As of the ``2.3.0`` megalodon release (March 2021) the models included with Guppy (``4.5.2``) provide the most accurate modified basecalling models.
 As more accurate basecalling models are trained, they are first released into the `Rerio repository for research models <https://github.com/nanoporetech/rerio>`_.
 Once training pipelines are more thoroughly standardized and tested models will be transferred into Guppy.
 The code below shows how to obtain and run the R9.4.1, MinION/GridION, 5mC CpG model from Rerio.
-Note that this is the same model now included in Guppy 4.5.0+.
+Note that this is the same model now included in Guppy ``4.5.2``.
 
 ::
 
@@ -110,7 +110,7 @@ Note that this is the same model now included in Guppy 4.5.0+.
 Contents
 --------
 
-.. toctree::
+..toctree::
    :maxdepth: 2
 
    algorithm_details

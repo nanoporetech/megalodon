@@ -98,7 +98,7 @@ The format for common outputs is described briefly below and in more detail in t
 The above command uses the modified base model included in Guppy (more details below `Guppy Models and Parameters`_).
 As more accurate basecalling models are trained, they are first released into the `Rerio repository for research models <https://github.com/nanoporetech/rerio>`_.
 Once training pipelines are more thoroughly standardized and tested models will be transferred into Guppy.
-The code below shows how to obtain and run the R9.4.1, MinION/GridION, 5mC CpG model (more accurate 5mC CpG methylation results than default model).
+The code below shows how to obtain and run the R9.4.1, MinION/GridION, 5mC CpG model (same model shipped with Guppy as of 4.5.2 release).
 
 ::
 
@@ -181,8 +181,8 @@ The basecalling model defines the modified bases capable of being output by Mega
 Basecalling models must be trained to specifically detect a type or types of modified bases.
 See the `Megalodon documentation here <https://nanoporetech.github.io/megalodon/modbase_training.html>`_ for instructions to construct modified base training data and train a new modified base model.
 
-By default, Megalodon uses the ``dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac.cfg`` Guppy config.
-This config is compatible with DNA, R9.4.1, MinION/GridION reads and allows output of 5mC and 6mA calls in biological contexts (CpG, dcm and dam sites).
+By default, Megalodon uses the ``dna_r9.4.1_450bps_modbases_5mc_hac.cfg`` Guppy config (released in version ``4.5.2``).
+This config is compatible with DNA, R9.4.1, MinION/GridION reads and allows output of 5mC calls in all contexts.
 Use the ``--guppy-config`` option to specify a different guppy model config.
 The appropriate `Rerio model <https://github.com/nanoporetech/rerio>`_ is recommended for the highest accuracy modified base calls.
 
@@ -197,9 +197,9 @@ In addition to the ``--guppy-config`` and ``--guppy-server-path`` options, a num
 The ``--guppy-params`` argument will pass arguments directly to the ``guppy_basecall_server`` initialization call.
 For example to optimize GPU usage, the following option might be specified: ``--guppy-params "--num_callers 5 --ipc_threads 6"``
 
-Finally the ``--guppy-timeout`` arguments ensures that a run will not stall on a small number of reads taking a very long time (default 30 seconds per batch of 50 reads).
-The ``Pyguppy get completed reads invalid error "Something went wrong. return_code: result.failed"`` error indicate that the Guppy server is overwhelmed.
-Consider lowering the ``--processes`` and/or ``--reads-per-guppy-batch`` values to reduce these errors.
+Finally the ``--guppy-timeout`` arguments ensures that a run will not stall on few reads or with lower compute resources.
+The ``Guppy server unable to recieve read`` error indicate that the Guppy server is overwhelmed.
+Consider lowering the ``--processes`` and/or ``--guppy-concurrent-reads`` values to reduce these errors.
 Finding the right balance for these parameters can help achieve optimal performance on a system.
 
 Disk Performance Considerations
@@ -246,7 +246,7 @@ The Megalodon code supports RNA modified base detection, but currently no RNA mo
 License and Copyright
 ---------------------
 
-|copy| 2019-20 Oxford Nanopore Technologies Ltd.
+|copy| 2019-21 Oxford Nanopore Technologies Ltd.
 
 .. |copy| unicode:: 0xA9 .. copyright sign
 
