@@ -6,6 +6,7 @@ GUPPY_BIN_PATH="./ont-guppy-cpu/bin/"
 GUPPY_FAST_CONFIG="dna_r9.4.1_450bps_fast.cfg"
 GUPPY_MOD_CONFIG="dna_r9.4.1_450bps_modbases_5mc_hac.cfg"
 MOD_CALIBRATION_FN="megalodon/megalodon/model_data/dna_r9.4.1_450bps_modbases_5mc_hac.cfg/megalodon_mod_calibration.npz"
+TAIYAKI_CPT="taiyaki_model.checkpoint"
 
 FASTA_REF="reference.fa"
 MINIMAP_INDEX="reference.fa.mmi"
@@ -33,7 +34,7 @@ megalodon \
     --outputs basecalls mod_basecalls \
     `# guppy options` \
     --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
-    --guppy-config ${GUPPY_MOD_CONFIG} \
+    --guppy-config ${GUPPY_FAST_CONFIG} \
     `# number of megalodon workers` \
     --processes ${NPROC}
 
@@ -48,7 +49,7 @@ megalodon \
     --outputs mappings per_read_refs signal_mappings \
     `# guppy options` \
     --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
-    --guppy-config ${GUPPY_MOD_CONFIG} \
+    --guppy-config ${GUPPY_FAST_CONFIG} \
     `# number of megalodon read processing workers` \
     --processes ${NPROC} \
     `# minimap2 index reference (recommended for memory efficiency)` \
@@ -61,6 +62,7 @@ megalodon \
     --ref-length-range 500 3000 \
     --ref-percent-identity-threshold 90 \
     --ref-percent-coverage-threshold 90
+
 # test mods output
 megalodon \
     `# input reads` \
@@ -136,6 +138,7 @@ megalodon \
     `# guppy options` \
     --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
     --guppy-config ${GUPPY_MOD_CONFIG} \
+    --guppy-timeout 300 \
     `# number of megalodon workers` \
     --processes ${NPROC} \
     `# minimap2 index reference (recommended for memory efficiency)` \
@@ -251,7 +254,7 @@ megalodon_extras \
     --processes 2
 megalodon_extras \
     calibrate merge_modified_bases_stats \
-    ctrl_mod_stats.all.npz nat_mod_stats.all.npz \
+    ctrl_mod_stats.npz nat_mod_stats.npz \
     --out-filename mod_stats.all.npz
 megalodon_extras \
     calibrate modified_bases \
@@ -328,18 +331,14 @@ megalodon \
     --output-directory ${CTRL_READS}.taiyaki \
     --overwrite \
     `# output all the things` \
-    --outputs basecalls mappings \
-    per_read_mods mods mod_mappings \
+    --outputs basecalls mappings signal_mappings \
     `# taiyaki options` \
     --do-not-use-guppy-server \
-    --taiyaki-model-filename taiyaki_model.checkpoint \
+    --taiyaki-model-filename ${TAIYAKI_CPT} \
     `# number of megalodon read processing workers` \
     --processes ${NPROC} \
     `# minimap2 index reference (recommended for memory efficiency)` \
-    --reference ${MINIMAP_INDEX} \
-    `# modified base settings` \
-    --mod-motif m CCWGG 1 \
-    --write-mods-text
+    --reference ${MINIMAP_INDEX}
 
 ${GUPPY_BIN_PATH}/guppy_basecaller \
     -i ${CTRL_READS} \
