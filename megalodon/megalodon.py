@@ -1047,7 +1047,7 @@ def process_all_reads(
         extract_sig_ps.append(
             mp.Process(
                 target=fast5_io._extract_signal,
-                # daemon=True,
+                daemon=True,
                 name="SignalExtractor{:03d}".format(es_i),
                 args=(
                     fn_read_ids_q,
