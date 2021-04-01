@@ -13,6 +13,9 @@ from ont_fast5_api.fast5_interface import get_fast5_file as ont_get_fast5_file
 from megalodon import logging, megalodon_helper as mh
 
 
+# fix error `TypeError: cannot pickle '_thread.lock' object` on Mac + python3.8
+mp.set_start_method("fork")
+
 LOGGER = logging.get_logger()
 
 LIVE_COMP_FN_START = "final_summary_"

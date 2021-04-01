@@ -9,6 +9,9 @@ from tqdm import tqdm
 from megalodon import logging, megalodon_helper as mh
 
 
+# fix error `TypeError: cannot pickle '_thread.lock' object` on Mac + python3.8
+mp.set_start_method("fork")
+
 LOGGER = logging.get_logger()
 
 VAR_CALIB_TYPE = "snp_type_indel_len"

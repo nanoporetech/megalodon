@@ -7,6 +7,9 @@ from multiprocessing.queues import Queue as mpQueue
 from megalodon import logging, megalodon_helper as mh
 
 
+# fix error `TypeError: cannot pickle '_thread.lock' object` on Mac + python3.8
+mp.set_start_method("fork")
+
 _FULL_SLEEP_TIME = 1
 
 GETTER_QPC = namedtuple("getter_qpc", ("queue", "proc", "conn"))
