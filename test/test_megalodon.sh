@@ -45,7 +45,7 @@ megalodon \
     --output-directory ${CTRL_READS}.mappings_output \
     --overwrite \
     `# output all the things` \
-    --outputs mappings per_read_refs \
+    --outputs mappings per_read_refs signal_mappings \
     `# guppy options` \
     --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
     --guppy-config ${GUPPY_MOD_CONFIG} \
@@ -56,7 +56,11 @@ megalodon \
     `# mapping settings (cram requires FASTA reference)` \
     --sort-mappings \
     --mappings-format cram \
-    --cram-reference ${FASTA_REF}
+    --cram-reference ${FASTA_REF} \
+    `# per-read reference/signal mapping settings` \
+    --ref-length-range 500 3000 \
+    --ref-percent-identity-threshold 90 \
+    --ref-percent-coverage-threshold 90
 # test mods output
 megalodon \
     `# input reads` \
@@ -90,7 +94,7 @@ megalodon \
     --outputs basecalls mod_basecalls mappings \
     per_read_mods mods mod_mappings \
     per_read_variants variants variant_mappings \
-    per_read_refs \
+    per_read_refs signal_mappings \
     `# guppy options` \
     --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
     --guppy-config ${GUPPY_MOD_CONFIG} \
@@ -111,7 +115,11 @@ megalodon \
     --variant-filename ${VARS} \
     --haploid \
     --write-variants-text \
-    --write-vcf-log-probs
+    --write-vcf-log-probs \
+    `# per-read reference/signal mapping settings` \
+    --ref-length-range 500 3000 \
+    --ref-percent-identity-threshold 90 \
+    --ref-percent-coverage-threshold 90
 
 # process native reads for downstream results
 megalodon \
@@ -124,7 +132,7 @@ megalodon \
     --outputs basecalls mod_basecalls mappings \
     per_read_mods mods mod_mappings \
     per_read_variants variants variant_mappings \
-    per_read_refs \
+    per_read_refs signal_mappings \
     `# guppy options` \
     --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
     --guppy-config ${GUPPY_MOD_CONFIG} \
@@ -226,31 +234,30 @@ megalodon_extras \
     --mod-bases m \
     --ground-truth-cov-min 3 --nanopore-cov-min 5
 
-# taiyaki currently broken due to dependencies, so skipping these
 # test model calibration from mapped signal files
-#megalodon_extras \
-#    calibrate generate_mod_stats_from_msf \
-#    ${CTRL_READS}.mega_res/signal_mappings.hdf5 \
-#    --motif CCWGG 1 \
-#    --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
-#    --out-filename ctrl_mod_stats.npz --modified-bases-set m \
-#    --processes 2
-#megalodon_extras \
-#    calibrate generate_mod_stats_from_msf \
-#    ${NAT_READS}.mega_res/signal_mappings.hdf5 \
-#    --motif CCWGG 1 \
-#    --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
-#    --out-filename nat_mod_stats.npz --modified-bases-set m \
-#    --processes 2
-#megalodon_extras \
-#    calibrate merge_modified_bases_stats \
-#    ctrl_mod_stats.all.npz nat_mod_stats.all.npz \
-#    --out-filename mod_stats.all.npz
-#megalodon_extras \
-#    calibrate modified_bases \
-#    --ground-truth-llrs mod_stats.all.npz \
-#    --out-filename mod_calib.all.npz \
-#    --out-pdf mod_calib.all.pdf
+megalodon_extras \
+    calibrate generate_mod_stats_from_msf \
+    ${CTRL_READS}.mega_res/signal_mappings.hdf5 \
+    --motif CCWGG 1 \
+    --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
+    --out-filename ctrl_mod_stats.npz --modified-bases-set m \
+    --processes 2
+megalodon_extras \
+    calibrate generate_mod_stats_from_msf \
+    ${NAT_READS}.mega_res/signal_mappings.hdf5 \
+    --motif CCWGG 1 \
+    --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
+    --out-filename nat_mod_stats.npz --modified-bases-set m \
+    --processes 2
+megalodon_extras \
+    calibrate merge_modified_bases_stats \
+    ctrl_mod_stats.all.npz nat_mod_stats.all.npz \
+    --out-filename mod_stats.all.npz
+megalodon_extras \
+    calibrate modified_bases \
+    --ground-truth-llrs mod_stats.all.npz \
+    --out-filename mod_calib.all.npz \
+    --out-pdf mod_calib.all.pdf
 
 
 # TODO add tests for more megalodon_extras commands
