@@ -25,6 +25,8 @@ from megalodon import (
     __version__,
 )
 
+# fix error `TypeError: cannot pickle '_thread.lock' object` on Mac + python3.8
+mp.set_start_method("fork")
 
 LOGGER = logging.get_logger()
 # set blas library environment variables (without these the cblas calls
@@ -1045,7 +1047,7 @@ def process_all_reads(
         extract_sig_ps.append(
             mp.Process(
                 target=fast5_io._extract_signal,
-                daemon=True,
+                # daemon=True,
                 name="SignalExtractor{:03d}".format(es_i),
                 args=(
                     fn_read_ids_q,
