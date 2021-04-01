@@ -15,7 +15,10 @@ from megalodon import (
 )
 
 # fix error `TypeError: cannot pickle '_thread.lock' object` on Mac + python3.8
-mp.set_start_method("fork")
+try:
+    mp.set_start_method("fork")
+except RuntimeError:
+    pass
 
 _DO_PROFILE_AGG_MOD = False
 _DO_PROFILE_GET_MODS = False

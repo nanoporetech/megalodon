@@ -8,7 +8,10 @@ from megalodon import logging, megalodon_helper as mh
 
 
 # fix error `TypeError: cannot pickle '_thread.lock' object` on Mac + python3.8
-mp.set_start_method("fork")
+try:
+    mp.set_start_method("fork")
+except RuntimeError:
+    pass
 
 _FULL_SLEEP_TIME = 1
 

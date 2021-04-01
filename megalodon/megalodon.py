@@ -26,7 +26,10 @@ from megalodon import (
 )
 
 # fix error `TypeError: cannot pickle '_thread.lock' object` on Mac + python3.8
-mp.set_start_method("fork")
+try:
+    mp.set_start_method("fork")
+except RuntimeError:
+    pass
 
 LOGGER = logging.get_logger()
 # set blas library environment variables (without these the cblas calls
