@@ -1,2 +1,3 @@
 include README.rst
 include LICENCE.txt
+include megalodon/model_data/*/*.npz
