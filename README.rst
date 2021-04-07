@@ -34,7 +34,7 @@ The primary Megalodon run mode requires the Guppy basecaller (version >= 4.0).
 See the `community page for download/installation instructions [login required] <https://community.nanoporetech.com/downloads>`_.
 
 Megalodon is a python-based command line software package.
-Given a python (version >= 3.5) installation, all other requirements are handled by ``pip`` or ``conda``.
+Given a python (version >= 3.6) installation, all other requirements are handled by ``pip`` or ``conda``.
 
 ..
 
@@ -43,6 +43,8 @@ Given a python (version >= 3.5) installation, all other requirements are handled
    1) output mapped signal files (for basecall model training)
 
    2) running the Taiyaki basecalling backend (for neural network designs including experimental layers)
+
+``ont-pyguppy-client-api`` does not currently provide a python 3.9 release, so python < 3.9 is required for use with the guppy backend.
 
 Installation
 ------------
