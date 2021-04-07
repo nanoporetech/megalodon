@@ -110,7 +110,7 @@ Note that this is the same model now included in Guppy ``4.5.2``.
 Contents
 --------
 
-..toctree::
+.. toctree::
    :maxdepth: 2
 
    algorithm_details
