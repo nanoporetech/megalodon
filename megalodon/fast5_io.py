@@ -245,9 +245,19 @@ def _extract_signal_worker(
             fast5_fn, read_ids = fn_rids
             with get_fast5_file(fast5_fn, driver="core") as fast5_fp:
                 for read_id in read_ids:
-                    sig_info, seq_summ_info = model_info.extract_signal_info(
-                        fast5_fp, read_id, extract_dacs
-                    )
+                    try:
+                        (
+                            sig_info,
+                            seq_summ_info,
+                        ) = model_info.extract_signal_info(
+                            fast5_fp, read_id, extract_dacs
+                        )
+                    except mh.MegaError:
+                        LOGGER.debug(
+                            f"Encountered malformated fast5: {fast5_fn} "
+                            f"{read_id}"
+                        )
+                        continue
                     signal_q.put((tuple(sig_info), tuple(seq_summ_info)))
     except Exception as e:
         aux_failed_q.put(
