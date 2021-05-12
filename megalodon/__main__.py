@@ -179,6 +179,14 @@ def get_parser():
         help=hidden_help("Only allow forward strand alignments."),
     )
     map_grp.add_argument(
+        "--minimap-score",
+        nargs="+",
+        type=int,
+        help=hidden_help(
+            "Minimap2 scoring array. See mappy.Aligner scoring argument."
+        ),
+    )
+    map_grp.add_argument(
         "--cram-reference",
         help=hidden_help(
             "FASTA reference file. If --reference is a minimap2 index, the "

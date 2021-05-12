@@ -1205,6 +1205,8 @@ def parse_aligner_args(args):
             aligner_kwargs.update({"best_n": 1})
         if args.forward_strand_alignments_only:
             aligner_kwargs.update({"extra_flags": 0x100000})
+        if args.minimap_score is not None:
+            aligner_kwargs.update({"scoring": tuple(args.minimap_score)})
         aligner = mappy.Aligner(str(args.reference), **aligner_kwargs)
     else:
         aligner = None

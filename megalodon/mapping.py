@@ -162,7 +162,9 @@ def prepare_mapping(
 ):
     a = pysam.AlignedSegment()
     a.query_name = read_id
-    a.query_sequence = seq
+    # convert RNA seq U bases to T for browser visualization
+    # BAM/CRAM converts Us to Ns
+    a.query_sequence = mh.u_to_t(seq)
     a.template_length = len(seq)
     a.flag = flag
     if ref_id is not None:
