@@ -16,27 +16,18 @@ NESTED_COMMANDS = [
     ),
     (
         ep.GRP_CALIB,
-        "Calibrate model statistics with ground truth modified base or variants",
+        "Calibrate model results with ground truth modified base or variants",
         [
             (ep.CMD_CALIB_MODS, "Calibrate modified base statistics"),
             (ep.CMD_CALIB_VARS, "Calibrate sequence variant statistics"),
-            (
-                ep.CMD_CALIB_GEN_MODS,
-                "Generate statistics for modified base calibration",
-            ),
+            (ep.CMD_CALIB_GEN_MODS, "Generate stats for mod calibration"),
             (
                 ep.CMD_CALIB_GEN_MODS_MSF,
-                "Generate statistics for mod calibration from mapped signal file",
+                "Generate stats for mod calibration from mapped signal file",
             ),
-            (
-                ep.CMD_CALIB_GEN_VARS,
-                "Generate statistics for sequence variant calibration",
-            ),
+            (ep.CMD_CALIB_GEN_VARS,"Generate stats for variant calibration"),
             (ep.CMD_CALIB_MERGE_MODS, "Merge modified base calibration files"),
-            (
-                ep.CMD_CALIB_MERGE_MODS_STATS,
-                "Merge modified base calibration statistics files",
-            ),
+            (ep.CMD_CALIB_MERGE_MODS_STATS, "Merge mod calibration stat files"),
         ],
     ),
     (
@@ -119,6 +110,10 @@ NESTED_COMMANDS = [
             (
                 ep.CMD_VAL_COMP_MODS,
                 "Compare aggregated modified base results (bedMethyl files",
+            ),
+            (
+                ep.CMD_VAL_MODS_CALIB,
+                "Validate per-read modified bases from calibration file",
             ),
         ],
     ),
