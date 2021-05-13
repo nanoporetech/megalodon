@@ -25,7 +25,7 @@ NESTED_COMMANDS = [
                 ep.CMD_CALIB_GEN_MODS_MSF,
                 "Generate stats for mod calibration from mapped signal file",
             ),
-            (ep.CMD_CALIB_GEN_VARS,"Generate stats for variant calibration"),
+            (ep.CMD_CALIB_GEN_VARS, "Generate stats for variant calibration"),
             (ep.CMD_CALIB_MERGE_MODS, "Merge modified base calibration files"),
             (ep.CMD_CALIB_MERGE_MODS_STATS, "Merge mod calibration stat files"),
         ],

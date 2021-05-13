@@ -128,7 +128,11 @@ def report_mod_metrics(
                     continue
                 try:
                     # compute modified base metrics
-                    pr_data, roc_data, kde_data = validation.compute_mod_sites_stats(
+                    (
+                        pr_data,
+                        roc_data,
+                        kde_data,
+                    ) = validation.compute_mod_sites_stats(
                         vs_samp_mod_data[mod_base],
                         vs_samp_ctrl_data[mod_base],
                         balance_classes,
