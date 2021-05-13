@@ -1312,7 +1312,7 @@ def get_parser_validate_compare_modified_bases():
     return parser
 
 
-def get_parser_validate_modified_bases_from_calibration():
+def get_parser_validate_mod_bases_from_calibration():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--ground-truth-llrs",
@@ -1532,7 +1532,7 @@ GRP_VAL = "validate"
 CMD_VAL_RES = "results"
 CMD_VAL_AGG_MODS = "aggregated_modified_bases"
 CMD_VAL_COMP_MODS = "compare_modified_bases"
-CMD_VAL_MODS_CALIB = "modified_bases_from_calibration"
+CMD_VAL_MODS_CALIB = "mod_bases_from_calibration"
 
 GRP_VARS = "variants"
 CMD_VAR_ATOM = "atomize"
@@ -1579,7 +1579,7 @@ PARSERS = {
         CMD_VAL_RES: get_parser_validate_results,
         CMD_VAL_AGG_MODS: get_parser_validate_aggregated_modified_bases,
         CMD_VAL_COMP_MODS: get_parser_validate_compare_modified_bases,
-        CMD_VAL_MODS_CALIB: get_parser_validate_modified_bases_from_calibration,
+        CMD_VAL_MODS_CALIB: get_parser_validate_mod_bases_from_calibration,
     },
     GRP_VARS: {
         CMD_VAR_ATOM: get_parser_variants_atomize,
