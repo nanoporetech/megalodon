@@ -20,6 +20,65 @@ Mapping
 Mapped reads can be output in SAM, BAM or CRAM formats.
 Basecalls will be output into the ``mappings.sam``, ``mappings.bam``, or ``mappings.cram`` file within the ``--output-directory``.
 
+~~~~~~~~~~~~~~~
+Mapping Summary
+~~~~~~~~~~~~~~~
+
+When ``--outputs mappings`` is requested the ``mappings.summary.txt`` is produced.
+This file contains the following fields:
+
+#. read_id
+
+   - Unique read identifier (from FAST5)
+#. pct_identity
+
+   - Mapping/reference percent identity (computed as ``100 * num_match / num_align``)
+#. num_align
+
+   - Length of full alignment (``num_match + num_mismatch + num_ins + num_del``)
+#. num_match
+
+   - Number of basecalls aligned to a matching reference base
+#. num_del
+
+   - Number of deleted reference bases implied by the alignment
+#. num_ins
+
+   - Number of inserted reference bases implied by the alignment
+#. read_pct_coverage
+
+   - Percentage of read basecalls included in reference alignment
+#. chrom
+
+   - Reference contig name for mapping
+#. strand
+
+   - Strand for mapping
+#. start
+
+   - Reference coordinate for start of mapping (0-based close interval coordinate)
+#. end
+
+   - Reference coordinate for end of mapping (0-based open interval coordinate)
+#. query_start
+
+   - Basecall coordinate for start of mapping (0-based closed interval coordinate)
+#. query_end
+
+   - Basecall coordinate for end of mapping (0-based open interval coordinate)
+#. map_sig_start
+
+   - Raw signal coordinate for start of mapping (0-based closed interval coordinate). Note that this coordinate is as stored in the FAST5 file, so for RNA reads (5' to 3' read direction) the start coordinate will be greater than the end coordinate.
+#. map_sig_end
+
+   - Raw signal coordinate for end of mapping (0-based open interval coordinate)
+#. sig_len
+
+   - Length of signal for complete read
+#. map_num
+
+   - Mapping number to distinguish multiple mappings from the same read. Should always be ``0`` when ``--allow-supplementary-alignments`` is not set.
+
 ~~~~~~~~~~~~~~~~~~~~~
 Modified Base Mapping
 ~~~~~~~~~~~~~~~~~~~~~
