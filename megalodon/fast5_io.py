@@ -27,12 +27,6 @@ LIVE_SLEEP = 0.1
 _PROFILE_EXTRACT_SIGNAL = False
 
 
-class LiveDoneError(Exception):
-    """Custom error to indicate that live processing has completed"""
-
-    pass
-
-
 def get_read_ids(fast5_fn):
     with ont_get_fast5_file(fast5_fn, "r") as fast5_fp:
         return fast5_fp.get_read_ids()
@@ -44,51 +38,41 @@ def iterate_fast5_filenames(input_path, recursive=True, do_it_live=False):
     Args:
         input_path (str): Path to root reads directory
         recursive (bool): Search recursively
-        do_it_live (bool): Raise error when file starting with
-            LIVE_COMP_FN_START is found
-
-    Raises:
-        megalodon.fast5_io.LiveDoneError: When do_it_live is set and
+        do_it_live (bool): Search for fast5 files until file starting with
             LIVE_COMP_FN_START is found
     """
-    if recursive:
-        for root, _, fns in os.walk(input_path, followlinks=True):
-            for fn in fns:
-                if do_it_live and fn.startswith(LIVE_COMP_FN_START):
-                    raise LiveDoneError
-                if not fn.endswith(".fast5"):
-                    continue
-                yield os.path.join(root, fn)
-    else:
-        for fn in glob(os.path.join(input_path, "*.fast5")):
+
+    def _iter_fns():
+        if recursive:
+            for root, _, fns in os.walk(input_path, followlinks=True):
+                for fn in fns:
+                    yield os.path.join(root, fn)
+        else:
+            for fn in glob(os.path.join(input_path, "*")):
+                yield fn
+
+    # if requested loop through files live
+    used_fns = set()
+    while do_it_live:
+        for fn in _iter_fns():
+            if os.path.basename(fn).startswith(LIVE_COMP_FN_START):
+                LOGGER.debug("LiveProcessingComplete")
+                break
+            if not fn.endswith(".fast5") or fn in used_fns:
+                continue
+            used_fns.add(fn)
             yield fn
-
-
-def _iterate_fast5_reads_core(
-    fast5s_dir, limit=None, recursive=True, do_it_live=False, skip_fns=None
-):
-    """Yield reads in a directory of fast5 files.
-
-    Each read is specified by a tuple (filepath, read_id)
-    Files may be single or multi-read fast5s
-
-    Args:
-        fast5s_dir (str): Directory containing fast5 files
-        limit (int): Limit number of reads to consider
-        recursive (bool): Search path recursively for fast5 files.
-        do_it_live (bool): Raise RuntimeError when file starting with
-            LIVE_COMP_FN_START is found.
-        skip_fns (set): Set of filenames to skip for read iteration
-    """
-    nreads = 0
-    for fast5_fn in iterate_fast5_filenames(fast5s_dir, recursive, do_it_live):
-        if skip_fns is not None and fast5_fn in skip_fns:
+        # break out of while loop
+        if os.path.basename(fn).startswith(LIVE_COMP_FN_START):
+            break
+        # sleep so file searching doesn't take too much processing
+        sleep(LIVE_SLEEP)
+    # if not live loop through all files. If live, one last loop to catch any
+    # new files since last completion file was found.
+    for fn in _iter_fns():
+        if not fn.endswith(".fast5") or fn in used_fns:
             continue
-        for read_id in get_read_ids(fast5_fn):
-            yield fast5_fn, read_id
-            nreads += 1
-            if limit is not None and nreads >= limit:
-                return
+        yield fn
 
 
 def iterate_fast5_reads(
@@ -100,48 +84,16 @@ def iterate_fast5_reads(
         fast5s_dir (str): Directory containing fast5 files
         limit (int): Limit number of reads to consider
         recursive (bool): Search path recursively for fast5 files.
-        do_it_live (bool): Continue searching for reads until file starting
-            with LIVE_COMP_FN_START is found.
+        do_it_live (bool): Search for fast5 files until file starting with
+            LIVE_COMP_FN_START is found
     """
-    if do_it_live:
-        LOGGER.debug("LiveProcessingStarting")
-        # track files that have been searched for read_ids so they aren't
-        # opened again
-        used_fns = set()
-        # keep track of limit here since inner loop won't keep total count
-        nreads = 0
-        try:
-            while True:
-                # freeze set so it doesn't update in inner function
-                iter_skip_fns = frozenset(used_fns)
-                for fast5_fn, read_id in _iterate_fast5_reads_core(
-                    fast5s_dir,
-                    recursive=recursive,
-                    do_it_live=True,
-                    skip_fns=iter_skip_fns,
-                ):
-                    yield fast5_fn, read_id
-                    used_fns.add(fast5_fn)
-                    nreads += 1
-                    if limit is not None and nreads >= limit:
-                        return
-                # sleep so file searching doesn't take too much processing
-                sleep(LIVE_SLEEP)
-        except LiveDoneError:
-            LOGGER.debug("LiveProcessingComplete")
-            # search for any files that were missed before run ended
-            for fast5_fn, read_id in _iterate_fast5_reads_core(
-                fast5s_dir, recursive=recursive, skip_fns=used_fns
-            ):
-                yield fast5_fn, read_id
-                nreads += 1
-                if limit is not None and nreads >= limit:
-                    return
-    else:
-        for fast5_fn, read_id in _iterate_fast5_reads_core(
-            fast5s_dir, limit=limit, recursive=recursive
-        ):
+    nreads = 0
+    for fast5_fn in iterate_fast5_filenames(fast5s_dir, recursive, do_it_live):
+        for read_id in get_read_ids(fast5_fn):
             yield fast5_fn, read_id
+            nreads += 1
+            if limit is not None and nreads >= limit:
+                return
 
 
 def get_read(fast5_fn, read_id):
@@ -337,42 +289,29 @@ def _fill_files_file_enum_worker(
             break
         file_read_ids = get_read_ids(fast5_fn)
         file_reads_q.put((fast5_fn, file_read_ids))
-        LOGGER.debug(
-            "ReadIDsExtractedFrom: {} {}".format(fast5_fn, len(file_read_ids))
-        )
+        LOGGER.debug(f"ReadIDsExtractedFrom: {fast5_fn} {len(file_read_ids)}")
     LOGGER.debug("Closing")
 
 
 def _fill_files_queue_worker(fast5_fn_q, input_info, is_below_reads_limit):
     LOGGER.debug("Starting")
     input_info = mh.INPUT_INFO(*input_info)
-    used_fns = set()
     num_fns = 0
-    try:
-        for fast5_fn in iterate_fast5_filenames(
-            input_info.fast5s_dir,
-            recursive=input_info.recursive,
-            do_it_live=input_info.do_it_live,
-        ):
-            if not is_below_reads_limit():
-                break
-            fast5_fn_q.put(fast5_fn)
-            num_fns += 1
-            if input_info.do_it_live:
-                used_fns.add(fast5_fn)
-    except LiveDoneError:
-        LOGGER.debug("LiveProcessingComplete")
-        for fast5_fn in iterate_fast5_filenames(
-            input_info.fast5s_dir, recursive=input_info.recursive
-        ):
-            if fast5_fn not in used_fns:
-                fast5_fn_q.put(fast5_fn)
+    for fast5_fn in iterate_fast5_filenames(
+        input_info.fast5s_dir,
+        recursive=input_info.recursive,
+        do_it_live=input_info.do_it_live,
+    ):
+        if not is_below_reads_limit():
+            break
+        fast5_fn_q.put(fast5_fn)
+        num_fns += 1
 
     # add None to indicate to read enumeration workers that file enumeration
     # is complete
     for _ in range(input_info.num_read_enum_ts):
         fast5_fn_q.put(None)
-    LOGGER.debug("Found {} total FAST5 files".format(num_fns))
+    LOGGER.debug(f"Found {num_fns} total FAST5 files")
     LOGGER.debug("Closing")
 
 

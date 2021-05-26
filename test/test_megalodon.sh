@@ -31,7 +31,7 @@ megalodon \
     --output-directory ${CTRL_READS}.basecalls_output \
     --overwrite \
     `# output just basecalls` \
-    --outputs basecalls mod_basecalls \
+    --outputs basecalls \
     `# guppy options` \
     --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
     --guppy-config ${GUPPY_FAST_CONFIG} \
@@ -260,7 +260,8 @@ megalodon_extras \
     calibrate modified_bases \
     --ground-truth-llrs mod_stats.all.npz \
     --out-filename mod_calib.all.npz \
-    --out-pdf mod_calib.all.pdf
+    --out-pdf mod_calib.all.pdf \
+    --overwrite
 
 
 # TODO add tests for more megalodon_extras commands

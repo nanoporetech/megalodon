@@ -1708,6 +1708,11 @@ def parse_basecall_args(args, mods_info):
 
 
 def parse_input_args(args):
+    if args.live_processing:
+        LOGGER.info(
+            "Performing live processing. File searching will stop once "
+            '"final_summary_*" file is found.'
+        )
     return mh.INPUT_INFO(
         fast5s_dir=args.fast5s_dir,
         recursive=not args.not_recursive,
