@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+import json
 import array
 import subprocess
 from abc import ABC
@@ -805,6 +806,19 @@ class ModelInfo(AbstractModelInfo):
         self.client.disconnect()
         self.client = None
 
+    def pyguppy_log_server_config(self, timeout=10):
+        try:
+            result_str, status = self.client.get_server_internal_state(
+                f"{GUPPY_HOST}:{self.params.pyguppy.port}", timeout
+            )
+            LOGGER.debug(f"pyguppy server status: {status}")
+            guppy_configs = json.loads(result_str)["Configurations"]
+            LOGGER.debug(f"pyguppy server config: {guppy_configs}")
+        except Exception as e:
+            LOGGER.debug(
+                f"Could not load guppy server configuration state: {e}"
+            )
+
     def pyguppy_check_version(self, pyguppy_version_str):
         try:
             check_vers_proc = subprocess.Popen(
@@ -934,11 +948,14 @@ class ModelInfo(AbstractModelInfo):
 
     def pyguppy_set_model_attributes(self, init_sig_len):
         self.pyguppy_client_connect()
+        self.pyguppy_log_server_config()
+        # spoof something that looks reasonably like "real" signal to make
+        # guppy 5.0+ return a called read
         init_sig_data = SIGNAL_DATA(
             fast5_fn="init_test_read",
             read_id="init_test_read",
             raw_len=0,
-            dacs=np.zeros(init_sig_len, dtype=np.int16),
+            dacs=np.tile(np.arange(1, 11, dtype=np.int16), init_sig_len // 10),
             channel_info={
                 mh.CHAN_INFO_OFFSET: 0,
                 mh.CHAN_INFO_RANGE: 1,
