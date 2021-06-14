@@ -1,0 +1,279 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" />
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <title>Computing Considerations &mdash; Megalodon 2.3.3 documentation</title>
+  
+
+  
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+
+  
+  
+
+  
+  
+
+  
+
+  
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+    
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+
+    
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Variant Phasing" href="variant_phasing.html" />
+    <link rel="prev" title="Advanced Megalodon Arguments" href="advanced_arguments.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="index.html" class="icon icon-home"> Megalodon
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                2.3.3
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="algorithm_details.html">Megalodon Algorithm Details</a></li>
+<li class="toctree-l1"><a class="reference internal" href="common_arguments.html">Common Arguments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_arguments.html">Advanced Megalodon Arguments</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Computing Considerations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#raw-signal-loading">Raw Signal Loading</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#base-calling">Base Calling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#reference-mapping">Reference Mapping</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#variant-and-modified-base-calling">Variant and Modified Base Calling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#writing-to-disk">Writing to Disk</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="variant_phasing.html">Variant Phasing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="file_formats.html">File Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="model_training.html">Megalodon Model Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modbase_training.html">Megalodon Modified Base Model Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_aggregate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">aggregate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_calibrate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_merge.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">merge</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_modified_bases.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_phase_variants.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">phase_variants</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_per_read_text.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">per_read_text</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_validate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_variants.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span></code></a></li>
+</ul>
+
+            
+          
+        </div>
+        
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Megalodon</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+        
+      <li>Computing Considerations</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+          
+            <a href="_sources/computing_considerations.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="computing-considerations">
+<h1>Computing Considerations<a class="headerlink" href="#computing-considerations" title="Permalink to this headline">¶</a></h1>
+<p>This page aims to describe the Megalodon processing workflow, highlighting relevant computing considerations.</p>
+<div class="section" id="raw-signal-loading">
+<h2>Raw Signal Loading<a class="headerlink" href="#raw-signal-loading" title="Permalink to this headline">¶</a></h2>
+<p>Raw signal is loaded from either single- or multi-FAST5 format via the <code class="docutils literal notranslate"><span class="pre">ont_fast5_api</span></code>.
+Raw signal is loaded within a single process and distributed out the worker processes.
+The input queue status bar indicates how many read signals have been loaded and are awaiting processing.
+If this status bar is often empty, raw signal extraction from FAST5 files is likely a processing bottleneck.</p>
+<p>The reads queue is filled from a separate worker process.
+This process will enumerate FAST5 files and all read_ids stored within these files, but per-read processing will begin as soon as the first read_id/file is found.
+Users may notice a period of time where the progress bar does not have a known total number of reads.
+Once read enumeration is complete the progress bar will update to include the total number of reads found and ETA for run completion.</p>
+</div>
+<div class="section" id="base-calling">
+<h2>Base Calling<a class="headerlink" href="#base-calling" title="Permalink to this headline">¶</a></h2>
+<p>Basecalling is performed by the pyguppy backend.
+Basecalling consists of running the neural network and then decoding this output.
+See <a class="reference external" href="https://community.nanoporetech.com/protocols/Guppy-protocol">guppy documentation on the community page (login required)</a> for more details.
+Parameters can be passed directly to the Guppy server initialization call via the <code class="docutils literal notranslate"><span class="pre">--guppy-params</span></code> argument.</p>
+</div>
+<div class="section" id="reference-mapping">
+<h2>Reference Mapping<a class="headerlink" href="#reference-mapping" title="Permalink to this headline">¶</a></h2>
+<p>Read mapping is completed using the <code class="docutils literal notranslate"><span class="pre">minimap2</span></code> python interface (<code class="docutils literal notranslate"><span class="pre">mappy</span></code>).
+The reference index is loaded into shared memory.
+A separate thread is linked to each per-read processing worker in order to access the shared memory index.
+Thus users may notice threads opened for this processing.
+These threads will generally consume less compute than the worker processes.</p>
+</div>
+<div class="section" id="variant-and-modified-base-calling">
+<h2>Variant and Modified Base Calling<a class="headerlink" href="#variant-and-modified-base-calling" title="Permalink to this headline">¶</a></h2>
+<p>Sequence variant and modified base calling is computed within the per-read processing workers using CPU resources.
+Generally, this portion of processing will consume a minority of the compute resources.
+Proposing many variants (e.g. all possible 2+ base indels) or modified bases in all contexts may show a bottle neck at this portion of processing.
+Internal testing shows that proposal of all possible single base substitutions shows minimal processing at this portion of per-read processing.</p>
+</div>
+<div class="section" id="writing-to-disk">
+<h2>Writing to Disk<a class="headerlink" href="#writing-to-disk" title="Permalink to this headline">¶</a></h2>
+<p>As of version 2.0, the status of output queues is displayed by default.
+As of version 2.2, the status of the input signal extraction queue is also displayed.
+If any of the output status bars indicate a full queue, Megalodon will stall waiting on that process to write data to disk.
+if the input signal extraction quque is often empty, raw signal extraction from FAST5 files is likely a processing bottleneck.
+Moving the input data or  <code class="docutils literal notranslate"><span class="pre">--output-directory</span></code> respectively to a location with faster disk I/O performance should improve performance.</p>
+</div>
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+        <a href="variant_phasing.html" class="btn btn-neutral float-right" title="Variant Phasing" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="advanced_arguments.html" class="btn btn-neutral float-left" title="Advanced Megalodon Arguments" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &#169; Copyright 2019, Oxford Nanopore Technologies.
+
+    </p>
+  </div>
+    
+    
+    
+    Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    
+    provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>

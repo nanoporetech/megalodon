@@ -1,0 +1,715 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" />
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <title>Advanced Megalodon Arguments &mdash; Megalodon 2.3.3 documentation</title>
+  
+
+  
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+
+  
+  
+
+  
+  
+
+  
+
+  
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+    
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+
+    
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Computing Considerations" href="computing_considerations.html" />
+    <link rel="prev" title="Common Arguments" href="common_arguments.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="index.html" class="icon icon-home"> Megalodon
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                2.3.3
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="algorithm_details.html">Megalodon Algorithm Details</a></li>
+<li class="toctree-l1"><a class="reference internal" href="common_arguments.html">Common Arguments</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Advanced Megalodon Arguments</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#guppy-backend-argument">Guppy Backend Argument</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#output-arguments">Output Arguments</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#mapping-arguments">Mapping Arguments</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#sequence-variant-arguments">Sequence Variant Arguments</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#modified-base-arguments">Modified Base Arguments</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#taiyaki-backend-arguments">Taiyaki Backend Arguments</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#reference-signal-mapping-output">Reference/Signal Mapping Output</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#compute-resource-arguments">Compute Resource Arguments</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#miscellaneous-arguments">Miscellaneous Arguments</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="computing_considerations.html">Computing Considerations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="variant_phasing.html">Variant Phasing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="file_formats.html">File Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="model_training.html">Megalodon Model Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modbase_training.html">Megalodon Modified Base Model Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_aggregate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">aggregate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_calibrate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_merge.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">merge</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_modified_bases.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_phase_variants.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">phase_variants</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_per_read_text.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">per_read_text</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_validate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_variants.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span></code></a></li>
+</ul>
+
+            
+          
+        </div>
+        
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Megalodon</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+        
+      <li>Advanced Megalodon Arguments</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+          
+            <a href="_sources/advanced_arguments.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="advanced-megalodon-arguments">
+<h1>Advanced Megalodon Arguments<a class="headerlink" href="#advanced-megalodon-arguments" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="guppy-backend-argument">
+<h2>Guppy Backend Argument<a class="headerlink" href="#guppy-backend-argument" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--do-not-use-guppy-server</span></code></p>
+<ul>
+<li><p>Use alternative basecalling backend</p></li>
+<li><p>Alternatives are:</p>
+<ul>
+<li><p>FAST5: Read called sequence and full posterior data from fast5 files.</p>
+<ul>
+<li><p>This is the default when <code class="docutils literal notranslate"><span class="pre">--do-not-use-guppy-server</span></code> is set.</p></li>
+<li><p>Note that this option requires <code class="docutils literal notranslate"><span class="pre">--post_out</span></code> be set when running Guppy and may increase the fast5 file size by 5-10X.</p></li>
+</ul>
+</li>
+<li><p>Taiyaki: Use the Taiyaki package basecalling interface</p>
+<ul>
+<li><p>This requires a Taiyaki installation (potentially with GPU settings).</p></li>
+<li><p>Trigger this mode by setting the <code class="docutils literal notranslate"><span class="pre">--taiyaki-model-filename</span></code> option.</p></li>
+<li><p>This is much slower than Guppy and is generally intended for experimental models with either layers or architectures not supported by Guppy.</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--guppy-params</span></code></p>
+<ul>
+<li><p>Extra guppy server parameters.</p></li>
+<li><p>Main purpose for optimal performance based on compute environment.</p></li>
+<li><p>Quote parameters to avoid them being parsed by megalodon.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--guppy-server-port</span></code></p>
+<ul>
+<li><p>Guppy server port.</p></li>
+<li><p>Default: <code class="docutils literal notranslate"><span class="pre">auto</span></code></p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--reads-per-guppy-batch</span></code></p>
+<ul>
+<li><p>Number of reads to send to Guppy per batch within each worker processes.</p></li>
+<li><p>Default: <code class="docutils literal notranslate"><span class="pre">50</span></code></p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--guppy-timeout</span></code></p>
+<ul>
+<li><p>Timeout to wait for guppy server to call a single read in seconds.</p></li>
+<li><p>Default: <code class="docutils literal notranslate"><span class="pre">5.0</span></code></p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--list-supported-guppy-configs</span></code></p>
+<ul>
+<li><p>List guppy configs with sequence variant and (if applicable) modified base support.</p></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="output-arguments">
+<h2>Output Arguments<a class="headerlink" href="#output-arguments" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--basecalls-format</span></code></p>
+<ul>
+<li><p>Select either <code class="docutils literal notranslate"><span class="pre">fastq</span></code> (default) or <code class="docutils literal notranslate"><span class="pre">fasta</span></code> format for basecalls output.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--num-reads</span></code></p>
+<ul>
+<li><p>Number of reads to process. Intended for test runs on a subset.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--read-ids-filename</span></code></p>
+<ul>
+<li><p>A file containing <code class="docutils literal notranslate"><span class="pre">read_ids</span></code> to process (one per line).</p></li>
+<li><p>Used in the variant phasing pipeline.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--mod-min-prob</span></code></p>
+<ul>
+<li><p>Only include modified base probabilities greater than this value in <code class="docutils literal notranslate"><span class="pre">mod_basecalls</span></code> and <code class="docutils literal notranslate"><span class="pre">mod_mappings</span></code> outputs.</p></li>
+<li><p>Default: <code class="docutils literal notranslate"><span class="pre">0.01</span></code> (<code class="docutils literal notranslate"><span class="pre">1%</span></code>)</p></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="mapping-arguments">
+<h2>Mapping Arguments<a class="headerlink" href="#mapping-arguments" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--cram-reference</span></code></p>
+<ul>
+<li><p>If <code class="docutils literal notranslate"><span class="pre">--reference</span></code> is a minimap2 index, the associated FASTA reference needs to be provided for <code class="docutils literal notranslate"><span class="pre">--mappings-format</span> <span class="pre">cram</span></code>.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--samtools-executable</span></code></p>
+<ul>
+<li><p>Samtools executable or path for sorting and indexing all mappings.</p></li>
+<li><p>Default: <code class="docutils literal notranslate"><span class="pre">samtools</span></code></p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--sort-mappings</span></code></p>
+<ul>
+<li><p>Perform sorting and indexing of mapping output files.</p></li>
+<li><p>This can take considerable time for larger runs and thus is off by default.</p></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="sequence-variant-arguments">
+<h2>Sequence Variant Arguments<a class="headerlink" href="#sequence-variant-arguments" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--context-min-alt-prob</span></code></p>
+<ul>
+<li><p>Minimum per-read variant probability to include a variant in second round of variant evaluation (including context variants).</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--disable-variant-calibration</span></code></p>
+<ul>
+<li><p>Use raw neural network sequence variant scores.</p></li>
+<li><p>This option should be set when calibrating a new model.</p></li>
+<li><p>Default: Calibrate scores as described in <code class="docutils literal notranslate"><span class="pre">--variant-calibration-filename</span></code></p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--heterozygous-factors</span></code></p>
+<ul>
+<li><p>Bayes factor used when computing heterozygous probabilities in diploid variant calling mode.</p></li>
+<li><p>Two factors must be provided for single base substitution variants and indels.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--max-indel-size</span></code></p>
+<ul>
+<li><p>Maximum indel size to include in testing. Default: 50</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--variant-all-paths</span></code></p>
+<ul>
+<li><p>Compute the forward algorithm all paths score.</p></li>
+<li><p>Default: Viterbi best-path score.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--variants-are-atomized</span></code></p>
+<ul>
+<li><p>Input variants have been atomized (with <code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span> <span class="pre">atomize</span></code>).</p></li>
+<li><p>This saves compute time, but has unpredictable behavior if variants are not atomized.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--variant-calibration-filename</span></code></p>
+<ul>
+<li><p>File containing empirical calibration for sequence variant scores.</p></li>
+<li><p>As created by the <code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">variants</span></code> command.</p></li>
+<li><p>Default: Load default calibration file for guppy config.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--variant-context-bases</span></code></p>
+<ul>
+<li><p>Context bases for single base SNP and indel calling. Default: [15, 30]</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--variant-locations-on-disk</span></code></p>
+<ul>
+<li><p>Force sequence variant locations to be stored only within on disk database table. This option will reduce the RAM memory requirement, but may drastically slow processing. Default: Store locations in memory and on disk.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--write-variants-text</span></code></p>
+<ul>
+<li><p>Output per-read variants in text format.</p>
+<ul>
+<li><p>Output includes columns: <code class="docutils literal notranslate"><span class="pre">read_id</span></code>, <code class="docutils literal notranslate"><span class="pre">chrm</span></code>, <code class="docutils literal notranslate"><span class="pre">strand</span></code>, <code class="docutils literal notranslate"><span class="pre">pos</span></code>, <code class="docutils literal notranslate"><span class="pre">ref_log_prob</span></code>, <code class="docutils literal notranslate"><span class="pre">alt_log_prob</span></code>, <code class="docutils literal notranslate"><span class="pre">var_ref_seq</span></code>, <code class="docutils literal notranslate"><span class="pre">var_alt_seq</span></code>, <code class="docutils literal notranslate"><span class="pre">var_id</span></code></p></li>
+<li><p>Log probabilities are calibrated to match observed log-likelihood ratios from ground truth samples.</p>
+<ul>
+<li><p>Reference log probabilities are included to make processing multiple alternative allele sites easier to process.</p></li>
+</ul>
+</li>
+<li><p>Position is 0-based</p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--write-vcf-log-probs</span></code></p>
+<ul>
+<li><p>Write per-read alt log probabilities out in non-standard VCF field.</p>
+<ul>
+<li><p>The <code class="docutils literal notranslate"><span class="pre">LOG_PROBS</span></code> field will contain semi-colon delimited log probabilities for each read at this site.</p></li>
+<li><p>For sites with multiple alternative alleles, per-read calls for each allele are separated by a comma as specified by the <code class="docutils literal notranslate"><span class="pre">A</span></code> genotype field type.</p>
+<ul>
+<li><p>The order is consistent within each allele so that per-read probabilities across all alleles can be reconstructed.</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="modified-base-arguments">
+<h2>Modified Base Arguments<a class="headerlink" href="#modified-base-arguments" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--disable-mod-calibration</span></code></p>
+<ul>
+<li><p>Use raw modified base scores from the network.</p></li>
+<li><p>This option should be set when calibrating a new model.</p></li>
+<li><p>Default: Calibrate scores as described in <code class="docutils literal notranslate"><span class="pre">--mod-calibration-filename</span></code></p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--mod-aggregate-method</span></code></p>
+<ul>
+<li><p>Modified base aggregation method.</p></li>
+<li><p>Choices: expectation_maximization (default), binary_threshold</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--mod-all-paths</span></code></p>
+<ul>
+<li><p>Compute forwards algorithm all paths score for modified base calls.</p></li>
+<li><p>Default: Viterbi best-path score.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--mod-binary-threshold</span></code></p>
+<ul>
+<li><p>Hard threshold for modified base aggregation (probability of modified/canonical base).</p>
+<ul>
+<li><p>Sites where no canonical or modified base achieves this level of confidence will be ignored in aggregation.</p></li>
+</ul>
+</li>
+<li><p>Default: 0.75</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--mod-calibration-filename</span></code></p>
+<ul>
+<li><p>File containing empirical calibration for modified base scores.</p></li>
+<li><p>As created by <code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">modified_bases</span></code> command.</p></li>
+<li><p>Default: Load default calibration file for guppy config.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--mod-database-timeout</span></code></p>
+<ul>
+<li><p>Timeout in seconds for modified base database operations.</p></li>
+<li><p>Default: 5 seconds</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--mod-context-bases</span></code></p>
+<ul>
+<li><p>Context bases for modified base calling.</p></li>
+<li><p>Default: 15</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--mod-map-emulate-bisulfite</span></code></p>
+<ul>
+<li><p>For <code class="docutils literal notranslate"><span class="pre">mod_mappings</span></code> output, emulate bisulfite output by converting called modified bases using “–mod-map-base-conv” argument.</p></li>
+<li><p>As of version 2.2, the default <code class="docutils literal notranslate"><span class="pre">mod_mappings</span></code> output uses the <code class="docutils literal notranslate"><span class="pre">Mm</span></code> and <code class="docutils literal notranslate"><span class="pre">Ml</span></code> hts-specs tags (see above) with all modified bases in one output file.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--mod-map-base-conv</span></code></p>
+<ul>
+<li><p>For <code class="docutils literal notranslate"><span class="pre">mod_mappings</span></code> output, convert called bases.</p>
+<ul>
+<li><p>For example, to mimic bisulfite output use: <code class="docutils literal notranslate"><span class="pre">--mod-map-base-conv</span> <span class="pre">C</span> <span class="pre">T</span> <span class="pre">--mod-map-base-conv</span> <span class="pre">Z</span> <span class="pre">C</span></code></p></li>
+<li><p>This is option useful since the BAM format does support modified bases and will convert all alternative bases to <a href="#id1"><span class="problematic" id="id2">``</span></a>N``s for storage in BAM/CRAM format.</p></li>
+</ul>
+</li>
+<li><p>Note additional formats may be supported in the future once finalized in hts-specs.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--mod-output-formats</span></code></p>
+<ul>
+<li><p>Modified base aggregated output format(s).</p></li>
+<li><p>Default: <code class="docutils literal notranslate"><span class="pre">bedmethyl</span></code></p></li>
+<li><p>Options: <code class="docutils literal notranslate"><span class="pre">bedmethyl</span></code>, <code class="docutils literal notranslate"><span class="pre">modvcf</span></code>, <code class="docutils literal notranslate"><span class="pre">wiggle</span></code></p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">bedmethyl</span></code> format produces one file per modification type.</p>
+<ul>
+<li><p>This format is specified by the <a class="reference external" href="https://www.encodeproject.org/data-standards/wgbs/">ENCODE consortium</a>.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">modvcf</span></code> is a slight variant to the VCF format used for sequence variant reporting.</p>
+<ul>
+<li><p>This format produces a single file containing all modifications.</p></li>
+<li><p>The format adds a <code class="docutils literal notranslate"><span class="pre">SN</span></code> info field as modified bases occur in a stranded manner unlike sequence variants (e.g. hemi-methylation).</p></li>
+<li><p>A genotype field <code class="docutils literal notranslate"><span class="pre">VALID_DP</span></code> indicates the number of reads included in the proportion modified calculation.</p></li>
+<li><p>Modified base proportion estimates are stored in genotype fields specified by the single letter modified base encodings (defined in the model file).</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--write-mod-log-probs</span></code></p>
+<ul>
+<li><p>Write per-read modified base log probabilities out in non-standard VCF field.</p>
+<ul>
+<li><p>The <code class="docutils literal notranslate"><span class="pre">LOG_PROBS</span></code> field will contain semi-colon delimited log probabilities for modified base within each read at this site.</p></li>
+<li><p>For sites with multiple modified bases, per-read calls for each modification type are separated by a comma as specified by the <code class="docutils literal notranslate"><span class="pre">A</span></code> genotype field type.</p>
+<ul>
+<li><p>The order is consistent within each modification type so that per-read probabilities across all modification types can be reconstructed.</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--write-mods-text</span></code></p>
+<ul>
+<li><p>Output per-read modified bases in text format.</p>
+<ul>
+<li><p>Output includes columns: <code class="docutils literal notranslate"><span class="pre">read_id</span></code>, <code class="docutils literal notranslate"><span class="pre">chrm</span></code>, <code class="docutils literal notranslate"><span class="pre">strand</span></code>, <code class="docutils literal notranslate"><span class="pre">pos</span></code>, <code class="docutils literal notranslate"><span class="pre">mod_log_probs</span></code>, <code class="docutils literal notranslate"><span class="pre">can_log_prob</span></code>, <code class="docutils literal notranslate"><span class="pre">mod_bases</span></code>, <code class="docutils literal notranslate"><span class="pre">motif</span></code></p></li>
+<li><p>Log probabilities are calibrated to match observed log-likelihood ratios from ground truth samples.</p>
+<ul>
+<li><p>Canonical log probabilities are included to make processing multiple modification sites easier to process.</p>
+<ul>
+<li><p>Megalodon is capable of handling multiple modified bases per site with appropriate model (e.g. testing for 5mC and 5hmC simultaneously is supported given a basecalling model).</p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">motif</span></code> includes the searched motif (via <code class="docutils literal notranslate"><span class="pre">--mod-motif</span></code>) as well as the relative modified base position within that motif (e.g. <code class="docutils literal notranslate"><span class="pre">CG:0</span></code> for provided <code class="docutils literal notranslate"><span class="pre">--mod-motif</span> <span class="pre">Z</span> <span class="pre">CG</span> <span class="pre">0</span></code>).</p></li>
+<li><p>Position is 0-based</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="taiyaki-backend-arguments">
+<h2>Taiyaki Backend Arguments<a class="headerlink" href="#taiyaki-backend-arguments" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--chunk-size</span></code></p>
+<ul>
+<li><p>Size of individual chunks to run as input to neural network.</p></li>
+<li><p>Smaller size will result in faster basecalling, but may reduce accuracy.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--chunk-overlap</span></code></p>
+<ul>
+<li><p>Overlap between adjacent chunks fed to basecalling neural network.</p></li>
+<li><p>Smaller size will result in faster basecalling, but may reduce accuracy.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--max-concurrent-chunks</span></code></p>
+<ul>
+<li><p>Maximum number of concurrent chunks to basecall at once.</p></li>
+<li><p>Allows a global cap on GPU memory usage.</p></li>
+<li><p>Changes to this parameter do not effect resulting basecalls.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--taiyaki-model-filename</span></code></p>
+<ul>
+<li><p><a class="reference external" href="https://github.com/nanoporetech/taiyaki">taiyaki</a> basecalling model checkpoint file</p></li>
+<li><p>In order to identify modified bases a model trained to identify those modifications must be provided.</p>
+<ul>
+<li><p>Train a new modified base model using taiyaki.</p></li>
+</ul>
+</li>
+<li><p>Guppy JSON-format models can be converted to taiyaki checkpoints/models with the <code class="docutils literal notranslate"><span class="pre">taiyaki/bin/json_to_checkpoint.py</span></code> script for use with megalodon.</p></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="reference-signal-mapping-output">
+<h2>Reference/Signal Mapping Output<a class="headerlink" href="#reference-signal-mapping-output" title="Permalink to this headline">¶</a></h2>
+<p>This output category is intended for use in generating reference sequences or signal mapping files for taiyaki basecall model training.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--ref-include-mods</span></code></p>
+<ul>
+<li><p>Include modified base calls in <code class="docutils literal notranslate"><span class="pre">per_read_refs</span></code> or <code class="docutils literal notranslate"><span class="pre">signal_mappings</span></code> outputs.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--ref-include-variants</span></code></p>
+<ul>
+<li><p>Include sequence variant calls in per-read reference output.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--ref-length-range</span></code></p>
+<ul>
+<li><p>Only include reads with specified read length in per-read reference output.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--ref-percent-identity-threshold</span></code></p>
+<ul>
+<li><p>Only include reads with higher percent identity in per-read reference output.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--ref-percent-coverage-threshold</span></code></p>
+<ul>
+<li><p>Only include reads with higher read alignment coverage in per-read reference output.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--ref-mods-all-motifs</span></code></p>
+<ul>
+<li><p>Annotate all <code class="docutils literal notranslate"><span class="pre">--mod-motif</span></code> occurrences as modified.</p></li>
+<li><p>Requires that <cite>–ref-include-mods`</cite> is set.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--ref-mod-threshold</span></code></p>
+<ul>
+<li><p>Threshold (in <code class="docutils literal notranslate"><span class="pre">log(can_prob/mod_prob)</span></code> space) used to annotate a modified bases in <code class="docutils literal notranslate"><span class="pre">signal_mappings</span></code> or <code class="docutils literal notranslate"><span class="pre">per_read_refs</span></code> outputs.</p></li>
+<li><p>See <code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span> <span class="pre">estimate_threshold</span></code> command for help computing this threshold.</p></li>
+<li><p>Requires that <cite>–ref-include-mods`</cite> is set.</p></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="compute-resource-arguments">
+<h2>Compute Resource Arguments<a class="headerlink" href="#compute-resource-arguments" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--num-read-enumeration-threads</span></code></p>
+<ul>
+<li><p>Number of parallel threads to use for read enumeration.</p>
+<ul>
+<li><p>This number of threads will be opened in a single read enumeration process and each signal extraction process (see next argument).</p></li>
+</ul>
+</li>
+<li><p>This value can be increased if the input queue remains empty.</p></li>
+<li><p>Default: <code class="docutils literal notranslate"><span class="pre">8</span></code></p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--num-extract-signal-processes</span></code></p>
+<ul>
+<li><p>Number of parallel processes to use for signal extraction.</p>
+<ul>
+<li><p>Accessing data and metadata from FAST5 files requires some compute resources. For this reason, multiple processes must be spawned to achieve the highest performance on some systems.</p></li>
+</ul>
+</li>
+<li><p>This value can be increased if the input queue remains empty.</p></li>
+<li><p>Default: <code class="docutils literal notranslate"><span class="pre">2</span></code></p></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="miscellaneous-arguments">
+<h2>Miscellaneous Arguments<a class="headerlink" href="#miscellaneous-arguments" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--database-safety</span></code></p>
+<ul>
+<li><p>Setting for database performance versus corruption protection.</p>
+<ul>
+<li><p>Options:</p>
+<ul>
+<li><p>0 (DB corruption on application crash)</p></li>
+<li><p>1 (Default; DB corruption on system crash)</p></li>
+<li><p>2 (DB safe mode)</p></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--edge-buffer</span></code></p>
+<ul>
+<li><p>Do not process sequence variant or modified base calls near edge of read mapping.</p></li>
+<li><p>Default: 30</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--not-recursive</span></code></p>
+<ul>
+<li><p>Only search for fast5 read files directly found within the fast5 directory.</p></li>
+<li><p>Default: search recursively</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--suppress-progress</span></code></p>
+<ul>
+<li><p>Suppress progress bar output.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--suppress-queues-status</span></code></p>
+<ul>
+<li><p>Suppress dynamic status of output queues.</p></li>
+<li><p>These queues are helpful for diagnosing I/O issues.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--verbose-read-progress</span></code></p>
+<ul>
+<li><p>Output dynamic updates to potential issues during processing.</p></li>
+<li><p>Default: <code class="docutils literal notranslate"><span class="pre">3</span></code></p></li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+        <a href="computing_considerations.html" class="btn btn-neutral float-right" title="Computing Considerations" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="common_arguments.html" class="btn btn-neutral float-left" title="Common Arguments" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &#169; Copyright 2019, Oxford Nanopore Technologies.
+
+    </p>
+  </div>
+    
+    
+    
+    Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    
+    provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>

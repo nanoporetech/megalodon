@@ -1,0 +1,436 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" />
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <title>Welcome to Megalodon’s documentation! &mdash; Megalodon 2.3.3 documentation</title>
+  
+
+  
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+
+  
+  
+
+  
+  
+
+  
+
+  
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+    
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+
+    
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Megalodon Algorithm Details" href="algorithm_details.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="#" class="icon icon-home"> Megalodon
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                2.3.3
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="algorithm_details.html">Megalodon Algorithm Details</a></li>
+<li class="toctree-l1"><a class="reference internal" href="common_arguments.html">Common Arguments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_arguments.html">Advanced Megalodon Arguments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="computing_considerations.html">Computing Considerations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="variant_phasing.html">Variant Phasing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="file_formats.html">File Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="model_training.html">Megalodon Model Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modbase_training.html">Megalodon Modified Base Model Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_aggregate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">aggregate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_calibrate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_merge.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">merge</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_modified_bases.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_phase_variants.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">phase_variants</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_per_read_text.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">per_read_text</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_validate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_variants.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span></code></a></li>
+</ul>
+
+            
+          
+        </div>
+        
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="#">Megalodon</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="#" class="icon icon-home"></a> &raquo;</li>
+        
+      <li>Welcome to Megalodon’s documentation!</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+          
+            <a href="_sources/index.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="welcome-to-megalodon-s-documentation">
+<h1>Welcome to Megalodon’s documentation!<a class="headerlink" href="#welcome-to-megalodon-s-documentation" title="Permalink to this headline">¶</a></h1>
+<p>Megalodon is a research command line tool to extract high accuracy modified base and sequence variant calls from raw nanopore reads by anchoring the information rich basecalling neural network output to a reference genome/transcriptome.</p>
+<p>Raw nanopore reads are processed by a single command to produce basecalls (FASTA/Q), reference mappings (SAM/BAM/CRAM), modified base calls (per-read and aggregated per-reference site), sequence variant calls (per-read and aggregated per-reference site) and more.</p>
+<div class="section" id="prerequisites">
+<h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Permalink to this headline">¶</a></h2>
+<p>The primary Megalodon run mode requires the Guppy basecaller (version &gt;= 4.0).
+See the <a class="reference external" href="https://community.nanoporetech.com/downloads">community page for download/installation instructions [login required]</a>.</p>
+<p>Megalodon is a python-based command line software package.
+Given a python (version &gt;= 3.5) installation, all other requirements are handled by <code class="docutils literal notranslate"><span class="pre">pip</span></code> or <code class="docutils literal notranslate"><span class="pre">conda</span></code>.</p>
+<blockquote>
+<div><p><a class="reference external" href="https://github.com/nanoporetech/taiyaki">Taiyaki</a> is no longer required to run Megalodon, but installation is required for two specific run modes:</p>
+<ol class="arabic simple">
+<li><p>output mapped signal files (for basecall model training)</p></li>
+<li><p>running the Taiyaki basecalling backend (for neural network designs including experimental layers)</p></li>
+</ol>
+</div></blockquote>
+</div>
+<div class="section" id="installation">
+<h2>Installation<a class="headerlink" href="#installation" title="Permalink to this headline">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">pip</span></code> is recommended for Megalodon installation.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">megalodon</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">conda</span></code> installation is available, but not fully supported.
+<code class="docutils literal notranslate"><span class="pre">ont_pyguppy_client_lib</span></code> is not available on conda and thus must be installed with <code class="docutils literal notranslate"><span class="pre">pip</span></code>.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">conda</span> <span class="n">install</span> <span class="n">megalodon</span>
+<span class="n">pip</span> <span class="n">install</span> <span class="n">ont_pyguppy_client_lib</span>
+</pre></div>
+</div>
+<p>To install from github source for development, the following commands can be run.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">git</span> <span class="n">clone</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">github</span><span class="o">.</span><span class="n">com</span><span class="o">/</span><span class="n">nanoporetech</span><span class="o">/</span><span class="n">megalodon</span>
+<span class="n">pip</span> <span class="n">install</span> <span class="o">-</span><span class="n">e</span> <span class="n">megalodon</span><span class="o">/</span>
+</pre></div>
+</div>
+<p>It is recommended that Megalodon be installed in a control compute environment.
+See <a class="reference external" href="https://packaging.python.org/guides/installing-using-pip-and-virtual-environments/">the python documentation for preparing virtual environments</a></p>
+<div class="section" id="quick-start">
+<h3>Quick Start<a class="headerlink" href="#quick-start" title="Permalink to this headline">¶</a></h3>
+<p>Megalodon must obtain the intermediate output from the basecall neural network.
+Guppy (production nanopore basecalling software) is the recommended backend to obtain this output from raw nanopore signal (from FAST5 files).
+Nanopore basecalling is compute intensive and thus it is highly recommended that GPU resources are specified (<code class="docutils literal notranslate"><span class="pre">--devices</span></code>) for optimal Megalodon performance.</p>
+<p>Megalodon is accessed via the command line interface <code class="docutils literal notranslate"><span class="pre">megalodon</span></code> command.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># megalodon help (common args)</span>
+<span class="n">megalodon</span> <span class="o">-</span><span class="n">h</span>
+<span class="c1"># megalodon help (advanced args)</span>
+<span class="n">megalodon</span> <span class="o">--</span><span class="n">help</span><span class="o">-</span><span class="n">long</span>
+
+<span class="c1"># Example command to output basecalls, mappings, and 5mC CpG methylation in both per-read (``mod_mappings``) and aggregated (``mods``) formats</span>
+<span class="c1">#   Compute settings: GPU devices 0 and 1 with 40 CPU cores</span>
+<span class="n">megalodon</span> \
+    <span class="n">raw_fast5s</span><span class="o">/</span> \
+    <span class="o">--</span><span class="n">outputs</span> <span class="n">basecalls</span> <span class="n">mappings</span> <span class="n">mod_mappings</span> <span class="n">mods</span> \
+    <span class="o">--</span><span class="n">reference</span> <span class="n">reference</span><span class="o">.</span><span class="n">fa</span> <span class="o">--</span><span class="n">mod</span><span class="o">-</span><span class="n">motif</span> <span class="n">m</span> <span class="n">CG</span> <span class="mi">0</span> \
+    <span class="o">--</span><span class="n">devices</span> <span class="mi">0</span> <span class="mi">1</span> <span class="o">--</span><span class="n">processes</span> <span class="mi">40</span>
+</pre></div>
+</div>
+<p>This command produces the <code class="docutils literal notranslate"><span class="pre">megalodon_results</span></code> output directory containing all requested output files and logs.
+The format for common outputs is described briefly below and in more detail in the <a class="reference external" href="https://nanoporetech.github.io/megalodon/">full documentation</a></p>
+<p>The above command uses the modified base model included in Guppy.
+As of the <code class="docutils literal notranslate"><span class="pre">2.3.0</span></code> megalodon release (March 2021) the models included with Guppy (<code class="docutils literal notranslate"><span class="pre">4.5.2</span></code>) provide the most accurate modified basecalling models.
+As more accurate basecalling models are trained, they are first released into the <a class="reference external" href="https://github.com/nanoporetech/rerio">Rerio repository for research models</a>.
+Once training pipelines are more thoroughly standardized and tested models will be transferred into Guppy.
+The code below shows how to obtain and run the R9.4.1, MinION/GridION, 5mC CpG model from Rerio.
+Note that this is the same model now included in Guppy <code class="docutils literal notranslate"><span class="pre">4.5.2</span></code>.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Obtain and run R9.4.1, MinION, 5mC CpG model from Rerio</span>
+<span class="n">git</span> <span class="n">clone</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">github</span><span class="o">.</span><span class="n">com</span><span class="o">/</span><span class="n">nanoporetech</span><span class="o">/</span><span class="n">rerio</span>
+<span class="n">rerio</span><span class="o">/</span><span class="n">download_model</span><span class="o">.</span><span class="n">py</span> <span class="n">rerio</span><span class="o">/</span><span class="n">basecall_models</span><span class="o">/</span><span class="n">res_dna_r941_min_modbases_5mC_CpG_v001</span>
+<span class="n">megalodon</span> \
+    <span class="n">raw_fast5s</span><span class="o">/</span> \
+    <span class="o">--</span><span class="n">guppy</span><span class="o">-</span><span class="n">params</span> <span class="s2">&quot;-d ./rerio/basecall_models/&quot;</span> \
+    <span class="o">--</span><span class="n">guppy</span><span class="o">-</span><span class="n">config</span> <span class="n">res_dna_r941_min_modbases_5mC_CpG_v001</span><span class="o">.</span><span class="n">cfg</span> \
+    <span class="o">--</span><span class="n">outputs</span> <span class="n">basecalls</span> <span class="n">mappings</span> <span class="n">mod_mappings</span> <span class="n">mods</span> \
+    <span class="o">--</span><span class="n">reference</span> <span class="n">reference</span><span class="o">.</span><span class="n">fa</span> <span class="o">--</span><span class="n">mod</span><span class="o">-</span><span class="n">motif</span> <span class="n">m</span> <span class="n">CG</span> <span class="mi">0</span> \
+    <span class="o">--</span><span class="n">devices</span> <span class="mi">0</span> <span class="mi">1</span> <span class="o">--</span><span class="n">processes</span> <span class="mi">40</span>
+</pre></div>
+</div>
+<blockquote>
+<div><p>The path to the <code class="docutils literal notranslate"><span class="pre">guppy_basecall_server</span></code> executable is required to run Megalodon.
+By default, Megalodon assumes Guppy (Linux GPU) is installed in the current working directory (i.e. <code class="docutils literal notranslate"><span class="pre">./ont-guppy/bin/guppy_basecall_server</span></code>).
+Use the <code class="docutils literal notranslate"><span class="pre">--guppy-server-path</span></code> argument to specify a different path.</p>
+</div></blockquote>
+</div>
+</div>
+<div class="section" id="contents">
+<h2>Contents<a class="headerlink" href="#contents" title="Permalink to this headline">¶</a></h2>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="algorithm_details.html">Megalodon Algorithm Details</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="algorithm_details.html#base-calling">Base Calling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="algorithm_details.html#reference-anchoring">Reference Anchoring</a></li>
+<li class="toctree-l2"><a class="reference internal" href="algorithm_details.html#sequence-variant-calling">Sequence Variant Calling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="algorithm_details.html#modified-base-calling">Modified Base Calling</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="common_arguments.html">Common Arguments</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="common_arguments.html#required-argument">Required Argument</a></li>
+<li class="toctree-l2"><a class="reference internal" href="common_arguments.html#guppy-backend-argument">Guppy Backend Argument</a></li>
+<li class="toctree-l2"><a class="reference internal" href="common_arguments.html#output-arguments">Output Arguments</a></li>
+<li class="toctree-l2"><a class="reference internal" href="common_arguments.html#mapping-arguments">Mapping Arguments</a></li>
+<li class="toctree-l2"><a class="reference internal" href="common_arguments.html#sequence-variant-arguments">Sequence Variant Arguments</a></li>
+<li class="toctree-l2"><a class="reference internal" href="common_arguments.html#modified-base-arguments">Modified Base Arguments</a></li>
+<li class="toctree-l2"><a class="reference internal" href="common_arguments.html#compute-resource-arguments">Compute Resource Arguments</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_arguments.html">Advanced Megalodon Arguments</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="advanced_arguments.html#guppy-backend-argument">Guppy Backend Argument</a></li>
+<li class="toctree-l2"><a class="reference internal" href="advanced_arguments.html#output-arguments">Output Arguments</a></li>
+<li class="toctree-l2"><a class="reference internal" href="advanced_arguments.html#mapping-arguments">Mapping Arguments</a></li>
+<li class="toctree-l2"><a class="reference internal" href="advanced_arguments.html#sequence-variant-arguments">Sequence Variant Arguments</a></li>
+<li class="toctree-l2"><a class="reference internal" href="advanced_arguments.html#modified-base-arguments">Modified Base Arguments</a></li>
+<li class="toctree-l2"><a class="reference internal" href="advanced_arguments.html#taiyaki-backend-arguments">Taiyaki Backend Arguments</a></li>
+<li class="toctree-l2"><a class="reference internal" href="advanced_arguments.html#reference-signal-mapping-output">Reference/Signal Mapping Output</a></li>
+<li class="toctree-l2"><a class="reference internal" href="advanced_arguments.html#compute-resource-arguments">Compute Resource Arguments</a></li>
+<li class="toctree-l2"><a class="reference internal" href="advanced_arguments.html#miscellaneous-arguments">Miscellaneous Arguments</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="computing_considerations.html">Computing Considerations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="computing_considerations.html#raw-signal-loading">Raw Signal Loading</a></li>
+<li class="toctree-l2"><a class="reference internal" href="computing_considerations.html#base-calling">Base Calling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="computing_considerations.html#reference-mapping">Reference Mapping</a></li>
+<li class="toctree-l2"><a class="reference internal" href="computing_considerations.html#variant-and-modified-base-calling">Variant and Modified Base Calling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="computing_considerations.html#writing-to-disk">Writing to Disk</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="variant_phasing.html">Variant Phasing</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="variant_phasing.html#workflow">Workflow</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="file_formats.html">File Formats</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="file_formats.html#base-calling">Base Calling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="file_formats.html#mapping">Mapping</a></li>
+<li class="toctree-l2"><a class="reference internal" href="file_formats.html#per-read-modified-bases">Per-read Modified Bases</a></li>
+<li class="toctree-l2"><a class="reference internal" href="file_formats.html#aggregated-modified-bases">Aggregated Modified Bases</a></li>
+<li class="toctree-l2"><a class="reference internal" href="file_formats.html#per-read-sequence-variants">Per-read Sequence Variants</a></li>
+<li class="toctree-l2"><a class="reference internal" href="file_formats.html#aggregated-sequence-variants">Aggregated Sequence Variants</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="model_training.html">Megalodon Model Training</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="model_training.html#data-preparation">Data Preparation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="model_training.html#signal-mapping-options">Signal Mapping Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="model_training.html#megalodon-calibration">Megalodon Calibration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="modbase_training.html">Megalodon Modified Base Model Training</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="modbase_training.html#modified-base-in-known-context">Modified Base in Known Context</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modbase_training.html#bootstrap-modified-base-annotation">Bootstrap Modified Base Annotation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modbase_training.html#ground-truth-aided-bootstrap-modified-base-annotation">Ground Truth Aided Bootstrap Modified Base Annotation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modbase_training.html#modified-base-model-training">Modified Base Model Training</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modbase_training.html#megalodon-calibration">Megalodon Calibration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="extras_aggregate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">aggregate</span></code></a><ul>
+<li class="toctree-l2"><a class="reference internal" href="extras_aggregate.html#megalodon-extras-aggregate-run"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">aggregate</span> <span class="pre">run</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="extras_calibrate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span></code></a><ul>
+<li class="toctree-l2"><a class="reference internal" href="extras_calibrate.html#megalodon-extras-calibrate-generate-modified-base-stats"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">generate_modified_base_stats</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_calibrate.html#megalodon-extras-calibrate-generate-mod-stats-from-msf"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">generate_mod_stats_from_msf</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_calibrate.html#megalodon-extras-calibrate-generate-variant-stats"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">generate_variant_stats</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_calibrate.html#megalodon-extras-calibrate-modified-bases"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">modified_bases</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_calibrate.html#megalodon-extras-calibrate-merge-modified-bases"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">merge_modified_bases</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_calibrate.html#megalodon-extras-calibrate-merge-modified-bases-stats"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">merge_modified_bases_stats</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_calibrate.html#megalodon-extras-calibrate-variants"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">variants</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="extras_merge.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">merge</span></code></a><ul>
+<li class="toctree-l2"><a class="reference internal" href="extras_merge.html#megalodon-extras-merge-modified-bases"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">merge</span> <span class="pre">modified_bases</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_merge.html#megalodon-extras-merge-aggregated-modified-bases"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">merge</span> <span class="pre">aggregated_modified_bases</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_merge.html#megalodon-extras-merge-variants"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">merge</span> <span class="pre">variants</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="extras_modified_bases.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span></code></a><ul>
+<li class="toctree-l2"><a class="reference internal" href="extras_modified_bases.html#megalodon-extras-modified-bases-describe-alphabet"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span> <span class="pre">describe_alphabet</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_modified_bases.html#megalodon-extras-modified-bases-estimate-threshold"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span> <span class="pre">estimate_threshold</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_modified_bases.html#deprecated-megalodon-extras-modified-bases-update-database">[DEPRECATED] <code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span> <span class="pre">update_database</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_modified_bases.html#megalodon-extras-modified-bases-create-ground-truth"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span> <span class="pre">create_ground_truth</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_modified_bases.html#megalodon-extras-modified-bases-create-motif-bed"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span> <span class="pre">create_motif_bed</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_modified_bases.html#megalodon-extras-modified-bases-per-site-thresholds"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span> <span class="pre">per_site_thresholds</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_modified_bases.html#megalodon-extras-modified-bases-index-database"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span> <span class="pre">index_database</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_modified_bases.html#megalodon-extras-modified-bases-split-by-motif"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span> <span class="pre">split_by_motif</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="extras_phase_variants.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">phase_variants</span></code></a><ul>
+<li class="toctree-l2"><a class="reference internal" href="extras_phase_variants.html#megalodon-extras-phase-variants-whatshap-filter"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">phase_variants</span> <span class="pre">whatshap_filter</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_phase_variants.html#megalodon-extras-phase-variants-extract-haplotype-reads"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">phase_variants</span> <span class="pre">extract_haplotype_reads</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_phase_variants.html#megalodon-extras-phase-variants-merge-haploid-variants"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">phase_variants</span> <span class="pre">merge_haploid_variants</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="extras_per_read_text.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">per_read_text</span></code></a><ul>
+<li class="toctree-l2"><a class="reference internal" href="extras_per_read_text.html#megalodon-extras-per-read-text-modified-bases"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">per_read_text</span> <span class="pre">modified_bases</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_per_read_text.html#megalodon-extras-per-read-text-variants"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">per_read_text</span> <span class="pre">variants</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="extras_validate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span></code></a><ul>
+<li class="toctree-l2"><a class="reference internal" href="extras_validate.html#megalodon-extras-validate-results"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span> <span class="pre">results</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_validate.html#megalodon-extras-validate-aggregated-modified-bases"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span> <span class="pre">aggregated_modified_bases</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_validate.html#megalodon-extras-validate-compare-modified-bases"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span> <span class="pre">compare_modified_bases</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="extras_variants.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span></code></a><ul>
+<li class="toctree-l2"><a class="reference internal" href="extras_variants.html#megalodon-extras-variants-atomize"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span> <span class="pre">atomize</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_variants.html#megalodon-extras-variants-resolve"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span> <span class="pre">resolve</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_variants.html#megalodon-extras-variants-heterozygous-factor"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span> <span class="pre">heterozygous_factor</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="extras_variants.html#megalodon-extras-variants-index-database"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span> <span class="pre">index_database</span></code></a></li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+        <a href="algorithm_details.html" class="btn btn-neutral float-right" title="Megalodon Algorithm Details" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &#169; Copyright 2019, Oxford Nanopore Technologies.
+
+    </p>
+  </div>
+    
+    
+    
+    Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    
+    provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>

@@ -1,0 +1,313 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" />
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <title>Variant Phasing &mdash; Megalodon 2.3.3 documentation</title>
+  
+
+  
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+
+  
+  
+
+  
+  
+
+  
+
+  
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+    
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+
+    
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="File Formats" href="file_formats.html" />
+    <link rel="prev" title="Computing Considerations" href="computing_considerations.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="index.html" class="icon icon-home"> Megalodon
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                2.3.3
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="algorithm_details.html">Megalodon Algorithm Details</a></li>
+<li class="toctree-l1"><a class="reference internal" href="common_arguments.html">Common Arguments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_arguments.html">Advanced Megalodon Arguments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="computing_considerations.html">Computing Considerations</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Variant Phasing</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#workflow">Workflow</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="file_formats.html">File Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="model_training.html">Megalodon Model Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modbase_training.html">Megalodon Modified Base Model Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_aggregate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">aggregate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_calibrate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_merge.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">merge</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_modified_bases.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_phase_variants.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">phase_variants</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_per_read_text.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">per_read_text</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_validate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_variants.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span></code></a></li>
+</ul>
+
+            
+          
+        </div>
+        
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Megalodon</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+        
+      <li>Variant Phasing</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+          
+            <a href="_sources/variant_phasing.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="variant-phasing">
+<h1>Variant Phasing<a class="headerlink" href="#variant-phasing" title="Permalink to this headline">¶</a></h1>
+<p>This page walks through the steps to use megalodon in conjunction with <a class="reference external" href="https://whatshap.readthedocs.io/en/latest/">whatshap</a> to produce the highest quality phased variant calls.</p>
+<p>This pipeline produces the <code class="docutils literal notranslate"><span class="pre">variants.haploid_merged.vcf</span></code> file containing high quality phased variant calls.
+The intermediate <code class="docutils literal notranslate"><span class="pre">variant_mappings.haplotagged.bam</span></code> file can be of particular interest to investigate variant calls at the per-read level.
+This file contains the reference sequence for each read annotated only with the proposed variant calls, including quality scores for SNVs.
+Thus random read errors are masked allowing for more accurate analysis on proposed variants.
+See an example of this per-read variant genome browser visualization below.</p>
+<hr class="docutils" />
+<div class="figure align-center" id="id1">
+<a class="reference internal image-reference" href="_images/whatshap_haplotagged_variant_viz.png"><img alt="_images/whatshap_haplotagged_variant_viz.png" src="_images/whatshap_haplotagged_variant_viz.png" style="width: 600px;" /></a>
+<p class="caption"><span class="caption-text">Genome browser visualization. Megalodon variant_mappings haplotagged with whatshap (upper panel) and raw read mappings (lower panel).</span><a class="headerlink" href="#id1" title="Permalink to this image">¶</a></p>
+</div>
+<hr class="docutils" />
+<div class="section" id="workflow">
+<h2>Workflow<a class="headerlink" href="#workflow" title="Permalink to this headline">¶</a></h2>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>reads_dir=&quot;fast5s&quot;
+ref=&quot;reference.fasta&quot;
+variants_vcf=&quot;variants.vcf.gz&quot;
+out_dir=&quot;megalodon_results&quot;
+nproc=16
+gpu_devices=&quot;0 1&quot;
+
+# run megalodon to produce variant_mappings
+megalodon \
+    $reads_dir --outputs mappings variants variant_mappings \
+    --reference $ref --variant-filename $variants_vcf \
+    --output-directory $out_dir \
+    --processes $nproc --devices $gpu_devices \
+    --verbose-read-progress 3
+
+# filter whatshap incompatible variants and create indices
+megalodon_extras \
+    phase_variants whatshap_filter \
+    $out_dir/variants.sorted.vcf \
+    $out_dir/variants.sorted.whatshap_filt.vcf \
+    --filtered-records $out_dir/whatshap_filt.txt
+bgzip $out_dir/variants.sorted.whatshap_filt.vcf
+tabix $out_dir/variants.sorted.whatshap_filt.vcf.gz
+samtools index $out_dir/variant_mappings.sorted.bam
+
+# run whatshap with produced mappings and variants
+whatshap \
+    phase --distrust-genotypes \
+    -o $out_dir/variants.phased.vcf \
+    $out_dir/variants.sorted.whatshap_filt.vcf.gz \
+    $out_dir/variant_mappings.sorted.bam
+
+# assign haplotypes to reads
+bgzip $out_dir/variants.phased.vcf
+tabix $out_dir/variants.phased.vcf.gz
+whatshap \
+    haplotag $out_dir/variants.phased.vcf.gz \
+    $out_dir/variant_mappings.sorted.bam \
+    -o $out_dir/variant_mappings.haplotagged.bam
+
+# extract haplotype reads and call haploid variants
+megalodon_extras \
+    phase_variants extract_haplotype_reads \
+    $out_dir/variant_mappings.haplotagged.bam \
+    $out_dir/variant_mappings
+megalodon_extras \
+    aggregate run \
+    --megalodon-directory $out_dir --output-suffix haplotype_1  \
+    --read-ids-filename $out_dir/variant_mappings.haplotype_1_read_ids.txt \
+    --outputs variants --haploid --processes $nproc
+megalodon_extras \
+    aggregate run \
+    --megalodon-directory $out_dir --output-suffix haplotype_2  \
+    --read-ids-filename $out_dir/variant_mappings.haplotype_2_read_ids.txt \
+    --outputs variants --haploid --processes $nproc
+
+# merge haploid variants to produce diploid variants
+megalodon_extras \
+    phase_variants merge_haploid_variants \
+    $out_dir/variants.sorted.vcf.gz \
+    $out_dir/variants.haplotype_1.sorted.vcf.gz \
+    $out_dir/variants.haplotype_2.sorted.vcf.gz \
+    --out-vcf $out_dir/variants.haploid_merged.vcf
+</pre></div>
+</div>
+</div>
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+        <a href="file_formats.html" class="btn btn-neutral float-right" title="File Formats" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="computing_considerations.html" class="btn btn-neutral float-left" title="Computing Considerations" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &#169; Copyright 2019, Oxford Nanopore Technologies.
+
+    </p>
+  </div>
+    
+    
+    
+    Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    
+    provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>

@@ -1,0 +1,350 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" />
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <title>megalodon_extras calibrate &mdash; Megalodon 2.3.3 documentation</title>
+  
+
+  
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+
+  
+  
+
+  
+  
+
+  
+
+  
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+    
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+
+    
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="megalodon_extras merge" href="extras_merge.html" />
+    <link rel="prev" title="megalodon_extras aggregate" href="extras_aggregate.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="index.html" class="icon icon-home"> Megalodon
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                2.3.3
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="algorithm_details.html">Megalodon Algorithm Details</a></li>
+<li class="toctree-l1"><a class="reference internal" href="common_arguments.html">Common Arguments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_arguments.html">Advanced Megalodon Arguments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="computing_considerations.html">Computing Considerations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="variant_phasing.html">Variant Phasing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="file_formats.html">File Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="model_training.html">Megalodon Model Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modbase_training.html">Megalodon Modified Base Model Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_aggregate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">aggregate</span></code></a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span></code></a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#megalodon-extras-calibrate-generate-modified-base-stats"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">generate_modified_base_stats</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#megalodon-extras-calibrate-generate-mod-stats-from-msf"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">generate_mod_stats_from_msf</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#megalodon-extras-calibrate-generate-variant-stats"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">generate_variant_stats</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#megalodon-extras-calibrate-modified-bases"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">modified_bases</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#megalodon-extras-calibrate-merge-modified-bases"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">merge_modified_bases</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#megalodon-extras-calibrate-merge-modified-bases-stats"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">merge_modified_bases_stats</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#megalodon-extras-calibrate-variants"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">variants</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="extras_merge.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">merge</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_modified_bases.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_phase_variants.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">phase_variants</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_per_read_text.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">per_read_text</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_validate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_variants.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span></code></a></li>
+</ul>
+
+            
+          
+        </div>
+        
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Megalodon</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+        
+      <li><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span></code></li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+          
+            <a href="_sources/extras_calibrate.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="megalodon-extras-calibrate">
+<h1><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span></code><a class="headerlink" href="#megalodon-extras-calibrate" title="Permalink to this headline">¶</a></h1>
+<p>The <code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span></code> command group contains commands to produce Megalodon modified base and sequence variant calibration files for basecalling models.
+When a new basecalling model is trained a calibration file must be produced in order to obtain the most accurate aggregated modified base and sequence variant calls.
+Without a calibration file the <code class="docutils literal notranslate"><span class="pre">--disable-mod-calibration</span></code> or <code class="docutils literal notranslate"><span class="pre">--disable-variant-calibration</span></code> flags may be set, but aggregated results will likely be much less accurate.</p>
+<p>Calibration file estimation is broken down into two steps:</p>
+<ol class="arabic simple">
+<li><p>Ground truth statistic generation (<code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">generate_modified_base_stats</span></code> and <code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">generate_variant_stats</span></code> commands)</p>
+<ul class="simple">
+<li><p>This step processes completed Megalodon runs to extract ground truth positive and negative statistics.</p></li>
+</ul>
+</li>
+<li><p>Calibration estimation (<code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">modified_bases</span></code> and <code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">variants</span></code> commands)</p>
+<ul class="simple">
+<li><p>This step estimates the emperical probability of a modified base or sequence variant given the ground truth statistics from the first step.</p></li>
+</ul>
+</li>
+</ol>
+<p>Note that the plots produced by the calibration procedure (with examples shown below) are stored in the GitHub repository for each released model (<code class="docutils literal notranslate"><span class="pre">megalodon/model_data/</span></code>).</p>
+<div class="section" id="megalodon-extras-calibrate-generate-modified-base-stats">
+<h2><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">generate_modified_base_stats</span></code><a class="headerlink" href="#megalodon-extras-calibrate-generate-modified-base-stats" title="Permalink to this headline">¶</a></h2>
+<p>Generate ground truth modified base statistics.</p>
+<p>The ground truth modified base composition for a run can be specified in two ways:</p>
+<ol class="arabic simple">
+<li><p>Control Megalodon results</p>
+<ul class="simple">
+<li><p>Specify <code class="docutils literal notranslate"><span class="pre">--control-megalodon-results-dir</span></code></p></li>
+<li><p>Using this option assumes that all modified base statistics in <code class="docutils literal notranslate"><span class="pre">--control-megalodon-results-dir</span></code> represent canonical bases and all statistics in the main Megalodon results directory represent modified bases.</p>
+<ul>
+<li><p>This respects the <code class="docutils literal notranslate"><span class="pre">--mod-motif</span></code> options specified in the main Megalodon commands.</p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p>Ground truth reference locations</p>
+<ul class="simple">
+<li><p>Specify <code class="docutils literal notranslate"><span class="pre">--ground-truth-data</span></code></p></li>
+<li><p>See the <code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span> <span class="pre">create_ground_truth</span></code> command for help producing a ground truth CSV file.</p></li>
+</ul>
+</li>
+</ol>
+</div>
+<div class="section" id="megalodon-extras-calibrate-generate-mod-stats-from-msf">
+<h2><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">generate_mod_stats_from_msf</span></code><a class="headerlink" href="#megalodon-extras-calibrate-generate-mod-stats-from-msf" title="Permalink to this headline">¶</a></h2>
+<p>In some situations ground truth control samples or reference locations are not available for calibration.
+The <code class="docutils literal notranslate"><span class="pre">generate_mod_stats_from_msf</span></code> sub-command uses the mapped signal file (<code class="docutils literal notranslate"><span class="pre">msf</span></code>) used for Taiyaki model training to produce Megalodon calibration statistics.
+This command uses the ground truth sequence including modified base annotation in order to extract modified base scores as computed in Megalodon.
+The extracted scores can be constricted to a fixed canonical sequence motif using the <code class="docutils literal notranslate"><span class="pre">--motif</span></code> argument (providing the sequence motif and relative modified position; e.g. <code class="docutils literal notranslate"><span class="pre">--motif</span> <span class="pre">CG</span> <span class="pre">0</span></code> for CpG methylation).
+Note that the final set of Megalodon modified base statistics should contain enough data from both the modified and canonical set of sites.
+See <code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">merge_modified_bases_stats</span></code> below for merging sets of statistics.</p>
+</div>
+<div class="section" id="megalodon-extras-calibrate-generate-variant-stats">
+<h2><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">generate_variant_stats</span></code><a class="headerlink" href="#megalodon-extras-calibrate-generate-variant-stats" title="Permalink to this headline">¶</a></h2>
+<p>Generate ground truth sequence variant statistics.</p>
+<p>This method produces ground truth sequence variant statistics by proposing alternatives to a reference sequence.
+It is thus assumed that the mapping location for each read contains the correct reference sequence.
+It is advised to select a set of reads with high quality mappings to a high quality reference for the sample.</p>
+<p>This command performs basecalling and read mapping as in the main Megalodon command.
+Variants are then randomly proposed and scored for a random set of sites across each read.
+“Correct” variants are not produced by default due to the computational overhead required to map full reads to the “incorrect” reference.
+This functionality is provided on an experimental basis via the <code class="docutils literal notranslate"><span class="pre">--compute-false-reference-scores</span></code> flag, but these scores are not currently accepted by the <code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">variants</span></code> command.</p>
+</div>
+<div class="section" id="megalodon-extras-calibrate-modified-bases">
+<h2><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">modified_bases</span></code><a class="headerlink" href="#megalodon-extras-calibrate-modified-bases" title="Permalink to this headline">¶</a></h2>
+<p>Estimate modified base calibration file.</p>
+<p>Given a set of ground truth modified bases and raw Megalodon called statistics, compute empirical probabilities for a modified base.
+The ground truth statistics are generated by the <code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">generate_modified_base_stats</span></code> command, described above, and supplied via the <code class="docutils literal notranslate"><span class="pre">--ground-truth-llrs</span></code> argument.
+This command computes the empirical log-likelihood ratio over windows of observed modified base scores.
+This process involves several steps to ensure certain characteristics of the generating distributions (e.g. monotonicity).
+A separate calibration will be computed and stored in the output calibration file for each modified base found in the ground truth file.</p>
+<p>These steps are visualized in the example plot below, which can be produced for any new calibration file by providing the <code class="docutils literal notranslate"><span class="pre">--out-pdf</span></code> argument.
+The top facet of this plot shows the distribution of theoretical modified base log-likelihood ratios produced by the basecalling model.
+These distributions are smoothed such that they are monotonic from either extreme to the peak of the densities.
+The middle facet shows the inferred empirical probability that a base is modified given the theoretical modified base score produced by the basecaller.
+The final facet shows the same probabilities, but in log-likelihood space.
+A constraint is enforced on this function such that the value is monotonically increasing (red - before monotonic constraint; yellow - after monotonic constraint).
+The three vertical lines indicate common threshold values for modified base aggregation.
+Note that the fraction of data ignored at each threshold level is annotated in the figure legend.</p>
+<hr class="docutils" />
+<div class="figure align-center" id="id1">
+<a class="reference internal image-reference" href="_images/modified_base_calibration.png"><img alt="_images/modified_base_calibration.png" src="_images/modified_base_calibration.png" style="width: 600px;" /></a>
+<p class="caption"><span class="caption-text">Visualization of modified base calibration method.</span><a class="headerlink" href="#id1" title="Permalink to this image">¶</a></p>
+</div>
+</div>
+<hr class="docutils" />
+<div class="section" id="megalodon-extras-calibrate-merge-modified-bases">
+<h2><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">merge_modified_bases</span></code><a class="headerlink" href="#megalodon-extras-calibrate-merge-modified-bases" title="Permalink to this headline">¶</a></h2>
+<p>Merge modified base calibration files.</p>
+<p>In some cases the ground truth source for one modified base my come from a different source than another modified base.
+In this case calibration files can be computed separately and combined with this command.
+If multiple calibration files contain calibration for the same modified base, the calibration from the file listed first will be stored.</p>
+</div>
+<div class="section" id="megalodon-extras-calibrate-merge-modified-bases-stats">
+<h2><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">merge_modified_bases_stats</span></code><a class="headerlink" href="#megalodon-extras-calibrate-merge-modified-bases-stats" title="Permalink to this headline">¶</a></h2>
+<p>Merge modified base calibration statistics files.</p>
+<p>In some cases the ground truth statistics may be extracted from several sources (unmodified and modified samples) and merged afterwards.
+This command enables this pipeline.</p>
+</div>
+<div class="section" id="megalodon-extras-calibrate-variants">
+<h2><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span> <span class="pre">variants</span></code><a class="headerlink" href="#megalodon-extras-calibrate-variants" title="Permalink to this headline">¶</a></h2>
+<p>Estimate sequence variant calibration file.</p>
+<p>Given a set of ground truth sequence variant statistics, via <code class="docutils literal notranslate"><span class="pre">--ground-truth-llrs</span></code> argument, compute empirical probabilities of a sequence variant.
+This command computes the empirical log-likelihood ratio over windows of observed sequence variant scores.
+This process involves several steps to ensure certain characteristics of the generating distributions.
+This procedure is largely the same as the modified base calibration step, but the variants are grouped into categories based on the type of ground truth sequence variant.
+Note that the vertical bars are not present in these plots as sequence variant per-read statistics are combined in a probabilistic fashion and not based on a hard threshold.</p>
+<hr class="docutils" />
+<div class="figure align-center" id="id2">
+<a class="reference internal image-reference" href="_images/sequence_variant_calibration.png"><img alt="_images/sequence_variant_calibration.png" src="_images/sequence_variant_calibration.png" style="width: 600px;" /></a>
+<p class="caption"><span class="caption-text">Visualization of sequence variant calibration method.</span><a class="headerlink" href="#id2" title="Permalink to this image">¶</a></p>
+</div>
+<hr class="docutils" />
+</div>
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+        <a href="extras_merge.html" class="btn btn-neutral float-right" title="megalodon_extras merge" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="extras_aggregate.html" class="btn btn-neutral float-left" title="megalodon_extras aggregate" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &#169; Copyright 2019, Oxford Nanopore Technologies.
+
+    </p>
+  </div>
+    
+    
+    
+    Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    
+    provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>

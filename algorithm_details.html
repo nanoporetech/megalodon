@@ -1,0 +1,300 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" />
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <title>Megalodon Algorithm Details &mdash; Megalodon 2.3.3 documentation</title>
+  
+
+  
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+
+  
+  
+
+  
+  
+
+  
+
+  
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+    
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+
+    
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Common Arguments" href="common_arguments.html" />
+    <link rel="prev" title="Welcome to Megalodon’s documentation!" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="index.html" class="icon icon-home"> Megalodon
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                2.3.3
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Megalodon Algorithm Details</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#base-calling">Base Calling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#reference-anchoring">Reference Anchoring</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#sequence-variant-calling">Sequence Variant Calling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#modified-base-calling">Modified Base Calling</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="common_arguments.html">Common Arguments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_arguments.html">Advanced Megalodon Arguments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="computing_considerations.html">Computing Considerations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="variant_phasing.html">Variant Phasing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="file_formats.html">File Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="model_training.html">Megalodon Model Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modbase_training.html">Megalodon Modified Base Model Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_aggregate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">aggregate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_calibrate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_merge.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">merge</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_modified_bases.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_phase_variants.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">phase_variants</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_per_read_text.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">per_read_text</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_validate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_variants.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span></code></a></li>
+</ul>
+
+            
+          
+        </div>
+        
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Megalodon</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+        
+      <li>Megalodon Algorithm Details</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+          
+            <a href="_sources/algorithm_details.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="megalodon-algorithm-details">
+<h1>Megalodon Algorithm Details<a class="headerlink" href="#megalodon-algorithm-details" title="Permalink to this headline">¶</a></h1>
+<p>This page describes the details of how megalodon processes the raw nanopore signal to produce highly-accurate modified base and sequence variant calls.</p>
+<div class="section" id="base-calling">
+<h2>Base Calling<a class="headerlink" href="#base-calling" title="Permalink to this headline">¶</a></h2>
+<p>Basecalling is performed exactly as in Guppy.
+Raw nanopore signal is normalized, chunked, processed with a recurrent neural network and decoded using Viterbi decoding.
+Currently Megalodon is only compatible with flip-flop basecalling networks (excluding RLE and Bonito models)
+See <a class="reference external" href="https://community.nanoporetech.com/protocols/Guppy-protocol">guppy documentation on the community page (login required)</a> for more details.</p>
+</div>
+<div class="section" id="reference-anchoring">
+<h2>Reference Anchoring<a class="headerlink" href="#reference-anchoring" title="Permalink to this headline">¶</a></h2>
+<p>Megalodon’s functionality centers on the anchoring of the high-information neural network basecalling output to a reference sequence.
+Given anchored neural network output, alternatives to the reference (either modified bases or canonical bases) are proposed and scored to produce the highest accuracy results.</p>
+<p>The neural network output is anchored to the reference via standard read mapping of produced basecalls to the reference sequence (maintaining the link to the neural network outputs).
+If no reference mapping is produced (using <code class="docutils literal notranslate"><span class="pre">minimap2</span></code> via the <code class="docutils literal notranslate"><span class="pre">mappy</span></code> python interface) that read is not processed further (basecalls will be output if requested).
+This standard read mapping is processed to produce a matching of each basecall with a reference position.
+Reference positions within an insertion or deletion are assigned to the previous mapped read position (left justified; this behavior may change in future versions).
+This constitutes the reference anchoring used for modified base and sequence variant calling steps.</p>
+</div>
+<div class="section" id="sequence-variant-calling">
+<h2>Sequence Variant Calling<a class="headerlink" href="#sequence-variant-calling" title="Permalink to this headline">¶</a></h2>
+<p>Megalodon currently filters alleles over a certain maximum size (default <code class="docutils literal notranslate"><span class="pre">50</span></code>) as performance on larger indels has not currently been validated.
+Note also that variants are converted into an “atomic” form (containing minimal unique variant sequence for indels).
+Thus atomic variants do not contain context sequence and are expanded to include regions of ambiguity (indel within a repetitive region).</p>
+<p>At each valid variant a region of context sequence around the variant is extracted.
+The context sequence allows the scoring algorithm to traverse slightly different paths through the local neural network output.
+The width of this sequence of interest is defined by the <code class="docutils literal notranslate"><span class="pre">--variant-context-bases</span></code> argument (specified individually for single base and insertion/deletion variants; defaults <code class="docutils literal notranslate"><span class="pre">10</span></code> and <code class="docutils literal notranslate"><span class="pre">30</span></code> respectively).</p>
+<p>Next the neural network output corresponding to the reference sequence of interest is extracted.
+The fuzzy reference anchoring described above identifies the range of the neural network output containing the sequence of interest.</p>
+<p>The sequence scoring function performs the forward-backward algorithm and Viterbi decoding over the neural network output to produce a score for the reference and proposed alternative sequence.
+The difference between these two scores is the assigned score for the proposed variant.
+Lower (negative) score are evidence for the alternative sequence and higher (positive) scores are evidence for the reference sequence.</p>
+<p>These raw scores are softmax values over potential states, to match characteristics of a probability distribution.
+In practice, these scores do not match empirical probabilities for a variant given a truth data set.
+Thus a calibration step is applied to convert these scores to estimated empirical probabilities.
+This enables more accurate aggregation across reads.</p>
+<p>As of version 1.0.0, megalodon now performs a second round of variant detection taking nearby variants into account.
+Variants from the first round (considering each variant in isolation) are filtered to by a minimal probability of evidence for variant allele (default <code class="docutils literal notranslate"><span class="pre">0.05</span></code>; set with <code class="docutils literal notranslate"><span class="pre">--context-min-alt-prob</span></code> argument).
+In the second pass, variants within a set region are considered when estimating the probability of a particular variant (up to a set maximum number of context variants in order to reduce compute).
+Scores for each potential context are combined statistically (using logsumexp) and these are the final scores reported for each variant.
+This process reduces the number of false positives where a true variant is adjacent to another proposed variant.</p>
+<p>Finally, calls across reads at each reference location are aggregated in order make a sample-level call.
+These results will be output into a VCF format file.</p>
+<p>Currently <code class="docutils literal notranslate"><span class="pre">diploid</span></code> (default) and <code class="docutils literal notranslate"><span class="pre">haploid</span></code> variant aggregation modes are available.
+In <code class="docutils literal notranslate"><span class="pre">haploid</span></code> mode the probability of the reference and alternative alleles are simply the normalized (via Bayes’ theorem) product of the individual read probabilities.
+In <code class="docutils literal notranslate"><span class="pre">diploid</span></code> mode the probability of each genotype (homozygous reference, heterozygous and homozygous alternative) are computed.
+The probabilities for homozygous alleles are as in the <code class="docutils literal notranslate"><span class="pre">haploid</span></code> mode, while the heterozygous probability is given by the weighted sum of the maximal probabilities taken over the sampling distribution (binomial with <code class="docutils literal notranslate"><span class="pre">p=0.5</span></code>) given a true diploid heterozygous allele.
+These probabilities are then normalized given by Bayes’ theorem.</p>
+</div>
+<div class="section" id="modified-base-calling">
+<h2>Modified Base Calling<a class="headerlink" href="#modified-base-calling" title="Permalink to this headline">¶</a></h2>
+<p>Modified base calling is performed largely in the same manner as variant calling above in terms of sequence and associated neural network output extraction.
+The main difference is that instead of proposing alternative canonical bases in the sequence, a modified base is proposed.
+This means that in order to identify a particular modification the model must be aware of this modification.
+Training models for particular modifications of interest is described in <a class="reference external" href="https://nanoporetech.github.io/megalodon/model_training.html">Megalodon documentation here</a>.</p>
+<p>Use the <code class="docutils literal notranslate"><span class="pre">--mod-motif</span></code> argument in order to restrict tested locations to certain relevant motifs (e.g. <code class="docutils literal notranslate"><span class="pre">--mod-motif</span> <span class="pre">m</span> <span class="pre">CG</span> <span class="pre">0</span></code> to test only in CpG locations).
+Per-read modified base calls can be output in either a text table format or into a BAM file.
+There are two options to output per-read modified base calls into the BAM format.
+The default option when <code class="docutils literal notranslate"><span class="pre">--outputs</span> <span class="pre">mod_mappings</span></code> is specified is the <a class="reference external" href="https://github.com/jkbonfield/hts-specs/blob/methylation/SAMtags.tex#L477">hts-spec proposed format</a>.
+The second option emulates bisulfite sequencing (since this provides visualization options in some genome browsers).
+Specify the <code class="docutils literal notranslate"><span class="pre">--mod-map-emulate-bisulfite</span></code> option to select this output.
+See the <code class="docutils literal notranslate"><span class="pre">--mod-map-base-conv</span></code> option (<code class="docutils literal notranslate"><span class="pre">megalodon</span> <span class="pre">--help-long</span></code>) for further specification of this output.</p>
+<p>Modified bases can also be output anchored to the basecalls as in Guppy, but these calls are generally not as accurate than the reference anchored calls.
+These <code class="docutils literal notranslate"><span class="pre">mod_basecalls</span></code> are output in the BAM <code class="docutils literal notranslate"><span class="pre">Mm</span></code> and <code class="docutils literal notranslate"><span class="pre">Ml</span></code> tags as specified by hts-specs proposed format.</p>
+</div>
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+        <a href="common_arguments.html" class="btn btn-neutral float-right" title="Common Arguments" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="index.html" class="btn btn-neutral float-left" title="Welcome to Megalodon’s documentation!" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &#169; Copyright 2019, Oxford Nanopore Technologies.
+
+    </p>
+  </div>
+    
+    
+    
+    Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    
+    provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>

@@ -1,0 +1,304 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" />
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <title>Megalodon Model Training &mdash; Megalodon 2.3.3 documentation</title>
+  
+
+  
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+
+  
+  
+
+  
+  
+
+  
+
+  
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+    
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+
+    
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Megalodon Modified Base Model Training" href="modbase_training.html" />
+    <link rel="prev" title="File Formats" href="file_formats.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="index.html" class="icon icon-home"> Megalodon
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                2.3.3
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="algorithm_details.html">Megalodon Algorithm Details</a></li>
+<li class="toctree-l1"><a class="reference internal" href="common_arguments.html">Common Arguments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_arguments.html">Advanced Megalodon Arguments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="computing_considerations.html">Computing Considerations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="variant_phasing.html">Variant Phasing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="file_formats.html">File Formats</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Megalodon Model Training</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#data-preparation">Data Preparation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#signal-mapping-options">Signal Mapping Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#megalodon-calibration">Megalodon Calibration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="modbase_training.html">Megalodon Modified Base Model Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_aggregate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">aggregate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_calibrate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_merge.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">merge</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_modified_bases.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_phase_variants.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">phase_variants</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_per_read_text.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">per_read_text</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_validate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_variants.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span></code></a></li>
+</ul>
+
+            
+          
+        </div>
+        
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Megalodon</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+        
+      <li>Megalodon Model Training</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+          
+            <a href="_sources/model_training.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="megalodon-model-training">
+<h1>Megalodon Model Training<a class="headerlink" href="#megalodon-model-training" title="Permalink to this headline">¶</a></h1>
+<p>This page describes how to use Megalodon to prepare training data and train a new basecalling model using Taiyaki.
+For modified base data preparation and model training documentation see the <a class="reference internal" href="modbase_training.html"><span class="doc">modified base training documentation</span></a> page.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Preparation of training data via Megalodon requires a basecalling model that can produce valid reference mappings.
+If valid reference mappings using <code class="docutils literal notranslate"><span class="pre">minimap2</span></code> cannot be produced for a set of reads, model training will not proceed successfully.</p>
+</div>
+<div class="section" id="data-preparation">
+<h2>Data Preparation<a class="headerlink" href="#data-preparation" title="Permalink to this headline">¶</a></h2>
+<p>To produce a training data (“mapped signal”) file the <code class="docutils literal notranslate"><span class="pre">--outputs</span> <span class="pre">signal_mappings</span></code> argument should be added to a Megalodon call.
+This will produce a <code class="docutils literal notranslate"><span class="pre">signal_mappings.hdf5</span></code> file in the specified Megalodon output directory.
+For each read producing a valid reference mapping, this file contains a mapping between the raw signal and the mapped reference bases.
+This file can then be directly passed to the Taiyaki <code class="docutils literal notranslate"><span class="pre">train_flipflop.py</span></code> command for model training.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># run megalodon; output signal mappings</span>
+<span class="n">megalodon</span> <span class="n">raw_fast5s</span><span class="o">/</span> \
+    <span class="o">--</span><span class="n">outputs</span> <span class="n">signal_mappings</span> \
+    <span class="o">--</span><span class="n">reference</span> <span class="n">reference</span><span class="o">.</span><span class="n">fa</span> \
+    <span class="o">--</span><span class="n">devices</span> <span class="mi">0</span> <span class="o">--</span><span class="n">processes</span> <span class="mi">40</span>
+
+<span class="c1"># run taiyaki training</span>
+<span class="n">train_flipflop</span><span class="o">.</span><span class="n">py</span> <span class="o">./</span><span class="n">taiyaki</span><span class="o">/</span><span class="n">models</span><span class="o">/</span><span class="n">mLstm_flipflop</span><span class="o">.</span><span class="n">py</span> \
+    <span class="n">megalodon_results</span><span class="o">/</span><span class="n">signal_mappings</span><span class="o">.</span><span class="n">hdf5</span> <span class="o">--</span><span class="n">device</span> <span class="mi">0</span>
+</pre></div>
+</div>
+<p>Once training completes, the <code class="docutils literal notranslate"><span class="pre">training/model_final.checkpoint</span></code> contains the model.
+This can be converted to a guppy compatible model with the <code class="docutils literal notranslate"><span class="pre">taiyaki/bin/dump_json.py</span></code> script.
+A guppy config with appropriate settings should also be produced for new models.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>For optimal performance, it is recommended that the <code class="docutils literal notranslate"><span class="pre">OMP_NUM_THREADS</span></code> unix environment variable be set to <code class="docutils literal notranslate"><span class="pre">1</span></code> for the above Megalodon command and a larger value for the Taiyaki training command.</p>
+</div>
+</div>
+<div class="section" id="signal-mapping-options">
+<h2>Signal Mapping Options<a class="headerlink" href="#signal-mapping-options" title="Permalink to this headline">¶</a></h2>
+<p>Several options are available to control the behavior of the <code class="docutils literal notranslate"><span class="pre">signal_mappings</span></code> output.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--ref-length-range</span></code></p>
+<ul>
+<li><p>Only allow reads with a reference mapping length within this range into the output.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--ref-percent-identity-threshold</span></code></p>
+<ul>
+<li><p>Only include reads with higher mapping percent identity in signal_mappings output.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--ref-percent-coverage-threshold</span></code></p>
+<ul>
+<li><p>Only include reads with higher read alignment coverage in signal_mappings output.</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--ref-include-variants</span></code></p>
+<ul>
+<li><p>This option replaces the reference sequence with more likely proposed alternative sequences as called in the <code class="docutils literal notranslate"><span class="pre">per_read_variants</span></code> output.</p></li>
+<li><p>Cannot specify both this option and <code class="docutils literal notranslate"><span class="pre">--ref-include-mods</span></code>.</p></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="megalodon-calibration">
+<h2>Megalodon Calibration<a class="headerlink" href="#megalodon-calibration" title="Permalink to this headline">¶</a></h2>
+<p>When a new model is trained, the produced scores must be calibrated to achieve optimal aggregated results (over reads).
+Once produced, calibration files can be passed to Megalodon via the <code class="docutils literal notranslate"><span class="pre">--variant-calibration-filename</span></code> and <code class="docutils literal notranslate"><span class="pre">--mod-calibration-filename</span></code> arguments.</p>
+<p>Sequence variant calibration requires a ground truth against which to compute scores.
+For sequence variants, a high quality reference for a set of reads will suffice for this requirement.
+Random sequence variants are proposed and scored in order to create distributions over which to calibrate the produced scores.
+In order to create a sequence variant calibration file, run <code class="docutils literal notranslate"><span class="pre">megalodon/scripts/generate_ground_truth_variant_llr_scores.py</span></code> followed by <code class="docutils literal notranslate"><span class="pre">megalodon/scripts/calibrate_variant_llr_scores.py</span></code>.
+The optional <code class="docutils literal notranslate"><span class="pre">--out-pdf</span></code> provides visualization of the likelihood ratio score correction.</p>
+</div>
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+        <a href="modbase_training.html" class="btn btn-neutral float-right" title="Megalodon Modified Base Model Training" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="file_formats.html" class="btn btn-neutral float-left" title="File Formats" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &#169; Copyright 2019, Oxford Nanopore Technologies.
+
+    </p>
+  </div>
+    
+    
+    
+    Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    
+    provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>

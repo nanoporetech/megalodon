@@ -1,0 +1,313 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" />
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <title>megalodon_extras validate &mdash; Megalodon 2.3.3 documentation</title>
+  
+
+  
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+
+  
+  
+
+  
+  
+
+  
+
+  
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+    
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+
+    
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="megalodon_extras variants" href="extras_variants.html" />
+    <link rel="prev" title="megalodon_extras per_read_text" href="extras_per_read_text.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="index.html" class="icon icon-home"> Megalodon
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                2.3.3
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="algorithm_details.html">Megalodon Algorithm Details</a></li>
+<li class="toctree-l1"><a class="reference internal" href="common_arguments.html">Common Arguments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_arguments.html">Advanced Megalodon Arguments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="computing_considerations.html">Computing Considerations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="variant_phasing.html">Variant Phasing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="file_formats.html">File Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="model_training.html">Megalodon Model Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modbase_training.html">Megalodon Modified Base Model Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_aggregate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">aggregate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_calibrate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_merge.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">merge</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_modified_bases.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_phase_variants.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">phase_variants</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_per_read_text.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">per_read_text</span></code></a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span></code></a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#megalodon-extras-validate-results"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span> <span class="pre">results</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#megalodon-extras-validate-aggregated-modified-bases"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span> <span class="pre">aggregated_modified_bases</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#megalodon-extras-validate-compare-modified-bases"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span> <span class="pre">compare_modified_bases</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="extras_variants.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span></code></a></li>
+</ul>
+
+            
+          
+        </div>
+        
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Megalodon</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+        
+      <li><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span></code></li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+          
+            <a href="_sources/extras_validate.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="megalodon-extras-validate">
+<h1><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span></code><a class="headerlink" href="#megalodon-extras-validate" title="Permalink to this headline">¶</a></h1>
+<p>The <code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span></code> command group contains commands to validate mapping and modified base outputs from Megalodon.
+Note that scripts to validate sequence variants are not provided here.
+Other tools including <a class="reference external" href="https://github.com/RealTimeGenomics/rtg-tools">vcfeval</a> and <a class="reference external" href="https://github.com/Illumina/hap.py">hapy.py</a> are recommended for validation of sequence variant results.</p>
+<div class="section" id="megalodon-extras-validate-results">
+<h2><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span> <span class="pre">results</span></code><a class="headerlink" href="#megalodon-extras-validate-results" title="Permalink to this headline">¶</a></h2>
+<p>Validate per-read mapping and modified base results.</p>
+<p>This command produces text and graphical summaries of mapping and modified base performance.</p>
+<p>Mapping results include distributional statistics for each sample provided (output determined by <code class="docutils literal notranslate"><span class="pre">--out-filename</span></code> default <code class="docutils literal notranslate"><span class="pre">stdout</span></code>), as well as a plot showing the distribution of mapping accuracy for each sample (see <code class="docutils literal notranslate"><span class="pre">--out-pdf</span></code>).</p>
+<hr class="docutils" />
+<div class="figure align-center" id="id1">
+<a class="reference internal image-reference" href="_images/mapping_validate_results.png"><img alt="_images/mapping_validate_results.png" src="_images/mapping_validate_results.png" style="width: 600px;" /></a>
+<p class="caption"><span class="caption-text">Example <code class="docutils literal notranslate"><span class="pre">validate</span> <span class="pre">results</span></code> per-read mapping plot.</span><a class="headerlink" href="#id1" title="Permalink to this image">¶</a></p>
+</div>
+<hr class="docutils" />
+<p>Per-read modified base results require a per-read ground truth for modified and canonical bases.
+This can be provided by either 1) supplying a control sample via the <code class="docutils literal notranslate"><span class="pre">--control-megalodon-results-dirs</span></code> argument (assumes all modified base calls at <code class="docutils literal notranslate"><span class="pre">--valid-sites</span></code> in main Megalodon results are modified) or 2) providing a ground truth set of sites containing modified and canonical bases via the <code class="docutils literal notranslate"><span class="pre">--ground-truth-data</span></code> argument.
+See the <code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span> <span class="pre">create_ground_truth</span></code> command for help generating a ground truth file.</p>
+<p>Per-read modified base results are analyzed to produce several metrics including the optimal <a class="reference external" href="https://en.wikipedia.org/wiki/F1_score">F1-score</a>, <a class="reference external" href="https://en.wikipedia.org/wiki/Evaluation_measures_(information_retrieval)#Mean_average_precision">mean average precision</a> and <a class="reference external" href="https://en.wikipedia.org/wiki/Receiver_operating_characteristic">ROC AUC</a> among others.
+By default, modified and canonical ground truth sites are filtered to contain the same number of statistics for these statistic computations.
+It is highly recommended that this not be changed (via <code class="docutils literal notranslate"><span class="pre">--allow-unbalance-classes</span></code>) as class imbalance can have a large effect on the statistics, thus effecting their comparison between runs and/or models.
+Below are example graphical representations produced for per-read modified base validation.</p>
+<hr class="docutils" />
+<div class="figure align-center" id="id2">
+<a class="reference internal image-reference" href="_images/mod_pr_validate_results.png"><img alt="_images/mod_pr_validate_results.png" src="_images/mod_pr_validate_results.png" style="width: 600px;" /></a>
+<p class="caption"><span class="caption-text">Example <code class="docutils literal notranslate"><span class="pre">validate</span> <span class="pre">results</span></code> per-read modified base precision-recall curve plot.</span><a class="headerlink" href="#id2" title="Permalink to this image">¶</a></p>
+</div>
+<div class="figure align-center" id="id3">
+<a class="reference internal image-reference" href="_images/mod_roc_validate_results.png"><img alt="_images/mod_roc_validate_results.png" src="_images/mod_roc_validate_results.png" style="width: 600px;" /></a>
+<p class="caption"><span class="caption-text">Example <code class="docutils literal notranslate"><span class="pre">validate</span> <span class="pre">results</span></code> per-read modified base ROC curve plot.</span><a class="headerlink" href="#id3" title="Permalink to this image">¶</a></p>
+</div>
+<div class="figure align-center" id="id4">
+<a class="reference internal image-reference" href="_images/mod_dist_validate_results.png"><img alt="_images/mod_dist_validate_results.png" src="_images/mod_dist_validate_results.png" style="width: 600px;" /></a>
+<p class="caption"><span class="caption-text">Example <code class="docutils literal notranslate"><span class="pre">validate</span> <span class="pre">results</span></code> per-read modified base score distribution plot.</span><a class="headerlink" href="#id4" title="Permalink to this image">¶</a></p>
+</div>
+</div>
+<hr class="docutils" />
+<div class="section" id="megalodon-extras-validate-aggregated-modified-bases">
+<h2><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span> <span class="pre">aggregated_modified_bases</span></code><a class="headerlink" href="#megalodon-extras-validate-aggregated-modified-bases" title="Permalink to this headline">¶</a></h2>
+<p>Compute validation metrics and visualizations from aggregated modified base calls.</p>
+<p>Similar to the <code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span> <span class="pre">results</span></code> command, modified base results are compared to a ground truth provided either by 1) a control sample or 2) a ground truth positions CSV file.
+A set of metrics are also reported and stored as described by the <code class="docutils literal notranslate"><span class="pre">--out-filename</span></code> argument (default <code class="docutils literal notranslate"><span class="pre">stdout</span></code>).
+These metrics include the optimal F1-score, mean average precision and ROC AUC.
+This command outputs several visualizations similar to the per-read modified base validation including modified base percent distributions as well as precision-recall and ROC curves.</p>
+<hr class="docutils" />
+<div class="figure align-center" id="id5">
+<a class="reference internal image-reference" href="_images/mod_agg_dist_results.png"><img alt="_images/mod_agg_dist_results.png" src="_images/mod_agg_dist_results.png" style="width: 600px;" /></a>
+<p class="caption"><span class="caption-text">Example <code class="docutils literal notranslate"><span class="pre">validate</span> <span class="pre">aggregated_modified_bases</span></code> modified base percentage distribution plot.</span><a class="headerlink" href="#id5" title="Permalink to this image">¶</a></p>
+</div>
+</div>
+<hr class="docutils" />
+<div class="section" id="megalodon-extras-validate-compare-modified-bases">
+<h2><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span> <span class="pre">compare_modified_bases</span></code><a class="headerlink" href="#megalodon-extras-validate-compare-modified-bases" title="Permalink to this headline">¶</a></h2>
+<p>Compare two sets of bedmethyl files and report a standard set of metrics and visualizations.</p>
+<p>The two sets or individual bedmethyl files provided will be compared at all overlapping sites with sufficient coverage (defined by <code class="docutils literal notranslate"><span class="pre">--coverage-threshold</span></code>; default all sites).
+To aggregate forward and reverse strand methylation calls set the <code class="docutils literal notranslate"><span class="pre">--strand-offset</span></code> argument.
+For example to aggregate CpG calls add the <code class="docutils literal notranslate"><span class="pre">--strand-offset</span> <span class="pre">1</span></code> argument to the command.</p>
+<p>The first metrics reported concern the coverage over the two samples before and after the overlap and coverage filters have been applied.
+Overlapping percent modified values are then compared to produce the correlation coefficient, R^2 and RMSE (for the model y=x).
+The correlation coefficient has previously been reported as the standard metric for modified base detection performance, but the RMSE is recommended for purposes of model selection or general modified base detection performance.
+This is due to potential modified base model issues resulting in low accuracy, but high precision, which can result in high correlation.
+Specifically, some models have a tendency to call some low portion of ground truth modified sites as canonical, likely due to training set imbalance.</p>
+<p>This command also produces a standard set of visualizations for the comparison of these aggregated results.
+Shown below are plots comparing the percent modified bases between nanopore and ENCODE bisulfite runs (on log and linear scales shading) as well as a comparison of the coverage for the two samples.</p>
+<hr class="docutils" />
+<div class="figure align-center" id="id6">
+<a class="reference internal image-reference" href="_images/mod_agg_comp_log.png"><img alt="_images/mod_agg_comp_log.png" src="_images/mod_agg_comp_log.png" style="width: 600px;" /></a>
+<p class="caption"><span class="caption-text">Example <code class="docutils literal notranslate"><span class="pre">validate</span> <span class="pre">compare_modified_bases</span></code> percent modified comparison with log-10 scaled shading.</span><a class="headerlink" href="#id6" title="Permalink to this image">¶</a></p>
+</div>
+<div class="figure align-center" id="id7">
+<a class="reference internal image-reference" href="_images/mod_agg_comp_linear.png"><img alt="_images/mod_agg_comp_linear.png" src="_images/mod_agg_comp_linear.png" style="width: 600px;" /></a>
+<p class="caption"><span class="caption-text">Example <code class="docutils literal notranslate"><span class="pre">validate</span> <span class="pre">compare_modified_bases</span></code> percent modified comparison with clipped linear scaled shading.</span><a class="headerlink" href="#id7" title="Permalink to this image">¶</a></p>
+</div>
+<div class="figure align-center" id="id8">
+<a class="reference internal image-reference" href="_images/mod_agg_comp_cov.png"><img alt="_images/mod_agg_comp_cov.png" src="_images/mod_agg_comp_cov.png" style="width: 600px;" /></a>
+<p class="caption"><span class="caption-text">Example <code class="docutils literal notranslate"><span class="pre">validate</span> <span class="pre">compare_modified_bases</span></code> modified base sample read coverage comparison.</span><a class="headerlink" href="#id8" title="Permalink to this image">¶</a></p>
+</div>
+<hr class="docutils" />
+</div>
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+        <a href="extras_variants.html" class="btn btn-neutral float-right" title="megalodon_extras variants" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="extras_per_read_text.html" class="btn btn-neutral float-left" title="megalodon_extras per_read_text" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &#169; Copyright 2019, Oxford Nanopore Technologies.
+
+    </p>
+  </div>
+    
+    
+    
+    Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    
+    provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>

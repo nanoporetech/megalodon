@@ -1,0 +1,284 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" />
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <title>megalodon_extras variants &mdash; Megalodon 2.3.3 documentation</title>
+  
+
+  
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+
+  
+  
+
+  
+  
+
+  
+
+  
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+    
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+
+    
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="prev" title="megalodon_extras validate" href="extras_validate.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="index.html" class="icon icon-home"> Megalodon
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                2.3.3
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="algorithm_details.html">Megalodon Algorithm Details</a></li>
+<li class="toctree-l1"><a class="reference internal" href="common_arguments.html">Common Arguments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_arguments.html">Advanced Megalodon Arguments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="computing_considerations.html">Computing Considerations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="variant_phasing.html">Variant Phasing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="file_formats.html">File Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="model_training.html">Megalodon Model Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modbase_training.html">Megalodon Modified Base Model Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_aggregate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">aggregate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_calibrate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_merge.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">merge</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_modified_bases.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_phase_variants.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">phase_variants</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_per_read_text.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">per_read_text</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_validate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span></code></a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span></code></a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#megalodon-extras-variants-atomize"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span> <span class="pre">atomize</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#megalodon-extras-variants-resolve"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span> <span class="pre">resolve</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#megalodon-extras-variants-heterozygous-factor"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span> <span class="pre">heterozygous_factor</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#megalodon-extras-variants-index-database"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span> <span class="pre">index_database</span></code></a></li>
+</ul>
+</li>
+</ul>
+
+            
+          
+        </div>
+        
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Megalodon</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+        
+      <li><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span></code></li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+          
+            <a href="_sources/extras_variants.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="megalodon-extras-variants">
+<h1><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span></code><a class="headerlink" href="#megalodon-extras-variants" title="Permalink to this headline">¶</a></h1>
+<p>The <code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span></code> command group contains various commands related to sequence variant processing within Megalodon.</p>
+<div class="section" id="megalodon-extras-variants-atomize">
+<h2><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span> <span class="pre">atomize</span></code><a class="headerlink" href="#megalodon-extras-variants-atomize" title="Permalink to this headline">¶</a></h2>
+<p>This command processes each variant in a VCF file to convert the variants to their atomic form.
+When the variant file produced by this command is used in the <code class="docutils literal notranslate"><span class="pre">megalodon</span></code> command with the <code class="docutils literal notranslate"><span class="pre">--variants-are-atomized</span></code> flag, processing speed can be drastically increased.
+This is especially true for high-density variant files.</p>
+<p>For each variant processed in Megalodon the “atomic” variant is required for the highest quality results.
+For single nucleotide variants (SNVs) the atomic form simply reduces any multi-nucleotide SNP into the single nucleotide swaps.
+For insertions and deletions (indels) the atomic form removes context bases and expands the indel to include all unambiguous positions.
+For example consider a bit of reference sequence <code class="docutils literal notranslate"><span class="pre">AGCGCA</span></code>.
+An insertion after the first base of a <code class="docutils literal notranslate"><span class="pre">GC</span></code> could be validly annotated in a VCF file as reference allele <code class="docutils literal notranslate"><span class="pre">A</span></code> and alternative allele <code class="docutils literal notranslate"><span class="pre">AGC</span></code>.
+But the atomic form of this variant would be reference allele <code class="docutils literal notranslate"><span class="pre">GCGC</span></code> and alternative allele <code class="docutils literal notranslate"><span class="pre">GCGCGC</span></code>.
+In this way atomic variants capture all reference bases impacted by a variant and no more.
+Processing variants in this way ensures that the correct bit of sequence and raw signal is considered when determining the correct allele within Megalodon.</p>
+<p>The processing of each variant to its atomic form must be completed each time a variant overlaps a read since VCF files can often be too large to store in RAM.
+Thus the computational cost for high coverage or dense variant files can be quite high for this step of the processing.
+This command allows this atomizing step to be performed once before starting a <code class="docutils literal notranslate"><span class="pre">megalodon</span></code> run.
+When passing a variant file processed with this command, the <code class="docutils literal notranslate"><span class="pre">--variants-are-atomized</span></code> flag should be specified.
+Note that this flag should not be used with VCF files originating from other sources.
+Specifically, this command adds a non-standard <code class="docutils literal notranslate"><span class="pre">CB</span></code> (context base) VCF flag in order to indicate that a context base added to a variant is not part of the atomic form of that variant.</p>
+</div>
+<div class="section" id="megalodon-extras-variants-resolve">
+<h2><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span> <span class="pre">resolve</span></code><a class="headerlink" href="#megalodon-extras-variants-resolve" title="Permalink to this headline">¶</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span> <span class="pre">resolve</span></code> command resolves conflicting variants and removes variants determined to be the reference allele.</p>
+<p>Megalodon processes sequence variants to make a call for each variant individually (taking nearby variants into account).
+Nearby variants are often overlapping and thus incompatible.
+The primary use for this command is to resolve situations where multiple overlapping variants are called.
+At each site with overlapping variants, the one with the highest probability is selected for the output file.</p>
+<p>In addition, this command has options to filter variants which were called as the reference allele (<code class="docutils literal notranslate"><span class="pre">--max-likelihood-ratio</span></code>), filter for coverage (<code class="docutils literal notranslate"><span class="pre">--min-depth</span></code>), and revert atomic variant notation (<code class="docutils literal notranslate"><span class="pre">--trim-variants</span></code>).</p>
+<p>There are also a number of options to inspect potential systematic bias in identified sequence variants.
+Providing a VCF file called only from reverse strand mapping reads via the <code class="docutils literal notranslate"><span class="pre">--reverse-strand-variants</span></code> argument activates the output.
+The main VCF provided is then assumed to be derived from forward strand mapping reads only.
+In this mode, variants are output when they are identified only on one strand and not the other to allow analysis of potential bias in basecalling models.
+This feature is experimental and does not have defined pipelines for downstream use.</p>
+</div>
+<div class="section" id="megalodon-extras-variants-heterozygous-factor">
+<h2><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span> <span class="pre">heterozygous_factor</span></code><a class="headerlink" href="#megalodon-extras-variants-heterozygous-factor" title="Permalink to this headline">¶</a></h2>
+<p>Determine the result of the heterozygous factor on identifying the correct balance of homozygous to heterozygous variants.</p>
+<p>This command can assist in setting an optimal value for the <code class="docutils literal notranslate"><span class="pre">--heterozygous-factors</span></code> argument.
+The default value is intended to minimize the number of false heterozygous calls.
+The recommended phased variant pipeline for Megalodon processes variants such that if a variant is not initially called heterozygous, a heterozygous call cannot be made, but heterozygous calls can be converted to homozygous calls.
+Since this phased variant pipeline is recommended in order to obtain the highest quality variants, false homozygous calls are minimized.</p>
+<p>If the aim is to achieve a balance of homozygous and heterozygous calls, this command can be used to evaluate this balance for a particular <code class="docutils literal notranslate"><span class="pre">--heterozygous-factors</span></code> setting.
+This command will output the number of called homozygous and heterozygous calls compared to their ground truth from a provided set of variants.
+As a guide, previous Megalodon version had the default value of <code class="docutils literal notranslate"><span class="pre">--heterozygous-factors</span> <span class="pre">2.1</span> <span class="pre">1.6</span></code> which achieves a better balance than the current default of <code class="docutils literal notranslate"><span class="pre">--heterozygous-factors</span> <span class="pre">1.0</span> <span class="pre">1.0</span></code> which minimizes false homozygous calls.</p>
+</div>
+<div class="section" id="megalodon-extras-variants-index-database">
+<h2><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span> <span class="pre">index_database</span></code><a class="headerlink" href="#megalodon-extras-variants-index-database" title="Permalink to this headline">¶</a></h2>
+<p>This command is not currently implemented, but will be in a future release.</p>
+</div>
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+        <a href="extras_validate.html" class="btn btn-neutral float-left" title="megalodon_extras validate" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &#169; Copyright 2019, Oxford Nanopore Technologies.
+
+    </p>
+  </div>
+    
+    
+    
+    Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    
+    provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>

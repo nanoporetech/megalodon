@@ -1,0 +1,431 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" />
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <title>File Formats &mdash; Megalodon 2.3.3 documentation</title>
+  
+
+  
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+
+  
+  
+
+  
+  
+
+  
+
+  
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+        <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+    
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+
+    
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Megalodon Model Training" href="model_training.html" />
+    <link rel="prev" title="Variant Phasing" href="variant_phasing.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="index.html" class="icon icon-home"> Megalodon
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                2.3.3
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="algorithm_details.html">Megalodon Algorithm Details</a></li>
+<li class="toctree-l1"><a class="reference internal" href="common_arguments.html">Common Arguments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_arguments.html">Advanced Megalodon Arguments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="computing_considerations.html">Computing Considerations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="variant_phasing.html">Variant Phasing</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">File Formats</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#base-calling">Base Calling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#mapping">Mapping</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#mapping-summary">Mapping Summary</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#modified-base-mapping">Modified Base Mapping</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#variant-mapping">Variant Mapping</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#per-read-modified-bases">Per-read Modified Bases</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#database">Database</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#tab-delimited">Tab-delimited</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#aggregated-modified-bases">Aggregated Modified Bases</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#per-read-sequence-variants">Per-read Sequence Variants</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#aggregated-sequence-variants">Aggregated Sequence Variants</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="model_training.html">Megalodon Model Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modbase_training.html">Megalodon Modified Base Model Training</a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_aggregate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">aggregate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_calibrate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">calibrate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_merge.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">merge</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_modified_bases.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">modified_bases</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_phase_variants.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">phase_variants</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_per_read_text.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">per_read_text</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_validate.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">validate</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="extras_variants.html"><code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">variants</span></code></a></li>
+</ul>
+
+            
+          
+        </div>
+        
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Megalodon</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
+        
+      <li>File Formats</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+          
+            <a href="_sources/file_formats.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="file-formats">
+<h1>File Formats<a class="headerlink" href="#file-formats" title="Permalink to this headline">¶</a></h1>
+<p>This page describes the output file formats produced by <code class="docutils literal notranslate"><span class="pre">megalodon</span></code>.</p>
+<div class="section" id="base-calling">
+<h2>Base Calling<a class="headerlink" href="#base-calling" title="Permalink to this headline">¶</a></h2>
+<p>Basecalling produces either FASTQ or FASTA formats.
+Basecalls will be output into the <code class="docutils literal notranslate"><span class="pre">basecalls.fastq</span></code> or <code class="docutils literal notranslate"><span class="pre">basecalls.fasta</span></code> file within the <code class="docutils literal notranslate"><span class="pre">--output-directory</span></code>.</p>
+<p>As of version 2.2, basecall anchored modified base calls (<code class="docutils literal notranslate"><span class="pre">mod_basecalls</span></code>) are output in an unmapped BAM file via the <code class="docutils literal notranslate"><span class="pre">Mm</span></code> and <code class="docutils literal notranslate"><span class="pre">Ml</span></code> tags <a class="reference external" href="https://github.com/samtools/hts-specs/pull/418">described by hts-specs here</a>..</p>
+</div>
+<div class="section" id="mapping">
+<h2>Mapping<a class="headerlink" href="#mapping" title="Permalink to this headline">¶</a></h2>
+<p>Mapped reads can be output in SAM, BAM or CRAM formats.
+Basecalls will be output into the <code class="docutils literal notranslate"><span class="pre">mappings.sam</span></code>, <code class="docutils literal notranslate"><span class="pre">mappings.bam</span></code>, or <code class="docutils literal notranslate"><span class="pre">mappings.cram</span></code> file within the <code class="docutils literal notranslate"><span class="pre">--output-directory</span></code>.</p>
+<div class="section" id="mapping-summary">
+<h3>Mapping Summary<a class="headerlink" href="#mapping-summary" title="Permalink to this headline">¶</a></h3>
+<p>When <code class="docutils literal notranslate"><span class="pre">--outputs</span> <span class="pre">mappings</span></code> is requested the <code class="docutils literal notranslate"><span class="pre">mappings.summary.txt</span></code> is produced.
+This file contains the following fields:</p>
+<ol class="arabic simple">
+<li><p>read_id</p>
+<ul class="simple">
+<li><p>Unique read identifier (from FAST5)</p></li>
+</ul>
+</li>
+<li><p>pct_identity</p>
+<ul class="simple">
+<li><p>Mapping/reference percent identity (computed as <code class="docutils literal notranslate"><span class="pre">100</span> <span class="pre">*</span> <span class="pre">num_match</span> <span class="pre">/</span> <span class="pre">num_align</span></code>)</p></li>
+</ul>
+</li>
+<li><p>num_align</p>
+<ul class="simple">
+<li><p>Length of full alignment (<code class="docutils literal notranslate"><span class="pre">num_match</span> <span class="pre">+</span> <span class="pre">num_mismatch</span> <span class="pre">+</span> <span class="pre">num_ins</span> <span class="pre">+</span> <span class="pre">num_del</span></code>)</p></li>
+</ul>
+</li>
+<li><p>num_match</p>
+<ul class="simple">
+<li><p>Number of basecalls aligned to a matching reference base</p></li>
+</ul>
+</li>
+<li><p>num_del</p>
+<ul class="simple">
+<li><p>Number of deleted reference bases implied by the alignment</p></li>
+</ul>
+</li>
+<li><p>num_ins</p>
+<ul class="simple">
+<li><p>Number of inserted reference bases implied by the alignment</p></li>
+</ul>
+</li>
+<li><p>read_pct_coverage</p>
+<ul class="simple">
+<li><p>Percentage of read basecalls included in reference alignment</p></li>
+</ul>
+</li>
+<li><p>chrom</p>
+<ul class="simple">
+<li><p>Reference contig name for mapping</p></li>
+</ul>
+</li>
+<li><p>strand</p>
+<ul class="simple">
+<li><p>Strand for mapping</p></li>
+</ul>
+</li>
+<li><p>start</p>
+<ul class="simple">
+<li><p>Reference coordinate for start of mapping (0-based close interval coordinate)</p></li>
+</ul>
+</li>
+<li><p>end</p>
+<ul class="simple">
+<li><p>Reference coordinate for end of mapping (0-based open interval coordinate)</p></li>
+</ul>
+</li>
+<li><p>query_start</p>
+<ul class="simple">
+<li><p>Basecall coordinate for start of mapping (0-based closed interval coordinate)</p></li>
+</ul>
+</li>
+<li><p>query_end</p>
+<ul class="simple">
+<li><p>Basecall coordinate for end of mapping (0-based open interval coordinate)</p></li>
+</ul>
+</li>
+<li><p>map_sig_start</p>
+<ul class="simple">
+<li><p>Raw signal coordinate for start of mapping (0-based closed interval coordinate). Note that this coordinate is as stored in the FAST5 file, so for RNA reads (5’ to 3’ read direction) the start coordinate will be greater than the end coordinate.</p></li>
+</ul>
+</li>
+<li><p>map_sig_end</p>
+<ul class="simple">
+<li><p>Raw signal coordinate for end of mapping (0-based open interval coordinate)</p></li>
+</ul>
+</li>
+<li><p>sig_len</p>
+<ul class="simple">
+<li><p>Length of signal for complete read</p></li>
+</ul>
+</li>
+<li><p>map_num</p>
+<ul class="simple">
+<li><p>Mapping number to distinguish multiple mappings from the same read. Should always be <code class="docutils literal notranslate"><span class="pre">0</span></code> when <code class="docutils literal notranslate"><span class="pre">--allow-supplementary-alignments</span></code> is not set.</p></li>
+</ul>
+</li>
+</ol>
+</div>
+<div class="section" id="modified-base-mapping">
+<h3>Modified Base Mapping<a class="headerlink" href="#modified-base-mapping" title="Permalink to this headline">¶</a></h3>
+<p>As of version 2.2, the default output for the <code class="docutils literal notranslate"><span class="pre">mod_mappings</span></code> output type will be a single BAM file with modified base probabilities stored via the <code class="docutils literal notranslate"><span class="pre">Mm</span></code> and <code class="docutils literal notranslate"><span class="pre">Ml</span></code> tags, as in <code class="docutils literal notranslate"><span class="pre">mod_basecalls</span></code> above.
+This format can be output in SAM, BAM or CRAM format as specified by the <code class="docutils literal notranslate"><span class="pre">--mappings-format</span></code> argument (which also applies to the <code class="docutils literal notranslate"><span class="pre">mappings</span></code> and <code class="docutils literal notranslate"><span class="pre">mod_basecalls</span></code> outputs).</p>
+<p>In order to obtain <code class="docutils literal notranslate"><span class="pre">mod_mappings</span></code> in the same format as Meglodon version &lt; 2.2 use the <code class="docutils literal notranslate"><span class="pre">--mod-map-emulate-bisulfite</span></code> flag.
+This option will output a file for each modified base represented in the basecalling model.
+The mapped reads in this output represent only the information about modified bases contained within each read.
+Each read includes the mapped reference bases with only the called modified bases annotated.
+The quality score for each called base (whether called as modified or canonical) represent the probability of a modified status and not the canonical base probability (as specified by the SAM format).
+Bases without a proposed modified base will contain a quality score of <code class="docutils literal notranslate"><span class="pre">40</span></code>.</p>
+<p>In addition, the <code class="docutils literal notranslate"><span class="pre">--mod-map-base-conv</span></code> is provided to modulate the bases output by this format.
+This option is useful since the BAM and CRAM formats do not support modified bases and will convert all alternative bases to <code class="docutils literal notranslate"><span class="pre">N</span></code> for storage.
+For example, to mimic bisulfite output use <code class="docutils literal notranslate"><span class="pre">--mod-map-base-conv</span> <span class="pre">C</span> <span class="pre">T</span> <span class="pre">--mod-map-base-conv</span> <span class="pre">Z</span> <span class="pre">C</span></code>
+This can then be visualized by a genome browser as with standard bisulfite data.</p>
+<hr class="docutils" />
+<div class="figure align-center" id="id2">
+<a class="reference internal image-reference" href="_images/mod_mapping_viz.png"><img alt="_images/mod_mapping_viz.png" src="_images/mod_mapping_viz.png" style="width: 600px;" /></a>
+<p class="caption"><span class="caption-text">Genome browser visualization. Megalodon mod_mappings output.</span><a class="headerlink" href="#id2" title="Permalink to this image">¶</a></p>
+</div>
+</div>
+<hr class="docutils" />
+<div class="section" id="variant-mapping">
+<h3>Variant Mapping<a class="headerlink" href="#variant-mapping" title="Permalink to this headline">¶</a></h3>
+<p>In addition to standard mapping files, megalodon includes a special mapping-style output with specific relevance to the variant calling pipeline.
+This format can be output as a SAM, BAM or CRAM file as with standard mapping format (as specified by the <code class="docutils literal notranslate"><span class="pre">--mappings-format</span></code> argument).
+The mapped reads in this output represent only the information about proposed variants contained within each read.
+Each read includes the mapped reference bases with only the called variants annotated.
+The score for each call is encoded in the base quality scores for each read.
+Bases without a proposed variant will contain a quality score of <code class="docutils literal notranslate"><span class="pre">40</span></code>.
+Note that storage of insertion probabilities is not supported by the SAM/BAM format, so these score are lost in this format.
+This output is useful for 1) producing more accurate variant phasing and read haplotagging via whatshap and 2) visualizing per-read variant calls in a genome browser.</p>
+</div>
+</div>
+<div class="section" id="per-read-modified-bases">
+<h2>Per-read Modified Bases<a class="headerlink" href="#per-read-modified-bases" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="database">
+<h3>Database<a class="headerlink" href="#database" title="Permalink to this headline">¶</a></h3>
+<p>The primary output for per-read modified base results is an <a class="reference external" href="https://www.sqlite.org/index.html">sqlite database</a>.
+This database contains an indexed table with per-read, per-position, modified base scores, as well as auxiliary tables with read, modification type and reference chromosomes/records information.
+The read table (<code class="docutils literal notranslate"><span class="pre">read</span></code>) contains the read UUID.
+The modification type table (<code class="docutils literal notranslate"><span class="pre">mod</span></code>) contains the single letter modified base code, the modified base long name and the associated canonical base.</p>
+<p>As of version 2.2, the <code class="docutils literal notranslate"><span class="pre">pos</span></code> table has been dropped from the modified base schema.
+In place of the <code class="docutils literal notranslate"><span class="pre">pos</span></code> table, the <code class="docutils literal notranslate"><span class="pre">chrm</span></code> table contains the name and length of each chromosome/record in the reference sequence.
+The <code class="docutils literal notranslate"><span class="pre">score_pos</span></code> in the <code class="docutils literal notranslate"><span class="pre">data</span></code> table then contains an integer encoding of the <code class="docutils literal notranslate"><span class="pre">(chrm,</span> <span class="pre">pos,</span> <span class="pre">strand)</span></code> tuple (see <code class="docutils literal notranslate"><span class="pre">megalodon.mods.ModsDb.get_pos_dbid</span></code> and <code class="docutils literal notranslate"><span class="pre">megalodon.mods.ModsDb.get_pos</span></code> functions).
+This allows more efficient access to position information without requiring additional interaction with the database.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">data</span></code> table then contains the links between these tables along with the per-read log probability for each modified base at each called reference position in the <code class="docutils literal notranslate"><span class="pre">score</span></code> column.
+This table is indexed at the end of the run by the <code class="docutils literal notranslate"><span class="pre">score_pos</span></code> field such that iteration over the table (via <code class="docutils literal notranslate"><span class="pre">megalodon.mods.ModsDb.iter_pos_scores</span></code> occurs in reference sorted order.</p>
+<p>This database may be accessed via the <code class="docutils literal notranslate"><span class="pre">megalodon.mods.ModsDb</span></code> object.
+More documentation on the usage of the <code class="docutils literal notranslate"><span class="pre">megalodon.mods.ModsDb</span></code> interface will be added in a future release.</p>
+</div>
+<div class="section" id="tab-delimited">
+<h3>Tab-delimited<a class="headerlink" href="#tab-delimited" title="Permalink to this headline">¶</a></h3>
+<p>Modified bases results are also available via tab-delimited text output.
+This output can be requested via the <code class="docutils literal notranslate"><span class="pre">--write-mods-text</span></code> flag or obtained after a run via the <code class="docutils literal notranslate"><span class="pre">megalodon_extras</span> <span class="pre">per_read_text</span> <span class="pre">modified_bases</span></code> command.
+This output contains the following fields: <code class="docutils literal notranslate"><span class="pre">read_id</span></code>, <code class="docutils literal notranslate"><span class="pre">chrm</span></code>, <code class="docutils literal notranslate"><span class="pre">strand</span></code>, <code class="docutils literal notranslate"><span class="pre">pos</span></code>, <code class="docutils literal notranslate"><span class="pre">mod_log_prob</span></code>, <code class="docutils literal notranslate"><span class="pre">can_log_prob</span></code>, and <code class="docutils literal notranslate"><span class="pre">mod_base</span></code></p>
+</div>
+</div>
+<div class="section" id="aggregated-modified-bases">
+<h2>Aggregated Modified Bases<a class="headerlink" href="#aggregated-modified-bases" title="Permalink to this headline">¶</a></h2>
+<p>The default aggregated modified base output is the bedMethyl format (<a class="reference external" href="https://www.encodeproject.org/data-standards/wgbs/">description here</a>).
+Alternative formats are <a class="reference external" href="https://genome.ucsc.edu/goldenPath/help/wiggle.html">wiggle</a> (variableStep) and VCF (treating the modified base as if it were a sequence variant).</p>
+</div>
+<div class="section" id="per-read-sequence-variants">
+<h2>Per-read Sequence Variants<a class="headerlink" href="#per-read-sequence-variants" title="Permalink to this headline">¶</a></h2>
+<p>As with the modified base results, the primary output for per-read sequence variant results is as <a class="reference external" href="https://www.sqlite.org/index.html">sqlite database</a>.
+This database contains an indexed table with per-read, per-position, variant scores, as well as auxiliary tables with read, reference location and alternative allele information.</p>
+<p>The reference location table (<code class="docutils literal notranslate"><span class="pre">loc</span></code>) contains the mapped 0-based position, strand (1=forward, -1=reverse) and chromosome (via a final <code class="docutils literal notranslate"><span class="pre">chrm</span></code> table which contains the chromosome text).
+The <code class="docutils literal notranslate"><span class="pre">loc</span></code> table also contains the location for the start and end of the tested positions (applicable for insertions/deletions).
+For example, insertions generally require a context base for downstream processing, but within megalodon only the inserted position is considered (without context).
+Each reference location is linked to the IDs linked with this location from the input variants file.
+Finally the reference sequence for the location is included in this table.
+In the related <code class="docutils literal notranslate"><span class="pre">alt</span></code> table, each alternative sequence is stored.
+Links between alternative sequences and reference locations are made via the main <code class="docutils literal notranslate"><span class="pre">data</span></code> table.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">read</span></code> table contains the read UUID as well as the mapped strand for each read.</p>
+</div>
+<div class="section" id="aggregated-sequence-variants">
+<h2>Aggregated Sequence Variants<a class="headerlink" href="#aggregated-sequence-variants" title="Permalink to this headline">¶</a></h2>
+<p>Sequence variant calls are output in standard VCF format (version 4.1).
+The sample format fields includes the following standard VCF fields: <code class="docutils literal notranslate"><span class="pre">gt</span></code>, <code class="docutils literal notranslate"><span class="pre">gq</span></code>, <code class="docutils literal notranslate"><span class="pre">gp</span></code>, <code class="docutils literal notranslate"><span class="pre">gl</span></code>, and <code class="docutils literal notranslate"><span class="pre">``pl</span></code>
+In addition the non-standard <code class="docutils literal notranslate"><span class="pre">log_probs</span></code> field, containing the per-read contributions to the variant call, can be added to the VCF file by setting the <code class="docutils literal notranslate"><span class="pre">--write-vcf-log-probs</span></code> flag.</p>
+</div>
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+        <a href="model_training.html" class="btn btn-neutral float-right" title="Megalodon Model Training" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="variant_phasing.html" class="btn btn-neutral float-left" title="Variant Phasing" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &#169; Copyright 2019, Oxford Nanopore Technologies.
+
+    </p>
+  </div>
+    
+    
+    
+    Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    
+    provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>
