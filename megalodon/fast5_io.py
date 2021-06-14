@@ -210,6 +210,12 @@ def _extract_signal_worker(
                             f"{read_id}"
                         )
                         continue
+                    except Exception as e:
+                        LOGGER.debug(
+                            f"Encountered malformated fast5: {fast5_fn} "
+                            f"{read_id} ::: {str(e)}"
+                        )
+                        continue
                     signal_q.put((tuple(sig_info), tuple(seq_summ_info)))
     except Exception as e:
         aux_failed_q.put(
