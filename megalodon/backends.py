@@ -1037,7 +1037,6 @@ class ModelInfo(AbstractModelInfo):
                 read_sent = self.client.pass_read(pyguppy_read)
                 if not read_sent:
                     err_str = "Guppy server unable to recieve read"
-                    sleep(PYGUPPY_SEND_FAIL_SLEEP)
         except ValueError as e:
             err_str = 'Send read read malformed error "{}"'.format(str(e))
         except ConnectionError as e:
@@ -1045,8 +1044,10 @@ class ModelInfo(AbstractModelInfo):
         except RuntimeError as e:
             err_str = 'Send read undefined error "{}"'.format(str(e))
         if err_str is None:
-            return None
+            return
 
+        # if any error occurred sleep to avoid sending too many reads
+        sleep(PYGUPPY_SEND_FAIL_SLEEP)
         LOGGER.debug(
             '{} BasecallingFailed "{}"'.format(sig_info.read_id, err_str)
         )
