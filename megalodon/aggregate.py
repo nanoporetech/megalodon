@@ -440,7 +440,7 @@ def aggregate_stats(
             for read_id in valid_read_ids:
                 try:
                     valid_read_dbids.add(mods_db.get_read_dbid(read_id))
-                except KeyError:
+                except mh.MegaError:
                     if num_missing_read_ids == 0:
                         LOGGER.warning("Some read IDs not found in database.")
                     num_missing_read_ids += 1
