@@ -719,6 +719,29 @@ class ModelInfo(AbstractModelInfo):
         )
 
     def iter_basecalled_reads(self, read_generator, failed_reads_q=None):
+        """Iterate over basecalled read results.
+
+        Args:
+            read_generator (generator): Generator yielding 2-tuples containing
+                1. megalodon.backends.SIGNAL_DATA and
+                2. megalodon.megalodon_helper.SEQ_SUMM_INFO objects
+            failed_reads_q (Queue): Queue object in which to deposit failed
+                read information.
+
+        Yields:
+            Basecalled read results consisting of 7-tuple with the following:
+            1. megalodon.backends.SIGNAL_DATA updated from processing
+            2. megalodon.megalodon_helper.SEQ_SUMM_INFO updated from processing
+            3. megalodon.backends.CALLED_READ containing read info (note that
+                seq and qual will be in sequencing direction)
+            4. np.array containing state_data coordinates for each called base
+            5. np.array containing posterior transitions matrix with canonical
+                base transitions only
+            6. np.array containing posterior transitions matrix with canonical
+                transitions along with modified base transitions
+            7. Basecall-anchored modified base scores (if requested) as
+                returned from AbstractModelInfo.format_mod_scores
+        """
         if self.model_type not in (TAI_NAME, FAST5_NAME, PYGUPPY_NAME):
             raise mh.MegaError("Invalid model backend")
 
