@@ -1498,10 +1498,10 @@ def score_mod_seq(
     using a global mapping.
 
     Args:
-        tpost `ndarray`: Log transition posteriors to be scored
-        seq: `ndarray`: Integer encoded proposed sequence
-        mod_cats `ndarray`: Integer encoded proposed modified base labels
-        can_mods_offsets: `ndarray`: Offset into modbase transition for each
+        tpost (np.array): Log transition posteriors to be scored
+        seq (np.array): Integer encoded proposed sequence
+        mod_cats (np.array): Integer encoded proposed modified base labels
+        can_mods_offsets (np.array): Offset into modbase transition for each
             canonical base
         tpost_start (int): Start position within post (Default: 0)
         tpost_end (int): end position within post (Default: full posterior)
@@ -1540,6 +1540,40 @@ def call_read_mods(
     fast5_fn,
     map_num,
 ):
+    """Compute modified base scores for requested bases on a given read.
+
+    Args:
+        r_ref_pos (megalodon.mapping.MAP_POS): Mapped reference position object
+        r_ref_seq (str): Read-orientation (reverse complement of reference for
+            reverse strand mapping read) mapped reference sequence
+        ref_to_block (np.array): Neural network array indices for each base in
+            r_ref_seq (plus one for end of sequence)
+        r_post (np.array): Neural network output array (num_blocks, num_states)
+        mods_info (megalodon.mods.ModInfo): Modified base info object
+        mod_sig_map_q (Queue): Output queue to send modified base annotated
+            taiyaki mapped signal output information
+        sig_map_res (megalodon.signal_mapping.SIG_MAP_RESULT): Signal mapping
+            result object
+        signal_reversed (bool): Is signal 3' to 5'? Usually true only for RNA
+            reads.
+        uuid (str): Read UUID identifier
+        failed_reads_q (Queue): Output queue for failed read status messages
+        fast5_fn (str): Path to source FAST5 for this read
+        map_num (int): Mapping number for multi-mapping reads
+
+    Returns:
+        4-tuple containing the following items (or None if note requested):
+        1. list of data to insert into the per-read mods database. Elements of
+            list are 3-tuples of 1. log probability 2. DB pos ID 3. DB mod ID
+        2. Single sequence annotated with all mods as returned from
+            annotate_all_mods
+        3. Per-mod annotated sequences as returned from either
+            annotate_mods_per_mod or format_mm_ml_tags depending on the output
+            requested. (TODO separate these outputs to allow both per-mod
+            annotation outputs.
+        4. Text block containing all mod calls from the current read
+    """
+
     def iter_motif_sites():
         search_ref_seq = r_ref_seq[::-1] if signal_reversed else r_ref_seq
         for motif, rel_pos, mod_bases, raw_motif in mods_info.all_mod_motifs:
