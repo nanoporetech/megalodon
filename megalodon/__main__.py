@@ -357,7 +357,7 @@ def get_parser():
             "calls. (Default: Viterbi best-path score)"
         ),
     )
-    out_grp.add_argument(
+    mod_grp.add_argument(
         "--mod-min-prob",
         type=float,
         default=mh.DEFAULT_MOD_MIN_PROB,
