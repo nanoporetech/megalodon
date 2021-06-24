@@ -281,27 +281,30 @@ def get_pyguppy_read(read_id, raw_data, channel_info):
 
 
 def parse_pyguppy_called_read(called_read):
-    read_metadata = called_read["metadata"]
-    out_alphabet = (
-        read_metadata["base_mod_alphabet"]
-        if len(read_metadata["base_mod_alphabet"]) > 0
-        else mh.ALPHABET
-    )
-    read_datasets = called_read["datasets"]
-    return CALLED_READ(
-        model_type=read_metadata["basecall_type"],
-        model_stride=read_metadata["model_stride"],
-        mod_long_names=read_metadata["base_mod_long_names"].split(),
-        output_alphabet=out_alphabet,
-        state_size=read_metadata["state_size"],
-        trimmed_samples=read_metadata["trimmed_samples"],
-        scaling_shift=read_metadata["scaling_median"],
-        scaling_scale=read_metadata["scaling_med_abs_dev"],
-        move=read_datasets["movement"],
-        state=read_datasets["state_data"],
-        seq=read_datasets["sequence"],
-        qual=read_datasets["qstring"],
-    )
+    try:
+        read_metadata = called_read["metadata"]
+        out_alphabet = (
+            read_metadata["base_mod_alphabet"]
+            if len(read_metadata["base_mod_alphabet"]) > 0
+            else mh.ALPHABET
+        )
+        read_datasets = called_read["datasets"]
+        return CALLED_READ(
+            model_type=read_metadata["basecall_type"],
+            model_stride=read_metadata["model_stride"],
+            mod_long_names=read_metadata["base_mod_long_names"].split(),
+            output_alphabet=out_alphabet,
+            state_size=read_metadata["state_size"],
+            trimmed_samples=read_metadata["trimmed_samples"],
+            scaling_shift=read_metadata["scaling_median"],
+            scaling_scale=read_metadata["scaling_med_abs_dev"],
+            move=read_datasets["movement"],
+            state=read_datasets["state_data"],
+            seq=read_datasets["sequence"],
+            qual=read_datasets["qstring"],
+        )
+    except KeyError as e:
+        raise mh.MegaError(f"Guppy server returned invalid read: {str(e)}")
 
 
 class AbstractModelInfo(ABC):
@@ -986,15 +989,14 @@ class ModelInfo(AbstractModelInfo):
             },
         )
         try:
-            try:
-                init_called_read, _, _ = next(
-                    self.pyguppy_basecall([(init_sig_data, None)])
-                )
-            except mh.MegaError:
-                raise mh.MegaError(
-                    "Failed to run test read with Guppy. See Guppy logs in "
-                    "--output-directory."
-                )
+            init_called_read, _, _ = next(
+                self.pyguppy_basecall([(init_sig_data, None)])
+            )
+        except mh.MegaError as e:
+            raise mh.MegaError(
+                "Failed to run test read with Guppy. See Guppy logs in "
+                f"--output-directory. Error type: {str(e)}"
+            )
         except ConnectionError:
             self.close()
             raise mh.MegaError(
