@@ -287,12 +287,12 @@ def _main(args):
                 "Cannot process both control data and ground truth data. "
                 + "Ignoring ground truth CSV."
             )
-            ctrl_samp = parse_mod_sample(
-                args.control_bed_methyl_files,
-                args.strand_offset,
-                args.coverage_threshold,
-                "Control",
-            )
+        ctrl_samp = parse_mod_sample(
+            args.control_bed_methyl_files,
+            args.strand_offset,
+            args.coverage_threshold,
+            "Control",
+        )
     elif args.ground_truth_csvs is not None:
         if args.valid_positions is not None:
             LOGGER.warning(
