@@ -37,7 +37,9 @@ class CustomFormatter(logging.Formatter):
         return result
 
 
-def init_logger(out_dir=None, out_suffix=None, log_fn=None, quiet=False):
+def init_logger(
+    out_dir=None, out_suffix=None, log_fn=None, quiet=False, silent=False
+):
     """Prepare logging output. Output file will be opened if out_dir or log_fn
     are specified. out_suffix will be added to the standard log.txt filename in
     out_dir (does not apply when log_fn is specified).
@@ -57,7 +59,9 @@ def init_logger(out_dir=None, out_suffix=None, log_fn=None, quiet=False):
         log_fp.setFormatter(CustomFormatter())
 
     console = logging.StreamHandler()
-    if quiet:
+    if silent:
+        console.setLevel(logging.CRITICAL)
+    elif quiet:
         console.setLevel(logging.WARNING)
     else:
         console.setLevel(logging.INFO)
