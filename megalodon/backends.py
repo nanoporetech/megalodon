@@ -862,8 +862,9 @@ class ModelInfo(AbstractModelInfo):
         version_match = GUPPY_VERSION_PAT.search(version_out)
         if version_match is None:
             raise mh.MegaError(
-                'Guppy version string does not match expected pattern: "{}"'
-            ).format(version_out)
+                "Guppy version string does not match expected pattern: "
+                f'"{version_out}"'
+            )
         guppy_version_str = version_match.groups()[0]
         LOGGER.debug('Guppy version: "{}"'.format(guppy_version_str))
         LOGGER.debug('Pyguppy version: "{}"'.format(pyguppy_version_str))
@@ -873,9 +874,8 @@ class ModelInfo(AbstractModelInfo):
                 LOGGER.warning("Using pre-release guppy version.")
             else:
                 raise mh.MegaError(
-                    ('Megalodon requires Guppy version>=4.0. Got: "{}"').format(
-                        guppy_version_str
-                    )
+                    "Megalodon requires Guppy version>=4.0. Got: "
+                    f'"{guppy_version_str}"'
                 )
         pyguppy_version = LooseVersion(pyguppy_version_str)
         warn_txt = (
