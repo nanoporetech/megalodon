@@ -1078,7 +1078,9 @@ class ModelInfo(AbstractModelInfo):
         )
         return self.prep_failed_read_data(sig_info, err_str)
 
-    def pyguppy_get_completed_reads(self, saved_input_data):
+    def pyguppy_get_completed_reads(
+        self, saved_input_data, failed_reads_q=None
+    ):
         comp_reads = None
         try:
             try:
@@ -1106,11 +1108,15 @@ class ModelInfo(AbstractModelInfo):
                 LOGGER.debug("{} timeout read finished".format(read_id))
                 continue
             LOGGER.debug("{} BasecallingCompleted".format(read_id))
-            yield (
-                parse_pyguppy_called_read(called_read),
-                sig_info,
-                seq_summ_info,
-            ), read_id
+            try:
+                called_read = parse_pyguppy_called_read(called_read)
+            except mh.MegaError as e:
+                LOGGER.debug(f"{read_id} ParseGuppyReadError {str(e)}")
+                failed_reads_q.put(tuple(self.prep_failed_read_data(
+                    sig_info, str(e)
+                )))
+                continue
+            yield (called_read, sig_info, seq_summ_info), read_id
 
     def pyguppy_get_timeout_reads(self, saved_input_data):
         curr_time = time()
@@ -1153,7 +1159,7 @@ class ModelInfo(AbstractModelInfo):
             ):
                 # get completed reads
                 for comp_read, read_id in self.pyguppy_get_completed_reads(
-                    saved_input_data
+                    saved_input_data, failed_reads_q
                 ):
                     yield comp_read
                     del saved_input_data[read_id]
@@ -1170,7 +1176,7 @@ class ModelInfo(AbstractModelInfo):
         while len(saved_input_data) > 0:
             # get completed reads
             for comp_read, read_id in self.pyguppy_get_completed_reads(
-                saved_input_data
+                saved_input_data, failed_reads_q
             ):
                 yield comp_read
                 del saved_input_data[read_id]
