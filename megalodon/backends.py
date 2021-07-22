@@ -1112,9 +1112,9 @@ class ModelInfo(AbstractModelInfo):
                 called_read = parse_pyguppy_called_read(called_read)
             except mh.MegaError as e:
                 LOGGER.debug(f"{read_id} ParseGuppyReadError {str(e)}")
-                failed_reads_q.put(tuple(self.prep_failed_read_data(
-                    sig_info, str(e)
-                )))
+                failed_reads_q.put(
+                    tuple(self.prep_failed_read_data(sig_info, str(e)))
+                )
                 continue
             yield (called_read, sig_info, seq_summ_info), read_id
 
