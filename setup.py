@@ -12,7 +12,7 @@ if __name__ == "__main__":
     ext_modules = [
         Extension(
             "megalodon.decode",
-            sources=["megalodon/_decode.pyx"],
+            sources=["megalodon/decode.pyx"],
             extra_compile_args=extra_compile_args,
             language="c",
         ),
