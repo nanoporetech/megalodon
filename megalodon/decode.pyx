@@ -7,8 +7,10 @@
 import cython
 from libc.stdint cimport int64_t, uintptr_t
 from libc.stdlib cimport calloc, free
-from libc.math cimport sqrt
+from libc.math cimport sqrt, HUGE_VALF
+
 import numpy as np
+from megalodon.megalodon_helper import MegaError
 
 cdef extern from "math.h":
     float expf(float x)
@@ -18,7 +20,6 @@ cdef extern from "math.h":
 
 
 ALPHABET = 'ACGT'
-LARGE_VAL = 1e30
 
 
 ####################
@@ -59,8 +60,6 @@ cdef inline void log_row_normalise_inplace(
         for row in range(0, nrow):
             mat[offset + row] -= row_logsum
 
-    return
-
 cdef inline void get_stay_step(
         size_t * seq, size_t nseq, size_t nbase,
         size_t * stay_indices, size_t * step_indices):
@@ -80,7 +79,6 @@ cdef inline void get_stay_step(
         step_indices[seq_pos - 1] = trans_lookup(
             prev_fm_state, curr_fm_state, nbase)
     free(flop_mask_states)
-    return
 
 
 ######################
@@ -88,8 +86,12 @@ cdef inline void get_stay_step(
 ######################
 
 cdef inline void decode_forward_step(
-        float * curr_logprob, size_t nbase,
-        float * prev_fwd, float * curr_fwd, size_t * tb):
+    float * curr_logprob,
+    size_t nbase,
+    float * prev_fwd,
+    float * curr_fwd,
+    size_t * tb
+):
     cdef size_t nff_state = nbase + nbase
 
     # to flip base states
@@ -123,12 +125,14 @@ cdef inline void decode_forward_step(
             curr_fwd[to_state] = score
             tb[to_state] = from_state
 
-    return
-
 
 cdef float flipflop_decode_trans(
-        float[:, ::1] tpost, size_t nblk, size_t nbase,
-        uintptr_t[::1] path, float[:] qpath):
+    float[:, ::1] tpost,
+    size_t nblk,
+    size_t nbase,
+    uintptr_t[::1] path,
+    float[:] qpath
+):
     cdef size_t nff_state = nbase + nbase
     cdef size_t ntrans_state = nff_state * (nbase + 1)
 
@@ -216,8 +220,6 @@ cdef inline void decode_forward_step_fb(
     for to_state in range(nff_state):
         curr_fwd[to_state] -= row_logsum
 
-    return
-
 
 cdef void decode_forward(
         float[:, ::1] logprob, size_t nbase, size_t nblk,
@@ -234,8 +236,6 @@ cdef void decode_forward(
         decode_forward_step_fb(&logprob[blk,0], nbase, &fwd[blk,0],
                                &fwd[blk + 1,0])
 
-    return
-
 
 cdef void flipflop_trans_post(
         float[:, ::1] logprob, size_t nbase, size_t nblk, float[:, ::1] tpost):
@@ -251,7 +251,7 @@ cdef void flipflop_trans_post(
     cdef float * tmp
     cdef size_t idx
     for idx in range(nff_state):
-        prev[idx] = -LARGE_VAL
+        prev[idx] = -HUGE_VALF
 
     # Backwards pass
     cdef size_t blk, st, to_state, from_state
@@ -310,8 +310,6 @@ cdef void flipflop_trans_post(
     free(curr)
     free(prev)
 
-    return
-
 
 ################################
 # Standard flip-flop functions #
@@ -345,6 +343,412 @@ def crf_flipflop_viterbi(
     score = flipflop_decode_trans(tpost, nblock, nbase, path, qpath)
 
     return score
+
+
+##################################
+# Constrained decoding functions #
+##################################
+
+cdef flipflop_constrain_traceback(
+    int[::1] int_seq,
+    const int[:, ::1] traceback,
+    const int[:, ::1] seq_band,
+    const int[::1] base_offsets,
+    const float[::1] final_fwd_scores
+):
+    """Perform traceback to extract sequence for most likely path
+
+    Args:
+        int_seq (int array): Sequence array to be populated by this function.
+        traceback (2D int array): Elements contain flip-flop base to go to at
+            the next block back in time. Value equal to index indicates a stay
+            in this base.
+        seq_band (int array): 2D Int array containing band start and end
+            positions for each base. Positions are in num_blocks dimension of
+            trans_logprob. Shape should be 2 by seq_len
+        base_offsets (int array): Offset to the start of each base in
+            traceback/trans_logprob ragged arrays.
+        final_fwd_scores (float array): Flip-flop base states at final position.
+            Maximum value determines final base in sequence.
+    """
+    cdef int seq_len = seq_band.shape[1]
+    cdef int nblocks = seq_band[1, seq_len - 1]
+    cdef int curr_seq_pos = seq_len - 1
+
+    # identify final flip-flop base from final_fwd_scores
+    int_seq[curr_seq_pos] = np.argmax(final_fwd_scores)
+    cdef int band_pos, curr_block, tb_pos, tb_base
+    tb_base = traceback[traceback.shape[0] - 1, int_seq[curr_seq_pos]]
+    if tb_base == -1:
+        raise MegaError(
+            f"Invalid traceback position at start: {final_fwd_scores}"
+        )
+    if tb_base != int_seq[curr_seq_pos]:
+        curr_seq_pos -= 1
+        int_seq[curr_seq_pos] = tb_base
+    for curr_block in range(nblocks - 2, 0, -1):
+        band_pos = curr_block - seq_band[0, curr_seq_pos]
+        if band_pos < 0:
+            raise MegaError(
+                "Constrained basecall traceback outside band (stay): "
+                f"block:{curr_block}/{nblocks-1}  "
+                f"seq:{curr_seq_pos}/{seq_len-1}  "
+                "band(len="
+                f"{seq_band[1, curr_seq_pos] - seq_band[0, curr_seq_pos]}):"
+                f"{seq_band[0, curr_seq_pos]}-{seq_band[1, curr_seq_pos]}"
+                f"band_pos:{band_pos}"
+            )
+        if band_pos >= seq_band[1, curr_seq_pos] - seq_band[0, curr_seq_pos]:
+            raise MegaError(
+                "Constrained basecall traceback outside band (step)  "
+                f"block:{curr_block}/{nblocks-1}  "
+                f"seq:{curr_seq_pos}/{seq_len-1}  "
+                "band(len="
+                f"{seq_band[1, curr_seq_pos] - seq_band[0, curr_seq_pos]}):"
+                f"{seq_band[0, curr_seq_pos]}-{seq_band[1, curr_seq_pos]}"
+                f"band_pos:{band_pos}"
+            )
+        tb_pos = base_offsets[curr_seq_pos] + band_pos
+        tb_base = traceback[tb_pos, int_seq[curr_seq_pos]]
+        if tb_base != int_seq[curr_seq_pos]:
+            if tb_base == -1:
+                reg_seq_band = seq_band[
+                    :,
+                    max(0, curr_seq_pos - 3)
+                    : min(seq_band.shape[1] - 1, curr_seq_pos + 3)]
+                raise MegaError(
+                    f"Invalid traceback position: "
+                    f"block:{curr_block}/{nblocks-1}  "
+                    f"seq:{curr_seq_pos}/{seq_len-1}  "
+                    "band(len="
+                    f"{seq_band[1, curr_seq_pos] - seq_band[0, curr_seq_pos]}):"
+                    f"{seq_band[0, curr_seq_pos]}-{seq_band[1, curr_seq_pos]}"
+                    f"band_pos:{band_pos}  "
+                    f"{tb_base}  "
+                    f"{np.array(reg_seq_band)}"
+                )
+            if curr_seq_pos == 0:
+                raise MegaError(
+                    "Constrained basecall traceback outside band (seq)"
+                )
+            curr_seq_pos -= 1
+            int_seq[curr_seq_pos] = tb_base
+    if curr_seq_pos != 0:
+        raise MegaError(
+            "Constrained basecall traceback did not reach first base"
+        )
+
+
+cdef inline void constrain_decode_forward_move_step(
+    float[::1] pos_scores,
+    int[::1] pos_tb,
+    const float[::1] pos_logprob,
+    const short[::1] pos_allowed_bases,
+    const float[::1] prev_base_scores,
+    int nbase,
+):
+    """Compute move forward scores and traceback values for a step into a
+    particular block by sequence position. Note that stay scores are computed
+    in a separate function as these derive from the previous block in the
+    *same* base.
+
+    Args:
+        pos_scores (float array): Forward score computed thus far at this
+            position.
+        pos_tb (int array): Traceback computed thus far at this position.
+        pos_logprob (float array): Transition log probabilities into this
+            position.
+        pos_allowed_bases (int array): Allowed bases at this position.
+        prev_base_scores (float array): Forward scores for each flip-flop base
+            up to the previous base (from state) and previous block.
+        nbase (int): Number of bases in alphabet
+    """
+    cdef int nff_state = nbase + nbase
+
+    cdef size_t offset_to_state, to_flip_state, to_flop_state, from_state
+    cdef float score
+    cdef size_t offset_to_flop = nff_state * nbase
+    for to_flip_state in range(nbase):
+        if not pos_allowed_bases[to_flip_state]:
+            # if this base is not allowed skip
+            continue
+        # move to flip base states
+        offset_to_state = to_flip_state * nff_state
+        # can move to flip state from any state
+        for from_state in range(nff_state):
+            # skip stay computation. Computed from prev_block_scores in
+            # constrained decoding.
+            if to_flip_state == from_state:
+                continue
+            score = (pos_logprob[offset_to_state + from_state]
+                     + prev_base_scores[from_state])
+            if score > pos_scores[to_flip_state]:
+                pos_scores[to_flip_state] = score
+                pos_tb[to_flip_state] = from_state
+
+        # move to flop base state from flip state
+        from_state = to_flip_state
+        to_flop_state = to_flip_state + nbase
+        # can only move from flip to flop state
+        score = (pos_logprob[offset_to_flop + from_state]
+                 + prev_base_scores[from_state])
+        if score > pos_scores[to_flop_state]:
+            pos_scores[to_flop_state] = score
+            pos_tb[to_flop_state] = from_state
+
+
+cdef inline void constrain_decode_forward_stay_step(
+    float[::1] pos_scores,
+    int[::1] pos_tb,
+    const float[::1] pos_logprob,
+    const short[::1] pos_allowed_bases,
+    const float[::1] prev_block_scores,
+    int nbase,
+):
+    """Compute stay forward scores and traceback values for a step into a
+    particular block by sequence position. Note that move scores are computed
+    in a separate function as these derive from the previous block in the
+    *previous* base.
+
+    Args:
+        pos_scores (float array): Forward score computed thus far at this
+            position.
+        pos_tb (int array): Traceback computed thus far at this position.
+        pos_logprob (float array): Transition log probabilities into this
+            position.
+        pos_allowed_bases (int array): Allowed bases at this position.
+        prev_block_scores (float array): Forward scores for each flip-flop base
+            up to the previous block in this same base(from state).
+        nbase (int): Number of bases in alphabet
+    """
+    cdef size_t nff_state = nbase + nbase
+    cdef size_t offset_to_flop = nff_state * nbase
+    cdef size_t flip_base, flop_base
+    cdef float score
+    for flip_base in range(nbase):
+        if not pos_allowed_bases[flip_base]:
+            # if this base is not allowed retain previous score and pos_tb
+            continue
+        # stay in flip base state
+        score = (pos_logprob[(flip_base * nff_state) + flip_base]
+                 + prev_block_scores[flip_base])
+        if score > pos_scores[flip_base]:
+            pos_scores[flip_base] = score
+            pos_tb[flip_base] = flip_base
+        # stay in flop base state
+        flop_base = nbase + flip_base
+        score = (prev_block_scores[flop_base]
+                 + pos_logprob[offset_to_flop + flop_base])
+        if score > pos_scores[flop_base]:
+            pos_scores[flop_base] = score
+            pos_tb[flop_base] = flop_base
+
+
+cdef void constrain_banded_forward_vit_step(
+    float[:, ::1] band_scores,
+    int[:, ::1] band_tb,
+    const float[:, ::1] band_logprob,
+    const float[:, ::1] prev_scores,
+    const short[::1] pos_allowed_bases,
+    int band_start_diff,
+    int nbase
+):
+    """Process one base using standard Viterbi path flip-flop scoring.
+
+    Args:
+        band_logprob (2D float array): Flip-flop transition log probabilities
+            corresponding to same band as band_scores.
+        band_scores (2D float array): To be populated by this function. Elements
+            will be forward scores at each position for each flip-flop state
+        band_tb (2D int array): To be populated by this function. Elements will
+            be flip-flop base to go to at the next step. Value equal to index
+            indicates a stay in this base.
+        prev_scores (const 2D float array): Forward scores for the previous base
+        band_start_diff (int): Difference in starting coordinates between
+            current and previous base
+        pos_allowed_bases (const 1D int array): Bases allowed
+    """
+    cdef int nff_state = nbase + nbase
+    cdef int band_pos
+    cdef float base_score, move_score, stay_score
+    # compute start position in band
+    # if the previous band starts before this base's band compute band start
+    # state; else invalid values remain at start of band
+    if band_start_diff > 0:
+        constrain_decode_forward_move_step(
+            pos_scores=band_scores[0, :],
+            pos_tb=band_tb[0, :],
+            pos_logprob=band_logprob[0, :],
+            pos_allowed_bases=pos_allowed_bases,
+            prev_base_scores=prev_scores[band_start_diff - 1, :],
+            nbase=nbase,
+        )
+        # clip prev_scores to start at same position as band_scores
+        prev_scores = prev_scores[band_start_diff:, :]
+    # if base bands are the same clip last element of prev_scores
+    if prev_scores.shape[0] == band_scores.shape[0]:
+        prev_scores = prev_scores[:prev_scores.shape[0] - 1]
+
+    # compute scores where curr and prev base overlap
+    for band_pos in range(1, prev_scores.shape[0] + 1):
+        # compute max over move and stay scores
+        constrain_decode_forward_move_step(
+            pos_scores=band_scores[band_pos, :],
+            pos_tb=band_tb[band_pos, :],
+            pos_logprob=band_logprob[band_pos, :],
+            pos_allowed_bases=pos_allowed_bases,
+            prev_base_scores=prev_scores[band_pos - 1, :],
+            nbase=nbase,
+        )
+        constrain_decode_forward_stay_step(
+            pos_scores=band_scores[band_pos, :],
+            pos_tb=band_tb[band_pos, :],
+            pos_logprob=band_logprob[band_pos, :],
+            pos_allowed_bases=pos_allowed_bases,
+            prev_block_scores=band_scores[band_pos - 1, :],
+            nbase=nbase,
+        )
+
+    # stay through rest of the band
+    for band_pos in range(prev_scores.shape[0] + 1, band_scores.shape[0]):
+        constrain_decode_forward_stay_step(
+            pos_scores=band_scores[band_pos, :],
+            pos_tb=band_tb[band_pos, :],
+            pos_logprob=band_logprob[band_pos, :],
+            pos_allowed_bases=pos_allowed_bases,
+            prev_block_scores=band_scores[band_pos - 1, :],
+            nbase=nbase,
+        )
+
+
+def flipflop_constrain_decode(
+    const float[:, ::1] trans_logprob,
+    const short[:, ::1] all_allowed_bases,
+    const int[:, ::1] seq_band
+):
+    """Decode flip-flop transitions with constains on the produced sequence. In
+    particular the sequence length is fixed and any number of bases within the
+    fixed sequence may be constrained to any particular set of bases.
+    
+    This decoding is also constrain to a band through the sequence to
+    transitions matrix output. This is to increase efficiency.
+
+    Args:
+        trans_logprob (np.array): 2D Float array containing flip-flop transition
+            log probabilities. Shape should be num_blocks by num_transitions.
+            num_blocks is signal // stride and num_transitions is the number of
+            flip-flop transitions (40 for 4 canonical bases).
+        all_allowed_bases (np.array): 2D Boolean array (np.uint8) containing
+            allowed bases for each position within the produced basecalls.
+            Shape should be seq_len by num_bases. True indicies indicate that
+            this base is allowed at this position in the sequence.
+        seq_band (np.array): 2D Int array containing band start and end
+            positions for each base. Positions are in num_blocks dimension of
+            trans_logprob. Shape should be 2 by seq_len
+
+    Returns:
+        Integer encoded contrained decoded sequence.
+    """
+    cdef int nblock, nstate, seq_len
+    nblock = trans_logprob.shape[0]
+    nstate = trans_logprob.shape[1]
+    seq_len = all_allowed_bases.shape[0]
+    if nblock < seq_band[1, seq_band.shape[1] - 1]:
+        raise MegaError("Band extends beyond transitions posteriors array.")
+    cdef int nbase = nstate_to_nbase(nstate)
+    cdef int nff_state = nbase + nbase
+    if nbase != all_allowed_bases.shape[1]:
+        raise MegaError(
+            "Number of bases implied by trans_logprob and bases included in "
+            "all_allowed_bases do not agree."
+        )
+    if 2 != seq_band.shape[0]:
+        raise MegaError("Second band dimension should be length 2.")
+    if seq_len != seq_band.shape[1]:
+        raise MegaError(
+            "Sequence constraints length and band length do not agree."
+        )
+    if nblock < seq_len:
+        raise MegaError(
+            "num_blocks < seq_len results in no valid sequence decodings."
+        )
+
+    # compute offset within all_scores and traceback arrays to the start of
+    # each base in the band
+    cdef int[::1] base_offsets = np.empty(seq_len + 1, dtype=np.int32)
+    base_offsets[0] = 0
+    # cumsum
+    cdef int base_len, base_pos
+    for base_pos, base_len in enumerate(np.diff(seq_band, axis=0)[0]):
+        base_offsets[base_pos + 1] = base_offsets[base_pos] + base_len
+
+    # initialize ragged-banded score and traceback arrays. First dimension
+    # represented ragged positions with block positions contiguous in memory.
+    cdef int tot_band_len = base_offsets[base_offsets.shape[0] - 1]
+    cdef float[:, ::1] all_scores = np.full(
+        (tot_band_len, nff_state), -HUGE_VALF, dtype=np.float32)
+    cdef int[:, ::1] traceback = np.full(
+        (tot_band_len, nff_state), -1, dtype=np.int32)
+
+    cdef int curr_bw, start_base, flip_stay_idx, flop_stay_idx, band_pos
+    curr_bw = seq_band[1, 0]
+    # initialize first base band with allowed bases
+    for start_base in range(nbase):
+        if not all_allowed_bases[0, start_base]:
+            continue
+        traceback[0, start_base] = start_base
+        traceback[0, start_base + nbase] = start_base + nbase
+        flip_stay_idx = (start_base * nff_state) + start_base
+        flop_stay_idx = (nff_state * nbase) + nbase + start_base
+        all_scores[0, start_base] = trans_logprob[0, flip_stay_idx]
+        all_scores[0, start_base + nbase] = trans_logprob[0, flop_stay_idx]
+        for band_pos in range(1, curr_bw):
+            all_scores[band_pos, start_base] = (
+                all_scores[band_pos - 1, start_base]
+                + trans_logprob[band_pos, flip_stay_idx])
+            all_scores[band_pos, start_base + nbase] = (
+                all_scores[band_pos - 1, start_base + nbase]
+                + trans_logprob[band_pos, flop_stay_idx])
+            traceback[band_pos, start_base] = start_base
+            traceback[band_pos, start_base + nbase] = start_base + nbase
+
+    cdef int prev_offset, prev_band_st, prev_bw, seq_pos
+    cdef int curr_offset, curr_band_st, curr_band_en
+    # loop over sequence positions computing forward scores and traceback
+    prev_bw = curr_bw
+    prev_band_st = prev_offset = 0
+    for seq_pos in range(1, seq_len):
+        curr_band_st = seq_band[0, seq_pos]
+        curr_band_en = seq_band[1, seq_pos]
+        curr_bw = curr_band_en - curr_band_st
+        curr_offset = base_offsets[seq_pos]
+
+        # compute all scores and traceback for this base
+        constrain_banded_forward_vit_step(
+            all_scores[curr_offset:curr_offset + curr_bw, :],
+            traceback[curr_offset:curr_offset + curr_bw, :],
+            trans_logprob[curr_band_st : curr_band_en],
+            all_scores[prev_offset:prev_offset + prev_bw, :],
+            all_allowed_bases[seq_pos, :],
+            curr_band_st - prev_band_st,
+            nbase,
+        )
+
+        prev_band_st = curr_band_st
+        prev_bw = curr_bw
+        prev_offset = curr_offset
+
+    # prepare output seq array for decoding
+    int_seq = np.empty(seq_len, dtype=np.int32)
+    flipflop_constrain_traceback(
+        int_seq,
+        traceback,
+        seq_band,
+        base_offsets,
+        all_scores[all_scores.shape[0] - 1, :]
+    )
+
+    return int_seq
 
 
 ####################
@@ -713,6 +1117,7 @@ cdef float score_all_paths_mod(
 
     return score
 
+
 def score_mod_seq(
         float[:, ::1] tpost, uintptr_t[::1] seq,
         uintptr_t[::1] mod_cats, uintptr_t[::1] can_mods_offsets,
@@ -785,7 +1190,8 @@ def decode_post(
     if mod_weights is not None:
         mods_scores = np.empty(
             (runval.shape[0], len(can_alphabet) + sum(can_nmods)),
-            dtype=np.float32)
+            dtype=np.float32
+        )
         mods_scores[0] = 0
         mods_scores[1:] = mod_weights[rl_cumsum[1:-1] - 1]
 
