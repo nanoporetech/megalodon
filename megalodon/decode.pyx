@@ -11,6 +11,9 @@ from libc.math cimport sqrt, HUGE_VALF
 
 import numpy as np
 from megalodon.megalodon_helper import MegaError
+from megalodon import logging
+
+LOGGER = logging.get_logger()
 
 cdef extern from "math.h":
     float expf(float x)
@@ -380,17 +383,20 @@ cdef flipflop_constrain_traceback(
     cdef int band_pos, curr_block, tb_pos, tb_base
     tb_base = traceback[traceback.shape[0] - 1, int_seq[curr_seq_pos]]
     if tb_base == -1:
-        raise MegaError(
-            f"Invalid traceback position at start: {final_fwd_scores}"
+        LOGGER.debug(
+            "Invalid traceback position at start:\n"
+            f"forward score: {np.array(final_fwd_scores)}\n"
+            f"traceback: {np.array(traceback[traceback.shape[0] - 1)}"
         )
+        raise MegaError(f"Invalid traceback position at start")
     if tb_base != int_seq[curr_seq_pos]:
         curr_seq_pos -= 1
         int_seq[curr_seq_pos] = tb_base
     for curr_block in range(nblocks - 2, 0, -1):
         band_pos = curr_block - seq_band[0, curr_seq_pos]
         if band_pos < 0:
-            raise MegaError(
-                "Constrained basecall traceback outside band (stay): "
+            LOGGER.debug(
+                "Constrained basecall traceback outside band (stay)  "
                 f"block:{curr_block}/{nblocks-1}  "
                 f"seq:{curr_seq_pos}/{seq_len-1}  "
                 "band(len="
@@ -398,8 +404,11 @@ cdef flipflop_constrain_traceback(
                 f"{seq_band[0, curr_seq_pos]}-{seq_band[1, curr_seq_pos]}"
                 f"band_pos:{band_pos}"
             )
-        if band_pos >= seq_band[1, curr_seq_pos] - seq_band[0, curr_seq_pos]:
             raise MegaError(
+                "Constrained basecall traceback outside band (stay)"
+            )
+        if band_pos >= seq_band[1, curr_seq_pos] - seq_band[0, curr_seq_pos]:
+            LOGGER.debug(
                 "Constrained basecall traceback outside band (step)  "
                 f"block:{curr_block}/{nblocks-1}  "
                 f"seq:{curr_seq_pos}/{seq_len-1}  "
@@ -407,6 +416,9 @@ cdef flipflop_constrain_traceback(
                 f"{seq_band[1, curr_seq_pos] - seq_band[0, curr_seq_pos]}):"
                 f"{seq_band[0, curr_seq_pos]}-{seq_band[1, curr_seq_pos]}"
                 f"band_pos:{band_pos}"
+            )
+            raise MegaError(
+                "Constrained basecall traceback outside band (step)"
             )
         tb_pos = base_offsets[curr_seq_pos] + band_pos
         tb_base = traceback[tb_pos, int_seq[curr_seq_pos]]
@@ -416,7 +428,7 @@ cdef flipflop_constrain_traceback(
                     :,
                     max(0, curr_seq_pos - 3)
                     : min(seq_band.shape[1] - 1, curr_seq_pos + 3)]
-                raise MegaError(
+                LOGGER.debug(
                     f"Invalid traceback position: "
                     f"block:{curr_block}/{nblocks-1}  "
                     f"seq:{curr_seq_pos}/{seq_len-1}  "
@@ -427,6 +439,7 @@ cdef flipflop_constrain_traceback(
                     f"{tb_base}  "
                     f"{np.array(reg_seq_band)}"
                 )
+                raise MegaError("Invalid traceback position")
             if curr_seq_pos == 0:
                 raise MegaError(
                     "Constrained basecall traceback outside band (seq)"
@@ -740,6 +753,7 @@ def flipflop_constrain_decode(
 
     # prepare output seq array for decoding
     int_seq = np.empty(seq_len, dtype=np.int32)
+    # TODO also save and return the path
     flipflop_constrain_traceback(
         int_seq,
         traceback,
