@@ -386,7 +386,7 @@ cdef flipflop_constrain_traceback(
         LOGGER.debug(
             "Invalid traceback position at start:\n"
             f"forward score: {np.array(final_fwd_scores)}\n"
-            f"traceback: {np.array(traceback[traceback.shape[0] - 1)}"
+            f"traceback: {np.array(traceback[traceback.shape[0] - 1])}"
         )
         raise MegaError(f"Invalid traceback position at start")
     if tb_base != int_seq[curr_seq_pos]:
