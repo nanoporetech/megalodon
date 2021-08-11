@@ -1602,9 +1602,9 @@ class VarInfo:
                 if ref_seq != var_data.ref:
                     # variant reference sequence does not match reference
                     LOGGER.debug(
-                        "VarSeqMismatchError {}:{}:{}".format(
-                            var_data.start, var_data.ref, ref_seq
-                        )
+                        "VarSeqMismatchError position "
+                        f"{contig}:{var_data.start} contains sequences: "
+                        f"VCF:{var_data.ref} and FASTA:{ref_seq}"
                     )
                     return False
 
