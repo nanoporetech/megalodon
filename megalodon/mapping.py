@@ -188,8 +188,7 @@ def prepare_mapping(
         # Add modified base tags
         #  see https://github.com/samtools/hts-specs/pull/418
         tags.append((MOD_POS_TAG, mods_scores[0], "Z"))
-        if len(mods_scores[1]) > 0:
-            tags.append((MOD_PROB_TAG, mods_scores[1]))
+        tags.append((MOD_PROB_TAG, mods_scores[1]))
     a.set_tags(tags)
 
     return a

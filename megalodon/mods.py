@@ -1316,7 +1316,11 @@ def format_mm_ml_tags(r_start, ref_seq, r_mod_scores, strand, mods_info):
         Mm string tag and Ml array tag
     """
 
-    per_mod_probs = defaultdict(list)
+    # initialize dict with all called mods to make sure all called mods are
+    # shown in resulting tags
+    per_mod_probs = dict(
+        (mod_base, []) for mod_base in mods_info.mod_bases_in_motifs
+    )
     for mod_pos, mod_lps, mod_bases in sorted(r_mod_scores):
         # mod_lps is set to None if invalid sequence is encountered or too
         # few events are found around a mod
@@ -1627,7 +1631,7 @@ def call_read_mods(
                 ref_to_block[pos - pos_bb],
                 ref_to_block[pos + pos_ab],
             )
-            if blk_end - blk_start < (mods_info.mod_context_bases * 2) + 1:
+            if blk_end - blk_start < pos_ab - pos_bb + 1:
                 # need as many "events/strides" as bases for valid mapping
                 # Add None scores for per-read annotation (to be filtered)
                 r_mod_scores.append((mod_ref_pos, None, mod_bases))
@@ -2045,15 +2049,19 @@ class ModInfo:
     def _parse_mod_motifs(self, all_mod_motifs_raw):
         # note only works for mod_refactor models currently
         self.all_mod_motifs = []
+        self.mod_bases_in_motifs = set()
         if all_mod_motifs_raw is None or len(all_mod_motifs_raw) == 0:
             for can_base, mod_bases in self.can_base_mods.items():
                 self.all_mod_motifs.append(
                     (re.compile(can_base), 0, mod_bases, can_base)
                 )
+                for mod_base in mod_bases:
+                    self.mod_bases_in_motifs.add(mod_base)
         else:
             # parse detection motifs
             for mod_bases, raw_motif, pos in all_mod_motifs_raw:
                 for mod_base in mod_bases:
+                    self.mod_bases_in_motifs.add(mod_base)
                     assert mod_base in self.str_to_int_mod_labels, (
                         "Modified base label ({}) not found in model "
                         + "alphabet ({})."
@@ -2077,6 +2085,7 @@ class ModInfo:
                     "One provided motif can be found within another motif. "
                     + "Only distinct sets of motifs are accepted"
                 )
+        self.mod_bases_in_motifs = sorted(self.mod_bases_in_motifs)
 
     def __init__(
         self,
