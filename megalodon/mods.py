@@ -1543,6 +1543,7 @@ def call_read_mods(
     failed_reads_q,
     fast5_fn,
     map_num,
+    full_path_decode=True,
 ):
     """Compute modified base scores for requested bases on a given read.
 
@@ -1564,6 +1565,8 @@ def call_read_mods(
         failed_reads_q (Queue): Output queue for failed read status messages
         fast5_fn (str): Path to source FAST5 for this read
         map_num (int): Mapping number for multi-mapping reads
+        full_path_decode (bool): Decode modified base scores using full-path
+            decoding.
 
     Returns:
         4-tuple containing the following items (or None if note requested):
@@ -1631,45 +1634,67 @@ def call_read_mods(
                 ref_to_block[pos - pos_bb],
                 ref_to_block[pos + pos_ab],
             )
-            if blk_end - blk_start < pos_ab - pos_bb + 1:
+            if blk_end - blk_start < pos_ab + pos_bb + 1:
                 # need as many "events/strides" as bases for valid mapping
                 # Add None scores for per-read annotation (to be filtered)
                 r_mod_scores.append((mod_ref_pos, None, mod_bases))
                 continue
 
-            loc_can_score = score_mod_seq(
-                r_post,
-                pos_ref_seq,
-                pos_can_mods,
-                mods_info.can_mods_offsets,
-                blk_start,
-                blk_end,
-                mods_info.mod_all_paths,
-            )
-            if loc_can_score is None:
-                raise mh.MegaError("Score computation error (memory error)")
-
             calib_llrs = []
-            for mod_base in mod_bases:
-                pos_mod_mods = pos_can_mods.copy()
-                pos_mod_mods[pos_bb] = mods_info.str_to_int_mod_labels[mod_base]
-                loc_mod_score = score_mod_seq(
+            if full_path_decode:
+                loc_can_score = score_mod_seq(
                     r_post,
                     pos_ref_seq,
-                    pos_mod_mods,
+                    pos_can_mods,
                     mods_info.can_mods_offsets,
                     blk_start,
                     blk_end,
                     mods_info.mod_all_paths,
                 )
-                if loc_mod_score is None:
+                if loc_can_score is None:
                     raise mh.MegaError("Score computation error (memory error)")
-                # calibrate llr scores
-                calib_llrs.append(
-                    mods_info.calibrate_llr(
-                        loc_can_score - loc_mod_score, mod_base
+
+                for mod_base in mod_bases:
+                    pos_mod_mods = pos_can_mods.copy()
+                    pos_mod_mods[pos_bb] = mods_info.str_to_int_mod_labels[
+                        mod_base
+                    ]
+                    loc_mod_score = score_mod_seq(
+                        r_post,
+                        pos_ref_seq,
+                        pos_mod_mods,
+                        mods_info.can_mods_offsets,
+                        blk_start,
+                        blk_end,
+                        mods_info.mod_all_paths,
                     )
+                    if loc_mod_score is None:
+                        raise mh.MegaError(
+                            "Score computation error (memory error)"
+                        )
+                    # calibrate llr scores
+                    calib_llrs.append(
+                        mods_info.calibrate_llr(
+                            loc_can_score - loc_mod_score, mod_base
+                        )
+                    )
+            else:
+                score, path = decode.get_best_flipflop_path(
+                    r_post[blk_start:blk_end],
+                    pos_ref_seq,
+                    mods_info.ncan_base,
                 )
+                mod_lps = r_post[
+                    blk_start + path[pos_bb], mods_info.n_can_state :
+                ]
+
+                can_lp = mod_lps[mods_info.output_alphabet.find(r_ref_seq[pos])]
+                for mod_base in mod_bases:
+                    mod_lp = mod_lps[mods_info.output_alphabet.find(mod_base)]
+                    # calibrate llr scores
+                    calib_llrs.append(
+                        mods_info.calibrate_llr(can_lp - mod_lp, mod_base)
+                    )
 
             # due to calibration mutli-mod log likelihoods could result in
             # inferred negative reference likelihood, so re-normalize here
@@ -2107,6 +2132,8 @@ class ModInfo:
         out_dir=None,
         skip_db_index=False,
         do_output=None,
+        bc_full_path_decode=False,
+        ref_full_path_decode=True,
     ):
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other modbase info
@@ -2131,6 +2158,9 @@ class ModInfo:
         self.skip_db_index = skip_db_index
         self.do_output = do_output
 
+        self.bc_full_path_decode = bc_full_path_decode
+        self.ref_full_path_decode = ref_full_path_decode
+
         self.mods_db_arrays_added = False
 
         self.mods_db_fn = mh.get_megalodon_fn(self.out_dir, mh.PR_MOD_NAME)
@@ -2153,6 +2183,7 @@ class ModInfo:
             self.mod_base_to_can = model_info.mod_base_to_can
             self.can_mods_offsets = model_info.can_indices
             self.str_to_int_mod_labels = model_info.str_to_int_mod_labels
+            self.output_alphabet = model_info.output_alphabet
             assert (
                 model_info.output_size - self.n_can_state == self.nmod_base + 1
             ), (

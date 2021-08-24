@@ -642,7 +642,7 @@ def flipflop_constrain_decode(
     """Decode flip-flop transitions with constains on the produced sequence. In
     particular the sequence length is fixed and any number of bases within the
     fixed sequence may be constrained to any particular set of bases.
-    
+
     This decoding is also constrain to a band through the sequence to
     transitions matrix output. This is to increase efficiency.
 
@@ -1131,11 +1131,121 @@ cdef float score_all_paths_mod(
 
     return score
 
+cdef float get_best_flipflop_path_core(
+    int[::1] path,
+    const float[:, ::1] tpost,
+    const uintptr_t[::1] seq,
+    size_t nbase
+):
+    cdef int nseq = seq.shape[0]
+    cdef int nblk = tpost.shape[0]
+    cdef int window_width = nblk - nseq + 1
+
+    cdef int[:, ::1] tb = -np.ones((nblk, nseq), dtype=np.int32)
+    cdef float[::1] prev = np.empty(window_width, dtype=np.float32)
+    cdef float[::1] curr = np.empty(window_width, dtype=np.float32)
+
+    # cumsum over stay in first seq pos to init prev
+    prev[0] = tpost[0, stay_idx]
+    tb[0, 0] = 0
+    # always start in flip base
+    cdef int prev_ff_base = seq[0]
+    cdef int stay_idx = prev_ff_base * (nbase + nbase) + prev_ff_base
+    cdef int win_pos
+    for win_pos in range(1, window_width):
+        prev[win_pos] = prev[win_pos - 1] + tpost[win_pos, stay_idx]
+        tb[win_pos, 0] = win_pos
+
+    cdef int seq_pos, step_idx, trans_pos
+    cdef float stay_score, step_score
+    for seq_pos in range(1, nseq):
+        # compute flip-flop stay and step indices
+        if prev_ff_base < nbase and seq[seq_pos] == seq[seq_pos - 1]:
+            # if this is a flop base
+            stay_idx = nbase * (nbase + nbase) + seq[seq_pos] + nbase
+            step_idx = nbase * (nbase + nbase) + seq[seq_pos]
+            prev_ff_base = seq[seq_pos] + nbase
+        else:
+            # else this is a flip base
+            stay_idx = seq[seq_pos] * (nbase + nbase) + seq[seq_pos]
+            step_idx = seq[seq_pos] * (nbase + nbase) + prev_ff_base
+            prev_ff_base = seq[seq_pos]
+
+        # step into first position in window
+        curr[0] = prev[0] + tpost[seq_pos, step_idx]
+        tb[seq_pos, seq_pos] = 0
+        for win_pos in range(1, window_width):
+            trans_pos = seq_pos + win_pos
+            # compute stay and step scores
+            stay_score = curr[win_pos - 1] + tpost[trans_pos, stay_idx]
+            step_score = prev[win_pos] + tpost[trans_pos, step_idx]
+            # store best path score
+            if step_score > stay_score:
+                tb[trans_pos, seq_pos] = 0
+                curr[win_pos] = step_score
+            else:
+                # add to stays from previous position in base
+                tb[trans_pos, seq_pos] = tb[trans_pos - 1, seq_pos] + 1
+                curr[win_pos] = stay_score
+        # swap prev and curr
+        curr, prev = prev, curr
+
+    # perform traceback
+    cdef int block_pos = nblk
+    path[nseq] = nblk
+    cdef int blocks_to_base_start
+    for seq_pos in range(nseq - 1, -1, -1):
+        # look one block back from block_pos to find the last position in the
+        # path attributed to previous base. The value is the number of blocks
+        # back to the start of this previous base
+        blocks_to_base_start = tb[block_pos - 1, seq_pos]
+        if blocks_to_base_start < 0:
+            raise MegaError("Invalid traceback")
+        block_pos -= blocks_to_base_start + 1
+        path[seq_pos] = block_pos
+
+    return prev[window_width - 1]
+
+
+def get_best_flipflop_path(
+    const float[:, ::1] tpost,
+    const uintptr_t[::1] seq,
+    size_t nbase,
+):
+    """Compute the path (blocks to seq mapping) with the best score.
+
+    Args:
+        tpost (np.array): 2D float32 array containing transition probabilities.
+            Only canonical base transition probabilities are used, but modified
+            base probabilities may be included in tpost and will be ignored.
+        seq (np.array): 1D int32 array containing integer encoded sequence
+        nbase (int): Number of bases included in alphabet for seq
+
+    Returns:
+        2-tuple containing float score for the path and a numpy array
+        containing the path. The path will be one element longer than seq.
+        Each element represents the index within tpost that the corresponding
+        position in seq starts.
+    """
+    if tpost.shape[0] < seq.shape[0]:
+        raise MegaError(
+            "Cannot compute path. Transition probabilities than sequence "
+            "length."
+        )
+    path = np.empty(seq.shape[0] + 1, dtype=np.int32)
+    score = get_best_flipflop_path_core(path, tpost, seq, nbase)
+    return score, path
+
 
 def score_mod_seq(
-        float[:, ::1] tpost, uintptr_t[::1] seq,
-        uintptr_t[::1] mod_cats, uintptr_t[::1] can_mods_offsets,
-        tpost_start, tpost_end, all_paths):
+    float[:, ::1] tpost,
+    uintptr_t[::1] seq,
+    uintptr_t[::1] mod_cats,
+    uintptr_t[::1] can_mods_offsets,
+    tpost_start,
+    tpost_end,
+    all_paths,
+):
     nseq = seq.shape[0]
     nstate = tpost.shape[1]
     if all_paths:

@@ -12,7 +12,7 @@ from collections import defaultdict, namedtuple
 
 import numpy as np
 
-from megalodon import decode, fast5_io, logging, megalodon_helper as mh
+from megalodon import decode, fast5_io, logging, megalodon_helper as mh, mods
 
 
 LOGGER = logging.get_logger()
@@ -721,7 +721,12 @@ class ModelInfo(AbstractModelInfo):
             mods_scores,
         )
 
-    def iter_basecalled_reads(self, read_generator, failed_reads_q=None):
+    def iter_basecalled_reads(
+        self,
+        read_generator,
+        failed_reads_q=None,
+        mods_info=None,
+    ):
         """Iterate over basecalled read results.
 
         Args:
@@ -730,6 +735,7 @@ class ModelInfo(AbstractModelInfo):
                 2. megalodon.megalodon_helper.SEQ_SUMM_INFO objects
             failed_reads_q (Queue): Queue object in which to deposit failed
                 read information.
+            mods_info (mods.ModInfo): Modified base information
 
         Yields:
             Basecalled read results consisting of 7-tuple with the following:
@@ -750,8 +756,7 @@ class ModelInfo(AbstractModelInfo):
 
         if self.model_type == PYGUPPY_NAME:
             for bc_res in self.pyguppy_run_model(
-                read_generator,
-                failed_reads_q,
+                read_generator, failed_reads_q, mods_info
             ):
                 yield bc_res
         else:
@@ -1189,10 +1194,7 @@ class ModelInfo(AbstractModelInfo):
                 del saved_input_data[read_id]
 
     def pyguppy_postprocess_called_read(
-        self,
-        called_read,
-        sig_info,
-        seq_summ_info,
+        self, called_read, sig_info, seq_summ_info, mods_info
     ):
         # compute run length cumsum from move table
         rl_cumsum = np.where(called_read.move)[0]
@@ -1215,7 +1217,18 @@ class ModelInfo(AbstractModelInfo):
                         [can_post, mods_weights], axis=1
                     )
                 if self.return_mod_scores:
-                    mods_scores = mods_weights[rl_cumsum[:-1]]
+                    if mods_info is not None and mods_info.bc_full_path_decode:
+                        raise NotImplementedError(
+                            "Basecall anchored full-path decoding not "
+                            "implemented"
+                        )
+                        # TODO implement this function
+                        mods_scores = mods.call_read_mods_core(
+                            called_read, mods_info, full_path_decode=True
+                        )
+                    else:
+                        # perform index-decoding on modified scores
+                        mods_scores = mods_weights[rl_cumsum[:-1]]
                     if self.signal_reversed:
                         mods_scores = mods_scores[::-1]
                     mods_scores = self.format_mod_scores(
@@ -1302,7 +1315,12 @@ class ModelInfo(AbstractModelInfo):
             mods_scores,
         )
 
-    def pyguppy_run_model(self, read_generator, failed_reads_q):
+    def pyguppy_run_model(
+        self,
+        read_generator,
+        failed_reads_q,
+        mods_info=None,
+    ):
         if self.model_type != PYGUPPY_NAME:
             raise mh.MegaError(
                 "Attempted to run pyguppy model with non-pyguppy "
@@ -1317,6 +1335,7 @@ class ModelInfo(AbstractModelInfo):
                     called_read,
                     sig_info,
                     seq_summ_info,
+                    mods_info,
                 )
             # only catch Megalodon errors here, all others caught upstream
             except mh.MegaError as e:

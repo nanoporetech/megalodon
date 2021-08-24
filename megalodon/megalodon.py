@@ -337,6 +337,7 @@ def process_mapping(
                 failed_reads_q,
                 sig_info.fast5_fn,
                 map_num,
+                mods_info.ref_full_path_decode,
             ),
             r_vals=(
                 sig_info.read_id,
@@ -481,6 +482,7 @@ def _process_reads_worker(
     for bc_res in model_info.iter_basecalled_reads(
         read_generator(),
         failed_reads_q=failed_reads_q,
+        mods_info=mods_info,
     ):
         sig_info = bc_res[0]
         try:
@@ -1456,6 +1458,8 @@ def parse_mod_args(args, model_info, ref_out_info, map_info):
         out_dir=args.output_directory,
         skip_db_index=skip_db_index,
         do_output=do_output,
+        bc_full_path_decode=args.basecall_anchored_full_path_decode,
+        ref_full_path_decode=not args.reference_anchored_index_decode,
     )
     if do_output.db:
         # initialize the database tables
@@ -1769,6 +1773,7 @@ def _main(args):
             args, model_info, aligner, ref_out_info
         )
         model_info.set_outputs(mods_info, bc_info, ref_out_info)
+
         process_all_reads(
             status_info,
             input_info,

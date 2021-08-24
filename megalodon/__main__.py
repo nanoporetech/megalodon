@@ -456,6 +456,29 @@ def get_parser():
             "ouput to database."
         ),
     )
+    mod_grp.add_argument(
+        "--basecall-anchored-full-path-decode",
+        action="store_true",
+        help=hidden_help(
+            "Applies full-path decoding (allow the path through the signal "
+            "to be shifted to find the most likely path including the "
+            "modified base) to reference-anchored modified base calls "
+            "(--outputs mod_mappings mods). The default index decoding "
+            "extracts modified base score from canonical base transition "
+            "indices."
+        ),
+    )
+    mod_grp.add_argument(
+        "--reference-anchored-index-decode",
+        action="store_true",
+        help=hidden_help(
+            "Applies index decoding (extract modified base score from "
+            "canonical base transition indices) to reference-anchored modified "
+            "base calls (--outputs mod_mappings mods). The default (full-path "
+            "decoding) allows the path through the signal to be shifted to "
+            "find the most likely path including the modified base."
+        ),
+    )
 
     tai_grp = parser.add_argument_group("Taiyaki Backend Arguments")
     tai_grp.add_argument(
