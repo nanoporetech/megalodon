@@ -3,7 +3,7 @@ import sys
 from collections import defaultdict, namedtuple
 
 import numpy as np
-import seaborn as sns
+
 import matplotlib
 
 if True:
@@ -11,6 +11,7 @@ if True:
     matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+import seaborn as sns
 
 from megalodon import logging, mapping, megalodon_helper as mh, mods, validation
 from ._extras_parsers import get_parser_validate_results
