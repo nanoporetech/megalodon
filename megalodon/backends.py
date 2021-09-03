@@ -438,17 +438,16 @@ class AbstractModelInfo(ABC):
             mod_bases = self.can_base_mods[can_base]
             if len(mod_bases) != can_nmods:
                 raise mh.MegaError(
-                    (
-                        "Number of modified bases ({}) associated with {} does "
-                        + "not match expected number of columns in mod scores: "
-                        + "{}."
-                    ).format(",".join(mod_bases), can_base, can_nmods)
+                    f"Number of modified bases ({','.join(mod_bases)}) "
+                    f"associated with {can_base} does not match expected "
+                    f"number of columns in mod scores: {can_nmods}."
                 )
             can_bc_pos = np.array([b == can_base for b in bc_seq], dtype=bool)
             for mod_base, mod_index in zip(
                 mod_bases, range(prev_bases + 1, prev_bases + 1 + can_nmods)
             ):
                 probs = np.exp(mods_scores[can_bc_pos, mod_index])
+                # note that np.NAN probs will result in False
                 valid_prob_locs = np.where(probs > min_prob)[0]
                 mm_tag += "{}+{}{};".format(
                     can_base,
@@ -1212,20 +1211,32 @@ class ModelInfo(AbstractModelInfo):
                 mods_weights = self.softmax_mod_weights(
                     called_read.state[:, self.n_can_state :]
                 )
-                if self.return_post_w_mods:
-                    post_w_mods = np.concatenate(
-                        [can_post, mods_weights], axis=1
-                    )
+                post_w_mods = np.concatenate([can_post, mods_weights], axis=1)
                 if self.return_mod_scores:
                     if mods_info is not None and mods_info.bc_full_path_decode:
-                        raise NotImplementedError(
-                            "Basecall anchored full-path decoding not "
-                            "implemented"
+                        mods_scores = np.full(
+                            (
+                                len(called_read.seq),
+                                len(mods_info.output_alphabet),
+                            ),
+                            np.NAN,
+                            dtype=np.float32,
                         )
-                        # TODO implement this function
-                        mods_scores = mods.call_read_mods_core(
-                            called_read, mods_info, full_path_decode=True
-                        )
+                        for pos, lps, mod_bases in mods.call_read_mods_core(
+                            called_read.seq,
+                            self.signal_reversed,
+                            mods_info,
+                            rl_cumsum,
+                            post_w_mods,
+                            full_path_decode=True,
+                        ):
+                            if lps is None:
+                                continue
+                            for mod_base, lp in zip(mod_bases, lps):
+                                mods_scores[
+                                    pos,
+                                    mods_info.output_alphabet.find(mod_base),
+                                ] = lp
                     else:
                         # perform index-decoding on modified scores
                         mods_scores = mods_weights[rl_cumsum[:-1]]

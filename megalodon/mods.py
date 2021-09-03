@@ -282,7 +282,8 @@ class ModsDb:
         if (
             len(
                 self.cur.execute(
-                    'SELECT name FROM sqlite_master WHERE type="index" AND name=?',
+                    'SELECT name FROM sqlite_master WHERE type="index" '
+                    "AND name=?",
                     ("data_cov_idx",),
                 ).fetchall()
             )
@@ -1530,57 +1531,14 @@ def score_mod_seq(
     )
 
 
-def call_read_mods(
-    r_ref_pos,
+def call_read_mods_core(
     r_ref_seq,
+    signal_reversed,
+    mods_info,
     ref_to_block,
     r_post,
-    mods_info,
-    mod_sig_map_q,
-    sig_map_res,
-    signal_reversed,
-    uuid,
-    failed_reads_q,
-    fast5_fn,
-    map_num,
-    full_path_decode=True,
+    full_path_decode,
 ):
-    """Compute modified base scores for requested bases on a given read.
-
-    Args:
-        r_ref_pos (megalodon.mapping.MAP_POS): Mapped reference position object
-        r_ref_seq (str): Read-orientation (reverse complement of reference for
-            reverse strand mapping read) mapped reference sequence
-        ref_to_block (np.array): Neural network array indices for each base in
-            r_ref_seq (plus one for end of sequence)
-        r_post (np.array): Neural network output array (num_blocks, num_states)
-        mods_info (megalodon.mods.ModInfo): Modified base info object
-        mod_sig_map_q (Queue): Output queue to send modified base annotated
-            taiyaki mapped signal output information
-        sig_map_res (megalodon.signal_mapping.SIG_MAP_RESULT): Signal mapping
-            result object
-        signal_reversed (bool): Is signal 3' to 5'? Usually true only for RNA
-            reads.
-        uuid (str): Read UUID identifier
-        failed_reads_q (Queue): Output queue for failed read status messages
-        fast5_fn (str): Path to source FAST5 for this read
-        map_num (int): Mapping number for multi-mapping reads
-        full_path_decode (bool): Decode modified base scores using full-path
-            decoding.
-
-    Returns:
-        4-tuple containing the following items (or None if note requested):
-        1. list of data to insert into the per-read mods database. Elements of
-            list are 3-tuples of 1. log probability 2. DB pos ID 3. DB mod ID
-        2. Single sequence annotated with all mods as returned from
-            annotate_all_mods
-        3. Per-mod annotated sequences as returned from either
-            annotate_mods_per_mod or format_mm_ml_tags depending on the output
-            requested. (TODO separate these outputs to allow both per-mod
-            annotation outputs.
-        4. Text block containing all mod calls from the current read
-    """
-
     def iter_motif_sites():
         search_ref_seq = r_ref_seq[::-1] if signal_reversed else r_ref_seq
         for motif, rel_pos, mod_bases, raw_motif in mods_info.all_mod_motifs:
@@ -1590,17 +1548,6 @@ def call_read_mods(
                     m_pos = len(r_ref_seq) - m_pos - 1
                 yield m_pos, mod_bases, rel_pos, raw_motif
 
-    def filter_mod_score(r_mod_scores):
-        # remove uncalled sites and sites too close to the edge of a read
-        return [
-            pms
-            for pms in r_mod_scores
-            if pms[1] is not None
-            and r_ref_pos.start + mods_info.edge_buffer
-            < pms[0]
-            < r_ref_pos.end - mods_info.edge_buffer
-        ]
-
     # call all mods overlapping this read
     r_mod_scores = []
     # ignore when one or more mod_llrs is -inf (or close enough for exp)
@@ -1608,12 +1555,6 @@ def call_read_mods(
     # at this higher level
     with np.errstate(divide="ignore", over="ignore"):
         for pos, mod_bases, rel_pos, raw_motif in iter_motif_sites():
-            if (r_ref_pos.strand == 1 and not signal_reversed) or (
-                r_ref_pos.strand == -1 and signal_reversed
-            ):
-                mod_ref_pos = r_ref_pos.start + pos
-            else:
-                mod_ref_pos = r_ref_pos.end - pos - 1
             pos_bb, pos_ab = min(mods_info.mod_context_bases, pos), min(
                 mods_info.mod_context_bases, len(r_ref_seq) - pos - 1
             )
@@ -1623,10 +1564,8 @@ def call_read_mods(
                 )
             except mh.MegaError:
                 # Add None score for per-read annotation (to be filtered)
-                r_mod_scores.append((mod_ref_pos, None, mod_bases))
-                LOGGER.debug(
-                    "InvalidSequence {}:{}".format(r_ref_pos.chrm, mod_ref_pos)
-                )
+                r_mod_scores.append((pos, None, mod_bases))
+                LOGGER.debug(f"InvalidSequence {pos}")
                 continue
 
             pos_can_mods = np.zeros_like(pos_ref_seq)
@@ -1637,7 +1576,7 @@ def call_read_mods(
             if blk_end - blk_start < pos_ab + pos_bb + 1:
                 # need as many "events/strides" as bases for valid mapping
                 # Add None scores for per-read annotation (to be filtered)
-                r_mod_scores.append((mod_ref_pos, None, mod_bases))
+                r_mod_scores.append((pos, None, mod_bases))
                 continue
 
             calib_llrs = []
@@ -1699,7 +1638,92 @@ def call_read_mods(
             # due to calibration mutli-mod log likelihoods could result in
             # inferred negative reference likelihood, so re-normalize here
             loc_mod_lps = calibration.compute_log_probs(np.array(calib_llrs))
-            r_mod_scores.append((mod_ref_pos, loc_mod_lps, mod_bases))
+            r_mod_scores.append((pos, loc_mod_lps, mod_bases))
+
+    return r_mod_scores
+
+
+def call_read_mods(
+    r_ref_pos,
+    r_ref_seq,
+    ref_to_block,
+    r_post,
+    mods_info,
+    mod_sig_map_q,
+    sig_map_res,
+    signal_reversed,
+    uuid,
+    failed_reads_q,
+    fast5_fn,
+    map_num,
+    full_path_decode=True,
+):
+    """Compute modified base scores for requested bases on a given read.
+
+    Args:
+        r_ref_pos (megalodon.mapping.MAP_POS): Mapped reference position object
+        r_ref_seq (str): Read-orientation (reverse complement of reference for
+            reverse strand mapping read) mapped reference sequence
+        ref_to_block (np.array): Neural network array indices for each base in
+            r_ref_seq (plus one for end of sequence)
+        r_post (np.array): Neural network output array (num_blocks, num_states)
+        mods_info (megalodon.mods.ModInfo): Modified base info object
+        mod_sig_map_q (Queue): Output queue to send modified base annotated
+            taiyaki mapped signal output information
+        sig_map_res (megalodon.signal_mapping.SIG_MAP_RESULT): Signal mapping
+            result object
+        signal_reversed (bool): Is signal 3' to 5'? Usually true only for RNA
+            reads.
+        uuid (str): Read UUID identifier
+        failed_reads_q (Queue): Output queue for failed read status messages
+        fast5_fn (str): Path to source FAST5 for this read
+        map_num (int): Mapping number for multi-mapping reads
+        full_path_decode (bool): Decode modified base scores using full-path
+            decoding.
+
+    Returns:
+        4-tuple containing the following items (or None if note requested):
+        1. list of data to insert into the per-read mods database. Elements of
+            list are 3-tuples of 1. log probability 2. DB pos ID 3. DB mod ID
+        2. Single sequence annotated with all mods as returned from
+            annotate_all_mods
+        3. Per-mod annotated sequences as returned from either
+            annotate_mods_per_mod or format_mm_ml_tags depending on the output
+            requested. (TODO separate these outputs to allow both per-mod
+            annotation outputs.
+        4. Text block containing all mod calls from the current read
+    """
+
+    def convert_pos_to_ref(pos):
+        if (r_ref_pos.strand == 1 and not signal_reversed) or (
+            r_ref_pos.strand == -1 and signal_reversed
+        ):
+            return r_ref_pos.start + pos
+        return r_ref_pos.end - pos - 1
+
+    def filter_mod_score(r_mod_scores):
+        # remove uncalled sites and sites too close to the edge of a read
+        return [
+            pms
+            for pms in r_mod_scores
+            if pms[1] is not None
+            and r_ref_pos.start + mods_info.edge_buffer
+            < pms[0]
+            < r_ref_pos.end - mods_info.edge_buffer
+        ]
+
+    r_mod_scores = call_read_mods_core(
+        r_ref_seq,
+        signal_reversed,
+        mods_info,
+        ref_to_block,
+        r_post,
+        full_path_decode,
+    )
+    r_mod_scores = [
+        (convert_pos_to_ref(pos), lps, mod_bases)
+        for pos, lps, mod_bases in r_mod_scores
+    ]
 
     all_mods_seq, per_mod_seqs = get_mod_annotated_seqs(
         mods_info, sig_map_res, r_ref_pos, r_mod_scores, r_ref_seq
@@ -2756,7 +2780,7 @@ class AggMods(mh.AbstractAggregationClass):
         max_prop = 1.0 - min_prop
 
         def clip(mix_props):
-            """Clip proportions to specified range, while maintaining sum to 1"""
+            """Clip proportions to specified range, while maintaining sum to 1."""
             lower_clip_idx = np.less(mix_props, min_prop)
             upper_clip_idx = np.greater(mix_props, max_prop)
             unclip_idx = np.logical_not(
