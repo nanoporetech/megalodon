@@ -118,7 +118,8 @@ def get_parser():
                 for out_desc in mh.OUTPUT_DESCS.items()
             )
         )
-        + "\nDefault: %(default)s",
+        + "\nDefault: %(default)s\nNote that all outputs are unsorted unless "
+        "noted in the output filename.",
     )
     out_grp.add_argument(
         "--output-directory",
@@ -429,7 +430,8 @@ def get_parser():
         ],
         choices=tuple(mh.MOD_OUTPUT_FMTS.keys()),
         help=hidden_help(
-            "Modified base aggregated output format(s). Default: %(default)s"
+            "Modified base aggregated output format(s). Note that this output "
+            "is not sorted by reference position. Default: %(default)s"
         ),
     )
     mod_grp.add_argument(
