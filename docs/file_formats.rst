@@ -3,6 +3,7 @@ File Formats
 ************
 
 This page describes the output file formats produced by ``megalodon``.
+Note that all outputs are unsorted (by reference position) unless specified in the output filename.
 
 ------------
 Base Calling

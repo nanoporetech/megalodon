@@ -155,14 +155,25 @@ OUTPUT_FNS = {
 OUTPUT_DESCS = OrderedDict(
     [
         (BC_NAME, "Called bases (FASTA/Q)"),
-        (BC_MODS_NAME, "Basecall-anchored modified base scores (HDF5)"),
+        (
+            BC_MODS_NAME,
+            "Basecall-anchored modified base scores " "(modBAM/CRAM/SAM)",
+        ),
         (MAP_NAME, "Mapped reads (BAM/CRAM/SAM)"),
         (PR_VAR_NAME, "Per-read, per-site sequence variant scores database"),
-        (VAR_NAME, "Sample-level aggregated sequence variant calls (VCF)"),
+        (VAR_NAME, "Reference site aggregated sequence variant calls (VCF)"),
         (VAR_MAP_NAME, "Per-read mappings annotated with variant calls"),
         (PR_MOD_NAME, "Per-read, per-site modified base scores database"),
-        (MOD_NAME, "Sample-level aggregated modified base calls (modVCF)"),
-        (MOD_MAP_NAME, "Per-read mappings annotated with modified base calls"),
+        (
+            MOD_NAME,
+            "Reference site aggregated modified base calls "
+            "(bedmethyl/modVCF/wig)",
+        ),
+        (
+            MOD_MAP_NAME,
+            "Per-read mappings annotated with modified base calls "
+            "(BAM/CRAM/SAM)",
+        ),
         (SIG_MAP_NAME, "Signal mappings for taiyaki model training (HDF5)"),
         (PR_REF_NAME, "Per-read reference sequence for model training (FASTA)"),
     ]
