@@ -1242,7 +1242,7 @@ def parse_var_args(args, model_info, aligner, ref_out_info):
     if args.ref_include_variants and mh.PR_VAR_NAME not in args.outputs:
         LOGGER.warning(
             "--ref-include-variants set, so adding "
-            + '"per_read_vars" to --outputs.'
+            '"per_read_vars" to --outputs.'
         )
         args.outputs.append(mh.PR_VAR_NAME)
     if mh.VAR_MAP_NAME in args.outputs and mh.PR_VAR_NAME not in args.outputs:
@@ -1256,15 +1256,19 @@ def parse_var_args(args, model_info, aligner, ref_out_info):
         args.outputs.append(mh.PR_VAR_NAME)
     if mh.VAR_NAME in args.outputs and mh.PR_VAR_NAME not in args.outputs:
         LOGGER.warning(
-            ('Adding "{}" to --outputs since "{}" was requested.').format(
-                mh.PR_VAR_NAME, mh.VAR_NAME
-            )
+            'Adding "{mh.PR_VAR_NAME}" to --outputs since "{mh.VAR_NAME}" '
+            "was requested."
         )
         args.outputs.append(mh.PR_VAR_NAME)
     if mh.PR_VAR_NAME in args.outputs and args.variant_filename is None:
         LOGGER.error(
-            "{} output requested, ".format(mh.PR_VAR_NAME)
-            + "but --variant-filename not provided."
+            f"{mh.PR_VAR_NAME} output requested, but --variant-filename "
+            "not provided."
+        )
+        sys.exit(1)
+    if mh.PR_VAR_NAME in args.outputs and model_info.is_crf:
+        LOGGER.error(
+            "Sequence variant outputs is not implemented for CRF models."
         )
         sys.exit(1)
     if mh.PR_VAR_NAME in args.outputs and not (
@@ -1272,20 +1276,20 @@ def parse_var_args(args, model_info, aligner, ref_out_info):
     ):
         LOGGER.error(
             "Variant calling from naive modified base flip-flop model is "
-            + "not supported."
+            "not supported."
         )
         sys.exit(1)
     skip_db_index = args.skip_database_index
     if skip_db_index and mh.PR_VAR_NAME in args.outputs:
         LOGGER.warning(
             "Database index skipping is not currently implemented for "
-            + "variants output. Ignoring --skip-database-index."
+            "variants output. Ignoring --skip-database-index."
         )
         skip_db_index = False
     if skip_db_index and mh.VAR_NAME in args.outputs:
         LOGGER.warning(
             "Cannot skip database indexing when aggregated output "
-            + '"variants" is requested. Ignoring --skip-database-index.'
+            '"variants" is requested. Ignoring --skip-database-index.'
         )
         skip_db_index = False
 
@@ -1346,7 +1350,7 @@ def parse_mod_args(args, model_info, ref_out_info, map_info):
     if args.ref_include_mods and args.ref_mods_all_motifs is not None:
         LOGGER.warning(
             "--ref-include-mods and --ref-mods-all-motifs are not "
-            + "compatible. Ignoring --ref-include-mods"
+            "compatible. Ignoring --ref-include-mods"
         )
         args.ref_include_mods = False
     if args.ref_include_mods and not (
@@ -1355,27 +1359,29 @@ def parse_mod_args(args, model_info, ref_out_info, map_info):
         LOGGER.warning(
             (
                 "--ref-include-mods specified, but neither {} or {} specified "
-                + "in outputs. Ignoring --ref-include-mods"
+                "in outputs. Ignoring --ref-include-mods"
             ).format(mh.SIG_MAP_NAME, mh.PR_REF_NAME)
         )
         args.ref_include_mods = False
     if args.ref_include_mods and mh.PR_MOD_NAME not in args.outputs:
         LOGGER.warning(
-            "--ref-include-mods set, so adding "
-            + '"per_read_mods" to --outputs.'
+            "--ref-include-mods set, so adding " '"per_read_mods" to --outputs.'
         )
         args.outputs.append(mh.PR_MOD_NAME)
     if mh.PR_MOD_NAME not in args.outputs and mh.MOD_NAME in args.outputs:
         LOGGER.warning(
             '"mods" output requested, so "per_read_mods" will '
-            + "be added to outputs."
+            "be added to outputs."
         )
         args.outputs.append(mh.PR_MOD_NAME)
+    if mh.PR_MOD_NAME in args.outputs and model_info.is_crf:
+        LOGGER.error("Modified base output is not implemented for CRF models.")
+        sys.exit(1)
     if mh.PR_MOD_NAME in args.outputs and not model_info.is_cat_mod:
         LOGGER.error(
             (
                 "{} output requested, but specified model does not support "
-                + "calling modified bases."
+                "calling modified bases."
             ).format(mh.PR_MOD_NAME)
         )
         sys.exit(1)
@@ -1398,13 +1404,13 @@ def parse_mod_args(args, model_info, ref_out_info, map_info):
     ):
         LOGGER.warning(
             "--mod-map-base-conv provided, but --mod-map-emulate-bisulfite "
-            + "not set. --mod-map-base-conv will be ignored."
+            "not set. --mod-map-base-conv will be ignored."
         )
     skip_db_index = args.skip_database_index
     if skip_db_index and mh.MOD_NAME in args.outputs:
         LOGGER.warning(
             'Cannot skip database indexing when aggregated output "mods" is '
-            + "requested. Ignoring --skip-database-index."
+            "requested. Ignoring --skip-database-index."
         )
         skip_db_index = False
 

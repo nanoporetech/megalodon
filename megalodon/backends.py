@@ -3,6 +3,7 @@ import re
 import sys
 import json
 import array
+import atexit
 import subprocess
 from abc import ABC
 from glob import glob
@@ -58,7 +59,13 @@ BACKEND_PARAMS = namedtuple(
     "BACKEND_PARAMS", (TAI_NAME, FAST5_NAME, PYGUPPY_NAME)
 )
 
-COMPAT_GUPPY_MODEL_TYPES = set(("flipflop",))
+# note "beam search" indicates CRF output layer.
+# ideally the pyguppy
+# client.get_server_internal_state["Configurations"]["model_architecture_type"]
+# could be used but this field is not present for flipflop models
+FF_GUPPY_NAME = "flipflop"
+CRF_GUPPY_NAME = "beam search"
+COMPAT_GUPPY_MODEL_TYPES = set((FF_GUPPY_NAME, CRF_GUPPY_NAME))
 GUPPY_HOST = "localhost"
 PYGUPPY_ITER_SLEEP = 0.01
 PYGUPPY_SEND_FAIL_SLEEP = 1
@@ -538,6 +545,10 @@ class ModelInfo(AbstractModelInfo):
         self.update_sig_info = False
         self.signal_reversed = False
         self.mod_bc_min_prob = mh.DEFAULT_MOD_MIN_PROB
+        # legacy and FAST5 backends are only flip-flop compatible
+        # pyguppy backend now supports CRF models.
+        self.is_flipflop = True
+        self.is_crf = False
 
     def __init__(self, backend_params, num_proc=1):
         self.num_proc = num_proc
@@ -954,6 +965,7 @@ class ModelInfo(AbstractModelInfo):
             stdout=subprocess.DEVNULL,
             stderr=subprocess.STDOUT,
         )
+        atexit.register(self.close)
         # wait until guppy server log is initialized
         while True:
             guppy_log_fns = glob("{}/*.log".format(self.guppy_log))
@@ -1016,6 +1028,11 @@ class ModelInfo(AbstractModelInfo):
             raise mh.MegaError(
                 "Error connecting to Guppy server. Undefined error: " + str(e)
             )
+        except StopIteration:
+            raise mh.MegaError(
+                "Error running initial Guppy test read. Likely a timeout "
+                "error. Consider increasing --guppy-timeout "
+            )
         finally:
             self.pyguppy_client_disconnect()
 
@@ -1024,6 +1041,14 @@ class ModelInfo(AbstractModelInfo):
                 "Megalodon is not compatible with guppy model type: {}".format(
                     init_called_read.model_type
                 )
+            )
+        self.is_flipflop = init_called_read.model_type == FF_GUPPY_NAME
+        self.is_crf = init_called_read.model_type == CRF_GUPPY_NAME
+        if self.is_crf:
+            LOGGER.warning(
+                "Megalodon CRF model support is not fully supported. Only "
+                "basecalls, mappings, signal_mappings, and per_read_refs "
+                "outputs are currently supported."
             )
 
         self.stride = init_called_read.model_stride
