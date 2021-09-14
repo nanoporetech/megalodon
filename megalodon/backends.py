@@ -1046,9 +1046,9 @@ class ModelInfo(AbstractModelInfo):
         self.is_crf = init_called_read.model_type == CRF_GUPPY_NAME
         if self.is_crf:
             LOGGER.warning(
-                "Megalodon CRF model support is not fully supported. Only "
-                "basecalls, mappings, signal_mappings, and per_read_refs "
-                "outputs are currently supported."
+                "CRF models are not fully supported. Modified base and "
+                "sequence variant outputs are not currently available, "
+                "but solutions are currently in development."
             )
 
         self.stride = init_called_read.model_stride
