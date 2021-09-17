@@ -153,13 +153,41 @@ def get_alphabet_info(output_alphabet, collapse_alphabet, mod_long_names):
 
 
 def write_signal_mappings(sig_map_q, sig_map_conn, ref_out_info, aux_failed_q):
+    def apply_sig_map_offset(read_mapping):
+        """Apply signal mapping shift to center coarse mappings to a registered
+        signal based mapping.
+        """
+        if (
+            ref_out_info.sig_map_offset is not None
+            and ref_out_info.sig_map_offset != 0
+        ):
+            if ref_out_info.sig_map_offset > 0:
+                # clip beginning of signal mapping and end of reference to
+                # shift signal assignments to the left
+                read_mapping[0]["Ref_to_signal"] = read_mapping[0][
+                    "Ref_to_signal"
+                ][ref_out_info.sig_map_offset :]
+                read_mapping[0]["Reference"] = read_mapping[0]["Reference"][
+                    : -ref_out_info.sig_map_offset
+                ]
+            else:
+                # clip end of signal mapping and beginning of reference to
+                # shift signal assignments to the right
+                read_mapping[0]["Ref_to_signal"] = read_mapping[0][
+                    "Ref_to_signal"
+                ][: ref_out_info.sig_map_offset]
+                read_mapping[0]["Reference"] = read_mapping[0]["Reference"][
+                    -ref_out_info.sig_map_offset :
+                ]
+        return read_mapping
+
     def iter_mappings():
         workers_active = True
         LOGGER.debug("GetterInitComplete")
         while workers_active or not sig_map_q.empty():
             try:
                 read_mapping = sig_map_q.get(timeout=0.1)
-                yield read_mapping
+                yield apply_sig_map_offset(read_mapping)
             except queue.Empty:
                 if sig_map_conn.poll():
                     workers_active = False

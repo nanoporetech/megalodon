@@ -276,6 +276,7 @@ REF_OUT_INFO = namedtuple(
         "out_dir",
         "get_sig_map_func",
         "per_site_threshs",
+        "sig_map_offset",
     ),
 )
 VAR_DO_OUTPUT = namedtuple("VAR_DO_OUTPUT", ("db", "text", "var_map"))

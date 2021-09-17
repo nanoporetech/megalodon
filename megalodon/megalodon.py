@@ -1688,6 +1688,7 @@ def parse_ref_out_args(args, model_info, map_info):
         out_dir=args.output_directory,
         get_sig_map_func=sig_map_getter,
         per_site_threshs=per_site_threshs,
+        sig_map_offset=args.ref_signal_mapping_offset,
     )
 
     return args, ref_out_info
