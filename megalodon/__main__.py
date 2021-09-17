@@ -532,6 +532,16 @@ def get_parser():
         ),
     )
     sigmap_grp.add_argument(
+        "--ref-signal-mapping-offset",
+        type=int,
+        metavar=("SIG_MAP_OFFSET"),
+        help=hidden_help(
+            "Shift signal mappings by a number of bases. Positive values  "
+            "will shift signal assignments N bases to the left. Note that "
+            "this will trim the mapping by the same number of bases."
+        ),
+    )
+    sigmap_grp.add_argument(
         "--ref-length-range",
         type=int,
         nargs=2,

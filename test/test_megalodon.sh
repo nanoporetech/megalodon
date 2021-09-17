@@ -59,6 +59,7 @@ megalodon \
     --mappings-format cram \
     --cram-reference ${FASTA_REF} \
     `# per-read reference/signal mapping settings` \
+    --ref-signal-mapping-offset 1 \
     --ref-length-range 500 3000 \
     --ref-percent-identity-threshold 90 \
     --ref-percent-coverage-threshold 90
