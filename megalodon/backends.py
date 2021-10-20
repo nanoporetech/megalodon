@@ -52,9 +52,10 @@ PYGUPPY_PARAMS = namedtuple(
         "devices",
         "out_dir",
         "server_params",
+        "post_out",
     ),
 )
-PYGUPPY_PARAMS.__new__.__defaults__ = tuple([None] * 8)
+PYGUPPY_PARAMS.__new__.__defaults__ = tuple([None] * 9)
 BACKEND_PARAMS = namedtuple(
     "BACKEND_PARAMS", (TAI_NAME, FAST5_NAME, PYGUPPY_NAME)
 )
@@ -205,6 +206,11 @@ def parse_backend_params(args, num_fast5_startup_reads=5):
     else:
         if args.guppy_server_port is None:
             args.guppy_server_port = "auto"
+        # only start server with post out if flip-flop mods or variants are
+        # requested
+        post_out = (
+            mh.PR_MOD_NAME in args.outputs and args.remora_model is None
+        ) or mh.PR_VAR_NAME in args.outputs
         pyguppy_params = PYGUPPY_PARAMS(
             available=True,
             config=args.guppy_config,
@@ -215,6 +221,7 @@ def parse_backend_params(args, num_fast5_startup_reads=5):
             devices=args.devices,
             out_dir=args.output_directory,
             server_params=args.guppy_params,
+            post_out=post_out,
         )
 
     if (
@@ -296,6 +303,11 @@ def parse_pyguppy_called_read(called_read):
             else mh.ALPHABET
         )
         read_datasets = called_read["datasets"]
+        try:
+            # post out not always set
+            state_data = read_datasets["state_data"]
+        except KeyError:
+            state_data = None
         return CALLED_READ(
             model_type=read_metadata["basecall_type"],
             model_stride=read_metadata["model_stride"],
@@ -306,7 +318,7 @@ def parse_pyguppy_called_read(called_read):
             scaling_shift=read_metadata["scaling_median"],
             scaling_scale=read_metadata["scaling_med_abs_dev"],
             move=read_datasets["movement"],
-            state=read_datasets["state_data"],
+            state=state_data,
             seq=read_datasets["sequence"],
             qual=read_datasets["qstring"],
         )
@@ -942,9 +954,10 @@ class ModelInfo(AbstractModelInfo):
             self.guppy_log,
             "-c",
             self.params.pyguppy.config,
-            "--post_out",
             "--quiet",
         ]
+        if self.params.pyguppy.post_out:
+            server_args.append("--post_out")
         if (
             self.params.pyguppy.devices is not None
             and len(self.params.pyguppy.devices) > 0
@@ -1118,14 +1131,17 @@ class ModelInfo(AbstractModelInfo):
                 LOGGER.debug(
                     'Get reads not connected error  "{}"'.format(str(e))
                 )
+                sleep(PYGUPPY_SEND_FAIL_SLEEP)
                 return
             else:
                 comp_reads = self.client.get_completed_reads()
         except ConnectionError as e:
             LOGGER.debug('Get reads connection error  "{}"'.format(str(e)))
+            sleep(PYGUPPY_SEND_FAIL_SLEEP)
             return
         except RuntimeError as e:
             LOGGER.debug('Get reads invalid error "{}"'.format(str(e)))
+            sleep(PYGUPPY_SEND_FAIL_SLEEP)
             return
 
         for called_read in comp_reads:
@@ -1141,9 +1157,10 @@ class ModelInfo(AbstractModelInfo):
                 called_read = parse_pyguppy_called_read(called_read)
             except mh.MegaError as e:
                 LOGGER.debug(f"{read_id} ParseGuppyReadError {str(e)}")
-                failed_reads_q.put(
-                    tuple(self.prep_failed_read_data(sig_info, str(e)))
-                )
+                if failed_reads_q is not None:
+                    failed_reads_q.put(
+                        tuple(self.prep_failed_read_data(sig_info, str(e)))
+                    )
                 continue
             yield (called_read, sig_info, seq_summ_info), read_id
 
