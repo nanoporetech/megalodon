@@ -190,16 +190,16 @@ def compute_filt_mod_pct(
 ):
     common_ctgs = set(samp1_cov).intersection(samp2_cov)
     if len(common_ctgs) == 0:
+        samp1_ctg_str = ",".join(
+            [f"{chrm}:{strand}" for chrm, strand in sorted(samp1_cov)[:5]]
+        )
+        samp2_ctg_str = ",".join(
+            [f"{chrm}:{strand}" for chrm, strand in sorted(samp2_cov)[:5]]
+        )
         LOGGER.error(
-            (
-                'No common contigs found between provided samples.\n\t"{}" '
-                + 'first 5 contigs: {}\n\t"{}" first 5 contigs: {}'
-            ).format(
-                samp_names[0],
-                ",".join(sorted(list(samp1_cov.keys()))[:5]),
-                samp_names[1],
-                ",".join(sorted(list(samp2_cov.keys()))[:5]),
-            )
+            "No common contigs found between provided samples.\n"
+            f'\t"{samp_names[0]}" first 5 contigs: {samp1_ctg_str}\n'
+            f'\t"{samp_names[1]}" first 5 contigs: {samp2_ctg_str}'
         )
         sys.exit(1)
 
