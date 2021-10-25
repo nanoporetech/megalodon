@@ -208,9 +208,9 @@ def parse_backend_params(args, num_fast5_startup_reads=5):
             args.guppy_server_port = "auto"
         # only start server with post out if flip-flop mods or variants are
         # requested
-        post_out = (
-            mh.PR_MOD_NAME in args.outputs and args.remora_model is None
-        ) or mh.PR_VAR_NAME in args.outputs
+        post_out = hasattr(args, "outputs") and (
+            mh.PR_MOD_NAME in args.outputs or mh.PR_VAR_NAME in args.outputs
+        )
         pyguppy_params = PYGUPPY_PARAMS(
             available=True,
             config=args.guppy_config,
