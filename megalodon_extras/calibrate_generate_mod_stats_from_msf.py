@@ -377,6 +377,7 @@ def _main(args):
             + "guppy logs."
         )
     args = add_trim_guppy_none(args)
+    args.outputs = [mh.PR_MOD_NAME]
     # make edge_buffer >= context_bases to simplify processing
     if args.edge_buffer < args.mod_context_bases:
         LOGGER.warning(

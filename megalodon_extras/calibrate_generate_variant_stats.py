@@ -645,6 +645,7 @@ def _main(args):
     # this script.
     args.do_not_use_guppy_server = False
     args.output_directory = args.guppy_logs_output_directory
+    args.outputs = [mh.PR_VAR_NAME]
 
     LOGGER.info("Loading model.")
     backend_params = backends.parse_backend_params(args)
