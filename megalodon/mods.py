@@ -1338,6 +1338,8 @@ def format_mm_ml_tags(r_start, ref_seq, r_mod_scores, strand, mods_info):
 
     mm_tag, ml_tag = "", array.array("B")
     for mod_base, pos_probs in per_mod_probs.items():
+        if len(pos_probs) == 0:
+            continue
         mod_poss, probs = zip(*sorted(pos_probs))
         can_base = mods_info.mod_base_to_can[mod_base]
         # compute modified base positions relative to the running total of the

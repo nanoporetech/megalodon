@@ -257,19 +257,29 @@ def parse_inputs(
     # parse valid positions
     valid_pos = None
     if valid_pos_fn is not None:
+        LOGGER.info("Parsing valid sites bed")
         valid_pos = mh.parse_beds(
-            valid_pos_fn, ignore_strand=strand_offset is not None
+            valid_pos_fn,
+            ignore_strand=strand_offset is not None,
+            show_prog_bar=False,
         )
 
     # parse bed methyl files
+    LOGGER.info("Parsing bedmethyl files")
     samp1_cov, samp1_mod_cov = mh.parse_bed_methyls(
-        samp1_bm_fns, strand_offset=strand_offset, valid_pos=valid_pos
+        samp1_bm_fns,
+        strand_offset=strand_offset,
+        valid_pos=valid_pos,
+        show_prog_bar=False,
     )
     samp1_all_cov = np.array(
         [cov for ctg_cov in samp1_cov.values() for cov in ctg_cov.values()]
     )
     samp2_cov, samp2_mod_cov = mh.parse_bed_methyls(
-        samp2_bm_fns, strand_offset=strand_offset, valid_pos=valid_pos
+        samp2_bm_fns,
+        strand_offset=strand_offset,
+        valid_pos=valid_pos,
+        show_prog_bar=False,
     )
     samp2_all_cov = np.array(
         [cov for ctg_cov in samp2_cov.values() for cov in ctg_cov.values()]
