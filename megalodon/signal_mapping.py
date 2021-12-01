@@ -95,23 +95,17 @@ def get_remapping(
         read_params=read_params,
     )
 
-    path = np.full((dacs.shape[0] // stride) + 1, -1)
+    ref_to_sig = np.empty(len(ref_seq) + 1, dtype=np.int32)
     # skip last value since this is where the two seqs end
-    for ref_pos, q_pos in enumerate(r_to_q_poss[:-1]):
-        # if the query position maps to the end of the mapping skip it
-        if rl_cumsum[q_pos + r_ref_pos.q_trim_start] >= path.shape[0]:
-            continue
-        path[rl_cumsum[q_pos + r_ref_pos.q_trim_start]] = ref_pos
-
+    for ref_pos, q_pos in enumerate(r_to_q_poss):
+        ref_to_sig[ref_pos] = rl_cumsum[q_pos + r_ref_pos.q_trim_start] * stride
     try:
         int_ref = tai_mapping.SignalMapping.get_integer_reference(
             ref_seq, ref_out_info.alphabet_info.alphabet
         )
     except Exception:
         raise mh.MegaError("Invalid reference sequence encountered")
-    sig_mapping = tai_mapping.SignalMapping.from_remapping_path(
-        path, int_ref, stride, sig
-    )
+    sig_mapping = tai_mapping.SignalMapping(ref_to_sig, int_ref, signalObj=sig)
 
     # annotate mod motifs
     if ref_out_info.ref_mods_all_motifs is not None:

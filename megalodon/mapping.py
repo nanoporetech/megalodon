@@ -609,7 +609,9 @@ def _get_map_queue(mo_q, mo_conn, map_info, ref_out_info, aux_failed_q):
         LOGGER.debug("GetterStarting")
         # initialize file pointers
         summ_fp = open(
-            mh.get_megalodon_fn(map_info.out_dir, mh.MAP_SUMM_NAME), "w"
+            mh.get_megalodon_fn(map_info.out_dir, mh.MAP_SUMM_NAME),
+            "w",
+            buffering=1,
         )
         summ_fp.write("\t".join(MAP_SUMM._fields) + "\n")
         map_fp = map_info.open_alignment_out_file()

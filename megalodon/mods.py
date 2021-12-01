@@ -2,15 +2,16 @@ import os
 import re
 import sys
 import array
-import pysam
 import queue
-import sqlite3
 import datetime
 import traceback
-from tqdm import tqdm
+from itertools import repeat
 from collections import defaultdict, namedtuple, OrderedDict
 
+import pysam
+import sqlite3
 import numpy as np
+from tqdm import tqdm
 
 from megalodon import (
     calibration,
@@ -432,7 +433,9 @@ class ModsDb:
                 "Cannot extract position from connection opened for "
                 + "initialization."
             )
-        chrm_idx = np.searchsorted(self._chrm_offsets, pos_dbid, "right") - 1
+        chrm_idx = (
+            np.searchsorted(self._chrm_offsets, pos_dbid, side="right") - 1
+        )
         chrm = self.chrm_names[chrm_idx]
         strand = 1 if pos_dbid % 2 == 0 else -1
         # note conversion to int so that sqlite3 does not store np.int32 bytes
@@ -1645,6 +1648,57 @@ def call_read_mods_core(
     return r_mod_scores
 
 
+def call_read_mods_remora(
+    sig_info,
+    seq,
+    mods_info,
+    seq_to_sig_map,
+):
+    sig = (
+        sig_info.dacs - sig_info.scale_from_dacs_params[0]
+    ) / sig_info.scale_from_dacs_params[1]
+    # clip signal and mapping to only include relevant bits
+    sig = sig[seq_to_sig_map[0] : seq_to_sig_map[-1]]
+    seq_to_sig_map -= seq_to_sig_map[0]
+    seq = seq.upper()
+    pos_offset = 0
+    if mods_info.remora_sig_map_offset is not None:
+        # shift signal to sequence mapping by a number of bases by clipping
+        # opposite ends of the signal and sequence arrays
+        if mods_info.remora_sig_map_offset > 0:
+            # clip beginning of signal and signal_mapping
+            sig = sig[seq_to_sig_map[mods_info.remora_sig_map_offset] :]
+            seq_to_sig_map = seq_to_sig_map[mods_info.remora_sig_map_offset :]
+            seq_to_sig_map -= seq_to_sig_map[0]
+            # clip end of sequence
+            seq = seq[: -mods_info.remora_sig_map_offset]
+        else:
+            # clip end of signal and signal_mapping
+            sig = sig[: seq_to_sig_map[mods_info.remora_sig_map_offset - 1]]
+            seq_to_sig_map = seq_to_sig_map[: mods_info.remora_sig_map_offset]
+            # clip beginning of sequence
+            seq = seq[-mods_info.remora_sig_map_offset :]
+            # save offset to shift position relative to input sequence
+            pos_offset = -mods_info.remora_sig_map_offset
+    remora_read = mods_info.remora_RemoraRead(
+        sig,
+        seq_to_sig_map,
+        str_seq=seq,
+    )
+    try:
+        remora_read.check()
+    except mods_info.RemoraError as e:
+        raise mh.MegaError(f"Remora read prep error: {e}")
+    mod_calls, _, pos = mods_info.remora_call_read_mods(
+        remora_read,
+        mods_info.remora_model,
+        mods_info.remora_metadata,
+    )
+    log_probs = mh.log_softmax_axis1(mod_calls)[:, 1:].astype(np.float64)
+    pos = [int(posi) + pos_offset for posi in pos]
+    return list(zip(pos, log_probs, repeat(mods_info.mod_bases)))
+
+
 def call_read_mods(
     r_ref_pos,
     r_ref_seq,
@@ -1658,6 +1712,8 @@ def call_read_mods(
     failed_reads_q,
     fast5_fn,
     map_num,
+    sig_info,
+    post_mapped_start,
     full_path_decode=True,
 ):
     """Compute modified base scores for requested bases on a given read.
@@ -1680,6 +1736,9 @@ def call_read_mods(
         failed_reads_q (Queue): Output queue for failed read status messages
         fast5_fn (str): Path to source FAST5 for this read
         map_num (int): Mapping number for multi-mapping reads
+        sig_info (backends.SIGNAL_DATA): Signal data
+        post_mapped_start (int): Start of ref_to_block in original basecalls
+            posterior array
         full_path_decode (bool): Decode modified base scores using full-path
             decoding.
 
@@ -1714,14 +1773,23 @@ def call_read_mods(
             < r_ref_pos.end - mods_info.edge_buffer
         ]
 
-    r_mod_scores = call_read_mods_core(
-        r_ref_seq,
-        signal_reversed,
-        mods_info,
-        ref_to_block,
-        r_post,
-        full_path_decode,
-    )
+    if mods_info.is_remora_mod:
+        seq_to_sig_map = (ref_to_block + post_mapped_start) * sig_info.stride
+        r_mod_scores = call_read_mods_remora(
+            sig_info,
+            r_ref_seq,
+            mods_info,
+            seq_to_sig_map,
+        )
+    else:
+        r_mod_scores = call_read_mods_core(
+            r_ref_seq,
+            signal_reversed,
+            mods_info,
+            ref_to_block,
+            r_post,
+            full_path_decode,
+        )
     r_mod_scores = [
         (convert_pos_to_ref(pos), lps, mod_bases)
         for pos, lps, mod_bases in r_mod_scores
@@ -2113,10 +2181,10 @@ class ModInfo:
             for mod_bases, raw_motif, pos in all_mod_motifs_raw:
                 for mod_base in mod_bases:
                     self.mod_bases_in_motifs.add(mod_base)
-                    assert mod_base in self.str_to_int_mod_labels, (
-                        "Modified base label ({}) not found in model "
-                        + "alphabet ({})."
-                    ).format(mod_base, list(self.str_to_int_mod_labels.keys()))
+                    assert mod_base in self.mod_bases, (
+                        f"Modified base label ({mod_base}) not found in model "
+                        f"alphabet ({self.mod_bases})."
+                    )
                 pos = int(pos)
                 can_base = next(
                     can_base
@@ -2137,6 +2205,23 @@ class ModInfo:
                     + "Only distinct sets of motifs are accepted"
                 )
         self.mod_bases_in_motifs = sorted(self.mod_bases_in_motifs)
+
+    def load_remora_model(self, quiet=False):
+        if self.remora_model_spec is not None:
+            self.remora_model, self.remora_metadata = self.remora_load_model(
+                pore=self.remora_model_spec[0],
+                basecall_model_type=self.remora_model_spec[1],
+                basecall_model_version=self.remora_model_spec[2],
+                modified_bases=self.remora_model_spec[3].split("_"),
+                remora_model_type=self.remora_model_spec[4],
+                remora_model_version=int(self.remora_model_spec[5]),
+                quiet=quiet,
+            )
+        else:
+            self.remora_model, self.remora_metadata = self.remora_load_model(
+                self.remora_model_filename,
+                quiet=quiet,
+            )
 
     def __init__(
         self,
@@ -2160,6 +2245,9 @@ class ModInfo:
         do_output=None,
         bc_full_path_decode=False,
         ref_full_path_decode=True,
+        remora_model_filename=None,
+        remora_model_spec=None,
+        remora_sig_map_offset=None,
     ):
         # this is pretty hacky, but these attributes are stored here as
         # they are generally needed alongside other modbase info
@@ -2167,7 +2255,6 @@ class ModInfo:
         # as this would make function signatures too complicated
         self.mod_all_paths = mod_all_paths
         self.mod_context_bases = mod_context_bases
-        self.mod_long_names = model_info.mod_long_names
         self.calib_table = calibration.ModCalibrator(mods_calib_fn)
         self.mod_output_fmts = mod_output_fmts
         self.edge_buffer = edge_buffer
@@ -2187,46 +2274,106 @@ class ModInfo:
         self.bc_full_path_decode = bc_full_path_decode
         self.ref_full_path_decode = ref_full_path_decode
 
+        self.remora_model_filename = remora_model_filename
+        self.remora_model_spec = remora_model_spec
+        self.remora_provided = (
+            self.remora_model_filename is not None
+            or self.remora_model_spec is not None
+        )
+        self.remora_sig_map_offset = remora_sig_map_offset
+
         self.mods_db_arrays_added = False
 
         self.mods_db_fn = mh.get_megalodon_fn(self.out_dir, mh.PR_MOD_NAME)
 
-        self.alphabet = model_info.can_alphabet
-        self.ncan_base = len(self.alphabet)
-        try:
-            self.alphabet = self.alphabet.decode()
-        except AttributeError:
-            pass
-        LOGGER.info(model_info.get_alphabet_str())
+        self.is_remora_mod = False
+        if self.remora_provided:
+            self.is_remora_mod = True
+            # only import if remora model is requested
+            from remora import model_util, inference, data_chunks, RemoraError
 
-        self.nbase = len(self.alphabet)
-        self.n_can_state = (self.ncan_base + self.ncan_base) * (
-            self.ncan_base + 1
-        )
-        if model_info.is_cat_mod:
+            self.RemoraError = RemoraError
+            self.remora_load_model = model_util.load_model
+            self.remora_call_read_mods = inference.call_read_mods
+            self.remora_RemoraRead = data_chunks.RemoraRead
+            self.load_remora_model()
+            self.mod_bases = self.remora_metadata["mod_bases"]
+            motif, motif_offset = self.remora_metadata["motif"]
+            can_base = motif[motif_offset]
+            can_idx = "ACGT".find(can_base) + 1
+            if can_idx == 0:
+                raise mh.MegaError(
+                    f"Invalid Remora model motif {motif}:{motif_offset}"
+                )
+            self.alphabet = "ACGT"
+            self.output_alphabet = (
+                "ACGT"[:can_idx] + self.mod_bases + "ACGT"[can_idx:]
+            )
+            self.mod_long_names = list(
+                zip(self.mod_bases, self.remora_metadata["mod_long_names"])
+            )
+            self.nmod_base = len(self.mod_bases)
+            self.can_base_mods = {can_base: list(self.mod_bases)}
+            self.mod_base_to_can = dict(
+                (mod_base, can_base) for mod_base in self.mod_bases
+            )
+            mod_str = "; ".join(
+                f"{mod_b}={mln} (alt to {can_base})"
+                for mod_b, mln in self.mod_long_names
+            )
+            LOGGER.info(f"Loaded Remora model calls modified bases: {mod_str}")
+            if all_mod_motifs_raw is None:
+                LOGGER.info(
+                    f'Setting --mod-motif to "{motif} {motif_offset}" loaded '
+                    "from Remora model"
+                )
+                all_mod_motifs_raw = [(self.mod_bases, motif, motif_offset)]
+            # only applicable to flip-flop modbases
+            self.can_mods_offsets = None
+            self.str_to_int_mod_labels = None
+            # close models to be loaded in workers later
+            del self.remora_model
+            del self.remora_metadata
+        elif model_info.is_cat_mod:
+            LOGGER.info(model_info.get_alphabet_str())
+            self.alphabet = mh.to_str(model_info.can_alphabet)
+            self.mod_long_names = model_info.mod_long_names
+            self.mod_bases = list(map(str, zip(*self.mod_long_names)))[0]
             self.nmod_base = model_info.n_mods
             self.can_base_mods = model_info.can_base_mods
             self.mod_base_to_can = model_info.mod_base_to_can
             self.can_mods_offsets = model_info.can_indices
             self.str_to_int_mod_labels = model_info.str_to_int_mod_labels
             self.output_alphabet = model_info.output_alphabet
+            ncan_base = len(self.alphabet)
+            self.n_can_state = (ncan_base + ncan_base) * (ncan_base + 1)
             assert (
                 model_info.output_size - self.n_can_state == self.nmod_base + 1
             ), (
                 "Alphabet ({}) and model number of modified bases ({}) "
-                + "do not agree."
+                "do not agree."
             ).format(
                 self.alphabet, model_info.output_size - self.n_can_state - 1
             )
         else:
+            LOGGER.info(model_info.get_alphabet_str())
+            self.alphabet = mh.to_str(model_info.can_alphabet)
+            self.mod_long_names = []
+            self.mod_bases = []
             self.nmod_base = 0
             self.can_base_mods = {}
             self.can_mods_offsets = None
             self.str_to_int_mod_labels = None
 
+        self.ncan_base = len(self.alphabet)
         # parse mod motifs or use "swap" base if no motif provided
         self._parse_mod_motifs(all_mod_motifs_raw)
         self._parse_map_base_conv()
+
+    def prep_mods_worker(self):
+        """If applicable, load remora model onto device."""
+        if self.is_remora_mod:
+            self.load_remora_model(quiet=True)
 
     def calibrate_llr(self, score, mod_base):
         return self.calib_table.calibrate_llr(score, mod_base)
@@ -2782,7 +2929,7 @@ class AggMods(mh.AbstractAggregationClass):
         max_prop = 1.0 - min_prop
 
         def clip(mix_props):
-            """Clip proportions to specified range, while maintaining sum to 1."""
+            """Clip proportions to specified range and maintain sum to 1."""
             lower_clip_idx = np.less(mix_props, min_prop)
             upper_clip_idx = np.greater(mix_props, max_prop)
             unclip_idx = np.logical_not(
