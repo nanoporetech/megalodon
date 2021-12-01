@@ -316,7 +316,9 @@ def process_mapping(
             failed_reads_q=failed_reads_q,
         )
     if mods_info.do_output.any:
-        mapped_post_w_mods = post_w_mods[post_mapped_start:post_mapped_end]
+        mapped_post_w_mods = None
+        if not mods_info.is_remora_mod:
+            mapped_post_w_mods = post_w_mods[post_mapped_start:post_mapped_end]
         mod_sig_map_q = (
             getter_qpcs[mh.SIG_MAP_NAME].queue
             if ref_out_info.do_output.mod_sig_maps
@@ -337,6 +339,8 @@ def process_mapping(
                 failed_reads_q,
                 sig_info.fast5_fn,
                 map_num,
+                sig_info,
+                post_mapped_start,
                 mods_info.ref_full_path_decode,
             ),
             r_vals=(
@@ -453,6 +457,7 @@ def _process_reads_worker(
     mods_info,
     bc_info,
     device,
+    aux_failed_q,
 ):
     def read_generator():
         while True:
@@ -473,10 +478,11 @@ def _process_reads_worker(
     try:
         failed_reads_q = getter_qpcs[_FAILED_READ_GETTER_NAME].queue
         model_info.prep_model_worker(device)
+        mods_info.prep_mods_worker()
         vars_info.reopen_variant_index()
         LOGGER.debug("Starting")
-    except Exception:
-        LOGGER.debug("InitFailed traceback: {}".format(traceback.format_exc()))
+    except Exception as e:
+        aux_failed_q.put(("WorkerInitError", str(e), traceback.format_exc()))
         return
 
     for bc_res in model_info.iter_basecalled_reads(
@@ -604,7 +610,6 @@ def _get_bc_queue(bc_q, bc_conn, bc_info, aux_failed_q):
             )
             seq_summ_fp.write("\t".join(mh.SEQ_SUMM_INFO._fields) + "\n")
         if bc_info.do_output.mod_basecalls:
-            LOGGER.debug("outputting mod basecalls")
             mods_fp = mapping.open_unaligned_alignment_file(
                 mh.get_megalodon_fn(bc_info.out_dir, mh.BC_MODS_NAME),
                 bc_info.mod_bc_fmt,
@@ -1129,6 +1134,7 @@ def process_all_reads(
                     mods_info,
                     bc_info,
                     device,
+                    aux_failed_q,
                 ),
                 daemon=True,
                 name="ReadWorker{:03d}".format(pnum),
@@ -1346,7 +1352,7 @@ def parse_var_args(args, model_info, aligner, ref_out_info):
     return args, vars_info
 
 
-def parse_mod_args(args, model_info, ref_out_info, map_info):
+def resolve_mod_args(args):
     if args.ref_include_mods and args.ref_mods_all_motifs is not None:
         LOGGER.warning(
             "--ref-include-mods and --ref-mods-all-motifs are not "
@@ -1374,10 +1380,31 @@ def parse_mod_args(args, model_info, ref_out_info, map_info):
             "be added to outputs."
         )
         args.outputs.append(mh.PR_MOD_NAME)
-    if mh.PR_MOD_NAME in args.outputs and model_info.is_crf:
-        LOGGER.error("Modified base output is not implemented for CRF models.")
+    remora_provided = (
+        args.remora_model is not None or args.remora_modified_bases is not None
+    )
+    if remora_provided and args.mod_calibration_filename is None:
+        args.disable_mod_calibration = True
+
+    return args
+
+
+def parse_mod_args(args, model_info, map_info):
+    remora_provided = (
+        args.remora_model is not None or args.remora_modified_bases is not None
+    )
+    if (
+        mh.PR_MOD_NAME in args.outputs
+        and model_info.is_crf
+        and not remora_provided
+    ):
+        LOGGER.error(
+            "CRF models do not support builtin modified base detection. "
+            "See Remora models."
+        )
         sys.exit(1)
-    if mh.PR_MOD_NAME in args.outputs and not model_info.is_cat_mod:
+    mods_avail = model_info.is_cat_mod or remora_provided
+    if mh.PR_MOD_NAME in args.outputs and not mods_avail:
         LOGGER.error(
             (
                 "{} output requested, but specified model does not support "
@@ -1385,10 +1412,7 @@ def parse_mod_args(args, model_info, ref_out_info, map_info):
             ).format(mh.PR_MOD_NAME)
         )
         sys.exit(1)
-    if (
-        model_info.is_cat_mod
-        and len(mh.MOD_OUTPUTS.intersection(args.outputs)) == 0
-    ):
+    if mods_avail and len(mh.MOD_OUTPUTS.intersection(args.outputs)) == 0:
         LOGGER.warning(
             (
                 "Model supporting modified base calling specified, but no "
@@ -1445,6 +1469,11 @@ def parse_mod_args(args, model_info, ref_out_info, map_info):
             )
         ),
     )
+    sig_map_shift = (
+        args.remora_signal_mapping_offset
+        if args.remora_signal_mapping_offset != 0
+        else None
+    )
     mods_info = mods.ModInfo(
         model_info=model_info,
         all_mod_motifs_raw=args.mod_motif,
@@ -1466,6 +1495,9 @@ def parse_mod_args(args, model_info, ref_out_info, map_info):
         do_output=do_output,
         bc_full_path_decode=args.basecall_anchored_full_path_decode,
         ref_full_path_decode=not args.reference_anchored_index_decode,
+        remora_model_filename=args.remora_model,
+        remora_model_spec=args.remora_modified_bases,
+        remora_sig_map_offset=sig_map_shift,
     )
     if do_output.db:
         # initialize the database tables
@@ -1766,15 +1798,19 @@ def _main(args):
     try:
         status_info = parse_status_args(args)
         input_info = parse_input_args(args)
+        args = resolve_mod_args(args)
         backend_params = backends.parse_backend_params(args)
-        model_info = backends.ModelInfo(backend_params, args.processes)
+        model_info = backends.ModelInfo(
+            backend_params,
+            args.processes,
+            args.remora_model,
+            args.remora_modified_bases,
+        )
         # aligner can take a while to load, so load as late as possible
         aligner, map_info = parse_aligner_args(args)
         # process ref out here as it might add mods or variants to outputs
         args, ref_out_info = parse_ref_out_args(args, model_info, map_info)
-        args, mods_info = parse_mod_args(
-            args, model_info, ref_out_info, map_info
-        )
+        args, mods_info = parse_mod_args(args, model_info, map_info)
         bc_info = parse_basecall_args(args, mods_info)
         args, vars_info = parse_var_args(
             args, model_info, aligner, ref_out_info

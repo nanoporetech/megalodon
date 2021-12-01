@@ -117,13 +117,14 @@ SIGNAL_DATA = namedtuple(
         "dacs",
         "raw_signal",
         "scale_params",
+        "scale_from_dacs_params",
         "stride",
         "posteriors",
         "channel_info",
     ),
 )
 # set default value of None for ref, alts and ref_start
-SIGNAL_DATA.__new__.__defaults__ = tuple([None] * 6)
+SIGNAL_DATA.__new__.__defaults__ = tuple([None] * 7)
 
 
 def parse_device(device):
@@ -208,8 +209,15 @@ def parse_backend_params(args, num_fast5_startup_reads=5):
             args.guppy_server_port = "auto"
         # only start server with post out if flip-flop mods or variants are
         # requested
+        remora_provided = (
+            hasattr(args, "remora_model") and args.remora_model is not None
+        ) or (
+            hasattr(args, "remora_modified_bases")
+            and args.remora_modified_bases is not None
+        )
         post_out = hasattr(args, "outputs") and (
-            mh.PR_MOD_NAME in args.outputs or mh.PR_VAR_NAME in args.outputs
+            (mh.PR_MOD_NAME in args.outputs and not remora_provided)
+            or mh.PR_VAR_NAME in args.outputs
         )
         pyguppy_params = PYGUPPY_PARAMS(
             available=True,
@@ -276,13 +284,6 @@ def extract_seq_summary_info(read, channel_info, na_str="NA"):
     )
 
 
-def _log_softmax_axis1(x):
-    """Compute log softmax over axis=1"""
-    e_x = np.exp((x.T - np.max(x, axis=1)).T)
-    with np.errstate(divide="ignore"):
-        return np.log((e_x.T / e_x.sum(axis=1)).T)
-
-
 def get_pyguppy_read(read_id, raw_data, channel_info):
     return {
         "read_tag": np.random.randint(0, int(2 ** 32 - 1)),
@@ -292,6 +293,16 @@ def get_pyguppy_read(read_id, raw_data, channel_info):
         "daq_scaling": float(channel_info[mh.CHAN_INFO_RANGE])
         / channel_info[mh.CHAN_INFO_DIGI],
     }
+
+
+def convert_from_curr_to_from_dacs(
+    shift_from_curr, scale_from_curr, channel_info
+):
+    # shift and scale from pA. Convert to fromdacs
+    rd_factor = channel_info["range"] / channel_info["digitisation"]
+    shift_from_dacs = (shift_from_curr / rd_factor) - channel_info["offset"]
+    scale_from_dacs = scale_from_curr / rd_factor
+    return shift_from_dacs, scale_from_dacs
 
 
 def parse_pyguppy_called_read(called_read):
@@ -381,7 +392,8 @@ class AbstractModelInfo(ABC):
         """
         # compute values required for standard model attribute extraction
         self.n_mods = len(self.ordered_mod_long_names)
-        self.is_cat_mod = self.n_mods > 0
+        self.is_mod_model = self.n_mods > 0
+        self.is_cat_mod = self.is_mod_model and not self.is_remora_mod
         self.can_alphabet = None
         for v_alphabet in mh.VALID_ALPHABETS:
             if all(b in self.output_alphabet for b in v_alphabet):
@@ -396,7 +408,7 @@ class AbstractModelInfo(ABC):
             raise mh.MegaError("Invalid alphabet.")
         # compute number of modified bases for each canonical base
 
-        if self.is_cat_mod:
+        if self.is_mod_model:
             self.can_nmods = (
                 np.diff(
                     np.array(
@@ -486,7 +498,7 @@ class AbstractModelInfo(ABC):
         return mm_tag, ml_tag
 
     def get_alphabet_str(self):
-        if self.is_cat_mod:
+        if self.is_mod_model:
             return (
                 "Loaded model calls canonical alphabet {} and modified "
                 "bases {}"
@@ -525,6 +537,7 @@ class DetachedModelInfo(AbstractModelInfo):
         self.ordered_mod_long_names = mod_long_names
         if self.ordered_mod_long_names is None:
             self.ordered_mod_long_names = []
+        self.is_remora_mod = False
         self._parse_minimal_alphabet_info()
         self.output_size = (
             41 + len(self.mod_long_names) if self.is_cat_mod else 40
@@ -562,13 +575,22 @@ class ModelInfo(AbstractModelInfo):
         self.is_flipflop = True
         self.is_crf = False
 
-    def __init__(self, backend_params, num_proc=1):
+    def __init__(
+        self,
+        backend_params,
+        num_proc=1,
+        remora_model_filename=None,
+        remora_model_spec=None,
+    ):
         self.num_proc = num_proc
         self.params = backend_params
         self.set_default_outputs()
 
         if self.params.pyguppy.available:
-            self.pyguppy_load_settings()
+            self.pyguppy_load_settings(
+                remora_model_filename=remora_model_filename,
+                remora_model_spec=remora_model_spec,
+            )
         elif self.params.taiyaki.available:
             self.taiyaki_load_settings()
         elif self.params.fast5.available:
@@ -579,7 +601,9 @@ class ModelInfo(AbstractModelInfo):
     def set_outputs(self, mods_info, bc_info, ref_out_info):
         self.return_post_w_mods = mods_info.do_output.any
         self.return_mod_scores = bc_info.do_output.mod_basecalls
-        self.update_sig_info = ref_out_info.do_output.sig_maps
+        self.update_sig_info = (
+            ref_out_info.do_output.sig_maps or mods_info.is_remora_mod
+        )
         self.signal_reversed = bc_info.rev_sig
         self.mod_bc_min_prob = bc_info.mod_bc_min_prob
 
@@ -622,7 +646,7 @@ class ModelInfo(AbstractModelInfo):
         read = fast5_fp.get_read(read_id)
         channel_info = read.get_channel_info()
         seq_summ_info = extract_seq_summary_info(read, channel_info)
-        dacs = scale_params = raw_sig = None
+        dacs = scale_params = scale_from_dacs_params = raw_sig = None
         if extract_dacs:
             # if not processing signal mappings, don't save dacs
             dacs = fast5_io.get_signal(read, scale=False)
@@ -639,6 +663,7 @@ class ModelInfo(AbstractModelInfo):
                     (med + channel_info[mh.CHAN_INFO_OFFSET]) * rd_factor,
                     mad * rd_factor,
                 )
+                scale_from_dacs_params = (med, mad)
 
         if self.model_type == TAI_NAME:
             if raw_sig is None:
@@ -647,6 +672,7 @@ class ModelInfo(AbstractModelInfo):
                 raw_signal=raw_sig,
                 dacs=dacs,
                 scale_params=scale_params,
+                scale_from_dacs_params=scale_from_dacs_params,
                 raw_len=raw_sig.shape[0],
                 fast5_fn=fast5_fp.filename,
                 read_id=read_id,
@@ -662,6 +688,7 @@ class ModelInfo(AbstractModelInfo):
                 raw_len=bc_mod_post.shape[0] * self.stride,
                 dacs=dacs,
                 scale_params=scale_params,
+                scale_from_dacs_params=scale_from_dacs_params,
                 fast5_fn=fast5_fp.filename,
                 read_id=read_id,
                 stride=self.stride,
@@ -692,7 +719,7 @@ class ModelInfo(AbstractModelInfo):
                 )
             else:
                 mod_layers.append(
-                    _log_softmax_axis1(raw_mod_weights[:, lab_indices])
+                    mh.log_softmax_axis1(raw_mod_weights[:, lab_indices])
                 )
         return np.concatenate(mod_layers, axis=1)
 
@@ -1001,7 +1028,12 @@ class ModelInfo(AbstractModelInfo):
             pyguppy=self.params.pyguppy._replace(port=used_port)
         )
 
-    def pyguppy_set_model_attributes(self, init_sig_len):
+    def pyguppy_set_model_attributes(
+        self,
+        init_sig_len,
+        remora_model_filename=None,
+        remora_model_spec=None,
+    ):
         self.pyguppy_client_connect()
         self.pyguppy_log_server_config()
         # spoof something that looks reasonably like "real" signal to make
@@ -1058,25 +1090,52 @@ class ModelInfo(AbstractModelInfo):
         self.is_flipflop = init_called_read.model_type == FF_GUPPY_NAME
         self.is_crf = init_called_read.model_type == CRF_GUPPY_NAME
         if self.is_crf:
-            LOGGER.warning(
-                "CRF models are not fully supported. Modified base and "
-                "sequence variant outputs are not currently available, "
-                "but solutions are currently in development."
-            )
+            LOGGER.info("CRF models are not fully supported.")
 
         self.stride = init_called_read.model_stride
-        self.ordered_mod_long_names = init_called_read.mod_long_names
-        self.output_alphabet = init_called_read.output_alphabet
+        if remora_model_filename is not None or remora_model_spec is not None:
+            self.is_remora_mod = True
+            from remora import model_util
+
+            if remora_model_filename is not None:
+                _, remora_metadata = model_util.load_model(
+                    remora_model_filename, quiet=True
+                )
+            else:
+                _, remora_metadata = model_util.load_model(
+                    pore=remora_model_spec[0],
+                    basecall_model_type=remora_model_spec[1],
+                    basecall_model_version=remora_model_spec[2],
+                    modified_bases=remora_model_spec[3].split("_"),
+                    remora_model_type=remora_model_spec[4],
+                    remora_model_version=int(remora_model_spec[5]),
+                    quiet=True,
+                )
+            self.ordered_mod_long_names = remora_metadata["mod_long_names"]
+            motif, motif_offset = remora_metadata["motif"]
+            can_idx = "ACGT".find(motif[motif_offset]) + 1
+            self.output_alphabet = (
+                "ACGT"[:can_idx]
+                + remora_metadata["mod_bases"]
+                + "ACGT"[can_idx:]
+            )
+        else:
+            self.is_remora_mod = False
+            self.ordered_mod_long_names = init_called_read.mod_long_names
+            self.output_alphabet = init_called_read.output_alphabet
         self.output_size = init_called_read.state_size
         if self.ordered_mod_long_names is None:
             self.ordered_mod_long_names = []
 
-    def pyguppy_load_settings(self, init_sig_len=1000):
+    def pyguppy_load_settings(
+        self,
+        init_sig_len=1000,
+        remora_model_filename=None,
+        remora_model_spec=None,
+    ):
         LOGGER.info("Loading guppy basecalling backend")
         self.model_type = PYGUPPY_NAME
-        self.process_devices = [
-            None,
-        ] * self.num_proc
+        self.process_devices = [None] * self.num_proc
         self.client = None
 
         # load necessary packages and store in object attrs
@@ -1087,7 +1146,11 @@ class ModelInfo(AbstractModelInfo):
 
         self.pyguppy_check_version(pyguppy_version_str)
         self.pyguppy_start_server()
-        self.pyguppy_set_model_attributes(init_sig_len)
+        self.pyguppy_set_model_attributes(
+            init_sig_len,
+            remora_model_filename=remora_model_filename,
+            remora_model_spec=remora_model_spec,
+        )
         self._parse_minimal_alphabet_info()
 
     def pyguppy_send_read(self, sig_info):
@@ -1237,14 +1300,60 @@ class ModelInfo(AbstractModelInfo):
     def pyguppy_postprocess_called_read(
         self, called_read, sig_info, seq_summ_info, mods_info
     ):
+        def mods_to_numpy_array(read_mod_calls):
+            mods_scores = np.full(
+                (len(called_read.seq), len(mods_info.output_alphabet)),
+                np.NAN,
+                dtype=np.float32,
+            )
+            for pos, lps, mod_bases in read_mod_calls:
+                if lps is None:
+                    continue
+                for mod_base, lp in zip(mod_bases, lps):
+                    mods_scores[
+                        pos, mods_info.output_alphabet.find(mod_base)
+                    ] = lp
+            return mods_scores
+
+        # update signal info before calling mods for remora calling
+        if self.update_sig_info:
+            # add scale_params and trimmed dacs to sig_info
+            trimmed_dacs = sig_info.dacs[called_read.trimmed_samples :]
+            # guppy does not apply the med norm factor
+            scale_params = (
+                called_read.scaling_shift,
+                called_read.scaling_scale * mh.MED_NORM_FACTOR,
+            )
+            scale_from_dacs_params = convert_from_curr_to_from_dacs(
+                called_read.scaling_shift,
+                called_read.scaling_scale * mh.MED_NORM_FACTOR,
+                sig_info.channel_info,
+            )
+            sig_info = sig_info._replace(
+                raw_len=trimmed_dacs.shape[0],
+                dacs=trimmed_dacs,
+                scale_params=scale_params,
+                scale_from_dacs_params=scale_from_dacs_params,
+            )
+
         # compute run length cumsum from move table
         rl_cumsum = np.where(called_read.move)[0]
         rl_cumsum = np.insert(
             rl_cumsum, rl_cumsum.shape[0], called_read.move.shape[0]
         )
-
+        can_post = called_read.state
         post_w_mods = mods_scores = None
-        if self.is_cat_mod:
+        if self.is_remora_mod and self.return_mod_scores:
+            # process with call_read_mods_remora
+            bc_to_sig_map = rl_cumsum * sig_info.stride
+            read_mod_calls = mods.call_read_mods_remora(
+                sig_info,
+                called_read.seq,
+                mods_info,
+                bc_to_sig_map,
+            )
+            mods_scores = mods_to_numpy_array(read_mod_calls)
+        elif self.is_cat_mod and can_post is not None:
             # split canonical posteriors and mod transition weights
             can_post = np.ascontiguousarray(
                 called_read.state[:, : self.n_can_state]
@@ -1255,40 +1364,25 @@ class ModelInfo(AbstractModelInfo):
                 )
                 post_w_mods = np.concatenate([can_post, mods_weights], axis=1)
                 if self.return_mod_scores:
-                    if mods_info is not None and mods_info.bc_full_path_decode:
-                        mods_scores = np.full(
-                            (
-                                len(called_read.seq),
-                                len(mods_info.output_alphabet),
-                            ),
-                            np.NAN,
-                            dtype=np.float32,
-                        )
-                        for pos, lps, mod_bases in mods.call_read_mods_core(
+                    if mods_info is None or not mods_info.bc_full_path_decode:
+                        # perform index-decoding on modified scores
+                        mods_scores = mods_weights[rl_cumsum[:-1]]
+                    else:
+                        read_mod_calls = mods.call_read_mods_core(
                             called_read.seq,
                             self.signal_reversed,
                             mods_info,
                             rl_cumsum,
                             post_w_mods,
                             full_path_decode=True,
-                        ):
-                            if lps is None:
-                                continue
-                            for mod_base, lp in zip(mod_bases, lps):
-                                mods_scores[
-                                    pos,
-                                    mods_info.output_alphabet.find(mod_base),
-                                ] = lp
-                    else:
-                        # perform index-decoding on modified scores
-                        mods_scores = mods_weights[rl_cumsum[:-1]]
-                    if self.signal_reversed:
-                        mods_scores = mods_scores[::-1]
-                    mods_scores = self.format_mod_scores(
-                        called_read.seq, mods_scores, self.mod_bc_min_prob
-                    )
-        else:
-            can_post = called_read.state
+                        )
+                        mods_scores = mods_to_numpy_array(read_mod_calls)
+        if self.return_mod_scores:
+            if self.signal_reversed:
+                mods_scores = mods_scores[::-1]
+            mods_scores = self.format_mod_scores(
+                called_read.seq, mods_scores, self.mod_bc_min_prob
+            )
 
         # check validity of pyguppy results
         if (
@@ -1306,20 +1400,6 @@ class ModelInfo(AbstractModelInfo):
                 )
             )
             raise mh.MegaError("Invalid results recieved from pyguppy backend.")
-
-        if self.update_sig_info:
-            # add scale_params and trimmed dacs to sig_info
-            trimmed_dacs = sig_info.dacs[called_read.trimmed_samples :]
-            # guppy does not apply the med norm factor
-            scale_params = (
-                called_read.scaling_shift,
-                called_read.scaling_scale * mh.MED_NORM_FACTOR,
-            )
-            sig_info = sig_info._replace(
-                raw_len=trimmed_dacs.shape[0],
-                dacs=trimmed_dacs,
-                scale_params=scale_params,
-            )
 
         if self.signal_reversed:
             called_read = called_read._replace(
@@ -1449,6 +1529,7 @@ class ModelInfo(AbstractModelInfo):
             self.params.taiyaki.taiyaki_model_fn
         )
         ff_layer = tmp_model.sublayers[-1]
+        self.is_remora_mod = False
         self.is_cat_mod = GlobalNormFlipFlopCatMod is not None and isinstance(
             ff_layer, GlobalNormFlipFlopCatMod
         )
@@ -1581,6 +1662,7 @@ class ModelInfo(AbstractModelInfo):
             if nreads >= self.params.fast5.num_startup_reads:
                 break
 
+        self.is_remora_mod = False
         self._parse_minimal_alphabet_info()
 
     def fast5_run_model(self, sig_info):

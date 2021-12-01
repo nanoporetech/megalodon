@@ -86,20 +86,23 @@ Megalodon is accessed via the command line interface ``megalodon`` command.
     # megalodon help (all args)
     megalodon --help-long
 
-    # Example command to output basecalls, mappings, and CpG methylation in both per-read (``mod_mappings``) and aggregated (``mods``) formats
-    #   Compute settings: GPU devices 0 and 1 with 40 CPU cores
+    # Example command to output basecalls, mappings, and CpG 5mC and 5hmC methylation in both per-read (``mod_mappings``) and aggregated (``mods``) formats
+    #   Compute settings: GPU devices 0 and 1 with 20 CPU cores
     megalodon \
         raw_fast5s/ \
+        --guppy-config dna_r9.4.1_450bps_fast.cfg \
+        --remora-modified-bases dna_r9.4.1_e8 fast 0.0.0 5hmc_5mc CG 0 \
         --outputs basecalls mappings mod_mappings mods \
-        --reference reference.fa --mod-motif Z CG 0 \
-        --devices 0 1 --processes 40
+        --reference reference.fa \
+        --devices 0 1 \
+        --processes 20
+
+The above command uses the modified base model included in Remora.
+For more details on Remora modified base settings see the `Remora repository <https://github.com/nanoporetech/remora>`_.
 
 This command produces the ``megalodon_results`` output directory containing all requested output files and logs.
 The format for common outputs is described briefly below and in more detail in the `full documentation <https://nanoporetech.github.io/megalodon/>`_
 
-The above command uses the modified base model included in Guppy (more details below `Guppy Models and Parameters`_).
-As more accurate basecalling models are trained, they are first released into the `Rerio repository for research models <https://github.com/nanoporetech/rerio>`_.
-Once training pipelines are more thoroughly standardized and tested models will be transferred into Guppy.
 The code below shows how to obtain and run the R9.4.1, MinION/GridION, 5mC CpG model (same model shipped with Guppy as of 4.5.2 release).
 
 ::
@@ -112,8 +115,10 @@ The code below shows how to obtain and run the R9.4.1, MinION/GridION, 5mC CpG m
         --guppy-params "-d ./rerio/basecall_models/" \
         --guppy-config res_dna_r941_min_modbases_5mC_CpG_v001.cfg \
         --outputs basecalls mappings mod_mappings mods \
-        --reference reference.fa --mod-motif m CG 0 \
-        --devices 0 1 --processes 40
+        --reference reference.fa \
+        --mod-motif m CG 0 \
+        --devices 0 1 \
+        --processes 20
 
 ..
 
@@ -256,3 +261,8 @@ Megalodon is distributed under the terms of the Oxford Nanopore
 Technologies, Ltd.  Public License, v. 1.0.  If a copy of the License
 was not distributed with this file, You can obtain one at
 http://nanoporetech.com
+
+Research Release
+----------------
+
+Research releases are provided as technology demonstrators to provide early access to features or stimulate Community development of tools. Support for this software will be minimal and is only provided directly by the developers. Feature requests, improvements, and discussions are welcome and can be implemented by forking and pull requests. However much as we would like to rectify every issue and piece of feedback users may have, the developers may have limited resource for support of this software. Research releases may be unstable and subject to rapid iteration by Oxford Nanopore Technologies.

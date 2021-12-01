@@ -482,6 +482,34 @@ def get_parser():
         ),
     )
 
+    rem_grp = parser.add_argument_group("Remora Modified Base Arguments")
+    rem_grp.add_argument(
+        "--remora-modified-bases",
+        nargs=6,
+        metavar=tuple(
+            (
+                "PORE BASECALL_MODEL_TYPE BASECALL_MODEL_VERSION "
+                "MODIFIED_BASES REMORA_MODEL_TYPE REMORA_MODEL_VERSION"
+            ).split()
+        ),
+        help="Specify the Remora per-trained modified base detection model "
+        "to load. Copy a row from `remora model list_pretrained``.",
+    )
+    rem_grp.add_argument(
+        "--remora-model",
+        help=hidden_help("Remora ONNX modified base prediction model."),
+    )
+    rem_grp.add_argument(
+        "--remora-signal-mapping-offset",
+        type=int,
+        metavar=("SIG_MAP_OFFSET"),
+        help=hidden_help(
+            "Shift signal mappings by a number of bases. Positive values  "
+            "will shift signal assignments N bases to the left. Note that "
+            "this will trim the mapping by the same number of bases."
+        ),
+    )
+
     tai_grp = parser.add_argument_group("Taiyaki Backend Arguments")
     tai_grp.add_argument(
         "--chunk-size",

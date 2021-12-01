@@ -485,6 +485,32 @@ def compile_rev_comp_motif_pat(raw_motif):
     return re.compile("(?=({}))".format(ambig_pat_str))
 
 
+def to_str(value):
+    """Try to convert a bytes object to a string. If it is already a string
+    catch this error and return the input string. This can be used for read ids
+    stored in HDF5 files as they are sometimes returned as bytes and sometimes
+    strings.
+    """
+    try:
+        return value.decode()
+    except AttributeError:
+        return value
+
+
+def log_softmax_axis1(x):
+    """Compute log softmax over axis=1"""
+    e_x = np.exp((x.T - np.max(x, axis=1)).T)
+    with np.errstate(divide="ignore"):
+        return np.log((e_x.T / e_x.sum(axis=1)).T)
+
+
+def softmax_axis1(x):
+    """Compute softmax over axis=1"""
+    e_x = np.exp((x.T - np.max(x, axis=1)).T)
+    with np.errstate(divide="ignore"):
+        return (e_x.T / e_x.sum(axis=1)).T
+
+
 #######################
 # Filename Extraction #
 #######################

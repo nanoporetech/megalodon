@@ -7,6 +7,8 @@ GUPPY_FAST_CONFIG="dna_r9.4.1_450bps_fast.cfg"
 GUPPY_MOD_CONFIG="dna_r9.4.1_450bps_modbases_5mc_hac.cfg"
 MOD_CALIBRATION_FN="megalodon/megalodon/model_data/dna_r9.4.1_450bps_modbases_5mc_hac.cfg/megalodon_mod_calibration.npz"
 TAIYAKI_CPT="taiyaki_model.checkpoint"
+REMORA_MODEL="remora_model.onnx"
+REMORA_SPEC="dna_r9.4.1_e8 fast 0.0.0 5hmc_5mc CG 0"
 
 FASTA_REF="reference.fa"
 MINIMAP_INDEX="reference.fa.mmi"
@@ -71,7 +73,7 @@ megalodon \
     `# output location + overwrite` \
     --output-directory ${CTRL_READS}.mods_output \
     --overwrite \
-    `# output all the things` \
+    `# output all the mod things` \
     --outputs per_read_mods mods mod_mappings \
     `# guppy options` \
     --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
@@ -85,6 +87,62 @@ megalodon \
     --mod-output-formats bedmethyl modvcf wiggle \
     --write-mods-text \
     --write-mod-log-probs
+
+# test remora mods output
+megalodon \
+    `# input reads` \
+    ${CTRL_READS} \
+    `# output location + overwrite` \
+    --output-directory ${CTRL_READS}.remora_mods_output \
+    --overwrite \
+    `# output all mod the things` \
+    --outputs per_read_mods mods mod_mappings mod_basecalls \
+    `# guppy options` \
+    --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
+    --guppy-config ${GUPPY_FAST_CONFIG} \
+    `# number of megalodon read processing workers` \
+    --processes ${NPROC} \
+    `# minimap2 index reference (recommended for memory efficiency)` \
+    --reference ${MINIMAP_INDEX} \
+    `# modified base settings` \
+    --mod-output-formats bedmethyl modvcf wiggle \
+    --write-mods-text \
+    --write-mod-log-probs \
+    `# remora settings` \
+    --remora-model ${REMORA_MODEL}
+
+# test example command
+megalodon \
+    ${CTRL_READS} \
+    --guppy-config ${GUPPY_FAST_CONFIG} \
+    --remora-modified-bases ${REMORA_SPEC} \
+    --outputs basecalls mappings mod_mappings mods \
+    --reference ${MINIMAP_INDEX} \
+    --processes ${NPROC} \
+    --overwrite
+
+# test remora auto-load mods output
+megalodon \
+    `# input reads` \
+    ${CTRL_READS} \
+    `# output location + overwrite` \
+    --output-directory ${CTRL_READS}.remora_mods_output \
+    --overwrite \
+    `# output all mod the things` \
+    --outputs per_read_mods mods mod_mappings mod_basecalls \
+    `# guppy options` \
+    --guppy-server-path ${GUPPY_BIN_PATH}/guppy_basecall_server \
+    --guppy-config ${GUPPY_FAST_CONFIG} \
+    `# number of megalodon read processing workers` \
+    --processes ${NPROC} \
+    `# minimap2 index reference (recommended for memory efficiency)` \
+    --reference ${MINIMAP_INDEX} \
+    `# modified base settings` \
+    --mod-output-formats bedmethyl modvcf wiggle \
+    --write-mods-text \
+    --write-mod-log-probs \
+    `# remora settings` \
+    --remora-modified-bases ${REMORA_SPEC}
 
 # test outputting everything
 megalodon \
