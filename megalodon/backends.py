@@ -72,7 +72,7 @@ PYGUPPY_ITER_SLEEP = 0.01
 PYGUPPY_SEND_FAIL_SLEEP = 1
 PYGUPPY_MAX_RECONNECT_ATTEMPTS = 5
 GUPPY_LOG_BASE = "guppy_log"
-GUPPY_PORT_PAT = re.compile(r"Starting server on port:\W+(\d+)")
+GUPPY_PORT_PAT = re.compile(r"Starting server on port:\s+(\S+)")
 GUPPY_VERSION_PAT = re.compile(
     r"Oxford Nanopore Technologies, Limited. "
     + r"Version\W+([0-9]+\.[0-9]+\.[0-9]+)\+[0-9a-z]+"
@@ -82,6 +82,10 @@ MIN_GUPPY_VERSION = LooseVersion("4.0")
 PYGUPPY_CLIENT_KWARGS = {
     "move_and_trace_enabled": True,
     "state_data_enabled": True,
+}
+PYGUPPY6_CLIENT_KWARGS = {
+    "move_and_trace_enabled": True,
+    "post_out": True,
 }
 CALLED_READ = namedtuple(
     "CALLED_READ",
@@ -837,11 +841,23 @@ class ModelInfo(AbstractModelInfo):
     #################
 
     def pyguppy_client_init(self):
-        self.client = self.pyguppy_GuppyBasecallerClient(
-            "{}:{}".format(GUPPY_HOST, self.params.pyguppy.port),
-            self.params.pyguppy.config,
-            **PYGUPPY_CLIENT_KWARGS,
+        server_address = (
+            self.params.pyguppy.port
+            if self.params.pyguppy.port.startswith("ipc")
+            else "{}:{}".format(GUPPY_HOST, self.params.pyguppy.port)
         )
+        try:
+            self.client = self.pyguppy_GuppyBasecallerClient(
+                server_address,
+                self.params.pyguppy.config,
+                **PYGUPPY_CLIENT_KWARGS,
+            )
+        except ValueError:
+            self.client = self.pyguppy_GuppyBasecallerClient(
+                server_address,
+                self.params.pyguppy.config,
+                **PYGUPPY6_CLIENT_KWARGS,
+            )
 
     def pyguppy_client_connect(
         self,
@@ -954,7 +970,9 @@ class ModelInfo(AbstractModelInfo):
             if next_line is None:
                 return None
             try:
-                return int(GUPPY_PORT_PAT.search(next_line).groups()[0])
+                port = GUPPY_PORT_PAT.search(next_line).groups()[0]
+                LOGGER.debug(f"Guppy server started on port {port}")
+                return port
             except AttributeError:
                 return None
 
@@ -1208,6 +1226,18 @@ class ModelInfo(AbstractModelInfo):
             return
 
         for called_read in comp_reads:
+            if isinstance(called_read, list):
+                if len(called_read) > 1:
+                    LOGGER.debug(
+                        "Split reads not supported. Read "
+                        f"{called_read['metadata']['strand_id']} contained "
+                        "multiple sub-reads."
+                    )
+                # only take first called subread starting with guppy6
+                called_read = called_read[0]
+                called_read["metadata"]["read_id"] = called_read["metadata"][
+                    "strand_id"
+                ]
             read_id = called_read["metadata"]["read_id"]
             try:
                 sig_info, seq_summ_info, _ = saved_input_data[read_id]
