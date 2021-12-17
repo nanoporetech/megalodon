@@ -1513,6 +1513,7 @@ def parse_ref_mods_all_motifs(ref_mod_motifs_raw, sm_alphabet_info):
     sm_alphabet = sm_alphabet_info.alphabet
     sm_coll_alphabet = sm_alphabet_info.collapse_alphabet
     sm_mlns = sm_alphabet_info.mod_long_names
+    sm_mod_bases = sm_alphabet_info.mod_bases
     ref_mod_motifs_init = []
     for mod_base, mln, motif, rel_pos in ref_mod_motifs_raw:
         rel_pos = int(rel_pos)
@@ -1521,26 +1522,23 @@ def parse_ref_mods_all_motifs(ref_mod_motifs_raw, sm_alphabet_info):
             # add mod base to alphabet
             sm_alphabet += mod_base
             sm_coll_alphabet += ref_base
+            sm_mod_bases += mod_base
             sm_mlns.append(mln)
         else:
             # check that mod base matches current model
             base_idx = sm_alphabet.index(mod_base)
             if sm_coll_alphabet[base_idx] != ref_base:
                 raise mh.MegaError(
-                    (
-                        "Canonical base ({}) specified by "
-                        "--ref-mods-all-motifs does not match model alphabet "
-                        "base ({})."
-                    ).format(ref_base, sm_coll_alphabet[base_idx])
+                    f"Canonical base ({ref_base}) specified by "
+                    "--ref-mods-all-motifs does not match model alphabet "
+                    f"base ({sm_coll_alphabet[base_idx]})."
                 )
-            mod_idx = sm_alphabet_info.mod_bases.index(mod_base)
+            mod_idx = sm_mod_bases.index(mod_base)
             if sm_mlns[mod_idx] != mln:
                 raise mh.MegaError(
-                    (
-                        "Modified base long name ({}) specified by "
-                        + "--ref-mods-all-motifs does not match model alphabet "
-                        + "long name ({})."
-                    ).format(mln, sm_mlns[mod_idx])
+                    f"Modified base long name ({mln}) specified by "
+                    "--ref-mods-all-motifs does not match model alphabet "
+                    f"long name ({sm_mlns[mod_idx]})."
                 )
         ref_mod_motifs_init.append((mod_base, mln, motif, rel_pos))
     new_sm_alphabet_info = signal_mapping.get_alphabet_info(
