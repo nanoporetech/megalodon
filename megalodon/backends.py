@@ -67,7 +67,6 @@ BACKEND_PARAMS = namedtuple(
 FF_GUPPY_NAME = "flipflop"
 CRF_GUPPY_NAME = "beam search"
 COMPAT_GUPPY_MODEL_TYPES = set((FF_GUPPY_NAME, CRF_GUPPY_NAME))
-GUPPY_HOST = "localhost"
 PYGUPPY_ITER_SLEEP = 0.01
 PYGUPPY_SEND_FAIL_SLEEP = 1
 PYGUPPY_MAX_RECONNECT_ATTEMPTS = 5
@@ -346,6 +345,12 @@ class AbstractModelInfo(ABC):
     def n_can_state(self):
         ncan_base = len(self.can_alphabet)
         return (ncan_base + ncan_base) * (ncan_base + 1)
+
+    @property
+    def server_address(self):
+        if self.params.pyguppy.port.startswith("ipc"):
+            return self.params.pyguppy.port
+        return f"localhost:{self.params.pyguppy.port}"
 
     def _compute_mod_alphabet_attrs(self):
         """Parse alphabet attributes into more user-friendly data structures.
@@ -841,20 +846,15 @@ class ModelInfo(AbstractModelInfo):
     #################
 
     def pyguppy_client_init(self):
-        server_address = (
-            self.params.pyguppy.port
-            if self.params.pyguppy.port.startswith("ipc")
-            else "{}:{}".format(GUPPY_HOST, self.params.pyguppy.port)
-        )
         try:
             self.client = self.pyguppy_GuppyBasecallerClient(
-                server_address,
+                self.server_address,
                 self.params.pyguppy.config,
                 **PYGUPPY_CLIENT_KWARGS,
             )
         except ValueError:
             self.client = self.pyguppy_GuppyBasecallerClient(
-                server_address,
+                self.server_address,
                 self.params.pyguppy.config,
                 **PYGUPPY6_CLIENT_KWARGS,
             )
@@ -905,7 +905,7 @@ class ModelInfo(AbstractModelInfo):
     def pyguppy_log_server_config(self, timeout=10):
         try:
             result_str, status = self.client.get_server_internal_state(
-                f"{GUPPY_HOST}:{self.params.pyguppy.port}", timeout
+                self.server_address, timeout
             )
             LOGGER.debug(f"pyguppy server status: {status}")
             guppy_configs = json.loads(result_str)["Configurations"]
