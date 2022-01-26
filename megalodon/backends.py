@@ -1107,8 +1107,6 @@ class ModelInfo(AbstractModelInfo):
             )
         self.is_flipflop = init_called_read.model_type == FF_GUPPY_NAME
         self.is_crf = init_called_read.model_type == CRF_GUPPY_NAME
-        if self.is_crf:
-            LOGGER.info("CRF models are not fully supported.")
 
         self.stride = init_called_read.model_stride
         if remora_model_filename is not None or remora_model_spec is not None:
@@ -1116,10 +1114,16 @@ class ModelInfo(AbstractModelInfo):
             from remora import model_util
 
             if remora_model_filename is not None:
+                LOGGER.debug(
+                    f"Loading Remora model from file: {remora_model_filename}"
+                )
                 _, remora_metadata = model_util.load_model(
                     remora_model_filename, quiet=True
                 )
             else:
+                LOGGER.debug(
+                    f"Loading Remora model from specs: {remora_model_spec}"
+                )
                 _, remora_metadata = model_util.load_model(
                     pore=remora_model_spec[0],
                     basecall_model_type=remora_model_spec[1],
@@ -1130,8 +1134,7 @@ class ModelInfo(AbstractModelInfo):
                     quiet=True,
                 )
             self.ordered_mod_long_names = remora_metadata["mod_long_names"]
-            motif, motif_offset = remora_metadata["motif"]
-            can_idx = "ACGT".find(motif[motif_offset]) + 1
+            can_idx = "ACGT".find(remora_metadata["can_base"]) + 1
             self.output_alphabet = (
                 "ACGT"[:can_idx]
                 + remora_metadata["mod_bases"]
