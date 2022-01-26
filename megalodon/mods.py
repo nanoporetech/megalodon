@@ -2298,12 +2298,11 @@ class ModInfo:
             self.remora_RemoraRead = data_chunks.RemoraRead
             self.load_remora_model()
             self.mod_bases = self.remora_metadata["mod_bases"]
-            motif, motif_offset = self.remora_metadata["motif"]
-            can_base = motif[motif_offset]
+            can_base = self.remora_metadata["can_base"]
             can_idx = "ACGT".find(can_base) + 1
             if can_idx == 0:
                 raise mh.MegaError(
-                    f"Invalid Remora model motif {motif}:{motif_offset}"
+                    f"Invalid Remora model canonical base {can_base}"
                 )
             self.alphabet = "ACGT"
             self.output_alphabet = (
@@ -2322,12 +2321,12 @@ class ModInfo:
                 for mod_b, mln in self.mod_long_names
             )
             LOGGER.info(f"Loaded Remora model calls modified bases: {mod_str}")
-            if all_mod_motifs_raw is None:
+            if all_mod_motifs_raw is not None:
                 LOGGER.info(
-                    f'Setting --mod-motif to "{motif} {motif_offset}" loaded '
-                    "from Remora model"
+                    "Modified base motifs derived from Remora model. "
+                    "Ignoring --mod-motif."
                 )
-                all_mod_motifs_raw = [(self.mod_bases, motif, motif_offset)]
+                all_mod_motifs_raw = None
             # only applicable to flip-flop modbases
             self.can_mods_offsets = None
             self.str_to_int_mod_labels = None
