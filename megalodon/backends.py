@@ -1134,7 +1134,13 @@ class ModelInfo(AbstractModelInfo):
                     quiet=True,
                 )
             self.ordered_mod_long_names = remora_metadata["mod_long_names"]
-            can_idx = "ACGT".find(remora_metadata["can_base"]) + 1
+            # fix for remora 0.1.2 multi-motifs bug
+            can_base = (
+                remora_metadata["can_base"][0]
+                if isinstance(remora_metadata["can_base"], list)
+                else remora_metadata["can_base"]
+            )
+            can_idx = "ACGT".find(can_base) + 1
             self.output_alphabet = (
                 "ACGT"[:can_idx]
                 + remora_metadata["mod_bases"]

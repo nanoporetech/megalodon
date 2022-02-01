@@ -2298,7 +2298,12 @@ class ModInfo:
             self.remora_RemoraRead = data_chunks.RemoraRead
             self.load_remora_model()
             self.mod_bases = self.remora_metadata["mod_bases"]
-            can_base = self.remora_metadata["can_base"]
+            # fix for remora 0.1.2 multi-motifs bug
+            can_base = (
+                self.remora_metadata["can_base"][0]
+                if isinstance(self.remora_metadata["can_base"], list)
+                else self.remora_metadata["can_base"]
+            )
             can_idx = "ACGT".find(can_base) + 1
             if can_idx == 0:
                 raise mh.MegaError(
