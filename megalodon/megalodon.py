@@ -1566,14 +1566,14 @@ def parse_ref_out_args(args, model_info, map_info):
         if args.ref_include_variants and args.ref_include_mods:
             LOGGER.error(
                 "Cannot output both modified base and variants in "
-                + "per-read references (remove one of "
-                + "--refs-include-variants or --refs-include-mods)."
+                "per-read references (remove one of "
+                "--refs-include-variants or --refs-include-mods)."
             )
             sys.exit(1)
         if args.ref_include_mods and args.ref_mods_all_motifs is not None:
             LOGGER.warning(
                 "--ref-include-mods and --ref-mods-all-motifs are not "
-                + "compatible. Ignoring --ref-include-mods"
+                "compatible. Ignoring --ref-include-mods"
             )
             args.ref_include_mods = False
 
@@ -1592,7 +1592,7 @@ def parse_ref_out_args(args, model_info, map_info):
     sig_map_getter = sm_alphabet_info = None
     do_out_csm = do_out_msm = do_out_vsm = False
     if mh.SIG_MAP_NAME in args.outputs:
-        LOGGER.info("Loading signal mapping settings.")
+        LOGGER.info("Loading signal mapping settings")
         if args.ref_include_mods:
             do_out_msm = True
         elif args.ref_include_variants:
@@ -1612,11 +1612,7 @@ def parse_ref_out_args(args, model_info, map_info):
             model_info
         )
         if args.ref_include_mods and mh.PR_MOD_NAME not in args.outputs:
-            LOGGER.warning(
-                (
-                    "--ref-include-mods set, so adding " + '"{}" to --outputs.'
-                ).format(mh.PR_MOD_NAME)
-            )
+            LOGGER.warning(f'Adding "{mh.PR_MOD_NAME}" to --outputs.')
             args.outputs.append(mh.PR_MOD_NAME)
     do_out_cpr = do_out_mpr = do_out_vpr = False
     if mh.PR_REF_NAME in args.outputs:
@@ -1630,7 +1626,7 @@ def parse_ref_out_args(args, model_info, map_info):
         if args.ref_include_variants and mh.PR_VAR_NAME not in args.outputs:
             LOGGER.warning(
                 "--refs-include-variants set, so adding "
-                + "per_read_variants to --outputs."
+                "per_read_variants to --outputs."
             )
             args.outputs.append(mh.PR_VAR_NAME)
     else:

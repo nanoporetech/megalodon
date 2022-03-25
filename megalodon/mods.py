@@ -1302,7 +1302,7 @@ def annotate_mods_per_mod(
 
 
 def format_mm_ml_tags(r_start, ref_seq, r_mod_scores, strand, mods_info):
-    """Format Mm and Ml tags for BAM output. See
+    """Format MM and ML tags for BAM output. See
     https://github.com/samtools/hts-specs/pull/418 for format details.
 
     Args:
@@ -1317,7 +1317,7 @@ def format_mm_ml_tags(r_start, ref_seq, r_mod_scores, strand, mods_info):
             base processing
 
     Returns:
-        Mm string tag and Ml array tag
+        MM string tag and ML array tag
     """
 
     # initialize dict with all called mods to make sure all called mods are
@@ -1654,11 +1654,8 @@ def call_read_mods_remora(
     mods_info,
     seq_to_sig_map,
 ):
-    sig = (
-        sig_info.dacs - sig_info.scale_from_dacs_params[0]
-    ) / sig_info.scale_from_dacs_params[1]
     # clip signal and mapping to only include relevant bits
-    sig = sig[seq_to_sig_map[0] : seq_to_sig_map[-1]]
+    dacs = sig_info.dacs[seq_to_sig_map[0] : seq_to_sig_map[-1]]
     seq_to_sig_map -= seq_to_sig_map[0]
     seq = seq.upper()
     pos_offset = 0
@@ -1667,21 +1664,23 @@ def call_read_mods_remora(
         # opposite ends of the signal and sequence arrays
         if mods_info.remora_sig_map_offset > 0:
             # clip beginning of signal and signal_mapping
-            sig = sig[seq_to_sig_map[mods_info.remora_sig_map_offset] :]
+            dacs = dacs[seq_to_sig_map[mods_info.remora_sig_map_offset] :]
             seq_to_sig_map = seq_to_sig_map[mods_info.remora_sig_map_offset :]
             seq_to_sig_map -= seq_to_sig_map[0]
             # clip end of sequence
             seq = seq[: -mods_info.remora_sig_map_offset]
         else:
             # clip end of signal and signal_mapping
-            sig = sig[: seq_to_sig_map[mods_info.remora_sig_map_offset - 1]]
+            dacs = dacs[: seq_to_sig_map[mods_info.remora_sig_map_offset - 1]]
             seq_to_sig_map = seq_to_sig_map[: mods_info.remora_sig_map_offset]
             # clip beginning of sequence
             seq = seq[-mods_info.remora_sig_map_offset :]
             # save offset to shift position relative to input sequence
             pos_offset = -mods_info.remora_sig_map_offset
     remora_read = mods_info.remora_RemoraRead(
-        sig,
+        dacs,
+        sig_info.scale_from_dacs_params[0],
+        sig_info.scale_from_dacs_params[1],
         seq_to_sig_map,
         str_seq=seq,
     )

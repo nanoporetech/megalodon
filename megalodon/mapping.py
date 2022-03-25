@@ -104,8 +104,8 @@ MAP_SUMM_TYPES = dict(
     )
 )
 
-MOD_POS_TAG = "Mm"
-MOD_PROB_TAG = "Ml"
+MOD_POS_TAG = "MM"
+MOD_PROB_TAG = "ML"
 
 
 def get_mapping_mode(map_fmt):

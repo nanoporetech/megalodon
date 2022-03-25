@@ -44,7 +44,7 @@ Given a python (version >= 3.6) installation, all other requirements are handled
 
    2) running the Taiyaki basecalling backend (for neural network designs including experimental layers)
 
-``ont-pyguppy-client-api`` does not currently provide a python 3.9 release, so python < 3.9 is required for use with the guppy backend.
+The ``ont-pyguppy-client-api`` dependency provides select release specifications, so compatible python versions and operating systems may be limited.
 
 Installation
 ------------
