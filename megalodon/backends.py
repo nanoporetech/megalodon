@@ -72,10 +72,7 @@ PYGUPPY_SEND_FAIL_SLEEP = 1
 PYGUPPY_MAX_RECONNECT_ATTEMPTS = 5
 GUPPY_LOG_BASE = "guppy_log"
 GUPPY_PORT_PAT = re.compile(r"Starting server on port:\s+(\S+)")
-GUPPY_VERSION_PAT = re.compile(
-    r"Oxford Nanopore Technologies, Limited. "
-    + r"Version\W+([0-9]+\.[0-9]+\.[0-9]+)\+[0-9a-z]+"
-)
+GUPPY_VERSION_PAT = re.compile(r"Version\W+([0-9]+\.[0-9]+\.[0-9]+)\+[0-9a-z]+")
 MIN_GUPPY_VERSION = LooseVersion("4.0")
 
 PYGUPPY_CLIENT_KWARGS = {
@@ -289,7 +286,7 @@ def extract_seq_summary_info(read, channel_info, na_str="NA"):
 
 def get_pyguppy_read(read_id, raw_data, channel_info):
     return {
-        "read_tag": np.random.randint(0, int(2 ** 32 - 1)),
+        "read_tag": np.random.randint(0, int(2**32 - 1)),
         "read_id": read_id,
         "raw_data": raw_data,
         "daq_offset": float(channel_info[mh.CHAN_INFO_OFFSET]),
@@ -853,10 +850,12 @@ class ModelInfo(AbstractModelInfo):
                 **PYGUPPY_CLIENT_KWARGS,
             )
         except ValueError:
+            client_kwargs = PYGUPPY6_CLIENT_KWARGS
+            client_kwargs["post_out"] = self.params.pyguppy.post_out
             self.client = self.pyguppy_GuppyBasecallerClient(
                 self.server_address,
                 self.params.pyguppy.config,
-                **PYGUPPY6_CLIENT_KWARGS,
+                **client_kwargs,
             )
 
     def pyguppy_client_connect(

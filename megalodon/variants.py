@@ -2361,20 +2361,13 @@ class VarInfo:
                     read_ref_fwd_seq.shape[0] - context_read_end,
                     read_ref_fwd_seq.shape[0] - context_read_start,
                 )
-            if (
-                np.concatenate(
-                    [
-                        np_var_ref,
-                    ]
-                    + list(np_var_alts)
-                    + [
-                        seq
-                        for cntxt_seqs in np_context_seqs
-                        for seq in cntxt_seqs
-                    ]
-                ).max()
-                > len(mh.ALPHABET)
-            ):
+            if np.concatenate(
+                [
+                    np_var_ref,
+                ]
+                + list(np_var_alts)
+                + [seq for cntxt_seqs in np_context_seqs for seq in cntxt_seqs]
+            ).max() > len(mh.ALPHABET):
                 # some sequence contained invalid characters
                 LOGGER.debug(
                     "VarSeqMismatchError {}:{}:{}".format(

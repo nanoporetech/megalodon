@@ -113,7 +113,7 @@ def plot_hm(
 ):
     corrcoef = np.corrcoef(samp1_mod_pct, samp2_mod_pct)[0, 1]
     out_fp.write("Correlation coefficient: {:.4f}\n".format(corrcoef))
-    out_fp.write("R^2: {:.4f}\n".format(corrcoef ** 2))
+    out_fp.write("R^2: {:.4f}\n".format(corrcoef**2))
     out_fp.write(
         "RMSE (model: y=x): {:.4f}\n".format(
             np.sqrt(np.mean(np.square(samp1_mod_pct - samp2_mod_pct)))
