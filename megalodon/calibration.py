@@ -111,7 +111,7 @@ def determine_min_dens_edge(sm_ref, sm_alt, min_dens_val, smooth_ls):
 
 def _compute_smooth_density_worker(llr_q, smooth_llr_q, smooth_bw, smooth_ls):
     def guassian(x):
-        return np.exp(-(x ** 2) / (2 * smooth_bw ** 2)) / (
+        return np.exp(-(x**2) / (2 * smooth_bw**2)) / (
             smooth_bw * np.sqrt(2 * np.pi)
         )
 
@@ -185,7 +185,7 @@ def compute_smooth_mono_density(
     llrs, num_calib_vals, smooth_bw, smooth_ls, num_proc=1
 ):
     def guassian(x):
-        return np.exp(-(x ** 2) / (2 * smooth_bw ** 2)) / (
+        return np.exp(-(x**2) / (2 * smooth_bw**2)) / (
             smooth_bw * np.sqrt(2 * np.pi)
         )
 
