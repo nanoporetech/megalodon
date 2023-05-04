@@ -1,8 +1,15 @@
-.. image:: /ONT_logo.png
+.. image:: /ONT_logo_deprecate.png
   :width: 800
   :alt: [Oxford Nanopore Technologies]
   :target: https://nanoporetech.com/
 
+We have a new bioinformatic resource that replaces the functionality of this project!
+For production modified base calling see the `Dorado repository <https://github.com/nanoporetech/dorado>`_.
+For modified base data preparation, model training and experimental model testing see the `Remora repository <https://github.com/nanoporetech/remora>`_.
+For post-processing and analysis of modified base calling results see the `modkit repository <https://github.com/nanoporetech/modkit>`_.
+
+This repository is now unsupported and we do not recommend its use. Please contact Oxford Nanopore: support@nanoporetech.com for help with your application if it is not possible to upgrade.
+	   
 ******************
 
 Megalodon
