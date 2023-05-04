@@ -3,7 +3,7 @@
   :alt: [Oxford Nanopore Technologies]
   :target: https://nanoporetech.com/
 
-We have a new bioinformatic resource that replaces the functionality of this project!
+We have new bioinformatic resources that replace the functionality of this project!
 For production modified base calling see the `Dorado repository <https://github.com/nanoporetech/dorado>`_.
 For modified base data preparation, model training and experimental model testing see the `Remora repository <https://github.com/nanoporetech/remora>`_.
 For post-processing and analysis of modified base calling results see the `modkit repository <https://github.com/nanoporetech/modkit>`_.
